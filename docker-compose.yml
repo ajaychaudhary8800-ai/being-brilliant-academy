@@ -106,20 +106,7 @@ services:
     logging: *default-logging
  
   
-  postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.17.1
-    restart: unless-stopped
-    environment: { DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-bba}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-bba}?sslmode=disable" }
-    networks: [backend, monitoring]
-    depends_on: { postgres: { condition: service_healthy } }
-    logging: *default-logging
-  redis-exporter:
-    image: oliver006/redis_exporter:v1.69.0
-    restart: unless-stopped
-    environment: { REDIS_ADDR: redis://redis:6379, REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD is required}" }
-    networks: [backend, monitoring]
-    depends_on: { redis: { condition: service_healthy } }
-    logging: *default-logging
+  
   grafana:
     image: grafana/grafana:11.5.2
     restart: unless-stopped
