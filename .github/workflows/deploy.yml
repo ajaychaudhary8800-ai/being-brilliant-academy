@@ -15,9 +15,9 @@ jobs:
         with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
       - id: meta
         run: echo "version=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with: { context: ., file: apps/api/Dockerfile, push: true, tags: "ghcr.io/${{ github.repository_owner }}/bba-api:${{ steps.meta.outputs.version }}", cache-from: type=gha, cache-to: "type=gha,mode=max" }
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with: { context: ., file: apps/web/Dockerfile, push: true, tags: "ghcr.io/${{ github.repository_owner }}/bba-web:${{ steps.meta.outputs.version }}", cache-from: type=gha, cache-to: "type=gha,mode=max" }
   deploy:
     runs-on: ubuntu-latest
