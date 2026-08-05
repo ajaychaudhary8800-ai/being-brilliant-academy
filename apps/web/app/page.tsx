@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { PremiumLanding } from "../components/premium-landing";
 import type { Course } from "../components/course-card";
-
+export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "CBSE, JEE, NEET & CUET Coaching",
   description: "Live classes, expert faculty, AI-powered practice and personal mentoring for CBSE, JEE, NEET and CUET learners.",
