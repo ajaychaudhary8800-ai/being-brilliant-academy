@@ -4,7 +4,7 @@ import { logger } from "./logger.js";
 
 export const redis = env.REDIS_URL ? new Redis(env.REDIS_URL, {
   lazyConnect: true,
-  enableOfflineQueue: false,
+  enableOfflineQueue: true,
   maxRetriesPerRequest: 1,
   retryStrategy: (attempt: number) => Math.min(attempt * 250, 5_000),
 }) : null;
