@@ -117,5 +117,5 @@ services:
     networks: [backend]
     logging: *default-logging
 
-networks: { frontend: {}, backend: { internal: true }, monitoring: { internal: true } }
-volumes: { postgres_data: {}, redis_data: {}, app_storage: {}, tls_certs: {}, prometheus_data: {}, grafana_data: {}, backups: {} }
+networks: { frontend: {}, backend: { internal: true } }
+volumes: { postgres_data: {}, redis_data: {}, app_storage: {}, tls_certs: {}, backups: {} }
