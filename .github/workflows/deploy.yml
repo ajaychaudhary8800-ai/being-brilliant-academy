@@ -24,7 +24,7 @@ jobs:
     needs: publish
     environment: production
     steps:
-      - uses: appleboy/ssh-action@v1.2.1
+      - uses: appleboy/ssh-action@v1.2.5
         env: { VERSION: "${{ needs.publish.outputs.version }}", OWNER: "${{ github.repository_owner }}", GHCR_TOKEN: "${{ secrets.GHCR_DEPLOY_TOKEN }}" }
         with:
           host: "${{ secrets.DEPLOY_HOST }}"
