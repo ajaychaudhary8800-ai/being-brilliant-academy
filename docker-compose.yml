@@ -107,14 +107,7 @@ services:
  
   
   
-  grafana:
-    image: grafana/grafana:11.5.2
-    restart: unless-stopped
-    environment: { GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}", GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}", GF_USERS_ALLOW_SIGN_UP: "false", GF_SERVER_ROOT_URL: "https://${APP_DOMAIN:-localhost}/grafana/", GF_SERVER_SERVE_FROM_SUB_PATH: "true" }
-    volumes: [grafana_data:/var/lib/grafana, ./infra/grafana/provisioning:/etc/grafana/provisioning:ro, ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro]
-    networks: [frontend, monitoring]
-    depends_on: [prometheus]
-    logging: *default-logging
+  
   backup:
     build: { context: ./infra/backup }
     restart: unless-stopped
