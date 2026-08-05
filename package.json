@@ -2,9 +2,12 @@
   "name": "being-brilliant-academy",
   "private": true,
   "packageManager": "pnpm@9.15.0",
+  "engines": { "node": ">=22 <23" },
+  "workspaces": ["apps/*"],
   "scripts": {
     "dev": "pnpm --parallel --filter @bba/web --filter @bba/api dev",
     "build": "pnpm -r build",
+    "start": "pnpm --filter @bba/web start",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r lint",
     "docker:config": "docker compose config --quiet",

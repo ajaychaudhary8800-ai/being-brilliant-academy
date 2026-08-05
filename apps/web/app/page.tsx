@@ -16,9 +16,12 @@ const fallback: Course[] = [
 
 export default async function Home() {
   let courses = fallback;
+  const internalApiUrl = process.env.INTERNAL_API_URL;
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1"}/courses`, { next: { revalidate: 300 } });
-    if (response.ok) courses = (await response.json()).data.slice(0, 3);
+    if (internalApiUrl) {
+      const response = await fetch(`${internalApiUrl}/courses`, { next: { revalidate: 300 } });
+      if (response.ok) courses = (await response.json()).data.slice(0, 3);
+    }
   } catch { /* resilient marketing fallback */ }
   const structuredData = { "@context": "https://schema.org", "@type": "EducationalOrganization", name: "Being Brilliant Academy", url: "https://beingbrilliant.in", description: "Premium coaching for CBSE, JEE, NEET and CUET", areaServed: "India", offers: courses.map((course) => ({ "@type": "Course", name: course.title, description: course.description, provider: { "@type": "Organization", name: "Being Brilliant Academy" } })) };
   return <><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }} /><PremiumLanding courses={courses} /></>;

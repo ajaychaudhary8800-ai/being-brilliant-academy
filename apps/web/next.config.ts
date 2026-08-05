@@ -1,16 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /**
-   * Use the default Next.js output directory.
-   * This is required for standalone deployments.
-   */
-  distDir: ".next",
-
-  /**
-   * Generate a standalone production server.
-   */
-  output: "standalone",
+  // Docker requests standalone output. Nixpacks uses standard output so
+  // `next start` can run the workspace directly.
+  output: process.env.NEXT_OUTPUT_MODE === "standalone" ? "standalone" : undefined,
 
   /**
    * General optimizations.
