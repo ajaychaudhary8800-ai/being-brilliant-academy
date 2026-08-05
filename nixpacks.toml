@@ -9,7 +9,7 @@ nixPkgs = ["nodejs_22"]
 cmds = ["corepack enable", "corepack prepare pnpm@9.15.0 --activate", "pnpm install --frozen-lockfile"]
 
 [phases.build]
-cmds = ["pnpm run build"]
+cmds = ["pnpm run build", "cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static", "cp -r apps/web/public apps/web/.next/standalone/apps/web/public"]
 
 [start]
-cmd = "pnpm start"
+cmd = "node apps/web/.next/standalone/apps/web/server.js"

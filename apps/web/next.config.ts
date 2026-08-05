@@ -1,9 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Docker requests standalone output. Nixpacks uses standard output so
-  // `next start` can run the workspace directly.
-  output: process.env.NEXT_OUTPUT_MODE === "standalone" ? "standalone" : undefined,
+  output: "standalone",
 
   /**
    * General optimizations.

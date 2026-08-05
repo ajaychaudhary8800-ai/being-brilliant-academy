@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @bba/web --filter @bba/api dev",
     "build": "pnpm -r build",
-    "start": "pnpm --filter @bba/web start",
+    "start": "node apps/web/.next/standalone/apps/web/server.js",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r lint",
     "docker:config": "docker compose config --quiet",
