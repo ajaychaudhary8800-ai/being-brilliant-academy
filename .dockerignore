@@ -1,0 +1,14 @@
+.git
+.github
+.next
+**/.next
+**/.next-production
+**/dist
+**/node_modules
+node_modules
+.env
+.env.*
+!.env.example
+storage
+backups
+*.log

@@ -1,0 +1,16 @@
+node_modules
+.next
+.next-production
+dist
+.env
+coverage
+*.log
+apps/api/prisma/dev.db
+storage/
+backups/
+infra/nginx/certs/
+.env.production
+*.pem
+*.tsbuildinfo
+work/
+work-lighthouse.json

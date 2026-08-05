@@ -1,0 +1,13 @@
+@tailwind base; @tailwind components; @tailwind utilities;
+@layer base { :root { color-scheme: light; } .dark { color-scheme: dark; } html { scroll-behavior:smooth; } body { @apply bg-white text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100; } :focus-visible { @apply outline-none ring-4 ring-blue-300 ring-offset-2; } label { @apply text-sm font-semibold text-slate-700; } }
+@layer components { .container-page { @apply mx-auto max-w-7xl px-5 sm:px-8; } .pill { @apply rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-brand-700 dark:border-blue-900 dark:bg-blue-950; } .card { @apply rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900; } .premium-cta { @apply inline-flex items-center gap-2 rounded-xl bg-brand-700 px-6 py-3.5 font-bold text-white shadow-glow transition hover:-translate-y-0.5 hover:bg-blue-800; } .premium-secondary { @apply inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-3.5 font-bold transition hover:border-brand-700 hover:text-brand-700; } .section-title { @apply text-4xl font-black leading-tight tracking-tight sm:text-5xl; } .form-input { @apply mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900; } }
+.hero-grid { background:radial-gradient(circle at 80% 25%,#dbeafe 0,transparent 30%),linear-gradient(135deg,#fff 30%,#f0f9ff); }
+.gradient-text { background:linear-gradient(100deg,#1155cc,#06b6d4); background-clip:text; color:transparent; }
+.hero-reveal { animation:hero-in .7s ease-out both; }
+.hero-orbit { position:absolute; inset:-12%; border-radius:50%; background:conic-gradient(from 90deg,#38bdf8,#fbbf24,#2563eb,#38bdf8); filter:blur(45px); opacity:.28; animation:orbit 12s linear infinite; }
+.floating-proof { @apply absolute -bottom-5 -left-5 flex items-center gap-2 rounded-2xl bg-white px-5 py-4 text-sm shadow-xl; animation:float 4s ease-in-out infinite; }
+.skip-link { @apply fixed left-3 top-3 z-[100] -translate-y-24 rounded-lg bg-slate-950 px-4 py-2 text-white transition focus:translate-y-0; }
+.high-contrast { filter:contrast(1.25); } .high-contrast .text-slate-500,.high-contrast .text-slate-600 { color:#1e293b; }
+@keyframes hero-in { from {opacity:0;transform:translateY(18px)} to {opacity:1;transform:none} } @keyframes orbit {to{transform:rotate(360deg)}} @keyframes float {50%{transform:translateY(-8px)}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.hero-reveal,.hero-orbit,.floating-proof{animation:none!important}.card,.premium-cta{transition:none!important}}
+@media print {.pwa-bottom,.install-banner,.site-header{display:none!important}}

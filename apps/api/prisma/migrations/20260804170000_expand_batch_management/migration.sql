@@ -1,0 +1,20 @@
+CREATE TYPE "BatchStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'ARCHIVED');
+
+ALTER TABLE "Batch"
+  ADD COLUMN "academicSession" TEXT NOT NULL DEFAULT '2026-27',
+  ADD COLUMN "capacity" INTEGER NOT NULL DEFAULT 30,
+  ADD COLUMN "timing" TEXT NOT NULL DEFAULT '09:00-10:00',
+  ADD COLUMN "days" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN "classroom" TEXT,
+  ADD COLUMN "teacherId" TEXT,
+  ADD COLUMN "feesPaise" INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN "status" "BatchStatus" NOT NULL DEFAULT 'ACTIVE',
+  ADD COLUMN "remarks" TEXT,
+  ADD COLUMN "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE "Batch" ADD CONSTRAINT "Batch_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "TeacherProfile"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+CREATE INDEX "Batch_branchId_idx" ON "Batch"("branchId");
+CREATE INDEX "Batch_courseId_idx" ON "Batch"("courseId");
+CREATE INDEX "Batch_teacherId_idx" ON "Batch"("teacherId");
+CREATE INDEX "Batch_status_idx" ON "Batch"("status");

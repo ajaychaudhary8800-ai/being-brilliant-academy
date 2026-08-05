@@ -1,0 +1,12 @@
+CREATE TYPE "FeeStatus" AS ENUM ('PENDING','PARTIAL','PAID','OVERDUE','CANCELLED');
+CREATE TYPE "PaymentMode" AS ENUM ('CASH','CARD','UPI','BANK_TRANSFER','CHEQUE','ONLINE','OTHER');
+CREATE TABLE "Fee" ("id" TEXT NOT NULL,"studentId" TEXT NOT NULL,"branchId" TEXT NOT NULL,"courseId" TEXT,"batchId" TEXT,"feeHead" TEXT NOT NULL,"totalPaise" INTEGER NOT NULL,"discountPaise" INTEGER NOT NULL DEFAULT 0,"finePaise" INTEGER NOT NULL DEFAULT 0,"amountPaidPaise" INTEGER NOT NULL DEFAULT 0,"dueDate" DATE NOT NULL,"status" "FeeStatus" NOT NULL DEFAULT 'PENDING',"remarks" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "Fee_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "FeePayment" ("id" TEXT NOT NULL,"feeId" TEXT NOT NULL,"amountPaise" INTEGER NOT NULL,"paymentDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"paymentMode" "PaymentMode" NOT NULL,"transactionId" TEXT,"receiptNumber" TEXT NOT NULL,"remarks" TEXT,"collectedById" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "FeePayment_pkey" PRIMARY KEY ("id"));
+ALTER TABLE "Fee" ADD CONSTRAINT "Fee_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "StudentProfile"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Fee" ADD CONSTRAINT "Fee_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Fee" ADD CONSTRAINT "Fee_courseId_fkey" FOREIGN KEY ("courseId") REFERENCES "Course"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Fee" ADD CONSTRAINT "Fee_batchId_fkey" FOREIGN KEY ("batchId") REFERENCES "Batch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "FeePayment" ADD CONSTRAINT "FeePayment_feeId_fkey" FOREIGN KEY ("feeId") REFERENCES "Fee"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+CREATE UNIQUE INDEX "Fee_studentId_batchId_feeHead_dueDate_key" ON "Fee"("studentId","batchId","feeHead","dueDate");
+CREATE INDEX "Fee_branchId_idx" ON "Fee"("branchId");CREATE INDEX "Fee_courseId_idx" ON "Fee"("courseId");CREATE INDEX "Fee_batchId_idx" ON "Fee"("batchId");CREATE INDEX "Fee_dueDate_idx" ON "Fee"("dueDate");CREATE INDEX "Fee_status_idx" ON "Fee"("status");
+CREATE UNIQUE INDEX "FeePayment_transactionId_key" ON "FeePayment"("transactionId");CREATE UNIQUE INDEX "FeePayment_receiptNumber_key" ON "FeePayment"("receiptNumber");CREATE INDEX "FeePayment_feeId_paymentDate_idx" ON "FeePayment"("feeId","paymentDate");CREATE INDEX "FeePayment_paymentDate_idx" ON "FeePayment"("paymentDate");

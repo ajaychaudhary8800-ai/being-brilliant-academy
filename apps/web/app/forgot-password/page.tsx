@@ -1,0 +1,11 @@
+"use client";
+
+import Link from "next/link";
+import { FormEvent, useState } from "react";
+import { errorMessage, useAuth } from "../../components/auth-provider";
+
+export default function ForgotPasswordPage() {
+  const { requestPasswordReset } = useAuth(); const [email, setEmail] = useState(""); const [message, setMessage] = useState(""); const [error, setError] = useState(""); const [submitting, setSubmitting] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setError(""); setSubmitting(true); try { await requestPasswordReset(email); setMessage("If an account matches that address, password reset instructions are on their way."); } catch (cause) { setError(errorMessage(cause)); } finally { setSubmitting(false); } }
+  return <main className="grid min-h-screen place-items-center bg-gradient-to-br from-brand-50 via-white to-orange-50 px-5 py-10 dark:from-slate-950 dark:via-slate-950 dark:to-slate-900"><section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-xl dark:border-slate-800 dark:bg-slate-900 sm:p-9"><Link href="/" className="font-bold tracking-tight text-brand-700">BEING <span className="text-brand-orange">BRILLIANT</span></Link><h1 className="mt-8 text-3xl font-bold">Reset your password</h1><p className="mt-2 text-sm text-slate-500">Enter your email and we’ll send secure reset instructions.</p><form onSubmit={submit} className="mt-7 space-y-4"><label className="block text-sm font-semibold">Email<input required type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 outline-none ring-brand-500 focus:ring-2 dark:border-slate-700" /></label>{message && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</p>}{error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}<button disabled={submitting} className="w-full rounded-xl bg-brand-700 py-3 font-bold text-white disabled:opacity-60">{submitting ? "Sending…" : "Send reset instructions"}</button></form><p className="mt-6 text-center text-sm"><Link href="/login" className="font-semibold text-brand-700">Back to sign in</Link></p></section></main>;
+}

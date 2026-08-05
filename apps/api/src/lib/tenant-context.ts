@@ -1,0 +1,1 @@
+import{AsyncLocalStorage}from"node:async_hooks";export type TenantContext={organizationId:string;userId:string;role:string};export const tenantContext=new AsyncLocalStorage<TenantContext>();export const currentTenant=()=>tenantContext.getStore();

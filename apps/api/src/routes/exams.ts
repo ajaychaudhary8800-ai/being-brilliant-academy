@@ -1,0 +1,11 @@
+import { Prisma } from "@prisma/client";
+import { Router } from "express";
+import { z } from "zod";
+import { prisma } from "../lib/prisma.js";
+import { AppError } from "../lib/http.js";
+import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+const router = Router(); router.use(requireAuth);
+router.get("/:id", async (req, res) => { const exam = await prisma.exam.findUnique({ where: { id: String(req.params.id) }, include: { questions: { select: { id: true, body: true, type: true, options: true, marks: true, negativeMarks: true } } } }); if (!exam) throw new AppError(404, "NOT_FOUND", "Exam not found"); res.json({ data: exam }); });
+router.post("/:id/attempts", async (req: AuthRequest, res) => { const exam = await prisma.exam.findUnique({ where: { id: String(req.params.id) }, select: { id: true } }); if (!exam) throw new AppError(404, "NOT_FOUND", "Exam not found"); const attempt = await prisma.examAttempt.create({ data: { examId: exam.id, studentId: req.auth!.userId } }); res.status(201).json({ data: attempt }); });
+router.post("/attempts/:id/submit", async (req: AuthRequest, res) => { const input = z.object({ answers: z.record(z.string(), z.unknown()) }).parse(req.body); const attempt = await prisma.examAttempt.findFirst({ where: { id: String(req.params.id), studentId: req.auth!.userId } }); if (!attempt) throw new AppError(404, "NOT_FOUND", "Attempt not found"); if (attempt.submittedAt) throw new AppError(409, "ALREADY_SUBMITTED", "Attempt is already submitted"); const questions = await prisma.question.findMany({ where: { examId: attempt.examId } }); let score = 0; for (const question of questions) { const submitted = input.answers[question.id]; const correct = JSON.stringify(submitted) === JSON.stringify(question.answer); score += correct ? Number(question.marks) : -Number(question.negativeMarks); } const data = await prisma.examAttempt.update({ where: { id: attempt.id }, data: { answers: input.answers as Prisma.InputJsonValue, score: Math.max(0, score), submittedAt: new Date() } }); res.json({ data }); });
+export default router;

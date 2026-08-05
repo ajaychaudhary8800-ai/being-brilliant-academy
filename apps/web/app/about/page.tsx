@@ -1,0 +1,2 @@
+import { SiteHeader } from "../../components/site-header";
+export default function AboutPage() { return <><SiteHeader/><main className="container-page py-20"><p className="pill inline-block">About Being Brilliant</p><h1 className="mt-4 max-w-3xl text-4xl font-bold tracking-tight">Focused teaching. Meaningful outcomes.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600 dark:text-slate-300">Being Brilliant Academy brings excellent faculty, structured learning plans and measurable practice together for every learner.</p></main></>; }

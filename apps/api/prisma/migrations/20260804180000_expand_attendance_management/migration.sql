@@ -1,0 +1,13 @@
+ALTER TYPE "AttendanceStatus" ADD VALUE IF NOT EXISTS 'LEAVE';
+ALTER TABLE "Attendance" ADD COLUMN "checkIn" TIMESTAMP(3), ADD COLUMN "checkOut" TIMESTAMP(3), ADD COLUMN "teacherId" TEXT, ADD COLUMN "remarks" TEXT, ADD COLUMN "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "Attendance" ADD CONSTRAINT "Attendance_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "TeacherProfile"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+CREATE INDEX "Attendance_date_idx" ON "Attendance"("date");
+CREATE INDEX "Attendance_teacherId_idx" ON "Attendance"("teacherId");
+CREATE TABLE "TeacherAttendance" ("id" TEXT NOT NULL, "teacherId" TEXT NOT NULL, "date" DATE NOT NULL, "status" "AttendanceStatus" NOT NULL, "checkIn" TIMESTAMP(3), "checkOut" TIMESTAMP(3), "remarks" TEXT, "markedById" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "TeacherAttendance_pkey" PRIMARY KEY ("id"));
+ALTER TABLE "TeacherAttendance" ADD CONSTRAINT "TeacherAttendance_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "TeacherProfile"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+CREATE UNIQUE INDEX "TeacherAttendance_teacherId_date_key" ON "TeacherAttendance"("teacherId", "date");
+CREATE INDEX "TeacherAttendance_date_idx" ON "TeacherAttendance"("date");
+CREATE TABLE "Holiday" ("id" TEXT NOT NULL, "name" TEXT NOT NULL, "date" DATE NOT NULL, "branchId" TEXT, "remarks" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "Holiday_pkey" PRIMARY KEY ("id"));
+ALTER TABLE "Holiday" ADD CONSTRAINT "Holiday_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+CREATE UNIQUE INDEX "Holiday_date_branchId_key" ON "Holiday"("date", "branchId");
+CREATE INDEX "Holiday_date_idx" ON "Holiday"("date");

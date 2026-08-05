@@ -1,0 +1,19 @@
+{
+  "name": "being-brilliant-academy",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @bba/web --filter @bba/api dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r lint",
+    "docker:config": "docker compose config --quiet",
+    "docker:build": "docker compose build api web backup",
+    "docker:up": "docker compose up -d --wait",
+    "docker:down": "docker compose down",
+    "db:generate": "pnpm --filter @bba/api prisma:generate",
+    "db:migrate": "pnpm --filter @bba/api prisma:migrate",
+    "db:seed": "pnpm --filter @bba/api prisma:seed"
+  },
+  "devDependencies": { "typescript": "^5.7.3" }
+}
