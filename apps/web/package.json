@@ -3,14 +3,14 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /**
    * Use the default Next.js output directory.
-   * This is required for standalone deployments on Coolify.
+   * This is required for standalone deployments.
    */
   distDir: ".next",
 
   /**
    * Generate a standalone production server.
    */
-  output: process.platform === "win32" ? undefined : "standalone",
+  output: "standalone",
 
   /**
    * General optimizations.
