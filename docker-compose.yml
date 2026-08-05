@@ -104,14 +104,7 @@ services:
     healthcheck: { test: ["CMD-SHELL", "wget -q --spider --no-check-certificate https://127.0.0.1/health/nginx"], interval: 30s, timeout: 5s, retries: 3 }
     networks: [frontend]
     logging: *default-logging
-  prometheus:
-    image: prom/prometheus:v3.2.1
-    restart: unless-stopped
-    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=30d", "--web.enable-lifecycle"]
-    volumes: [./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro, prometheus_data:/prometheus]
-    networks: [backend, monitoring]
-    depends_on: [api]
-    logging: *default-logging
+ 
   blackbox:
     image: prom/blackbox-exporter:v0.26.0
     restart: unless-stopped
