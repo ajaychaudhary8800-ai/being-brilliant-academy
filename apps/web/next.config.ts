@@ -1,16 +1,27 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Use the default Next.js build directory.
-  // Required for standalone output in production.
+  /**
+   * Use the default Next.js output directory.
+   * This is required for standalone deployments.
+   */
   distDir: ".next",
 
-  // Generate the standalone server for production deployments.
-  output: process.platform === "win32" ? undefined : "standalone",
+  /**
+   * Generate a standalone production server.
+   */
+  output: "standalone",
 
+  /**
+   * General optimizations.
+   */
   compress: true,
   productionBrowserSourceMaps: false,
+  poweredByHeader: false,
 
+  /**
+   * Image configuration.
+   */
   images: {
     formats: ["image/avif", "image/webp"],
     remotePatterns: [
@@ -21,8 +32,9 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  poweredByHeader: false,
-
+  /**
+   * Security headers.
+   */
   async headers() {
     return [
       {
