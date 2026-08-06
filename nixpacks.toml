@@ -6,7 +6,7 @@ NEXT_TELEMETRY_DISABLED = "1"
 nixPkgs = ["nodejs_22"]
 
 [phases.install]
-cmds = ["corepack enable", "corepack prepare pnpm@9.15.0 --activate", "pnpm install --frozen-lockfile"]
+cmds = ["corepack enable", "corepack prepare pnpm@9.15.0 --activate", "pnpm install --frozen-lockfile --prod=false"]
 
 [phases.build]
 cmds = ["pnpm run build", "cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static", "cp -r apps/web/public apps/web/.next/standalone/apps/web/public"]

@@ -5,7 +5,7 @@ RUN corepack enable
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter @bba/web...
+RUN --mount=type=cache,id=pnpm-web,target=/pnpm/store pnpm install --frozen-lockfile --prod=false --filter @bba/web...
 COPY apps/web apps/web
 ARG NEXT_PUBLIC_API_URL=/api/v1
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL NODE_ENV=production NEXT_OUTPUT_MODE=standalone

@@ -5,7 +5,7 @@ RUN corepack enable
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json apps/api/package.json
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter @bba/api...
+RUN --mount=type=cache,id=pnpm-api,target=/pnpm/store pnpm install --frozen-lockfile --prod=false --filter @bba/api...
 COPY apps/api apps/api
 RUN pnpm --filter @bba/api prisma:generate && pnpm --filter @bba/api build
 
