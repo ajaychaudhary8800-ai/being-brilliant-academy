@@ -62,7 +62,7 @@ services:
     logging: *default-logging
   migrate:
     build: { context: ., dockerfile: apps/api/Dockerfile, target: build }
-    command: ["pnpm", "--filter", "@bba/api", "exec", "prisma", "db", "push", "--accept-data-loss"]
+    command: ["pnpm", "--filter", "@bba/api", "exec", "prisma", "migrate", "deploy"]
     environment: *api-env
     depends_on: { postgres: { condition: service_healthy } }
     networks: [backend]
