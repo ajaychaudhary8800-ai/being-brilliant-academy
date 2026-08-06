@@ -8,8 +8,8 @@ x-api-env: &api-env
   DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-bba}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-bba}?schema=public}
   REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379/0}
   REDIS_REQUIRED: "true"
-  WEB_URL: https://${APP_DOMAIN:-localhost}
-  CORS_ORIGINS: https://${APP_DOMAIN:-localhost}
+  WEB_URL: https://${APP_DOMAIN:?APP_DOMAIN is required}
+  CORS_ORIGINS: https://${APP_DOMAIN:?APP_DOMAIN is required}
   JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
   JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
   METRICS_TOKEN: ${METRICS_TOKEN:-}
@@ -110,6 +110,7 @@ services:
   backup:
     build: { context: ./infra/backup }
     restart: unless-stopped
+    init: true
     environment: { DATABASE_URL: "postgresql://${POSTGRES_USER:-bba}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-bba}", BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}", BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-14}", AWS_S3_BUCKET: "${BACKUP_S3_BUCKET:-}", AWS_ENDPOINT_URL: "${AWS_S3_ENDPOINT:-}", AWS_REGION: "${AWS_REGION:-}", AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}", AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}" }
     volumes: [backups:/backups, app_storage:/data/storage]
     depends_on: { postgres: { condition: service_healthy } }
