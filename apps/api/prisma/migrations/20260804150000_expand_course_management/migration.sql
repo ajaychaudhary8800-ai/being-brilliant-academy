@@ -26,7 +26,18 @@ ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS "endDate" TIMESTAMP(3);
 ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS "branchId" TEXT;
 ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS "createdById" TEXT;
 UPDATE "Course" SET "courseCode" = COALESCE("courseCode", 'COURSE-' || substr("id", 1, 8));
-UPDATE "Course" SET "status" = CASE WHEN "published" THEN 'ACTIVE'::"CourseStatus" ELSE 'DRAFT'::"CourseStatus" END;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'Course'
+      AND column_name = 'published'
+  ) THEN
+    EXECUTE 'UPDATE "Course" SET "status" = CASE WHEN "published" THEN ''ACTIVE''::"CourseStatus" ELSE ''DRAFT''::"CourseStatus" END';
+  END IF;
+END $$;
 ALTER TABLE "Course" ALTER COLUMN "courseCode" SET NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS "Course_courseCode_key" ON "Course"("courseCode");
 CREATE INDEX IF NOT EXISTS "Course_status_idx" ON "Course"("status");
