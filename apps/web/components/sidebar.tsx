@@ -17,6 +17,7 @@ const menu = [
   { name: "Academic Sessions", href: "/admin/academic-sessions", icon: CalendarDays },
   { name: "Students", href: "/admin/students", icon: Users },
   { name: "Teachers", href: "/admin/teachers", icon: UserRoundCheck },
+  { name: "Teacher Allocation", href: "/admin/teacher-allocations", icon: ClipboardCheck },
   { name: "Branches", href: "/admin/branches", icon: Building2 },
   { name: "Courses", href: "/admin/courses", icon: BookOpen },
   { name: "Batches", href: "/admin/batches", icon: GraduationCap },

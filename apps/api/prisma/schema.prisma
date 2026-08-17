@@ -564,6 +564,7 @@ model Organization {
   branches               Branch[]
   tenantAuditLogs        TenantAccessAudit[]
   academicSessions       AcademicSession[]
+  teacherAllocations     TeacherAllocation[]
 
   @@index([subscriptionStatus, isActive])
 }
@@ -583,6 +584,7 @@ model AcademicSession {
   students       StudentProfile[]
   examinations   Examination[]
   timetables     Timetable[]
+  teacherAllocations TeacherAllocation[]
 
   @@unique([organizationId, name])
   @@index([organizationId, isCurrent])
@@ -765,6 +767,11 @@ enum BatchStatus {
   ACTIVE
   INACTIVE
   ARCHIVED
+}
+
+enum TeacherAllocationStatus {
+  ACTIVE
+  INACTIVE
 }
 
 enum Gender {
@@ -1119,6 +1126,8 @@ model User {
   challengeProgress        ChallengeProgress[]
   learningRecommendations  LearningRecommendation[]
   dailyLearningGoals       DailyLearningGoal[]
+  teacherAllocationsCreated TeacherAllocation[] @relation("TeacherAllocationCreatedBy")
+  teacherAllocationsUpdated TeacherAllocation[] @relation("TeacherAllocationUpdatedBy")
 
   @@index([organizationId])
 }
@@ -1209,6 +1218,7 @@ model Branch {
   inventoryVendors      InventoryVendor[]
   maintenanceTickets    AssetMaintenanceTicket[]
   analyticsSnapshots    AnalyticsSnapshot[]
+  teacherAllocations    TeacherAllocation[]
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @updatedAt
 
@@ -1286,6 +1296,7 @@ model Course {
   homeworks            Homework[]
   examinations         Examination[]
   lmsLessons           Lesson[]        @relation("LmsLessonCourse")
+  teacherAllocations   TeacherAllocation[]
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
@@ -1478,6 +1489,7 @@ model Batch {
   lmsLessons        Lesson[]
   announcements     Announcement[]
   calendarEvents    CalendarEvent[]
+  teacherAllocations TeacherAllocation[]
 
   @@index([branchId])
   @@index([courseId])
@@ -1558,9 +1570,46 @@ model TeacherProfile {
   homeworks          Homework[]
   examinations       Examination[]
   lmsLessons         Lesson[]
+  allocations        TeacherAllocation[]
 
   @@index([branchId, specialization])
   @@index([organizationId])
+}
+
+model TeacherAllocation {
+  id                String                  @id @default(cuid())
+  organizationId    String
+  branchId          String
+  academicSessionId String
+  courseId          String
+  batchId           String
+  teacherId         String
+  subjectName       String
+  weeklyPeriods     Int
+  effectiveFrom     DateTime                @db.Date
+  effectiveTo       DateTime?               @db.Date
+  remarks           String?                 @db.Text
+  status            TeacherAllocationStatus @default(ACTIVE)
+  createdById       String
+  updatedById       String
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  organization      Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch            Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  academicSession   AcademicSession         @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  course            Course                  @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  batch             Batch                   @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  teacher           TeacherProfile          @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  createdBy         User                    @relation("TeacherAllocationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy         User                    @relation("TeacherAllocationUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status])
+  @@index([organizationId, academicSessionId])
+  @@index([organizationId, branchId])
+  @@index([organizationId, courseId])
+  @@index([organizationId, batchId])
+  @@index([organizationId, teacherId])
+  @@index([organizationId, subjectName])
 }
 
 model Classroom {
