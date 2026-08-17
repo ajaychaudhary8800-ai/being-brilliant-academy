@@ -563,8 +563,30 @@ model Organization {
   users                  User[]
   branches               Branch[]
   tenantAuditLogs        TenantAccessAudit[]
+  academicSessions       AcademicSession[]
 
   @@index([subscriptionStatus, isActive])
+}
+
+model AcademicSession {
+  organizationId String
+  id             String           @id @default(cuid())
+  name           String
+  startsAt       DateTime         @db.Date
+  endsAt         DateTime         @db.Date
+  isCurrent      Boolean          @default(false)
+  isArchived     Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  batches        Batch[]
+  students       StudentProfile[]
+  examinations   Examination[]
+  timetables     Timetable[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, isCurrent])
+  @@index([organizationId, isArchived, startsAt])
 }
 
 model TenantAccessAudit {
@@ -1421,45 +1443,48 @@ model LessonProgress {
 }
 
 model Batch {
-  organizationId  String           @default("org_default")
-  id              String           @id @default(cuid())
-  name            String
-  code            String           @unique
-  branchId        String
-  courseId        String?
-  academicSession String           @default("2026-27")
-  startsAt        DateTime
-  endsAt          DateTime?
-  capacity        Int              @default(30)
-  timing          String           @default("09:00-10:00")
-  days            String[]         @default([])
-  classroom       String?
-  teacherId       String?
-  feesPaise       Int              @default(0)
-  status          BatchStatus      @default(ACTIVE)
-  remarks         String?          @db.Text
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  branch          Branch           @relation(fields: [branchId], references: [id])
-  course          Course?          @relation(fields: [courseId], references: [id])
-  teacher         TeacherProfile?  @relation(fields: [teacherId], references: [id])
-  attendances     Attendance[]
-  students        StudentProfile[]
-  fees            Fee[]
-  tests           TestBatch[]
-  certificates    Certificate[]
-  timetables      Timetable[]
-  homeworks       Homework[]
-  examinations    Examination[]
-  lmsLessons      Lesson[]
-  announcements   Announcement[]
-  calendarEvents  CalendarEvent[]
+  organizationId    String           @default("org_default")
+  id                String           @id @default(cuid())
+  name              String
+  code              String           @unique
+  branchId          String
+  courseId          String?
+  academicSession   String           @default("2026-27")
+  academicSessionId String
+  startsAt          DateTime
+  endsAt            DateTime?
+  capacity          Int              @default(30)
+  timing            String           @default("09:00-10:00")
+  days              String[]         @default([])
+  classroom         String?
+  teacherId         String?
+  feesPaise         Int              @default(0)
+  status            BatchStatus      @default(ACTIVE)
+  remarks           String?          @db.Text
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  branch            Branch           @relation(fields: [branchId], references: [id])
+  session           AcademicSession  @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  course            Course?          @relation(fields: [courseId], references: [id])
+  teacher           TeacherProfile?  @relation(fields: [teacherId], references: [id])
+  attendances       Attendance[]
+  students          StudentProfile[]
+  fees              Fee[]
+  tests             TestBatch[]
+  certificates      Certificate[]
+  timetables        Timetable[]
+  homeworks         Homework[]
+  examinations      Examination[]
+  lmsLessons        Lesson[]
+  announcements     Announcement[]
+  calendarEvents    CalendarEvent[]
 
   @@index([branchId])
   @@index([courseId])
   @@index([teacherId])
   @@index([status])
   @@index([organizationId])
+  @@index([academicSessionId])
 }
 
 model StudentProfile {
@@ -1478,6 +1503,7 @@ model StudentProfile {
   branchId             String
   batchId              String
   academicSession      String
+  academicSessionId    String
   admissionDate        DateTime                     @db.Date
   bloodGroup           String?
   category             String?
@@ -1489,6 +1515,7 @@ model StudentProfile {
   user                 User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
   branch               Branch                       @relation(fields: [branchId], references: [id])
   batch                Batch                        @relation(fields: [batchId], references: [id])
+  session              AcademicSession              @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
   fees                 Fee[]
   testAttempts         TestAttempt[]
   convertedEnquiry     Enquiry?
@@ -1509,6 +1536,7 @@ model StudentProfile {
   @@index([status])
   @@index([academicSession])
   @@index([organizationId])
+  @@index([academicSessionId])
 }
 
 model TeacherProfile {
@@ -1554,36 +1582,39 @@ model Classroom {
 }
 
 model Timetable {
-  organizationId  String          @default("org_default")
-  id              String          @id @default(cuid())
-  branchId        String
-  courseId        String
-  batchId         String
-  subjectId       String
-  teacherId       String
-  classroomId     String
-  day             TimetableDay
-  startMinute     Int
-  endMinute       Int
-  periodNumber    Int
-  academicSession String
-  remarks         String?         @db.Text
-  status          TimetableStatus @default(ACTIVE)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  branch          Branch          @relation(fields: [branchId], references: [id])
-  course          Course          @relation(fields: [courseId], references: [id])
-  batch           Batch           @relation(fields: [batchId], references: [id])
-  subject         Subject         @relation(fields: [subjectId], references: [id])
-  teacher         TeacherProfile  @relation(fields: [teacherId], references: [id])
-  classroom       Classroom       @relation(fields: [classroomId], references: [id])
-  homeworks       Homework[]
+  organizationId    String          @default("org_default")
+  id                String          @id @default(cuid())
+  branchId          String
+  courseId          String
+  batchId           String
+  subjectId         String
+  teacherId         String
+  classroomId       String
+  day               TimetableDay
+  startMinute       Int
+  endMinute         Int
+  periodNumber      Int
+  academicSession   String
+  academicSessionId String
+  remarks           String?         @db.Text
+  status            TimetableStatus @default(ACTIVE)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  branch            Branch          @relation(fields: [branchId], references: [id])
+  course            Course          @relation(fields: [courseId], references: [id])
+  batch             Batch           @relation(fields: [batchId], references: [id])
+  subject           Subject         @relation(fields: [subjectId], references: [id])
+  teacher           TeacherProfile  @relation(fields: [teacherId], references: [id])
+  classroom         Classroom       @relation(fields: [classroomId], references: [id])
+  session           AcademicSession @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  homeworks         Homework[]
 
   @@unique([branchId, batchId, day, startMinute, endMinute])
   @@index([branchId, day])
   @@index([courseId])
   @@index([batchId, day])
   @@index([teacherId, day])
+  @@index([academicSessionId])
   @@index([classroomId, day])
   @@index([status])
   @@index([organizationId])
@@ -1657,32 +1688,34 @@ model HomeworkSubmission {
 }
 
 model Examination {
-  organizationId  String              @default("org_default")
-  id              String              @id @default(cuid())
-  name            String
-  code            String              @unique
-  type            ExaminationType
-  branchId        String
-  courseId        String
-  batchId         String
-  subjectId       String
-  teacherId       String
-  academicSession String
-  examDate        DateTime            @db.Date
-  startMinute     Int
-  endMinute       Int
-  maximumMarks    Int
-  passingMarks    Int
-  status          ExaminationStatus   @default(DRAFT)
-  remarks         String?             @db.Text
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
-  branch          Branch              @relation(fields: [branchId], references: [id])
-  course          Course              @relation(fields: [courseId], references: [id])
-  batch           Batch               @relation(fields: [batchId], references: [id])
-  subject         Subject             @relation(fields: [subjectId], references: [id])
-  teacher         TeacherProfile      @relation(fields: [teacherId], references: [id])
-  results         ExaminationResult[]
+  organizationId    String              @default("org_default")
+  id                String              @id @default(cuid())
+  name              String
+  code              String              @unique
+  type              ExaminationType
+  branchId          String
+  courseId          String
+  batchId           String
+  subjectId         String
+  teacherId         String
+  academicSession   String
+  academicSessionId String
+  examDate          DateTime            @db.Date
+  startMinute       Int
+  endMinute         Int
+  maximumMarks      Int
+  passingMarks      Int
+  status            ExaminationStatus   @default(DRAFT)
+  remarks           String?             @db.Text
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  branch            Branch              @relation(fields: [branchId], references: [id])
+  course            Course              @relation(fields: [courseId], references: [id])
+  batch             Batch               @relation(fields: [batchId], references: [id])
+  subject           Subject             @relation(fields: [subjectId], references: [id])
+  teacher           TeacherProfile      @relation(fields: [teacherId], references: [id])
+  session           AcademicSession     @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  results           ExaminationResult[]
 
   @@unique([batchId, subjectId, type, academicSession])
   @@index([branchId])
@@ -1691,6 +1724,7 @@ model Examination {
   @@index([teacherId, examDate])
   @@index([status])
   @@index([organizationId])
+  @@index([academicSessionId])
 }
 
 model ExaminationResult {

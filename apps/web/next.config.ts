@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Windows without Developer Mode cannot create the symlinks used by the
+  // standalone tracer. CI and Docker keep the production standalone default;
+  // local verification can opt into the standard production output.
+  output: process.env.NEXT_OUTPUT_MODE === "standard" ? undefined : "standalone",
 
   /**
    * General optimizations.

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getAccessToken } from "./auth-provider";
 import {
   Award, BarChart3, BookOpen, Building2, CalendarCheck, ClipboardCheck,
   CreditCard, FileText, GraduationCap, LayoutDashboard, Menu, Settings, CalendarDays, NotebookPen, FileCheck2, PlaySquare,
@@ -13,6 +14,7 @@ const menu = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { name: "Organizations", href: "/admin/organizations", icon: School },
   { name: "School Settings", href: "/admin/organization-settings", icon: Settings },
+  { name: "Academic Sessions", href: "/admin/academic-sessions", icon: CalendarDays },
   { name: "Students", href: "/admin/students", icon: Users },
   { name: "Teachers", href: "/admin/teachers", icon: UserRoundCheck },
   { name: "Branches", href: "/admin/branches", icon: Building2 },
@@ -50,11 +52,14 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export default function Sidebar() {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false); const [sessions,setSessions]=useState<{id:string;name:string;isCurrent:boolean}[]>([]); const api=process.env.NEXT_PUBLIC_API_URL??"http://localhost:4000/api/v1";
+  useEffect(()=>{const token=getAccessToken();if(!token)return;fetch(`${api}/admin/academic-sessions?limit=100&status=active`,{headers:{Authorization:`Bearer ${token}`}}).then(r=>r.json()).then(j=>setSessions(j.data??[])).catch(()=>{})},[api]);
+  const current=sessions.find(x=>x.isCurrent)?.id??"";const choose=async(id:string)=>{const r=await fetch(`${api}/admin/academic-sessions/${id}/current`,{method:"PATCH",headers:{Authorization:`Bearer ${getAccessToken()??""}`}});if(r.ok)setSessions(v=>v.map(x=>({...x,isCurrent:x.id===id}))) };
   return <>
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-slate-200 bg-white px-3 py-6 dark:border-slate-800 dark:bg-slate-950 md:flex">
       <Link href="/admin" className="px-3 font-bold tracking-tight text-brand-700">BEING <span className="text-brand-orange">BRILLIANT</span><span className="mt-1 block text-[10px] font-semibold tracking-[0.2em] text-slate-400">ADMIN PORTAL</span></Link>
-      <div className="mt-8 flex-1 overflow-y-auto"><Navigation /></div>
+      {sessions.length>0&&<label className="mt-6 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Current session<select aria-label="Current academic session" value={current} onChange={e=>void choose(e.target.value)} className="mt-2 w-full rounded-lg border bg-white p-2 text-sm font-semibold normal-case text-slate-700 dark:bg-slate-900 dark:text-slate-200">{sessions.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>}
+      <div className="mt-4 flex-1 overflow-y-auto"><Navigation /></div>
       <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-900">Academy operations<br/><b className="text-slate-800 dark:text-slate-200">Manage with clarity</b></div>
     </aside>
     <div className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-950 md:hidden"><span className="font-bold text-brand-700">BBA ADMIN</span><button aria-label="Open navigation" onClick={() => setOpen(true)} className="rounded-lg p-2 text-slate-700 dark:text-slate-200"><Menu size={21}/></button></div>

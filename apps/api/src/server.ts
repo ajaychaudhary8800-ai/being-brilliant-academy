@@ -21,6 +21,7 @@ import adminLms, { lmsLearning } from "./routes/admin-lms.js";
 import admin from "./routes/admin.js";
 import adminCourses from "./routes/admin-courses.js";
 import adminBatches from "./routes/admin-batches.js";
+import adminAcademicSessions from "./routes/admin-academic-sessions.js";
 import adminStudents from "./routes/admin-students.js";
 import adminTimetables from "./routes/admin-timetables.js";
 import homeworks from "./routes/homeworks.js";
@@ -86,6 +87,7 @@ app.get("/metrics", async (req, res) => {
   res.setHeader("Content-Type", metricsRegistry.contentType); return res.send(await metricsRegistry.metrics());
 });
 
+app.use("/api/v1/admin", adminAcademicSessions);
 // Mount role-aware learning routes before broad admin routers that intentionally
 // reject non-admin requests.
 const scoped = (prefixes: string[], handler: express.RequestHandler): express.RequestHandler =>
