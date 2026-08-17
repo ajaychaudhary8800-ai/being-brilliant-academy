@@ -1,5 +1,6 @@
 import { PrismaClient, Role, CourseType } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { ensureDefaultCourseCategories } from "../src/lib/default-course-categories.js";
 const prisma = new PrismaClient();
 async function main() {
   const passwordHash = await bcrypt.hash("ChangeMe123!", 12);
@@ -38,7 +39,8 @@ async function main() {
     await prisma.teacherProfile.upsert({ where: { userId: teacher.id }, update: { employeeNo, qualification, specialization, branchId: branch.id }, create: { userId: teacher.id, employeeNo, qualification, specialization, branchId: branch.id } });
     teachers.push(teacher);
   }
-  const category = await prisma.category.upsert({ where: { slug: "engineering-entrance" }, update: {}, create: { name: "Engineering Entrance", slug: "engineering-entrance" } });
+  await ensureDefaultCourseCategories(prisma, "org_default");
+  const category = await prisma.category.findUniqueOrThrow({ where: { organizationId_slug: { organizationId: "org_default", slug: "jee" } } });
   const course = await prisma.course.upsert({ where: { slug: "jee-2027-foundation" }, update: {}, create: { title: "JEE 2027 Foundation", slug: "jee-2027-foundation", courseCode: "JEE-2027", shortDescription: "JEE foundation programme", fullDescription: "A complete foundation programme for ambitious JEE aspirants.", regularPricePaise: 2499900, salePricePaise: 1499900, durationDays: 365, courseType: CourseType.JEE, classLevel: "CLASS_11", mode: "HYBRID", status: "ACTIVE", isFeatured: true, categoryId: category.id, instructorId: teachers[0].id, createdById: admin.id } });
   const batch = await prisma.batch.upsert({ where: { code: "JEE-27-A" }, update: {}, create: { name: "JEE 2027 – Batch A", code: "JEE-27-A", branchId: branch.id, courseId: course.id, startsAt: new Date("2026-04-01") } });
   const studentProfile = await prisma.studentProfile.upsert({ where: { userId: student.id }, update: { branchId: branch.id, batchId: batch.id, className: "Class 11", fatherName: "Rajesh Singh" }, create: { userId: student.id, admissionNo: "BBA-2026-0001", rollNo: "1", gender: "MALE", dateOfBirth: new Date("2009-01-15"), fatherName: "Rajesh Singh", motherName: "Sunita Singh", className: "Class 11", parentMobile: "9876543210", address: "Delhi", branchId: branch.id, batchId: batch.id, academicSession: "2026-27", admissionDate: new Date("2026-04-01") } });

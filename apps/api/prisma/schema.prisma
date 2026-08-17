@@ -1207,10 +1207,12 @@ model BranchUser {
 model Category {
   organizationId String   @default("org_default")
   id             String   @id @default(cuid())
-  name           String   @unique
-  slug           String   @unique
+  name           String
+  slug           String
   courses        Course[]
 
+  @@unique([organizationId, name])
+  @@unique([organizationId, slug])
   @@index([organizationId])
 }
 
