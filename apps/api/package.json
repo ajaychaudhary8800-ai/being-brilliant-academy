@@ -9,7 +9,8 @@
     "lint": "tsc --noEmit",
     "prisma:generate": "node scripts/prisma-run.mjs generate",
     "prisma:migrate": "node scripts/prisma-run.mjs migrate dev",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "test": "tsx --test src/**/*.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

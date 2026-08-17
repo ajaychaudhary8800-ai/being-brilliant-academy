@@ -551,7 +551,7 @@ model Organization {
   locale                 String                         @default("en-IN")
   currency               String                         @default("INR")
   academicYearStartMonth Int                            @default(4)
-  settings               Json?
+  settings               Json                           @default("{}")
   subscriptionStatus     OrganizationSubscriptionStatus @default(TRIAL)
   subscriptionPlan       String                         @default("ENTERPRISE")
   trialEndsAt            DateTime?
