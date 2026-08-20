@@ -8,8 +8,9 @@ import { assertLeaveAttendanceCompatible } from "./lib/leave-attendance-policy.j
 import { noticeRecipientConstraints } from "./lib/notice-policy.js";
 import { tenantWhere } from "./lib/prisma.js";
 import { pathMatches } from "./lib/scoped-router.js";
-import { decodeVerifiedUpload } from "./lib/secure-upload.js";
+import { decodeVerifiedTeacherPhoto, decodeVerifiedUpload } from "./lib/secure-upload.js";
 import { allocationWhere, effectiveDateForSession } from "./lib/subject-resolution.js";
+import { createTeacherPhotoLocation, parseTeacherPhotoLocation } from "./lib/teacher-photo.js";
 
 test("feature router scopes preserve unrelated public APIs", () => {
   assert.equal(pathMatches("/courses", ["/admin/leaves", "/portal/leaves"]), false);
@@ -65,6 +66,22 @@ test("upload validation rejects malformed base64 and MIME spoofing", () => {
   assert.throws(() => decodeVerifiedUpload("not base64", "application/pdf"), /valid base64/);
   assert.throws(() => decodeVerifiedUpload(Buffer.from("plain text").toString("base64"), "application/pdf"), /does not match/);
   assert.throws(() => decodeVerifiedUpload(pdf, "image/png"), /does not match/);
+});
+
+test("teacher photos enforce image signatures, size and tenant-scoped generated paths", () => {
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0]).toString("base64");
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64");
+  const webp = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBP")]).toString("base64");
+  assert.equal(decodeVerifiedTeacherPhoto(jpeg, "image/jpeg")[0], 0xff);
+  assert.equal(decodeVerifiedTeacherPhoto(png, "image/png")[1], 0x50);
+  assert.equal(decodeVerifiedTeacherPhoto(webp, "image/webp").subarray(8, 12).toString(), "WEBP");
+  assert.throws(() => decodeVerifiedTeacherPhoto(webp, "image/png"), /does not match/);
+  assert.throws(() => decodeVerifiedTeacherPhoto(Buffer.alloc((5 * 1024 * 1024) + 1).toString("base64"), "image/jpeg"), /5 MB/);
+  const location = createTeacherPhotoLocation("org_default", "image/webp");
+  assert.match(location.url, /^\/api\/v1\/teacher-photos\/org_default\/[0-9a-f-]{36}\.webp$/);
+  assert.equal(parseTeacherPhotoLocation(location.url, "org_default")?.key, location.key);
+  assert.equal(parseTeacherPhotoLocation(location.url, "another-organization"), null);
+  assert.equal(parseTeacherPhotoLocation("/api/v1/teacher-photos/org_default/../../secret.webp", "org_default"), null);
 });
 
 test("allocation date policy excludes future and expired allocations", () => {

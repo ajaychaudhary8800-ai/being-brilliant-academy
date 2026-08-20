@@ -11,7 +11,7 @@ RUN pnpm --filter @bba/api prisma:generate && pnpm --filter @bba/api build
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production PORT=4000
-RUN apk add --no-cache tini curl && addgroup -S app && adduser -S -G app app
+RUN apk add --no-cache tini curl su-exec && addgroup -S app && adduser -S -G app app && mkdir -p /data/storage && chown app:app /data/storage
 WORKDIR /workspace
 COPY --from=build --chown=app:app /workspace/package.json /workspace/pnpm-lock.yaml /workspace/pnpm-workspace.yaml ./
 COPY --from=build --chown=app:app /workspace/node_modules ./node_modules
@@ -20,9 +20,9 @@ COPY --from=build --chown=app:app /workspace/apps/api/package.json ./apps/api/pa
 COPY --from=build --chown=app:app /workspace/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=app:app /workspace/apps/api/prisma ./apps/api/prisma
 COPY --from=build --chown=app:app /workspace/apps/api/scripts ./apps/api/scripts
-USER app
+COPY --chmod=755 apps/api/docker-entrypoint.sh /usr/local/bin/bba-api-entrypoint
 WORKDIR /workspace/apps/api
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD curl -fsS http://127.0.0.1:4000/health/ready || exit 1
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/bba-api-entrypoint"]
 CMD ["node", "scripts/start-production.mjs"]

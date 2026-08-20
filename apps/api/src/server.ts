@@ -56,6 +56,7 @@ import organizationProvisioning from "./routes/organization-provisioning.js";
 import learningEcosystem from "./routes/learning-ecosystem.js";
 import premiumExperience from "./routes/premium-experience.js";
 import birthdays from "./routes/birthdays.js";
+import teacherPhotos from "./routes/teacher-photos.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -102,6 +103,7 @@ app.get("/metrics", async (req, res) => {
 // feature routers below, whose router-level guards intentionally reject
 // unauthenticated requests.
 app.use("/api/v1/auth", auth);
+app.use("/api/v1", teacherPhotos);
 app.use("/api/v1/admin", adminAcademicSessions);
 app.use("/api/v1/admin", adminTeacherAllocations);
 app.use("/api/v1/admin", adminSubjectOptions);
