@@ -14,6 +14,7 @@ import { metricsMiddleware, metricsRegistry } from "./lib/metrics.js";
 import { systemPrisma } from "./lib/prisma.js";
 import { ensureRedis, redis } from "./lib/redis.js";
 import { deliverNotification, providerStatus, verifySmtp } from "./lib/notifications.js";
+import { onlyPaths } from "./lib/scoped-router.js";
 import auth from "./routes/auth.js";
 import courses from "./routes/courses.js";
 import learning from "./routes/learning.js";
@@ -23,15 +24,21 @@ import adminCourses from "./routes/admin-courses.js";
 import adminBatches from "./routes/admin-batches.js";
 import adminAcademicSessions from "./routes/admin-academic-sessions.js";
 import adminTeacherAllocations from "./routes/admin-teacher-allocations.js";
+import adminSubjectOptions from "./routes/admin-subject-options.js";
+import adminSubjectEnforcement from "./routes/admin-subject-enforcement.js";
+import adminClassrooms from "./routes/admin-classrooms.js";
 import adminStudents from "./routes/admin-students.js";
 import adminTimetables from "./routes/admin-timetables.js";
 import homeworks from "./routes/homeworks.js";
 import adminExaminations from "./routes/admin-examinations.js";
+import examinationWorkflow from "./routes/examination-workflow.js";
 import adminFees from "./routes/admin-fees.js";
+import feeDefaulters from "./routes/fee-defaulters.js";
 import adminTests from "./routes/admin-tests.js";
 import adminEnquiries from "./routes/admin-enquiries.js";
 import adminCertificates from "./routes/admin-certificates.js";
 import attendance from "./routes/attendance.js";
+import leaveManagement from "./routes/leave-management.js";
 import payments from "./routes/payments.js";
 import exams from "./routes/exams.js";
 import portals from "./routes/portals.js";
@@ -41,11 +48,14 @@ import transport from "./routes/transport.js";
 import library from "./routes/library.js";
 import hostel from "./routes/hostel.js";
 import communication from "./routes/communication.js";
+import noticeBoard from "./routes/notice-board.js";
 import inventory from "./routes/inventory.js";
 import analytics from "./routes/analytics.js";
 import organizations from "./routes/organizations.js";
+import organizationProvisioning from "./routes/organization-provisioning.js";
 import learningEcosystem from "./routes/learning-ecosystem.js";
 import premiumExperience from "./routes/premium-experience.js";
+import birthdays from "./routes/birthdays.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -88,17 +98,27 @@ app.get("/metrics", async (req, res) => {
   res.setHeader("Content-Type", metricsRegistry.contentType); return res.send(await metricsRegistry.metrics());
 });
 
+// Public authentication routes must be mounted before the authenticated
+// feature routers below, whose router-level guards intentionally reject
+// unauthenticated requests.
+app.use("/api/v1/auth", auth);
 app.use("/api/v1/admin", adminAcademicSessions);
 app.use("/api/v1/admin", adminTeacherAllocations);
+app.use("/api/v1/admin", adminSubjectOptions);
+app.use("/api/v1/admin", adminSubjectEnforcement);
+app.use("/api/v1/admin", adminClassrooms);
+app.use("/api/v1/exam-workflow", examinationWorkflow);
+app.use("/api/v1", onlyPaths(["/platform/organizations"], organizationProvisioning));
+app.use("/api/v1", onlyPaths(["/portal/leaves", "/admin/leaves"], leaveManagement));
+app.use("/api/v1", onlyPaths(["/admin/fee-defaulters"], feeDefaulters));
+app.use("/api/v1", onlyPaths(["/notices", "/admin/notices"], noticeBoard));
+app.use("/api/v1", onlyPaths(["/birthdays", "/admin/teachers"], birthdays));
 // Mount role-aware learning routes before broad admin routers that intentionally
 // reject non-admin requests.
-const scoped = (prefixes: string[], handler: express.RequestHandler): express.RequestHandler =>
-  (req, res, next) => prefixes.some((prefix) => req.path === prefix || req.path.startsWith(`${prefix}/`)) ? handler(req, res, next) : next();
-app.use("/api/v1/auth", auth);
-app.use("/api/v1", scoped(["/premium"], premiumExperience));
-app.use("/api/v1", scoped(["/learning"], learningEcosystem));
+app.use("/api/v1", onlyPaths(["/premium"], premiumExperience));
+app.use("/api/v1", onlyPaths(["/learning"], learningEcosystem));
 
-app.use("/api/v1", scoped(["/platform", "/organization"], organizations)); app.use("/api/v1", scoped(["/analytics"], analytics)); app.use("/api/v1", scoped(["/inventory"], inventory)); app.use("/api/v1", scoped(["/communication"], communication)); app.use("/api/v1", scoped(["/hostel"], hostel)); app.use("/api/v1", scoped(["/library"], library)); app.use("/api/v1", scoped(["/transport"], transport)); app.use("/api/v1", scoped(["/finance"], finance)); app.use("/api/v1", scoped(["/hr", "/employee"], hrPayroll)); app.use("/api/v1/portal", portals); app.use("/api/v1/courses", courses); app.use("/api/v1/learning", learning); app.use("/api/v1/learning", lmsLearning); app.use("/api/v1/admin", adminCertificates); app.use("/api/v1/admin", adminStudents); app.use("/api/v1/admin", adminTimetables); app.use("/api/v1/admin", homeworks); app.use("/api/v1/admin", adminExaminations); app.use("/api/v1/admin", adminLms); app.use("/api/v1/admin", admin); app.use("/api/v1/admin", adminCourses); app.use("/api/v1/admin", adminBatches); app.use("/api/v1/admin", adminFees); app.use("/api/v1/admin", adminTests); app.use("/api/v1/admin", adminEnquiries); app.use("/api/v1/attendance", attendance); app.use("/api/v1/payments", payments); app.use("/api/v1/exams", exams);
+app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations)); app.use("/api/v1", onlyPaths(["/analytics"], analytics)); app.use("/api/v1", onlyPaths(["/inventory"], inventory)); app.use("/api/v1", onlyPaths(["/communication"], communication)); app.use("/api/v1", onlyPaths(["/hostel"], hostel)); app.use("/api/v1", onlyPaths(["/library"], library)); app.use("/api/v1", onlyPaths(["/transport"], transport)); app.use("/api/v1", onlyPaths(["/finance"], finance)); app.use("/api/v1", onlyPaths(["/hr", "/employee"], hrPayroll)); app.use("/api/v1/portal", portals); app.use("/api/v1/courses", courses); app.use("/api/v1/learning", learning); app.use("/api/v1/learning", lmsLearning); app.use("/api/v1/admin", adminCertificates); app.use("/api/v1/admin", adminStudents); app.use("/api/v1/admin", adminTimetables); app.use("/api/v1/admin", homeworks); app.use("/api/v1/admin", adminExaminations); app.use("/api/v1/admin", adminLms); app.use("/api/v1/admin", admin); app.use("/api/v1/admin", adminCourses); app.use("/api/v1/admin", adminBatches); app.use("/api/v1/admin", adminFees); app.use("/api/v1/admin", adminTests); app.use("/api/v1/admin", adminEnquiries); app.use("/api/v1/attendance", attendance); app.use("/api/v1/payments", payments); app.use("/api/v1/exams", exams);
 app.use(notFound, errorHandler);
 
 export const server = app.listen(env.PORT, () => logger.info({ port: env.PORT }, "API listening"));

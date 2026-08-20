@@ -565,6 +565,8 @@ model Organization {
   tenantAuditLogs        TenantAccessAudit[]
   academicSessions       AcademicSession[]
   teacherAllocations     TeacherAllocation[]
+  examinationQuestionPapers ExaminationQuestionPaper[]
+  examinationAnswerSheets ExaminationAnswerSheet[]
 
   @@index([subscriptionStatus, isActive])
 }
@@ -774,6 +776,14 @@ enum TeacherAllocationStatus {
   INACTIVE
 }
 
+enum ClassroomType {
+  CLASSROOM
+  LAB
+  COMPUTER_LAB
+  AUDITORIUM
+  OTHER
+}
+
 enum Gender {
   MALE
   FEMALE
@@ -846,6 +856,14 @@ enum ExaminationResultStatus {
   FAIL
   ABSENT
   WITHHELD
+}
+
+enum AnswerSheetStatus {
+  SUBMITTED
+  LATE_SUBMITTED
+  UNDER_REVIEW
+  EVALUATED
+  RETURNED
 }
 
 enum LmsContentStatus {
@@ -984,6 +1002,27 @@ enum AttendanceStatus {
   LATE
   LEAVE
   EXCUSED
+  FULL_DAY_LEAVE
+  HALF_DAY_LEAVE
+  SHORT_LEAVE
+}
+
+enum LeaveType {
+  FULL_DAY
+  HALF_DAY
+  SHORT_LEAVE
+}
+
+enum HalfDaySession {
+  FIRST_HALF
+  SECOND_HALF
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
 }
 
 enum QuestionType {
@@ -1093,6 +1132,7 @@ model User {
   sentMessages             PortalMessage[]            @relation("MessageSender")
   receivedMessages         PortalMessage[]            @relation("MessageRecipient")
   leaveRequests            LeaveRequest[]
+  approvedLeaveRequests    LeaveRequest[] @relation("LeaveRequestApprover")
   authoredAnnouncements    Announcement[]
   employee                 Employee?
   approvedHrLeaves         EmployeeLeave[]            @relation("LeaveApprover")
@@ -1124,6 +1164,8 @@ model User {
   gamificationProfile      GamificationProfile?
   earnedBadges             StudentBadge[]
   challengeProgress        ChallengeProgress[]
+  uploadedQuestionPapers   ExaminationQuestionPaper[] @relation("QuestionPaperUploader")
+  evaluatedAnswerSheets    ExaminationAnswerSheet[] @relation("AnswerSheetEvaluator")
   learningRecommendations  LearningRecommendation[]
   dailyLearningGoals       DailyLearningGoal[]
   teacherAllocationsCreated TeacherAllocation[] @relation("TeacherAllocationCreatedBy")
@@ -1321,6 +1363,7 @@ model Subject {
   homeworks      Homework[]
   examinations   Examination[]
   lmsLessons     Lesson[]
+  teacherAllocations TeacherAllocation[]
 
   @@index([organizationId])
 }
@@ -1534,6 +1577,7 @@ model StudentProfile {
   certificates         Certificate[]
   homeworkSubmissions  HomeworkSubmission[]
   examinationResults   ExaminationResult[]
+  examinationAnswerSheets ExaminationAnswerSheet[]
   parents              ParentStudent[]
   transportAssignments StudentTransportAssignment[]
   transportAttendances TransportAttendance[]
@@ -1558,6 +1602,7 @@ model TeacherProfile {
   employeeNo         String              @unique
   qualification      String?
   specialization     String?
+  dateOfBirth       DateTime?           @db.Date
   branchId           String
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
@@ -1573,6 +1618,7 @@ model TeacherProfile {
   allocations        TeacherAllocation[]
 
   @@index([branchId, specialization])
+  @@index([dateOfBirth])
   @@index([organizationId])
 }
 
@@ -1584,6 +1630,7 @@ model TeacherAllocation {
   courseId          String
   batchId           String
   teacherId         String
+  subjectId         String
   subjectName       String
   weeklyPeriods     Int
   effectiveFrom     DateTime                @db.Date
@@ -1600,6 +1647,7 @@ model TeacherAllocation {
   course            Course                  @relation(fields: [courseId], references: [id], onDelete: Restrict)
   batch             Batch                   @relation(fields: [batchId], references: [id], onDelete: Restrict)
   teacher           TeacherProfile          @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  subject           Subject                 @relation(fields: [subjectId], references: [id], onDelete: Restrict)
   createdBy         User                    @relation("TeacherAllocationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   updatedBy         User                    @relation("TeacherAllocationUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
 
@@ -1609,6 +1657,7 @@ model TeacherAllocation {
   @@index([organizationId, courseId])
   @@index([organizationId, batchId])
   @@index([organizationId, teacherId])
+  @@index([organizationId, subjectId])
   @@index([organizationId, subjectName])
 }
 
@@ -1619,6 +1668,10 @@ model Classroom {
   code           String
   branchId       String
   capacity       Int         @default(30)
+  building       String?
+  floor          String?
+  type           ClassroomType @default(CLASSROOM)
+  remarks        String?     @db.Text
   isActive       Boolean     @default(true)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
@@ -1765,6 +1818,8 @@ model Examination {
   teacher           TeacherProfile      @relation(fields: [teacherId], references: [id])
   session           AcademicSession     @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
   results           ExaminationResult[]
+  questionPaper     ExaminationQuestionPaper?
+  answerSheets      ExaminationAnswerSheet[]
 
   @@unique([batchId, subjectId, type, academicSession])
   @@index([branchId])
@@ -1799,6 +1854,61 @@ model ExaminationResult {
   @@index([rank])
   @@index([status])
   @@index([organizationId])
+}
+
+model ExaminationQuestionPaper {
+  organizationId String
+  id             String   @id @default(cuid())
+  examinationId  String   @unique
+  uploadedById   String
+  fileName       String
+  mimeType       String
+  fileSize       Int
+  fileData       Bytes
+  publishedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  examination    Examination @relation(fields: [examinationId], references: [id], onDelete: Restrict)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  uploadedBy     User @relation("QuestionPaperUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  answerSheets   ExaminationAnswerSheet[]
+
+  @@index([organizationId, createdAt])
+  @@index([uploadedById])
+}
+
+model ExaminationAnswerSheet {
+  organizationId String
+  id             String   @id @default(cuid())
+  examinationId  String
+  questionPaperId String?
+  studentId      String
+  fileName       String
+  mimeType       String
+  fileSize       Int
+  fileData       Bytes
+  studentRemarks String?  @db.Text
+  status         AnswerSheetStatus @default(SUBMITTED)
+  isLate         Boolean  @default(false)
+  marksObtained  Decimal? @db.Decimal(8, 2)
+  teacherRemarks String?  @db.Text
+  internalNotes  String?  @db.Text
+  evaluatedById  String?
+  evaluatedAt    DateTime?
+  finalizedAt    DateTime?
+  submittedAt    DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  examination    Examination @relation(fields: [examinationId], references: [id], onDelete: Restrict)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  questionPaper  ExaminationQuestionPaper? @relation(fields: [questionPaperId], references: [id], onDelete: Restrict)
+  student        StudentProfile @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  evaluatedBy    User? @relation("AnswerSheetEvaluator", fields: [evaluatedById], references: [id], onDelete: Restrict)
+
+  @@unique([examinationId, studentId])
+  @@index([organizationId, status, submittedAt])
+  @@index([studentId, submittedAt])
+  @@index([evaluatedById])
 }
 
 model Attendance {
@@ -2255,11 +2365,16 @@ model Announcement {
   attachmentMime String?
   attachmentData Bytes?
   deletedAt      DateTime?
+  kind           String             @default("ANNOUNCEMENT")
+  category       String?
+  isPinned       Boolean            @default(false)
+  requiresAcknowledgement Boolean   @default(false)
   batch          Batch?             @relation(fields: [batchId], references: [id], onDelete: Restrict)
   reads          AnnouncementRead[]
 
   @@index([branchId, audience, publishedAt])
   @@index([organizationId])
+  @@index([kind, isArchived, publishedAt])
 }
 
 model PortalMessage {
@@ -3080,16 +3195,25 @@ model LeaveRequest {
   fromDate       DateTime @db.Date
   toDate         DateTime @db.Date
   reason         String   @db.Text
-  status         String   @default("PENDING")
+  leaveType      LeaveType @default(FULL_DAY)
+  halfDaySession HalfDaySession?
+  status         LeaveRequestStatus @default(PENDING)
   remarks        String?  @db.Text
+  attachmentName String?
+  attachmentMime String?
+  attachmentData Bytes?
+  approvedById   String?
+  approvedAt     DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   user           User     @relation(fields: [userId], references: [id])
+  approvedBy     User?    @relation("LeaveRequestApprover", fields: [approvedById], references: [id], onDelete: Restrict)
   branch         Branch   @relation(fields: [branchId], references: [id])
 
   @@unique([userId, fromDate, toDate])
   @@index([branchId, status])
   @@index([organizationId])
+  @@index([approvedById])
 }
 
 model SupportTicket {

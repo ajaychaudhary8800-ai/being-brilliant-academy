@@ -5,6 +5,7 @@ import { currentTenant } from "./tenant-context.js";
 export const systemPrisma = new PrismaClient({ log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"] });
 const unscoped = new Set(["Organization", "TenantAccessAudit"]);
 const sessionModels = new Set(["Batch", "StudentProfile", "Examination", "Timetable"]);
+export const tenantWhere = (organizationId: string, where: Record<string, unknown> = {}) => ({ ...where, organizationId });
 
 async function withAcademicSession(model: string | undefined, organizationId: string, data: any, scalar = false) {
   if (!sessionModels.has(model ?? "") || !data?.academicSession) return data;
@@ -15,7 +16,7 @@ async function withAcademicSession(model: string | undefined, organizationId: st
 }
 
 export const prisma = systemPrisma.$extends({ name: "organization-isolation", query: { $allModels: { async $allOperations({ model, operation, args, query }) {
-  const tenant = currentTenant(); if (!tenant || unscoped.has(model)) return query(args); const a = args as any, where = { ...(a.where ?? {}), organizationId: tenant.organizationId };
+  const tenant = currentTenant(); if (!tenant || unscoped.has(model)) return query(args); const a = args as any, where = tenantWhere(tenant.organizationId, a.where);
   if (["findMany", "findFirst", "findFirstOrThrow", "count", "aggregate", "groupBy", "updateMany", "deleteMany"].includes(operation)) return query({ ...a, where });
   if (["findUnique", "findUniqueOrThrow", "delete"].includes(operation)) return query({ ...a, where });
   if (operation === "update") return query({ ...a, where });
