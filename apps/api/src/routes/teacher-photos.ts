@@ -3,13 +3,14 @@ import { Router } from "express";
 import { z } from "zod";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
-import { allowedTeacherPhotoTypes, decodeVerifiedTeacherPhoto } from "../lib/secure-upload.js";
+import { allowedTeacherPhotoTypes, assertImageFileExtension, decodeVerifiedTeacherPhoto } from "../lib/secure-upload.js";
 import { deleteObject, getObject, putObject } from "../lib/storage.js";
 import { createTeacherPhotoLocation, parseTeacherPhotoLocation, teacherPhotoMimeType } from "../lib/teacher-photo.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
 const uploadInput = z.object({
+  fileName: z.string().trim().min(1).max(255).optional(),
   mimeType: z.enum(allowedTeacherPhotoTypes),
   base64: z.string().max(7_000_000, "Photo must not exceed 5 MB"),
 }).strict();
@@ -41,6 +42,7 @@ router.get("/teacher-photos/:organizationId/:fileName", async (req, res) => {
 
 router.post("/admin/teacher-photos", requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN), async (req: AuthRequest, res) => {
   const input = uploadInput.parse(req.body);
+  if (input.fileName) assertImageFileExtension(input.fileName, input.mimeType);
   const photo = decodeVerifiedTeacherPhoto(input.base64, input.mimeType);
   const location = createTeacherPhotoLocation(req.auth!.organizationId, input.mimeType);
   await putObject(location.key, photo, input.mimeType);

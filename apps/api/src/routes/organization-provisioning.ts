@@ -6,6 +6,7 @@ import { AppError } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { organizationBrandingSchema } from "../validation/organization.js";
+import { storedImagePublicPrefix } from "../lib/stored-image.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -23,6 +24,9 @@ const input = organizationBrandingSchema.extend({
 router.post("/platform/organizations", async (req: AuthRequest, res) => {
   if (req.auth!.role !== Role.SUPER_ADMIN || req.auth!.homeOrganizationId !== "org_default") throw new AppError(403, "PLATFORM_ADMIN_REQUIRED", "Platform super administrator access required");
   const data = input.parse(req.body);
+  let logoPath = data.logoUrl ?? "";
+  try { if (/^https?:\/\//i.test(logoPath)) logoPath = new URL(logoPath).pathname; } catch { logoPath = ""; }
+  if (logoPath.startsWith(storedImagePublicPrefix)) throw new AppError(422, "INVALID_LOGO_REFERENCE", "Upload the logo after the organization has been created");
   const [slug, email] = await Promise.all([systemPrisma.organization.findUnique({ where: { slug: data.slug }, select: { id: true } }), systemPrisma.user.findUnique({ where: { email: data.adminEmail }, select: { id: true } })]);
   if (slug) throw new AppError(409, "SLUG_EXISTS", "Organization slug already exists");
   if (email) throw new AppError(409, "EMAIL_EXISTS", "Administrator email already exists");

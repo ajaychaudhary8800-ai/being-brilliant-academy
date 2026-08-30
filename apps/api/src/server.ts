@@ -57,6 +57,7 @@ import learningEcosystem from "./routes/learning-ecosystem.js";
 import premiumExperience from "./routes/premium-experience.js";
 import birthdays from "./routes/birthdays.js";
 import teacherPhotos from "./routes/teacher-photos.js";
+import imageUploads from "./routes/image-uploads.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -104,6 +105,7 @@ app.get("/metrics", async (req, res) => {
 // unauthenticated requests.
 app.use("/api/v1/auth", auth);
 app.use("/api/v1", teacherPhotos);
+app.use("/api/v1", imageUploads);
 app.use("/api/v1/admin", adminAcademicSessions);
 app.use("/api/v1/admin", adminTeacherAllocations);
 app.use("/api/v1/admin", adminSubjectOptions);

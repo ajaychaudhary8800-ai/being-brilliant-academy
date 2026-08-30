@@ -17,3 +17,9 @@ test("preserves an existing settings object", () => {
   const result = organizationSettingsUpdateSchema.parse({ settings });
   assert.deepEqual(result.settings, settings);
 });
+
+test("accepts stored organization logos while rejecting other uploaded-image kinds", () => {
+  const logoUrl = "/api/v1/uploaded-images/organization-logo/org_default/123e4567-e89b-42d3-a456-426614174000.png";
+  assert.equal(organizationSettingsUpdateSchema.parse({ logoUrl }).logoUrl, logoUrl);
+  assert.throws(() => organizationSettingsUpdateSchema.parse({ logoUrl: logoUrl.replace("organization-logo", "student-photo") }));
+});

@@ -4,6 +4,15 @@ export const allowedDocumentTypes = ["application/pdf", "image/jpeg", "image/png
 export type AllowedDocumentType = typeof allowedDocumentTypes[number];
 export const allowedTeacherPhotoTypes = ["image/jpeg", "image/png", "image/webp"] as const;
 export type AllowedTeacherPhotoType = typeof allowedTeacherPhotoTypes[number];
+export const allowedImageTypes = allowedTeacherPhotoTypes;
+export type AllowedImageType = AllowedTeacherPhotoType;
+const imageExtensions: Record<AllowedImageType, readonly string[]> = { "image/jpeg": ["jpg", "jpeg"], "image/png": ["png"], "image/webp": ["webp"] };
+
+export function assertImageFileExtension(fileName: string, mimeType: AllowedImageType) {
+  if (!fileName || fileName.length > 255 || fileName.includes("/") || fileName.includes("\\") || fileName.includes("\0")) throw new AppError(422, "INVALID_FILE_NAME", "Image filename is invalid");
+  const extension = fileName.toLowerCase().split(".").pop() ?? "";
+  if (!imageExtensions[mimeType].includes(extension)) throw new AppError(422, "FILE_EXTENSION_MISMATCH", "Image filename extension does not match the declared image type");
+}
 
 function strictBase64(value: string) {
   const paddingAt = value.indexOf("=");
@@ -38,3 +47,5 @@ export function decodeVerifiedTeacherPhoto(base64: string, mimeType: AllowedTeac
   if (!matches(fileData, mimeType)) throw new AppError(422, "FILE_TYPE_MISMATCH", "Photo content does not match the declared image type");
   return fileData;
 }
+
+export const decodeVerifiedImage = decodeVerifiedTeacherPhoto;

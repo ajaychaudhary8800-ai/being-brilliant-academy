@@ -8,9 +8,10 @@ import { assertLeaveAttendanceCompatible } from "./lib/leave-attendance-policy.j
 import { noticeRecipientConstraints } from "./lib/notice-policy.js";
 import { tenantWhere } from "./lib/prisma.js";
 import { pathMatches } from "./lib/scoped-router.js";
-import { decodeVerifiedTeacherPhoto, decodeVerifiedUpload } from "./lib/secure-upload.js";
+import { assertImageFileExtension, decodeVerifiedTeacherPhoto, decodeVerifiedUpload } from "./lib/secure-upload.js";
 import { allocationWhere, effectiveDateForSession } from "./lib/subject-resolution.js";
 import { createTeacherPhotoLocation, parseTeacherPhotoLocation } from "./lib/teacher-photo.js";
+import { createStoredImageLocation, parseStoredImageLocation } from "./lib/stored-image.js";
 
 test("feature router scopes preserve unrelated public APIs", () => {
   assert.equal(pathMatches("/courses", ["/admin/leaves", "/portal/leaves"]), false);
@@ -82,6 +83,20 @@ test("teacher photos enforce image signatures, size and tenant-scoped generated 
   assert.equal(parseTeacherPhotoLocation(location.url, "org_default")?.key, location.key);
   assert.equal(parseTeacherPhotoLocation(location.url, "another-organization"), null);
   assert.equal(parseTeacherPhotoLocation("/api/v1/teacher-photos/org_default/../../secret.webp", "org_default"), null);
+});
+
+test("student photos and organization logos use tenant-scoped safe image paths", () => {
+  assert.doesNotThrow(() => assertImageFileExtension("profile.JPEG", "image/jpeg"));
+  assert.throws(() => assertImageFileExtension("profile.png", "image/jpeg"), /extension/);
+  assert.throws(() => assertImageFileExtension("../profile.jpg", "image/jpeg"), /filename/);
+  const student = createStoredImageLocation("student-photo", "org_default", "image/jpeg");
+  const logo = createStoredImageLocation("organization-logo", "org_default", "image/png");
+  assert.match(student.url, /^\/api\/v1\/uploaded-images\/student-photo\/org_default\/[0-9a-f-]{36}\.jpg$/);
+  assert.match(logo.url, /^\/api\/v1\/uploaded-images\/organization-logo\/org_default\/[0-9a-f-]{36}\.png$/);
+  assert.equal(parseStoredImageLocation(student.url, "org_default", "student-photo")?.key, student.key);
+  assert.equal(parseStoredImageLocation(student.url, "another-organization", "student-photo"), null);
+  assert.equal(parseStoredImageLocation(student.url, "org_default", "organization-logo"), null);
+  assert.equal(parseStoredImageLocation("/api/v1/uploaded-images/student-photo/org_default/../../secret.jpg", "org_default"), null);
 });
 
 test("allocation date policy excludes future and expired allocations", () => {
