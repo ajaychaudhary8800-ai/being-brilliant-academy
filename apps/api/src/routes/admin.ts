@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+import { MasterReviewStatus, MasterStatus, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { Router } from "express";
 import { z } from "zod";
@@ -178,9 +178,9 @@ router.delete("/students/:id", async (req: AuthRequest, res) => {
   res.status(204).send();
 });
 
-const teacherSelect = { id: true, employeeNo: true, qualification: true, specialization: true, maxPeriodsPerDay: true, maxPeriodsPerWeek: true, subjects: { select: { subject: { select: { id: true, name: true, code: true, status: true } } }, orderBy: { subject: { name: "asc" as const } } }, user: { select: { id: true, name: true, email: true, phone: true, avatarUrl: true, isActive: true } }, branch: { select: { id: true, branchName: true, branchCode: true } } } as const;
+const teacherSelect = { id: true, employeeNo: true, qualification: true, specialization: true, maxPeriodsPerDay: true, maxPeriodsPerWeek: true, subjects: { select: { subject: { select: { id: true, name: true, code: true, status: true } } }, orderBy: { subject: { name: "asc" as const } } }, specializationsNormalized: { select: { specialization: { select: { id: true, name: true, code: true, status: true, legacyReviewStatus: true } } }, orderBy: { specialization: { name: "asc" as const } } }, user: { select: { id: true, name: true, email: true, phone: true, avatarUrl: true, isActive: true } }, branch: { select: { id: true, branchName: true, branchCode: true } } } as const;
 const teacherPhotoReference = z.union([z.string().url(), z.string().regex(/^\/api\/v1\/teacher-photos\/[A-Za-z0-9_-]{1,100}\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/, "Invalid teacher photo reference")]);
-const teacherInput = z.object({ employeeNo: z.string().trim().min(3).max(40), name: z.string().trim().min(2).max(100), email: z.string().trim().toLowerCase().email(), password: z.string().min(8).max(128).optional(), mobile: z.string().trim().min(7).max(20).nullable().optional(), photoUrl: teacherPhotoReference.nullable().optional(), qualification: z.string().trim().max(150).nullable().optional(), specialization: z.string().trim().max(150).nullable().optional(), branchId: z.string().cuid(), subjectIds: z.array(z.string().cuid()).max(100).optional(), maxPeriodsPerDay: z.number().int().min(1).max(50).nullable().optional(), maxPeriodsPerWeek: z.number().int().min(1).max(300).nullable().optional(), isActive: z.boolean().optional() });
+const teacherInput = z.object({ employeeNo: z.string().trim().min(3).max(40), name: z.string().trim().min(2).max(100), email: z.string().trim().toLowerCase().email(), password: z.string().min(8).max(128).optional(), mobile: z.string().trim().min(7).max(20).nullable().optional(), photoUrl: teacherPhotoReference.nullable().optional(), qualification: z.string().trim().max(150).nullable().optional(), specialization: z.string().trim().max(150).nullable().optional(), branchId: z.string().cuid(), subjectIds: z.array(z.string().cuid()).max(100).optional(), specializationIds: z.array(z.string().cuid()).max(100).optional(), maxPeriodsPerDay: z.number().int().min(1).max(50).nullable().optional(), maxPeriodsPerWeek: z.number().int().min(1).max(300).nullable().optional(), isActive: z.boolean().optional() });
 const teacherQuery = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(10), search: z.string().trim().optional(), branchId: z.string().cuid().optional(), specialization: z.string().trim().optional(), status: z.enum(["active", "inactive"]).optional(), sortBy: z.enum(["employeeNo", "name", "specialization", "createdAt"]).default("createdAt"), sortOrder: z.enum(["asc", "desc"]).default("desc") });
 
 function requireTeacherPhotoAccess(req: AuthRequest, photoUrl: string | null | undefined) {
@@ -210,9 +210,22 @@ async function validateTeacherSubjects(subjectIds: string[] | undefined, teacher
   return subjectIds;
 }
 
+async function validateTeacherSpecializations(specializationIds: string[] | undefined, teacherId?: string) {
+  if (specializationIds === undefined) return undefined;
+  if (new Set(specializationIds).size !== specializationIds.length) throw new AppError(422, "DUPLICATE_SPECIALIZATION_SELECTION", "Select each specialization only once");
+  const [specializations, existingLinks] = await Promise.all([
+    prisma.specialization.findMany({ where: { id: { in: specializationIds } }, select: { id: true, status: true, legacyReviewStatus: true } }),
+    teacherId ? prisma.teacherSpecialization.findMany({ where: { teacherId, specializationId: { in: specializationIds } }, select: { specializationId: true } }) : Promise.resolve([]),
+  ]);
+  const existingIds = new Set(existingLinks.map(link => link.specializationId));
+  if (specializations.length !== specializationIds.length || specializations.some(item => !existingIds.has(item.id) && (item.status !== MasterStatus.ACTIVE || item.legacyReviewStatus !== MasterReviewStatus.CONFIRMED))) throw new AppError(422, "INVALID_SPECIALIZATION_SELECTION", "New specialization mappings must be active, confirmed and belong to this organization");
+  return specializationIds;
+}
+
 router.get("/teachers", async (req: AuthRequest, res) => {
   const query = teacherQuery.parse(req.query); const allowed = await branchScope(req); if (query.branchId) await requireBranchAccess(req, query.branchId);
-  const where = { ...(allowed ? { branchId: { in: allowed } } : {}), ...(query.branchId ? { branchId: query.branchId } : {}), ...(query.specialization ? { specialization: query.specialization } : {}), ...(query.status ? { user: { isActive: query.status === "active" } } : {}), ...(query.search ? { OR: [{ employeeNo: { contains: query.search, mode: "insensitive" as const } }, { specialization: { contains: query.search, mode: "insensitive" as const } }, { user: { name: { contains: query.search, mode: "insensitive" as const } } }, { user: { phone: { contains: query.search, mode: "insensitive" as const } } }] } : {}) };
+  const filters = [...(query.specialization ? [{ OR: [{ specialization: query.specialization }, { specializationsNormalized: { some: { specialization: { name: { equals: query.specialization, mode: "insensitive" as const } } } } }] }] : []), ...(query.search ? [{ OR: [{ employeeNo: { contains: query.search, mode: "insensitive" as const } }, { specialization: { contains: query.search, mode: "insensitive" as const } }, { specializationsNormalized: { some: { specialization: { name: { contains: query.search, mode: "insensitive" as const } } } } }, { user: { name: { contains: query.search, mode: "insensitive" as const } } }, { user: { phone: { contains: query.search, mode: "insensitive" as const } } }] }] : [])];
+  const where = { ...(allowed ? { branchId: { in: allowed } } : {}), ...(query.branchId ? { branchId: query.branchId } : {}), ...(query.status ? { user: { isActive: query.status === "active" } } : {}), ...(filters.length ? { AND: filters } : {}) };
   const orderBy = query.sortBy === "name" ? { user: { name: query.sortOrder } } : { [query.sortBy]: query.sortOrder };
   const [total, data] = await prisma.$transaction([prisma.teacherProfile.count({ where }), prisma.teacherProfile.findMany({ where, skip: (query.page - 1) * query.limit, take: query.limit, orderBy, select: teacherSelect })]);
   res.json({ data: data.map(teacherWithLegacyBranch), meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
@@ -220,12 +233,13 @@ router.get("/teachers", async (req: AuthRequest, res) => {
 router.get("/teachers/:id", async (req: AuthRequest, res) => { const data = await prisma.teacherProfile.findUnique({ where: { id: String(req.params.id) }, select: teacherSelect }); if (!data) throw new AppError(404, "TEACHER_NOT_FOUND", "Teacher not found"); await requireBranchAccess(req, data.branch.id); res.json({ data: teacherWithLegacyBranch(data) }); });
 router.post("/teachers", async (req: AuthRequest, res) => {
   const input = teacherInput.extend({ password: z.string().min(8).max(128) }).parse(req.body);
-  requireTeacherPhotoAccess(req, input.photoUrl); await requireBranchAccess(req, input.branchId); const subjectIds = await validateTeacherSubjects(input.subjectIds);
+  requireTeacherPhotoAccess(req, input.photoUrl); await requireBranchAccess(req, input.branchId); const [subjectIds, specializationIds] = await Promise.all([validateTeacherSubjects(input.subjectIds), validateTeacherSpecializations(input.specializationIds)]);
   const data = await prisma.teacherProfile.create({ data: {
     employeeNo: input.employeeNo, qualification: input.qualification ?? null, specialization: input.specialization ?? null,
     maxPeriodsPerDay: input.maxPeriodsPerDay ?? null, maxPeriodsPerWeek: input.maxPeriodsPerWeek ?? null,
     branch: { connect: { id: input.branchId } },
     ...(subjectIds?.length ? { subjects: { create: subjectIds.map(subjectId => ({ organizationId: req.auth!.organizationId, subjectId })) } } : {}),
+    ...(specializationIds?.length ? { specializationsNormalized: { create: specializationIds.map(specializationId => ({ organizationId: req.auth!.organizationId, specializationId })) } } : {}),
     user: { create: { name: input.name, email: input.email, passwordHash: await bcrypt.hash(input.password, 12), phone: input.mobile ?? null, avatarUrl: input.photoUrl ?? null, isActive: input.isActive ?? true, role: Role.TEACHER } },
   }, select: teacherSelect });
   res.status(201).json({ data: teacherWithLegacyBranch(data) });
@@ -234,11 +248,12 @@ router.patch("/teachers/:id", async (req: AuthRequest, res) => {
   const input = teacherInput.partial().parse(req.body); requireTeacherPhotoAccess(req, input.photoUrl);
   const existing = await prisma.teacherProfile.findUnique({ where: { id: String(req.params.id) }, select: { id: true, userId: true, branchId: true, user: { select: { avatarUrl: true } } } });
   if (!existing) throw new AppError(404, "TEACHER_NOT_FOUND", "Teacher not found");
-  await requireBranchAccess(req, existing.branchId); if (input.branchId) await requireBranchAccess(req, input.branchId); const subjectIds = await validateTeacherSubjects(input.subjectIds, existing.id);
+  await requireBranchAccess(req, existing.branchId); if (input.branchId) await requireBranchAccess(req, input.branchId); const [subjectIds, specializationIds] = await Promise.all([validateTeacherSubjects(input.subjectIds, existing.id), validateTeacherSpecializations(input.specializationIds, existing.id)]);
   if (subjectIds && await prisma.teacherAllocation.findFirst({ where: { teacherId: existing.id, status: "ACTIVE", subjectId: { notIn: subjectIds } }, select: { id: true } })) throw new AppError(409, "TEACHER_SUBJECT_IN_USE", "Deactivate active teacher allocations before removing their subject mapping");
   const data = await prisma.$transaction(async tx => {
     await tx.user.update({ where: { id: existing.userId }, data: { ...(input.name ? { name: input.name } : {}), ...(input.email ? { email: input.email } : {}), ...(input.mobile !== undefined ? { phone: input.mobile } : {}), ...(input.photoUrl !== undefined ? { avatarUrl: input.photoUrl } : {}), ...(input.isActive !== undefined ? { isActive: input.isActive } : {}), ...(input.password ? { passwordHash: await bcrypt.hash(input.password, 12) } : {}) } });
     if (subjectIds) { await tx.teacherSubject.deleteMany({ where: { teacherId: existing.id, subjectId: { notIn: subjectIds } } }); if (subjectIds.length) await tx.teacherSubject.createMany({ data: subjectIds.map(subjectId => ({ organizationId: req.auth!.organizationId, teacherId: existing.id, subjectId })), skipDuplicates: true }); }
+    if (specializationIds) { await tx.teacherSpecialization.deleteMany({ where: { teacherId: existing.id, specializationId: { notIn: specializationIds } } }); if (specializationIds.length) await tx.teacherSpecialization.createMany({ data: specializationIds.map(specializationId => ({ organizationId: req.auth!.organizationId, teacherId: existing.id, specializationId })), skipDuplicates: true }); }
     return tx.teacherProfile.update({ where: { id: existing.id }, data: { ...(input.employeeNo ? { employeeNo: input.employeeNo } : {}), ...(input.qualification !== undefined ? { qualification: input.qualification } : {}), ...(input.specialization !== undefined ? { specialization: input.specialization } : {}), ...(input.maxPeriodsPerDay !== undefined ? { maxPeriodsPerDay: input.maxPeriodsPerDay } : {}), ...(input.maxPeriodsPerWeek !== undefined ? { maxPeriodsPerWeek: input.maxPeriodsPerWeek } : {}), ...(input.branchId ? { branchId: input.branchId } : {}) }, select: teacherSelect });
   });
   if (input.photoUrl !== undefined && input.photoUrl !== existing.user.avatarUrl) await deleteUnusedTeacherPhoto(req.auth!.organizationId, existing.user.avatarUrl).catch(error => logger.warn({ err: error, teacherId: existing.id }, "Unable to remove replaced teacher photo"));

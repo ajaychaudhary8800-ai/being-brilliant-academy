@@ -570,6 +570,9 @@ model Organization {
   timetablePeriods       TimetablePeriod[]
   teacherDuties          TeacherDuty[]
   substitutions          TeacherSubstitution[]
+  competitiveExams       CompetitiveExam[]
+  skillCategories        SkillCategory[]
+  specializations        Specialization[]
   examinationQuestionPapers ExaminationQuestionPaper[]
   examinationAnswerSheets ExaminationAnswerSheet[]
 
@@ -760,6 +763,48 @@ enum CourseType {
   OTHER
 }
 
+enum CourseCategoryType {
+  ACADEMIC
+  COMPETITIVE
+  SKILL_BASED
+}
+
+enum AcademicBoard {
+  CBSE
+  ICSE
+  ISC
+  STATE_BOARD
+  OTHER
+}
+
+enum AcademicStream {
+  SCIENCE
+  COMMERCE
+  HUMANITIES
+}
+
+enum ScienceCombination {
+  PCM
+  PCB
+  PCMB
+}
+
+enum AcademicPreparationType {
+  ACADEMIC_ONLY
+  ACADEMIC_JEE
+  ACADEMIC_NEET
+}
+
+enum MasterStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum MasterReviewStatus {
+  CONFIRMED
+  REVIEW_REQUIRED
+}
+
 enum CourseMode {
   ONLINE
   OFFLINE
@@ -917,6 +962,15 @@ enum LmsContentStatus {
 }
 
 enum ClassLevel {
+  PLAY
+  NURSERY
+  LKG
+  UKG
+  CLASS_1
+  CLASS_2
+  CLASS_3
+  CLASS_4
+  CLASS_5
   CLASS_6
   CLASS_7
   CLASS_8
@@ -1338,6 +1392,72 @@ model Category {
   @@index([organizationId])
 }
 
+model CompetitiveExam {
+  organizationId String
+  id             String       @id @default(cuid())
+  name           String
+  code           String
+  status         MasterStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  courses        Course[]
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, id])
+  @@index([organizationId, status, name])
+}
+
+model SkillCategory {
+  organizationId String
+  id             String          @id @default(cuid())
+  name           String
+  code           String
+  status         MasterStatus    @default(ACTIVE)
+  parentId       String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parent         SkillCategory?  @relation("SkillCategoryTree", fields: [organizationId, parentId], references: [organizationId, id], onDelete: Restrict)
+  children       SkillCategory[] @relation("SkillCategoryTree")
+  courses        Course[]
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, id])
+  @@index([organizationId, status, name])
+  @@index([organizationId, parentId])
+}
+
+model Specialization {
+  organizationId   String
+  id               String             @id @default(cuid())
+  name             String
+  code             String
+  description      String?            @db.Text
+  status           MasterStatus       @default(ACTIVE)
+  legacyReviewStatus MasterReviewStatus @default(CONFIRMED)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  teachers         TeacherSpecialization[]
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, id])
+  @@index([organizationId, status, name])
+}
+
+model TeacherSpecialization {
+  organizationId String
+  teacherId      String
+  specializationId String
+  createdAt      DateTime       @default(now())
+  teacher        TeacherProfile @relation(fields: [organizationId, teacherId], references: [organizationId, id], onDelete: Cascade)
+  specialization Specialization @relation(fields: [organizationId, specializationId], references: [organizationId, id], onDelete: Restrict)
+
+  @@id([teacherId, specializationId])
+  @@index([organizationId, specializationId])
+}
+
 model Course {
   organizationId       String          @default("org_default")
   id                   String          @id @default(cuid())
@@ -1347,8 +1467,17 @@ model Course {
   shortDescription     String?
   fullDescription      String          @map("description") @db.Text
   courseType           CourseType      @default(OTHER) @map("type")
-  classLevel           ClassLevel      @default(OTHER)
+  classLevel           ClassLevel?
   stream               String?
+  categoryType         CourseCategoryType?
+  taxonomyReviewStatus MasterReviewStatus @default(REVIEW_REQUIRED)
+  academicBoard        AcademicBoard?
+  customBoardName      String?
+  academicStream       AcademicStream?
+  scienceCombination   ScienceCombination?
+  academicPreparation  AcademicPreparationType?
+  competitiveExamId    String?
+  skillCategoryId      String?
   durationDays         Int?
   regularPricePaise    Int             @map("price")
   salePricePaise       Int?            @map("salePrice")
@@ -1370,6 +1499,8 @@ model Course {
   createdById          String?
   instructorId         String?
   category             Category?       @relation(fields: [categoryId], references: [id])
+  competitiveExam      CompetitiveExam? @relation(fields: [organizationId, competitiveExamId], references: [organizationId, id], onDelete: Restrict)
+  skillCategory        SkillCategory?  @relation(fields: [organizationId, skillCategoryId], references: [organizationId, id], onDelete: Restrict)
   branch               Branch?         @relation(fields: [branchId], references: [id])
   createdBy            User?           @relation("CourseCreator", fields: [createdById], references: [id])
   instructor           User?           @relation("InstructorCourses", fields: [instructorId], references: [id])
@@ -1397,6 +1528,9 @@ model Course {
   @@index([status])
   @@index([branchId])
   @@index([categoryId])
+  @@index([organizationId, categoryType, status])
+  @@index([organizationId, competitiveExamId])
+  @@index([organizationId, skillCategoryId])
   @@index([organizationId])
 }
 
@@ -1691,11 +1825,13 @@ model TeacherProfile {
   lmsLessons         Lesson[]
   allocations        TeacherAllocation[]
   subjects           TeacherSubject[]
+  specializationsNormalized TeacherSpecialization[]
   duties             TeacherDuty[]
   substitutionsAsOriginal TeacherSubstitution[] @relation("OriginalTeacherSubstitutions")
   substitutionsAsSubstitute TeacherSubstitution[] @relation("SubstituteTeacherSubstitutions")
 
   @@index([branchId, specialization])
+  @@unique([organizationId, id])
   @@index([dateOfBirth])
   @@index([organizationId])
 }

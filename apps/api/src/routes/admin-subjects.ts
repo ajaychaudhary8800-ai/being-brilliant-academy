@@ -1,6 +1,7 @@
 import { Prisma, Role, SubjectLegacyReviewStatus, SubjectStatus } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
+import { ensureEducationCatalogs } from "../lib/education-catalogs.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -28,6 +29,7 @@ function audit(req: AuthRequest, action: string, entityId: string, metadata?: ob
 }
 
 router.get("/subjects", async (req: AuthRequest, res) => {
+  await ensureEducationCatalogs(prisma, req.auth!.organizationId);
   const query = z.object({
     page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20),
     search: z.string().trim().optional(), status: z.nativeEnum(SubjectStatus).optional(),
@@ -45,7 +47,8 @@ router.get("/subjects", async (req: AuthRequest, res) => {
   res.json({ data, meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
 });
 
-router.get("/subjects/options", async (_req, res) => {
+router.get("/subjects/options", async (req: AuthRequest, res) => {
+  await ensureEducationCatalogs(prisma, req.auth!.organizationId);
   const data = await prisma.subject.findMany({ where: { status: SubjectStatus.ACTIVE, legacyReviewStatus: SubjectLegacyReviewStatus.CONFIRMED }, select: { id: true, name: true, code: true }, orderBy: { name: "asc" } });
   res.json({ data });
 });

@@ -126,6 +126,8 @@ test("migration and preflight scripts preserve legacy business state", async () 
   const leave = await readFile(new URL("../prisma/migrations/20260820110000_leave_and_attendance_enhancements/migration.sql", import.meta.url), "utf8");
   const preflight = await readFile(new URL("../prisma/preflight/20260820_production_safety.sql", import.meta.url), "utf8");
   const academicPreflight = await readFile(new URL("../prisma/preflight/20260830_academic_architecture.sql", import.meta.url), "utf8");
+  const taxonomy = await readFile(new URL("../prisma/migrations/20260831120000_course_taxonomy_and_specializations/migration.sql", import.meta.url), "utf8");
+  const taxonomyPreflight = await readFile(new URL("../prisma/preflight/20260831_course_taxonomy.sql", import.meta.url), "utf8");
   assert.match(allocation, /ON CONFLICT \("courseId", "subjectId"\) DO NOTHING/);
   assert.doesNotMatch(allocation, /DO UPDATE SET "isActive" = true/);
   assert.match(allocation, /subjects could not be resolved exactly once/);
@@ -141,6 +143,11 @@ test("migration and preflight scripts preserve legacy business state", async () 
   assert.match(academicPreflight, /AMBIGUOUS/);
   assert.match(academicPreflight, /INVALID_RELATIONSHIP/);
   assert.match(academicPreflight, /DUPLICATE_NORMALIZED_SUBJECT/);
+  assert.match(taxonomy, /taxonomyReviewStatus/);
+  assert.match(taxonomy, /TeacherSpecialization/);
+  assert.doesNotMatch(taxonomy, /DELETE FROM|UPDATE "Course"|UPDATE "TeacherProfile"/);
+  assert.match(taxonomyPreflight, /AMBIGUOUS_LEGACY_SPECIALIZATION/);
+  assert.doesNotMatch(taxonomyPreflight, /\b(?:INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE)\b/i);
 });
 
 test("notice acknowledgement applies the same recipient eligibility policy as listing", async () => {
@@ -159,6 +166,8 @@ test("academic administration is normalized, role protected and branch scoped", 
   const teachers = await readFile(new URL("./routes/admin.ts", import.meta.url), "utf8");
   const timetable = await readFile(new URL("./routes/admin-timetables.ts", import.meta.url), "utf8");
   const operations = await readFile(new URL("./routes/admin-academic-operations.ts", import.meta.url), "utf8");
+  const courses = await readFile(new URL("./routes/admin-courses.ts", import.meta.url), "utf8");
+  const masters = await readFile(new URL("./routes/admin-education-masters.ts", import.meta.url), "utf8");
   assert.match(subjects, /allow\(Role\.SUPER_ADMIN, Role\.BRANCH_ADMIN\)/);
   assert.match(subjects, /legacyReviewStatus: SubjectLegacyReviewStatus\.CONFIRMED/);
   assert.match(allocations, /subjectId: id/);
@@ -166,8 +175,15 @@ test("academic administration is normalized, role protected and branch scoped", 
   assert.match(allocations, /legacyReviewStatus: SubjectLegacyReviewStatus\.CONFIRMED/);
   assert.doesNotMatch(allocations, /prisma\.subject\.create/);
   assert.match(allocations, /ACTIVE_ALLOCATION_OVERLAP/);
+  assert.match(allocations, /teacher-allocations\/preview/);
+  assert.match(allocations, /teacher-allocations\/bulk/);
+  assert.match(allocations, /INVALID_SUBJECT_COMBINATION/);
   assert.match(teachers, /existingSubjectIds\.has\(subject\.id\)/);
   assert.match(teachers, /New subject mappings must be active, confirmed/);
+  assert.match(teachers, /specializationsNormalized/);
+  assert.match(courses, /courseTaxonomyError/);
+  assert.match(courses, /taxonomyReviewStatus: MasterReviewStatus\.CONFIRMED/);
+  assert.match(masters, /allow\(Role\.SUPER_ADMIN, Role\.BRANCH_ADMIN\)/);
   assert.match(timetable, /TEACHER_SCHEDULE_CONFLICT/);
   assert.match(timetable, /BATCH_SCHEDULE_CONFLICT/);
   assert.match(timetable, /CLASSROOM_SCHEDULE_CONFLICT/);

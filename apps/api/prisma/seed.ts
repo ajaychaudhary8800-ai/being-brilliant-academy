@@ -1,6 +1,7 @@
 import { PrismaClient, Role, CourseType } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { ensureDefaultCourseCategories } from "../src/lib/default-course-categories.js";
+import { ensureEducationCatalogs } from "../src/lib/education-catalogs.js";
 const prisma = new PrismaClient();
 async function main() {
   const passwordHash = await bcrypt.hash("ChangeMe123!", 12);
@@ -34,14 +35,23 @@ async function main() {
     ["Priya Iyer", "priya.iyer@beingbrilliant.in", "BBA-T-005", "M.Sc. Biology, B.Ed.", "Biology", "9876500005"],
   ] as const;
   const teachers = [];
+  const teacherProfiles = [];
   for (const [name, email, employeeNo, qualification, specialization, phone] of teacherRecords) {
     const teacher = await prisma.user.upsert({ where: { email }, update: { name, phone, role: Role.TEACHER, isActive: true }, create: { name, email, phone, passwordHash, role: Role.TEACHER, emailVerifiedAt: new Date() } });
-    await prisma.teacherProfile.upsert({ where: { userId: teacher.id }, update: { employeeNo, qualification, specialization, branchId: branch.id }, create: { userId: teacher.id, employeeNo, qualification, specialization, branchId: branch.id } });
+    const profile = await prisma.teacherProfile.upsert({ where: { userId: teacher.id }, update: { employeeNo, qualification, specialization, branchId: branch.id }, create: { userId: teacher.id, employeeNo, qualification, specialization, branchId: branch.id } });
     teachers.push(teacher);
+    teacherProfiles.push({ profile, specialization });
+  }
+  await ensureEducationCatalogs(prisma, "org_default");
+  for (const { profile, specialization } of teacherProfiles) {
+    const subject = await prisma.subject.findFirst({ where: { organizationId: "org_default", name: specialization } });
+    if (subject) await prisma.teacherSubject.upsert({ where: { teacherId_subjectId: { teacherId: profile.id, subjectId: subject.id } }, update: {}, create: { organizationId: "org_default", teacherId: profile.id, subjectId: subject.id } });
   }
   await ensureDefaultCourseCategories(prisma, "org_default");
   const category = await prisma.category.findUniqueOrThrow({ where: { organizationId_slug: { organizationId: "org_default", slug: "jee" } } });
-  const course = await prisma.course.upsert({ where: { slug: "jee-2027-foundation" }, update: {}, create: { title: "JEE 2027 Foundation", slug: "jee-2027-foundation", courseCode: "JEE-2027", shortDescription: "JEE foundation programme", fullDescription: "A complete foundation programme for ambitious JEE aspirants.", regularPricePaise: 2499900, salePricePaise: 1499900, durationDays: 365, courseType: CourseType.JEE, classLevel: "CLASS_11", mode: "HYBRID", status: "ACTIVE", isFeatured: true, categoryId: category.id, instructorId: teachers[0].id, createdById: admin.id } });
+  const jeeMain = await prisma.competitiveExam.findFirstOrThrow({ where: { organizationId: "org_default", code: "JEE_MAIN" } });
+  const normalizedCourse = { categoryType: "COMPETITIVE" as const, taxonomyReviewStatus: "CONFIRMED" as const, competitiveExamId: jeeMain.id, classLevel: null, academicBoard: null, academicStream: null, scienceCombination: null, academicPreparation: null, skillCategoryId: null };
+  const course = await prisma.course.upsert({ where: { slug: "jee-2027-foundation" }, update: normalizedCourse, create: { title: "JEE 2027 Foundation", slug: "jee-2027-foundation", courseCode: "JEE-2027", shortDescription: "JEE foundation programme", fullDescription: "A complete foundation programme for ambitious JEE aspirants.", regularPricePaise: 2499900, salePricePaise: 1499900, durationDays: 365, courseType: CourseType.JEE, ...normalizedCourse, mode: "HYBRID", status: "ACTIVE", isFeatured: true, categoryId: category.id, instructorId: teachers[0].id, createdById: admin.id } });
   const academicSession = await prisma.academicSession.findFirstOrThrow({ where: { organizationId: "org_default", name: "2026-27" } });
   const batch = await prisma.batch.upsert({ where: { code: "JEE-27-A" }, update: {}, create: { name: "JEE 2027 – Batch A", code: "JEE-27-A", branchId: branch.id, courseId: course.id, academicSession: academicSession.name, academicSessionId: academicSession.id, startsAt: new Date("2026-04-01") } });
   const studentProfile = await prisma.studentProfile.upsert({ where: { userId: student.id }, update: { branchId: branch.id, batchId: batch.id, className: "Class 11", fatherName: "Rajesh Singh" }, create: { userId: student.id, admissionNo: "BBA-2026-0001", rollNo: "1", gender: "MALE", dateOfBirth: new Date("2009-01-15"), fatherName: "Rajesh Singh", motherName: "Sunita Singh", className: "Class 11", parentMobile: "9876543210", address: "Delhi", branchId: branch.id, batchId: batch.id, academicSession: academicSession.name, academicSessionId: academicSession.id, admissionDate: new Date("2026-04-01") } });
