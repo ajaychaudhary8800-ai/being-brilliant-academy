@@ -551,6 +551,8 @@ model Organization {
   locale                 String                         @default("en-IN")
   currency               String                         @default("INR")
   academicYearStartMonth Int                            @default(4)
+  groupLabelType         GroupLabelType                 @default(BATCH)
+  customGroupLabel       String?
   settings               Json                           @default("{}")
   subscriptionStatus     OrganizationSubscriptionStatus @default(TRIAL)
   subscriptionPlan       String                         @default("ENTERPRISE")
@@ -565,6 +567,9 @@ model Organization {
   tenantAuditLogs        TenantAccessAudit[]
   academicSessions       AcademicSession[]
   teacherAllocations     TeacherAllocation[]
+  timetablePeriods       TimetablePeriod[]
+  teacherDuties          TeacherDuty[]
+  substitutions          TeacherSubstitution[]
   examinationQuestionPapers ExaminationQuestionPaper[]
   examinationAnswerSheets ExaminationAnswerSheet[]
 
@@ -587,6 +592,9 @@ model AcademicSession {
   examinations   Examination[]
   timetables     Timetable[]
   teacherAllocations TeacherAllocation[]
+  timetablePeriods TimetablePeriod[]
+  teacherDuties TeacherDuty[]
+  substitutions TeacherSubstitution[]
 
   @@unique([organizationId, name])
   @@index([organizationId, isCurrent])
@@ -776,6 +784,23 @@ enum TeacherAllocationStatus {
   INACTIVE
 }
 
+enum SubjectStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SubjectLegacyReviewStatus {
+  CONFIRMED
+  REVIEW_REQUIRED
+}
+
+enum GroupLabelType {
+  SECTION
+  BATCH
+  GROUP
+  CUSTOM
+}
+
 enum ClassroomType {
   CLASSROOM
   LAB
@@ -810,6 +835,25 @@ enum TimetableStatus {
   ACTIVE
   INACTIVE
   ARCHIVED
+}
+
+enum TimetablePeriodType {
+  TEACHING
+  BREAK
+}
+
+enum TeacherDutyType {
+  ADMIN_DUTY
+  EXAM_DUTY
+  MEETING
+  COUNSELLING
+  OTHER_DUTY
+}
+
+enum SubstitutionStatus {
+  ASSIGNED
+  COMPLETED
+  CANCELLED
 }
 
 enum HomeworkStatus {
@@ -1170,6 +1214,7 @@ model User {
   dailyLearningGoals       DailyLearningGoal[]
   teacherAllocationsCreated TeacherAllocation[] @relation("TeacherAllocationCreatedBy")
   teacherAllocationsUpdated TeacherAllocation[] @relation("TeacherAllocationUpdatedBy")
+  substitutionsApproved TeacherSubstitution[] @relation("SubstitutionApprover")
 
   @@index([organizationId])
 }
@@ -1261,6 +1306,9 @@ model Branch {
   maintenanceTickets    AssetMaintenanceTicket[]
   analyticsSnapshots    AnalyticsSnapshot[]
   teacherAllocations    TeacherAllocation[]
+  timetablePeriods      TimetablePeriod[]
+  teacherDuties         TeacherDuty[]
+  substitutions         TeacherSubstitution[]
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @updatedAt
 
@@ -1339,6 +1387,7 @@ model Course {
   examinations         Examination[]
   lmsLessons           Lesson[]        @relation("LmsLessonCourse")
   teacherAllocations   TeacherAllocation[]
+  substitutions        TeacherSubstitution[]
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
@@ -1355,17 +1404,25 @@ model Subject {
   organizationId String          @default("org_default")
   id             String          @id @default(cuid())
   name           String
-  code           String          @unique
+  code           String
+  description    String?         @db.Text
+  status         SubjectStatus   @default(ACTIVE)
+  legacyReviewStatus SubjectLegacyReviewStatus @default(CONFIRMED)
   createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
   courses        CourseSubject[]
+  teachers       TeacherSubject[]
   tests          Test[]
   timetables     Timetable[]
   homeworks      Homework[]
   examinations   Examination[]
   lmsLessons     Lesson[]
   teacherAllocations TeacherAllocation[]
+  substitutions TeacherSubstitution[]
 
-  @@index([organizationId])
+  @@unique([organizationId, code])
+  @@index([organizationId, status])
+  @@index([organizationId, name])
 }
 
 model CourseSubject {
@@ -1376,12 +1433,26 @@ model CourseSubject {
   position       Int     @default(0)
   isActive       Boolean @default(true)
   course         Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  subject        Subject @relation(fields: [subjectId], references: [id])
+  subject        Subject @relation(fields: [subjectId], references: [id], onDelete: Restrict)
   teacher        User?   @relation(fields: [teacherId], references: [id])
 
   @@id([courseId, subjectId])
   @@index([teacherId])
   @@index([organizationId])
+}
+
+model TeacherSubject {
+  organizationId String
+  teacherId      String
+  subjectId      String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  teacher        TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  subject        Subject        @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@id([teacherId, subjectId])
+  @@index([organizationId, subjectId])
+  @@index([organizationId, teacherId])
 }
 
 model Module {
@@ -1533,6 +1604,7 @@ model Batch {
   announcements     Announcement[]
   calendarEvents    CalendarEvent[]
   teacherAllocations TeacherAllocation[]
+  substitutions TeacherSubstitution[]
 
   @@index([branchId])
   @@index([courseId])
@@ -1604,6 +1676,8 @@ model TeacherProfile {
   specialization     String?
   dateOfBirth       DateTime?           @db.Date
   branchId           String
+  maxPeriodsPerDay   Int?
+  maxPeriodsPerWeek  Int?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1616,6 +1690,10 @@ model TeacherProfile {
   examinations       Examination[]
   lmsLessons         Lesson[]
   allocations        TeacherAllocation[]
+  subjects           TeacherSubject[]
+  duties             TeacherDuty[]
+  substitutionsAsOriginal TeacherSubstitution[] @relation("OriginalTeacherSubstitutions")
+  substitutionsAsSubstitute TeacherSubstitution[] @relation("SubstituteTeacherSubstitutions")
 
   @@index([branchId, specialization])
   @@index([dateOfBirth])
@@ -1710,6 +1788,7 @@ model Timetable {
   classroom         Classroom       @relation(fields: [classroomId], references: [id])
   session           AcademicSession @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
   homeworks         Homework[]
+  substitutions     TeacherSubstitution[]
 
   @@unique([branchId, batchId, day, startMinute, endMinute])
   @@index([branchId, day])
@@ -1720,6 +1799,85 @@ model Timetable {
   @@index([classroomId, day])
   @@index([status])
   @@index([organizationId])
+}
+
+model TimetablePeriod {
+  organizationId    String              @default("org_default")
+  id                String              @id @default(cuid())
+  branchId          String
+  academicSessionId String
+  day               TimetableDay
+  periodNumber      Int
+  startMinute       Int
+  endMinute         Int
+  type              TimetablePeriodType @default(TEACHING)
+  label             String?
+  isActive          Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch            Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  academicSession   AcademicSession     @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, academicSessionId, day, periodNumber])
+  @@index([organizationId, branchId, academicSessionId, day])
+}
+
+model TeacherDuty {
+  organizationId    String          @default("org_default")
+  id                String          @id @default(cuid())
+  branchId          String
+  academicSessionId String
+  teacherId         String
+  date              DateTime        @db.Date
+  periodNumber      Int
+  startMinute       Int
+  endMinute         Int
+  type              TeacherDutyType
+  remarks           String?         @db.Text
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch            Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  academicSession   AcademicSession @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  teacher           TeacherProfile  @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, branchId, date])
+  @@index([organizationId, teacherId, date])
+}
+
+model TeacherSubstitution {
+  organizationId      String             @default("org_default")
+  id                  String             @id @default(cuid())
+  branchId            String
+  academicSessionId   String
+  timetableId         String
+  date                DateTime           @db.Date
+  originalTeacherId   String
+  substituteTeacherId String
+  courseId            String
+  batchId             String
+  subjectId           String
+  reason              String?            @db.Text
+  status              SubstitutionStatus @default(ASSIGNED)
+  approvedById        String
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch              Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  academicSession     AcademicSession    @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  timetable           Timetable          @relation(fields: [timetableId], references: [id], onDelete: Restrict)
+  originalTeacher     TeacherProfile     @relation("OriginalTeacherSubstitutions", fields: [originalTeacherId], references: [id], onDelete: Restrict)
+  substituteTeacher   TeacherProfile     @relation("SubstituteTeacherSubstitutions", fields: [substituteTeacherId], references: [id], onDelete: Restrict)
+  course              Course             @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  batch               Batch              @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  subject             Subject            @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  approvedBy          User               @relation("SubstitutionApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+
+  @@index([timetableId, date])
+  @@index([organizationId, branchId, date, status])
+  @@index([organizationId, substituteTeacherId, date])
+  @@index([organizationId, originalTeacherId, date])
 }
 
 model Homework {

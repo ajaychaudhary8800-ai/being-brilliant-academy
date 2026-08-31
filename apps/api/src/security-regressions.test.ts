@@ -122,8 +122,10 @@ test("notice recipient constraints prevent cross-branch, cross-batch and audienc
 
 test("migration and preflight scripts preserve legacy business state", async () => {
   const allocation = await readFile(new URL("../prisma/migrations/20260820090000_link_allocations_and_expand_classrooms/migration.sql", import.meta.url), "utf8");
+  const academicArchitecture = await readFile(new URL("../prisma/migrations/20260830120000_complete_academic_architecture/migration.sql", import.meta.url), "utf8");
   const leave = await readFile(new URL("../prisma/migrations/20260820110000_leave_and_attendance_enhancements/migration.sql", import.meta.url), "utf8");
   const preflight = await readFile(new URL("../prisma/preflight/20260820_production_safety.sql", import.meta.url), "utf8");
+  const academicPreflight = await readFile(new URL("../prisma/preflight/20260830_academic_architecture.sql", import.meta.url), "utf8");
   assert.match(allocation, /ON CONFLICT \("courseId", "subjectId"\) DO NOTHING/);
   assert.doesNotMatch(allocation, /DO UPDATE SET "isActive" = true/);
   assert.match(allocation, /subjects could not be resolved exactly once/);
@@ -131,6 +133,14 @@ test("migration and preflight scripts preserve legacy business state", async () 
   assert.doesNotMatch(leave, /ELSE 'PENDING'/);
   assert.match(preflight, /BEGIN TRANSACTION READ ONLY/);
   assert.match(preflight, /allocation_relationship_inconsistency/);
+  assert.match(academicArchitecture, /legacyReviewStatus/);
+  assert.match(academicArchitecture, /TeacherAllocation_active_subject_scope_key/);
+  assert.match(academicArchitecture, /TeacherSubstitution_active_timetable_date_key/);
+  assert.doesNotMatch(academicArchitecture, /DELETE FROM "Subject"|UPDATE "TeacherAllocation" SET "subjectName"/);
+  assert.match(academicPreflight, /SAFELY_MAPPABLE/);
+  assert.match(academicPreflight, /AMBIGUOUS/);
+  assert.match(academicPreflight, /INVALID_RELATIONSHIP/);
+  assert.match(academicPreflight, /DUPLICATE_NORMALIZED_SUBJECT/);
 });
 
 test("notice acknowledgement applies the same recipient eligibility policy as listing", async () => {
@@ -141,4 +151,28 @@ test("notice acknowledgement applies the same recipient eligibility policy as li
   assert.match(policy, /audience: role/);
   assert.match(policy, /publishedAt: \{ lte: now \}/);
   assert.match(policy, /expiresAt: \{ gte: now \}/);
+});
+
+test("academic administration is normalized, role protected and branch scoped", async () => {
+  const subjects = await readFile(new URL("./routes/admin-subjects.ts", import.meta.url), "utf8");
+  const allocations = await readFile(new URL("./routes/admin-teacher-allocations.ts", import.meta.url), "utf8");
+  const teachers = await readFile(new URL("./routes/admin.ts", import.meta.url), "utf8");
+  const timetable = await readFile(new URL("./routes/admin-timetables.ts", import.meta.url), "utf8");
+  const operations = await readFile(new URL("./routes/admin-academic-operations.ts", import.meta.url), "utf8");
+  assert.match(subjects, /allow\(Role\.SUPER_ADMIN, Role\.BRANCH_ADMIN\)/);
+  assert.match(subjects, /legacyReviewStatus: SubjectLegacyReviewStatus\.CONFIRMED/);
+  assert.match(allocations, /subjectId: id/);
+  assert.match(allocations, /INVALID_LEGACY_SUBJECT/);
+  assert.match(allocations, /legacyReviewStatus: SubjectLegacyReviewStatus\.CONFIRMED/);
+  assert.doesNotMatch(allocations, /prisma\.subject\.create/);
+  assert.match(allocations, /ACTIVE_ALLOCATION_OVERLAP/);
+  assert.match(teachers, /existingSubjectIds\.has\(subject\.id\)/);
+  assert.match(teachers, /New subject mappings must be active, confirmed/);
+  assert.match(timetable, /TEACHER_SCHEDULE_CONFLICT/);
+  assert.match(timetable, /BATCH_SCHEDULE_CONFLICT/);
+  assert.match(timetable, /CLASSROOM_SCHEDULE_CONFLICT/);
+  assert.match(operations, /branchUser\.findFirst/);
+  assert.match(operations, /teacherOnApprovedLeave/);
+  assert.match(operations, /rankSubstituteCandidates/);
+  assert.doesNotMatch(`${subjects}\n${allocations}\n${operations}`, /name:\s*["']Free["']/i);
 });

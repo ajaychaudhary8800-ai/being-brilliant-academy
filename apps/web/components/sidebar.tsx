@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getAccessToken } from "./auth-provider";
+import { useGroupTerminology } from "./use-group-terminology";
 import {
-  Award, BarChart3, BookOpen, Building2, CalendarCheck, ClipboardCheck,
+  Award, BarChart3, BookOpen, Building2, CalendarCheck, CalendarClock, ClipboardCheck,
   CreditCard, FileText, GraduationCap, LayoutDashboard, Menu, Settings, CalendarDays, NotebookPen, FileCheck2, PlaySquare,
   UserRoundCheck, Users, X, BriefcaseBusiness, Landmark, Bus, Library, Bell, Boxes, BrainCircuit, School,
 } from "lucide-react";
@@ -17,12 +18,14 @@ const menu = [
   { name: "Academic Sessions", href: "/admin/academic-sessions", icon: CalendarDays },
   { name: "Students", href: "/admin/students", icon: Users },
   { name: "Teachers", href: "/admin/teachers", icon: UserRoundCheck },
+  { name: "Subject Master", href: "/admin/subjects", icon: BookOpen },
   { name: "Teacher Allocation", href: "/admin/teacher-allocations", icon: ClipboardCheck },
   { name: "Classrooms", href: "/admin/classrooms", icon: Building2 },
   { name: "Branches", href: "/admin/branches", icon: Building2 },
   { name: "Courses", href: "/admin/courses", icon: BookOpen },
   { name: "Batches", href: "/admin/batches", icon: GraduationCap },
   { name: "Timetable", href: "/admin/timetables", icon: CalendarDays },
+  { name: "Academic Operations", href: "/admin/academic-operations", icon: CalendarClock },
   { name: "Homework", href: "/admin/homeworks", icon: NotebookPen },
   { name: "Examinations", href: "/admin/examinations", icon: FileCheck2 },
   { name: "Exam Submissions", href: "/admin/examination-submissions", icon: FileCheck2 },
@@ -51,7 +54,8 @@ const menu = [
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  return <nav className="space-y-1">{menu.map((item) => {
+  const group = useGroupTerminology();
+  return <nav className="space-y-1">{menu.map((entry) => { const item = entry.href === "/admin/batches" ? { ...entry, name: group.plural } : entry;
     const Icon = item.icon;
     const active = pathname === item.href;
     return <Link key={item.name} href={item.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${active ? "bg-brand-700 text-white shadow-lg shadow-blue-900/15" : "text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-900"}`}><Icon size={18}/>{item.name}</Link>;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GroupLabelType } from "@prisma/client";
 
 const settingsRecord = z.record(z.any());
 const organizationLogoReference = z.union([
@@ -18,6 +19,8 @@ export const organizationBrandingSchema = z.object({
   locale: z.string().min(2).max(20),
   currency: z.string().length(3),
   academicYearStartMonth: z.number().int().min(1).max(12),
+  groupLabelType: z.nativeEnum(GroupLabelType).optional(),
+  customGroupLabel: z.string().trim().min(2).max(40).nullable().optional(),
   settings: z.preprocess((value) => value === null ? {} : value, settingsRecord.optional()),
 });
 

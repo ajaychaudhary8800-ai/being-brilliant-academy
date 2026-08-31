@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
-import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,15 +49,17 @@ try {
   for (const entry of await migrationNames) if (entry.isDirectory() && entry.name < "20260820090000") await cp(path.join(sourcePrisma, "migrations", entry.name), path.join(tempMigrations, entry.name), { recursive: true });
   run(prismaBin, [prismaCli, "migrate", "deploy", "--schema", path.join(tempPrisma, "schema.prisma")], urlFor(successName));
 
+  const branch = { id: `audit-branch-${crypto.randomBytes(6).toString("hex")}` };
+  const course = { id: `audit-course-${crypto.randomBytes(6).toString("hex")}` };
+  const teacher = { id: `audit-teacher-${crypto.randomBytes(6).toString("hex")}`, userId: `audit-user-${crypto.randomBytes(6).toString("hex")}` };
+  const allocationId = `audit-${crypto.randomBytes(8).toString("hex")}`;
+  const ambiguousAllocationId = `audit-ambiguous-${crypto.randomBytes(6).toString("hex")}`;
   const db = await client(urlFor(successName));
   try {
     const [session] = await db.$queryRawUnsafe(`SELECT id, name FROM "AcademicSession" WHERE "organizationId"='org_default' AND "isCurrent" LIMIT 1`);
     const [adminUser] = await db.$queryRawUnsafe(`SELECT id FROM "User" WHERE "organizationId"='org_default' AND role='SUPER_ADMIN' LIMIT 1`);
     if (!session || !adminUser) throw new Error("Legacy migration chain did not provision its required organization session and administrator");
-    const branch = { id: `audit-branch-${crypto.randomBytes(6).toString("hex")}` };
-    const course = { id: `audit-course-${crypto.randomBytes(6).toString("hex")}` };
     const batch = { id: `audit-batch-${crypto.randomBytes(6).toString("hex")}`, academicSessionId: session.id };
-    const teacher = { id: `audit-teacher-${crypto.randomBytes(6).toString("hex")}`, userId: `audit-user-${crypto.randomBytes(6).toString("hex")}` };
     await db.$executeRawUnsafe(`INSERT INTO "Branch" (id,code,name,"organizationId","createdAt","updatedAt") VALUES ('${branch.id}','AUDIT-BRANCH','Audit Legacy Branch','org_default',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`);
     await db.$executeRawUnsafe(`INSERT INTO "User" (id,email,"passwordHash",name,role,"organizationId","createdAt","updatedAt") VALUES ('${teacher.userId}','audit-teacher@example.invalid','not-a-login-credential','Audit Legacy Teacher','TEACHER','org_default',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`);
     await db.$executeRawUnsafe(`INSERT INTO "TeacherProfile" (id,"userId","employeeNo","branchId","organizationId","createdAt","updatedAt") VALUES ('${teacher.id}','${teacher.userId}','AUDIT-EMPLOYEE','${branch.id}','org_default',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`);
@@ -66,8 +68,8 @@ try {
     const subjectId = `audit-${crypto.randomBytes(8).toString("hex")}`;
     await db.$executeRawUnsafe(`INSERT INTO "Subject" (id,"organizationId",name,code,"createdAt") VALUES ('${subjectId}','org_default','Physics','AUDIT-PHYSICS',CURRENT_TIMESTAMP)`);
     await db.$executeRawUnsafe(`INSERT INTO "CourseSubject" ("organizationId","courseId","subjectId",position,"isActive") VALUES ('org_default','${course.id}','${subjectId}',0,false)`);
-    const allocationId = `audit-${crypto.randomBytes(8).toString("hex")}`;
     await db.$executeRawUnsafe(`INSERT INTO "TeacherAllocation" (id,"organizationId","branchId","academicSessionId","courseId","batchId","teacherId","subjectName","weeklyPeriods","effectiveFrom",status,"createdById","updatedById","createdAt","updatedAt") VALUES ('${allocationId}','org_default','${branch.id}','${batch.academicSessionId}','${course.id}','${batch.id}','${teacher.id}','Physics',5,DATE '2026-04-01','ACTIVE','${adminUser.id}','${adminUser.id}',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`);
+    await db.$executeRawUnsafe(`INSERT INTO "TeacherAllocation" (id,"organizationId","branchId","academicSessionId","courseId","batchId","teacherId","subjectName","weeklyPeriods","effectiveFrom",status,"createdById","updatedById","createdAt","updatedAt") VALUES ('${ambiguousAllocationId}','org_default','${branch.id}','${batch.academicSessionId}','${course.id}','${batch.id}','${teacher.id}','Physics + Mathematics',3,DATE '2026-04-01','INACTIVE','${adminUser.id}','${adminUser.id}',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`);
     await db.$executeRawUnsafe(`INSERT INTO "LeaveRequest" (id,"organizationId","userId","branchId","fromDate","toDate",reason,status,"createdAt","updatedAt") VALUES ('audit-approved-leave','org_default','${teacher.userId}','${branch.id}',DATE '2026-08-20',DATE '2026-08-20','Legacy approved leave','APPROVED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`);
   } finally { await db.$disconnect(); }
 
@@ -76,10 +78,23 @@ try {
   run(prismaBin, [prismaCli, "migrate", "deploy", "--schema", path.join(tempPrisma, "schema.prisma")], urlFor(successName));
   const verified = await client(urlFor(successName));
   try {
-    const [allocation] = await verified.$queryRawUnsafe(`SELECT "subjectId" FROM "TeacherAllocation" WHERE id LIKE 'audit-%'`);
+    const preflightSql = await readFile(path.join(sourcePrisma, "preflight", "20260830_academic_architecture.sql"), "utf8");
+    const preflightResults = [];
+    for (const statement of preflightSql.split(/;\s*(?:\r?\n|$)/).map(value => value.trim()).filter(Boolean)) preflightResults.push(await verified.$queryRawUnsafe(statement));
+    if (!preflightResults.flat().some(row => row.category === "AMBIGUOUS" && Number(row.records) === 1)) throw new Error("Academic architecture preflight did not identify the ambiguous legacy subject fixture");
+    const [allocation] = await verified.$queryRawUnsafe(`SELECT "subjectId" FROM "TeacherAllocation" WHERE id='${allocationId}'`);
     const [link] = await verified.$queryRawUnsafe(`SELECT "isActive" FROM "CourseSubject" WHERE "subjectId"='${allocation.subjectId}'`);
     const [leave] = await verified.$queryRawUnsafe(`SELECT status::text status FROM "LeaveRequest" WHERE id='audit-approved-leave'`);
-    if (!allocation.subjectId || link.isActive !== false || leave.status !== "APPROVED") throw new Error("Populated upgrade changed protected legacy business state");
+    const [ambiguous] = await verified.$queryRawUnsafe(`SELECT s."legacyReviewStatus"::text review FROM "TeacherAllocation" a JOIN "Subject" s ON s.id=a."subjectId" WHERE a.id='${ambiguousAllocationId}'`);
+    const [teacherSubject] = await verified.$queryRawUnsafe(`SELECT count(*)::int count FROM "TeacherSubject" WHERE "teacherId"='${teacher.id}'`);
+    const [organization] = await verified.$queryRawUnsafe(`SELECT "groupLabelType"::text label FROM "Organization" WHERE id='org_default'`);
+    if (!allocation.subjectId || link.isActive !== false || leave.status !== "APPROVED" || ambiguous.review !== "REVIEW_REQUIRED" || teacherSubject.count < 2 || organization.label !== "BATCH") throw new Error("Populated upgrade changed protected legacy state or failed additive academic backfill");
+    let duplicateSubjectRejected = false;
+    try { await verified.$executeRawUnsafe(`INSERT INTO "Subject" (id,"organizationId",name,code,"createdAt","updatedAt") VALUES ('audit-duplicate-subject','org_default',' physics ','AUDIT-DUPLICATE',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`); } catch { duplicateSubjectRejected = true; }
+    if (!duplicateSubjectRejected) throw new Error("Case-insensitive tenant subject duplicate protection did not reject a normalized duplicate");
+    let duplicateAllocationRejected = false;
+    try { await verified.$executeRawUnsafe(`INSERT INTO "TeacherAllocation" (id,"organizationId","branchId","academicSessionId","courseId","batchId","teacherId","subjectId","subjectName","weeklyPeriods","effectiveFrom",status,"createdById","updatedById","createdAt","updatedAt") SELECT 'audit-duplicate-allocation',"organizationId","branchId","academicSessionId","courseId","batchId","teacherId","subjectId","subjectName","weeklyPeriods","effectiveFrom",status,"createdById","updatedById",CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM "TeacherAllocation" WHERE id='${allocationId}'`); } catch { duplicateAllocationRejected = true; }
+    if (!duplicateAllocationRejected) throw new Error("Duplicate active normalized teacher allocation protection did not reject a duplicate");
   } finally { await verified.$disconnect(); }
 
   const reject = await client(urlFor(rejectName));
@@ -94,7 +109,7 @@ try {
     const [state] = await fresh.$queryRawUnsafe(`SELECT (SELECT count(*)::int FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL) migrations, (SELECT count(*)::int FROM "User") users, (SELECT count(*)::int FROM "AcademicSession") sessions`);
     if (state.migrations < 1 || state.users < 1 || state.sessions < 1) throw new Error("Fresh migration or seed verification returned empty required data");
   } finally { await fresh.$disconnect(); }
-  console.log(JSON.stringify({ populatedUpgrade: "PASS", freshMigrationAndSeed: "PASS", approvedLeavePreserved: true, inactiveCourseSubjectPreserved: true, unknownLeaveStatusRejected: true }));
+  console.log(JSON.stringify({ preflightSql: "PASS", populatedUpgrade: "PASS", freshMigrationAndSeed: "PASS", approvedLeavePreserved: true, inactiveCourseSubjectPreserved: true, ambiguousLegacySubjectFlagged: true, teacherSubjectsBackfilled: true, subjectDuplicateProtection: true, activeAllocationDuplicateProtection: true, unknownLeaveStatusRejected: true }));
 } finally {
   await dropDatabase(admin, successName).catch(() => undefined); await dropDatabase(admin, rejectName).catch(() => undefined); await dropDatabase(admin, freshName).catch(() => undefined); await admin.$disconnect(); await rm(temporary, { recursive: true, force: true });
 }
