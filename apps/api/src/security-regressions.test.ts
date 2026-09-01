@@ -192,3 +192,41 @@ test("academic administration is normalized, role protected and branch scoped", 
   assert.match(operations, /rankSubstituteCandidates/);
   assert.doesNotMatch(`${subjects}\n${allocations}\n${operations}`, /name:\s*["']Free["']/i);
 });
+
+test("teacher edit intentionally synchronizes only visible canonical subjects", async () => {
+  const api = await readFile(new URL("./routes/admin.ts", import.meta.url), "utf8");
+  const web = await readFile(new URL("../../web/app/admin/teachers/page.tsx", import.meta.url), "utf8");
+  assert.match(api, /legacyReviewStatus: true/);
+  assert.match(api, /planTeacherSubjectSync/);
+  assert.match(api, /subjectId: \{ in: subjectSync\.removeSubjectIds \}/);
+  assert.doesNotMatch(api, /subjectId: \{ notIn: subjectIds \}/);
+  assert.match(web, /legacyReviewStatus === "CONFIRMED"/);
+  assert.match(web, /hidden legacy mappings/);
+  assert.match(web, /body: JSON\.stringify\(payload\)/);
+});
+
+test("subject cleanup is dependency-complete, tenant-safe and history-preserving", async () => {
+  const route = await readFile(new URL("./routes/admin-subjects.ts", import.meta.url), "utf8");
+  const policy = await readFile(new URL("./lib/subject-dependencies.ts", import.meta.url), "utf8");
+  for (const model of ["courseSubject", "teacherSubject", "teacherAllocation", "timetable", "homework", "examination", "teacherSubstitution", "test", "lesson", "doubtThread", "questionBankItem", "learningTest", "studyMaterial", "liveClass"]) assert.match(policy, new RegExp(`client\\.${model}\\.count`));
+  assert.match(route, /ORGANIZATION_ADMIN_REQUIRED/);
+  assert.match(route, /organizationId: req\.auth!\.organizationId/);
+  assert.match(route, /legacyReviewStatus !== SubjectLegacyReviewStatus\.REVIEW_REQUIRED/);
+  assert.match(route, /historicalRecordsRewritten: false/);
+  assert.match(route, /legacySnapshotsRewritten: false/);
+  assert.doesNotMatch(route, /teacherAllocation\.(?:update|updateMany)|subjectName:/);
+});
+
+test("course edit uses the existing scoped PATCH contract and validates conflicts", async () => {
+  const api = await readFile(new URL("./routes/admin-courses.ts", import.meta.url), "utf8");
+  const list = await readFile(new URL("../../web/app/admin/courses/page.tsx", import.meta.url), "utf8");
+  const form = await readFile(new URL("../../web/components/course-form.tsx", import.meta.url), "utf8");
+  assert.match(api, /router\.patch\("\/courses\/:id"/);
+  assert.match(api, /await scope\(req, old\.branchId\)/);
+  assert.match(api, /id: \{ not: old\.id \}/);
+  assert.match(api, /COURSE_SLUG_EXISTS/);
+  assert.match(api, /COURSE_CODE_EXISTS/);
+  assert.match(api, /validateTaxonomy\(merged\)/);
+  assert.match(list, /\/admin\/courses\/\$\{course\.id\}\/edit/);
+  assert.match(form, /method: courseId \? "PATCH" : "POST"/);
+});

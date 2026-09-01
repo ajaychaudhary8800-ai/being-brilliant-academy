@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ensureEducationCatalogs } from "../lib/education-catalogs.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
+import { buildSubjectMergePlan, countSubjectDependencies, describeSubjectDependencies, usedSubjectDependencies } from "../lib/subject-dependencies.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -26,6 +27,9 @@ function duplicate(error: unknown) {
 }
 function audit(req: AuthRequest, action: string, entityId: string, metadata?: object) {
   return prisma.auditLog.create({ data: { actorId: req.auth!.userId, action, entity: "Subject", entityId, metadata } });
+}
+function requireOrganizationAdmin(req: AuthRequest) {
+  if (req.auth!.role !== Role.SUPER_ADMIN) throw new AppError(403, "ORGANIZATION_ADMIN_REQUIRED", "Only an organization administrator can clean up migrated subjects");
 }
 
 router.get("/subjects", async (req: AuthRequest, res) => {
@@ -61,6 +65,58 @@ router.get("/allocation-subject-options", async (req: AuthRequest, res) => {
   const teacherSubjects = await prisma.teacherSubject.findMany({ where: { teacherId: query.teacherId }, select: { subjectId: true } });
   const data = await prisma.courseSubject.findMany({ where: { courseId: query.courseId, isActive: true, subjectId: { in: teacherSubjects.map(row => row.subjectId) }, subject: { status: SubjectStatus.ACTIVE, legacyReviewStatus: SubjectLegacyReviewStatus.CONFIRMED } }, select: { subject: { select: { id: true, name: true, code: true } } }, orderBy: { subject: { name: "asc" } } });
   res.json({ data: data.map(row => row.subject), meta: { reason: data.length ? null : "NO_COMMON_TEACHER_COURSE_SUBJECT" } });
+});
+
+router.get("/subjects/:id/dependencies", async (req: AuthRequest, res) => {
+  const subjectId = id.parse(req.params.id);
+  const subject = await prisma.subject.findUnique({ where: { id: subjectId }, select: { id: true, name: true, code: true } });
+  if (!subject) throw new AppError(404, "SUBJECT_NOT_FOUND", "Subject not found");
+  const dependencies = await countSubjectDependencies(prisma, req.auth!.organizationId, subject.id);
+  res.json({ data: { subject, dependencies, total: usedSubjectDependencies(dependencies).reduce((total, [, count]) => total + count, 0) } });
+});
+
+router.get("/subjects/:id/merge-preview", async (req: AuthRequest, res) => {
+  requireOrganizationAdmin(req);
+  const sourceSubjectId = id.parse(req.params.id), { replacementSubjectId } = z.object({ replacementSubjectId: id }).parse(req.query);
+  if (sourceSubjectId === replacementSubjectId) throw new AppError(422, "SAME_SUBJECT", "Choose a different replacement subject");
+  const [source, replacement] = await Promise.all([
+    prisma.subject.findUnique({ where: { id: sourceSubjectId }, select: { id: true, name: true, code: true, status: true, legacyReviewStatus: true } }),
+    prisma.subject.findUnique({ where: { id: replacementSubjectId }, select: { id: true, name: true, code: true, status: true, legacyReviewStatus: true } }),
+  ]);
+  if (!source || !replacement) throw new AppError(404, "SUBJECT_NOT_FOUND", "Source or replacement subject was not found in this organization");
+  if (source.legacyReviewStatus !== SubjectLegacyReviewStatus.REVIEW_REQUIRED) throw new AppError(409, "SOURCE_NOT_REVIEW_REQUIRED", "Only a migrated review-required subject can use this cleanup workflow");
+  if (replacement.status !== SubjectStatus.ACTIVE || replacement.legacyReviewStatus !== SubjectLegacyReviewStatus.CONFIRMED) throw new AppError(422, "INVALID_REPLACEMENT_SUBJECT", "Replacement must be an active, confirmed subject in this organization");
+  res.json({ data: { source, replacement, ...(await buildSubjectMergePlan(prisma, req.auth!.organizationId, source.id, replacement.id)) } });
+});
+
+router.post("/subjects/:id/merge", async (req: AuthRequest, res) => {
+  requireOrganizationAdmin(req);
+  const sourceSubjectId = id.parse(req.params.id), { replacementSubjectId } = z.object({ replacementSubjectId: id }).parse(req.body);
+  if (sourceSubjectId === replacementSubjectId) throw new AppError(422, "SAME_SUBJECT", "Choose a different replacement subject");
+  const data = await prisma.$transaction(async tx => {
+    const [source, replacement] = await Promise.all([
+      tx.subject.findFirst({ where: { id: sourceSubjectId, organizationId: req.auth!.organizationId }, select: { id: true, name: true, code: true, status: true, legacyReviewStatus: true } }),
+      tx.subject.findFirst({ where: { id: replacementSubjectId, organizationId: req.auth!.organizationId }, select: { id: true, name: true, code: true, status: true, legacyReviewStatus: true } }),
+    ]);
+    if (!source || !replacement) throw new AppError(404, "SUBJECT_NOT_FOUND", "Source or replacement subject was not found in this organization");
+    if (source.legacyReviewStatus !== SubjectLegacyReviewStatus.REVIEW_REQUIRED) throw new AppError(409, "SOURCE_NOT_REVIEW_REQUIRED", "Only a migrated review-required subject can use this cleanup workflow");
+    if (replacement.status !== SubjectStatus.ACTIVE || replacement.legacyReviewStatus !== SubjectLegacyReviewStatus.CONFIRMED) throw new AppError(422, "INVALID_REPLACEMENT_SUBJECT", "Replacement must be an active, confirmed subject in this organization");
+    const plan = await buildSubjectMergePlan(tx, req.auth!.organizationId, source.id, replacement.id);
+    if (!plan.canMerge) {
+      const reasons = [
+        ...plan.blockingDependencies.map(item => `${item.count} ${item.label}`),
+        ...(plan.unmatchedCourseIds.length ? [`${plan.unmatchedCourseIds.length} course mappings do not yet use the replacement`] : []),
+        ...(plan.unmatchedTeacherIds.length ? [`${plan.unmatchedTeacherIds.length} teacher mappings do not yet use the replacement`] : []),
+      ];
+      throw new AppError(409, "SUBJECT_MERGE_BLOCKED", `Cleanup is blocked: ${reasons.join(", ")}`);
+    }
+    if (plan.duplicateCourseIds.length) await tx.courseSubject.deleteMany({ where: { organizationId: req.auth!.organizationId, subjectId: source.id, courseId: { in: plan.duplicateCourseIds } } });
+    if (plan.duplicateTeacherIds.length) await tx.teacherSubject.deleteMany({ where: { organizationId: req.auth!.organizationId, subjectId: source.id, teacherId: { in: plan.duplicateTeacherIds } } });
+    await tx.subject.update({ where: { id: source.id }, data: { status: SubjectStatus.INACTIVE } });
+    await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "REDUNDANT_RELATIONSHIPS_CLEANED", entity: "Subject", entityId: source.id, metadata: { replacementSubjectId: replacement.id, removedCourseMappings: plan.duplicateCourseIds.length, removedTeacherMappings: plan.duplicateTeacherIds.length, historicalRecordsRewritten: false, legacySnapshotsRewritten: false } } });
+    return { source: { ...source, status: SubjectStatus.INACTIVE }, replacement, removedCourseMappings: plan.duplicateCourseIds.length, removedTeacherMappings: plan.duplicateTeacherIds.length };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  res.json({ data });
 });
 
 router.get("/subjects/:id", async (req, res) => {
@@ -106,12 +162,15 @@ router.patch("/subjects/:id/status", async (req: AuthRequest, res) => {
 
 router.delete("/subjects/:id", async (req: AuthRequest, res) => {
   const subjectId = id.parse(req.params.id);
-  const existing = await prisma.subject.findUnique({ where: { id: subjectId }, select: { id: true, status: true, _count: subjectSelect._count } });
-  if (!existing) throw new AppError(404, "SUBJECT_NOT_FOUND", "Subject not found");
-  if (existing.status !== SubjectStatus.INACTIVE) throw new AppError(409, "DEACTIVATE_BEFORE_DELETE", "Deactivate the subject before deleting it");
-  if (Object.values(existing._count).some(Boolean)) throw new AppError(409, "SUBJECT_IN_USE", "This subject has academic history and cannot be deleted");
-  await prisma.subject.delete({ where: { id: subjectId } });
-  await audit(req, "DELETE", subjectId);
+  await prisma.$transaction(async tx => {
+    const existing = await tx.subject.findFirst({ where: { id: subjectId, organizationId: req.auth!.organizationId }, select: { id: true, status: true } });
+    if (!existing) throw new AppError(404, "SUBJECT_NOT_FOUND", "Subject not found");
+    if (existing.status !== SubjectStatus.INACTIVE) throw new AppError(409, "DEACTIVATE_BEFORE_DELETE", "Deactivate the subject before deleting it");
+    const dependencies = await countSubjectDependencies(tx, req.auth!.organizationId, existing.id);
+    if (usedSubjectDependencies(dependencies).length) throw new AppError(409, "SUBJECT_IN_USE", `This subject cannot be deleted because it is used by ${describeSubjectDependencies(dependencies)}`);
+    await tx.subject.delete({ where: { id: subjectId } });
+    await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "DELETE", entity: "Subject", entityId: subjectId, metadata: { dependencyCounts: dependencies } } });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   res.status(204).send();
 });
 
