@@ -1,8 +1,22 @@
-import { ExaminationResultStatus, ExaminationStatus } from "@prisma/client";
+import { AnswerSheetStatus, ExaminationResultStatus, ExaminationStatus, Role } from "@prisma/client";
 import { AppError } from "./http.js";
 
 export function assertEvaluationOpen(finalizedAt: Date | null) {
   if (finalizedAt) throw new AppError(409, "EVALUATION_FINALIZED", "A finalized evaluation cannot be modified; an explicit reopen workflow is required");
+}
+
+export function assertExaminationManager(role: Role, userId: string, assignedTeacherUserId: string) {
+  if (role === Role.SUPER_ADMIN || role === Role.BRANCH_ADMIN || role === Role.TEACHER && userId === assignedTeacherUserId) return;
+  throw new AppError(403, "EXAMINATION_ACCESS_DENIED", "This examination is not assigned to you");
+}
+
+export function assertAnswerSheetAccess(role: Role, userId: string, studentUserId: string, assignedTeacherUserId: string) {
+  if (role === Role.STUDENT && userId === studentUserId) return;
+  assertExaminationManager(role, userId, assignedTeacherUserId);
+}
+
+export function evaluationStatus(finalize: boolean) {
+  return finalize ? AnswerSheetStatus.EVALUATED : AnswerSheetStatus.UNDER_REVIEW;
 }
 
 export function examinationResultFor(marks: number, maximumMarks: number, passingMarks: number, now = new Date()) {

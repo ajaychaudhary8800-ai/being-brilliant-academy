@@ -2,16 +2,34 @@ import { AppError } from "./http.js";
 
 export const allowedDocumentTypes = ["application/pdf", "image/jpeg", "image/png", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"] as const;
 export type AllowedDocumentType = typeof allowedDocumentTypes[number];
+export const allowedAnswerSheetTypes = ["application/pdf", "image/jpeg", "image/png"] as const;
+export type AllowedAnswerSheetType = typeof allowedAnswerSheetTypes[number];
 export const allowedTeacherPhotoTypes = ["image/jpeg", "image/png", "image/webp"] as const;
 export type AllowedTeacherPhotoType = typeof allowedTeacherPhotoTypes[number];
 export const allowedImageTypes = allowedTeacherPhotoTypes;
 export type AllowedImageType = AllowedTeacherPhotoType;
 const imageExtensions: Record<AllowedImageType, readonly string[]> = { "image/jpeg": ["jpg", "jpeg"], "image/png": ["png"], "image/webp": ["webp"] };
+const documentExtensions: Record<AllowedDocumentType, readonly string[]> = {
+  "application/pdf": ["pdf"],
+  "image/jpeg": ["jpg", "jpeg"],
+  "image/png": ["png"],
+  "application/msword": ["doc"],
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ["docx"],
+};
+
+function fileExtension(fileName: string, description: string) {
+  if (!fileName || fileName.length > 255 || fileName.includes("/") || fileName.includes("\\") || fileName.includes("\0")) throw new AppError(422, "INVALID_FILE_NAME", `${description} filename is invalid`);
+  return fileName.toLowerCase().split(".").pop() ?? "";
+}
 
 export function assertImageFileExtension(fileName: string, mimeType: AllowedImageType) {
-  if (!fileName || fileName.length > 255 || fileName.includes("/") || fileName.includes("\\") || fileName.includes("\0")) throw new AppError(422, "INVALID_FILE_NAME", "Image filename is invalid");
-  const extension = fileName.toLowerCase().split(".").pop() ?? "";
+  const extension = fileExtension(fileName, "Image");
   if (!imageExtensions[mimeType].includes(extension)) throw new AppError(422, "FILE_EXTENSION_MISMATCH", "Image filename extension does not match the declared image type");
+}
+
+export function assertDocumentFileExtension(fileName: string, mimeType: AllowedDocumentType) {
+  const extension = fileExtension(fileName, "Document");
+  if (!documentExtensions[mimeType].includes(extension)) throw new AppError(422, "FILE_EXTENSION_MISMATCH", "Document filename extension does not match the declared file type");
 }
 
 function strictBase64(value: string) {

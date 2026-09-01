@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { AttendanceStatus, ExaminationResultStatus, ExaminationStatus, Role } from "@prisma/client";
+import { AnswerSheetStatus, AttendanceStatus, ExaminationResultStatus, ExaminationStatus, Role } from "@prisma/client";
 import { assertClassroomBranchChange, requireRequestedBranch } from "./lib/branch-policy.js";
-import { assertEvaluationOpen, assertStudentExaminationEligible, assertStudentExaminationPublished, examinationResultFor } from "./lib/examination-policy.js";
+import { assertAnswerSheetAccess, assertEvaluationOpen, assertExaminationManager, assertStudentExaminationEligible, assertStudentExaminationPublished, evaluationStatus, examinationResultFor } from "./lib/examination-policy.js";
 import { assertLeaveAttendanceCompatible } from "./lib/leave-attendance-policy.js";
 import { noticeRecipientConstraints } from "./lib/notice-policy.js";
 import { tenantWhere } from "./lib/prisma.js";
 import { pathMatches } from "./lib/scoped-router.js";
-import { assertImageFileExtension, decodeVerifiedTeacherPhoto, decodeVerifiedUpload } from "./lib/secure-upload.js";
+import { allowedAnswerSheetTypes, assertDocumentFileExtension, assertImageFileExtension, decodeVerifiedTeacherPhoto, decodeVerifiedUpload } from "./lib/secure-upload.js";
 import { allocationWhere, effectiveDateForSession } from "./lib/subject-resolution.js";
 import { createTeacherPhotoLocation, parseTeacherPhotoLocation } from "./lib/teacher-photo.js";
 import { createStoredImageLocation, parseStoredImageLocation } from "./lib/stored-image.js";
@@ -67,6 +67,27 @@ test("upload validation rejects malformed base64 and MIME spoofing", () => {
   assert.throws(() => decodeVerifiedUpload("not base64", "application/pdf"), /valid base64/);
   assert.throws(() => decodeVerifiedUpload(Buffer.from("plain text").toString("base64"), "application/pdf"), /does not match/);
   assert.throws(() => decodeVerifiedUpload(pdf, "image/png"), /does not match/);
+});
+
+test("examination documents enforce filename, MIME, answer formats and size", () => {
+  assert.doesNotThrow(() => assertDocumentFileExtension("paper.PDF", "application/pdf"));
+  assert.doesNotThrow(() => assertDocumentFileExtension("paper.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"));
+  assert.throws(() => assertDocumentFileExtension("paper.png", "application/pdf"), /extension/);
+  assert.throws(() => assertDocumentFileExtension("..\\paper.pdf", "application/pdf"), /filename/);
+  assert.deepEqual(allowedAnswerSheetTypes, ["application/pdf", "image/jpeg", "image/png"]);
+  assert.equal(allowedAnswerSheetTypes.includes("application/msword" as never), false);
+  const tooLarge = Buffer.concat([Buffer.from("%PDF-"), Buffer.alloc(1024 * 1024)]).toString("base64");
+  assert.throws(() => decodeVerifiedUpload(tooLarge, "application/pdf", 1024 * 1024), /1 MB/);
+});
+
+test("examination evaluator and answer-sheet access policies reject IDOR", () => {
+  assert.doesNotThrow(() => assertExaminationManager(Role.SUPER_ADMIN, "admin", "teacher"));
+  assert.doesNotThrow(() => assertExaminationManager(Role.TEACHER, "teacher", "teacher"));
+  assert.throws(() => assertExaminationManager(Role.TEACHER, "other", "teacher"), /not assigned/);
+  assert.doesNotThrow(() => assertAnswerSheetAccess(Role.STUDENT, "student", "student", "teacher"));
+  assert.throws(() => assertAnswerSheetAccess(Role.STUDENT, "other-student", "student", "teacher"), /not assigned/);
+  assert.equal(evaluationStatus(false), AnswerSheetStatus.UNDER_REVIEW);
+  assert.equal(evaluationStatus(true), AnswerSheetStatus.EVALUATED);
 });
 
 test("teacher photos enforce image signatures, size and tenant-scoped generated paths", () => {
@@ -229,4 +250,33 @@ test("course edit uses the existing scoped PATCH contract and validates conflict
   assert.match(api, /validateTaxonomy\(merged\)/);
   assert.match(list, /\/admin\/courses\/\$\{course\.id\}\/edit/);
   assert.match(form, /method: courseId \? "PATCH" : "POST"/);
+});
+
+test("academic selectors and examination files use canonical scoped contracts", async () => {
+  const timetableApi = await readFile(new URL("./routes/admin-timetables.ts", import.meta.url), "utf8");
+  const subjectEnforcement = await readFile(new URL("./routes/admin-subject-enforcement.ts", import.meta.url), "utf8");
+  const subjectResolution = await readFile(new URL("./lib/subject-resolution.ts", import.meta.url), "utf8");
+  const examinationWorkflow = await readFile(new URL("./routes/examination-workflow.ts", import.meta.url), "utf8");
+  const examinationBranchEnforcement = await readFile(new URL("./routes/admin-examination-branch-enforcement.ts", import.meta.url), "utf8");
+  const timetableWeb = await readFile(new URL("../../web/app/admin/timetables/page.tsx", import.meta.url), "utf8");
+  const homeworkWeb = await readFile(new URL("../../web/app/admin/homeworks/page.tsx", import.meta.url), "utf8");
+  const examinationWeb = await readFile(new URL("../../web/app/admin/examinations/page.tsx", import.meta.url), "utf8");
+
+  assert.match(timetableApi, /classroom\.findUnique/);
+  assert.match(timetableApi, /CLASSROOM_SCHEDULE_CONFLICT/);
+  assert.match(subjectEnforcement, /requireAllocatedSubject/);
+  assert.match(subjectResolution, /TEACHER_SUBJECT_NOT_ALLOCATED/);
+  for (const source of [timetableWeb, homeworkWeb, examinationWeb]) {
+    assert.match(source, /\/admin\/subject-options/);
+    assert.match(source, /<label>Course<select/);
+    assert.match(source, /<label>Teacher<select[^]*<label>Subject<select/);
+  }
+  assert.match(timetableWeb, /No active classrooms for this branch/);
+  assert.match(examinationWorkflow, /assertDocumentFileExtension/);
+  assert.match(examinationWorkflow, /allowedAnswerSheetTypes/);
+  assert.match(examinationWorkflow, /QUESTION_PAPER_IN_USE/);
+  assert.match(examinationWorkflow, /assertAnswerSheetAccess/);
+  assert.match(examinationWorkflow, /assertEvaluationOpen/);
+  assert.match(examinationBranchEnforcement, /branchUser\.findFirst/);
+  assert.match(examinationBranchEnforcement, /BRANCH_FORBIDDEN/);
 });
