@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { AnswerSheetStatus, AttendanceStatus, ExaminationResultStatus, ExaminationStatus, Role } from "@prisma/client";
+import { AnswerSheetStatus, AttendanceStatus, ExaminationResultStatus, ExaminationStatus, HalfDaySession, LeaveType, Role } from "@prisma/client";
 import { assertClassroomBranchChange, requireRequestedBranch } from "./lib/branch-policy.js";
 import { assertAnswerSheetAccess, assertEvaluationOpen, assertExaminationManager, assertStudentExaminationEligible, assertStudentExaminationPublished, evaluationStatus, examinationResultFor } from "./lib/examination-policy.js";
-import { assertLeaveAttendanceCompatible } from "./lib/leave-attendance-policy.js";
+import { assertApprovedLeaveAttendance, assertLeaveAttendanceCompatible, attendanceStatusForLeave, validateLeaveDates } from "./lib/leave-attendance-policy.js";
 import { noticeRecipientConstraints } from "./lib/notice-policy.js";
 import { tenantWhere } from "./lib/prisma.js";
 import { pathMatches } from "./lib/scoped-router.js";
@@ -43,6 +43,68 @@ test("leave approval preserves legitimate attendance for every leave type", () =
     assert.throws(() => assertLeaveAttendanceCompatible(AttendanceStatus.PRESENT, desired, "Student", date), /ATTENDANCE|already has PRESENT/);
     assert.throws(() => assertLeaveAttendanceCompatible(AttendanceStatus.LATE, desired, "Teacher", date), /already has LATE/);
   }
+});
+
+test("leave types map to explicit attendance statuses and enforce date semantics", () => {
+  const day = new Date("2026-08-20T00:00:00Z");
+  assert.equal(attendanceStatusForLeave(LeaveType.FULL_DAY), AttendanceStatus.FULL_DAY_LEAVE);
+  assert.equal(attendanceStatusForLeave(LeaveType.HALF_DAY), AttendanceStatus.HALF_DAY_LEAVE);
+  assert.equal(attendanceStatusForLeave(LeaveType.SHORT_LEAVE), AttendanceStatus.SHORT_LEAVE);
+  assert.doesNotThrow(() => validateLeaveDates(day, day, LeaveType.FULL_DAY));
+  assert.doesNotThrow(() => validateLeaveDates(day, day, LeaveType.HALF_DAY, HalfDaySession.FIRST_HALF));
+  assert.doesNotThrow(() => validateLeaveDates(day, day, LeaveType.SHORT_LEAVE));
+  assert.throws(() => validateLeaveDates(day, new Date("2026-08-21T00:00:00Z"), LeaveType.HALF_DAY, HalfDaySession.SECOND_HALF), /one date/);
+  assert.throws(() => validateLeaveDates(day, day, LeaveType.HALF_DAY), /half-day session/);
+  assert.throws(() => validateLeaveDates(day, new Date("2026-08-21T00:00:00Z"), LeaveType.SHORT_LEAVE), /one date/);
+  assert.throws(() => validateLeaveDates(new Date("2026-08-21T00:00:00Z"), day, LeaveType.FULL_DAY), /End date/);
+});
+
+test("approved leave attendance requires an explicit audited administrator override", () => {
+  assert.equal(assertApprovedLeaveAttendance(AttendanceStatus.FULL_DAY_LEAVE, AttendanceStatus.FULL_DAY_LEAVE, Role.STUDENT, false), false);
+  assert.throws(() => assertApprovedLeaveAttendance(AttendanceStatus.HALF_DAY_LEAVE, AttendanceStatus.PRESENT, Role.SUPER_ADMIN, false), /authorized override/);
+  assert.throws(() => assertApprovedLeaveAttendance(AttendanceStatus.SHORT_LEAVE, AttendanceStatus.PRESENT, Role.TEACHER, true, "Correction"), /Only an administrator/);
+  assert.throws(() => assertApprovedLeaveAttendance(AttendanceStatus.SHORT_LEAVE, AttendanceStatus.PRESENT, Role.BRANCH_ADMIN, true, ""), /reason/);
+  assert.equal(assertApprovedLeaveAttendance(AttendanceStatus.SHORT_LEAVE, AttendanceStatus.PRESENT, Role.BRANCH_ADMIN, true, "Verified correction"), true);
+});
+
+test("leave management is tenant scoped, race safe, auditable and attendance integrated", async () => {
+  const leave = await readFile(new URL("./routes/leave-management.ts", import.meta.url), "utf8");
+  const enforcement = await readFile(new URL("./routes/attendance-leave-enforcement.ts", import.meta.url), "utf8");
+  const attendance = await readFile(new URL("./routes/attendance.ts", import.meta.url), "utf8");
+  const portal = await readFile(new URL("../../web/app/portal/leaves/page.tsx", import.meta.url), "utf8");
+  const admin = await readFile(new URL("../../web/app/admin/leaves/page.tsx", import.meta.url), "utf8");
+  const attendanceUi = await readFile(new URL("../../web/app/admin/attendance/page.tsx", import.meta.url), "utf8");
+  const upload = await readFile(new URL("../../web/components/document-upload.ts", import.meta.url), "utf8");
+  const workspace = await readFile(new URL("../../web/components/portal-workspace.tsx", import.meta.url), "utf8");
+  assert.match(leave, /router\.get\("\/portal\/leaves"/);
+  assert.match(leave, /role === Role\.PARENT\) return next\(\)/);
+  assert.match(leave, /userId: req\.auth!\.userId/);
+  assert.match(leave, /OUTSIDE_ACADEMIC_SESSION/);
+  assert.match(leave, /OVERLAPPING_LEAVE/);
+  assert.match(leave, /TransactionIsolationLevel\.Serializable/);
+  assert.match(leave, /status: LeaveRequestStatus\.PENDING/);
+  assert.match(leave, /updateMany/);
+  assert.match(leave, /ATTENDANCE_SYNCHRONIZED_FROM_LEAVE/);
+  assert.match(leave, /REJECTION_REASON_REQUIRED/);
+  assert.match(leave, /organizationId: req\.auth!\.organizationId/);
+  assert.match(leave, /notification\.create/);
+  assert.match(enforcement, /assertApprovedLeaveAttendance/);
+  assert.match(enforcement, /ATTENDANCE_LEAVE_OVERRIDE/);
+  assert.match(enforcement, /LeaveRequestStatus\.APPROVED/);
+  assert.match(enforcement, /assertTargetScope/);
+  assert.match(enforcement, /prisma\.branchUser\.findFirst/);
+  assert.match(enforcement, /personId: old\.studentId[^]*status: AttendanceStatus\.ABSENT/);
+  assert.match(enforcement, /personId: old\.teacherId[^]*status: AttendanceStatus\.ABSENT/);
+  assert.match(attendance, /prisma\.branchUser\.findMany/);
+  assert.match(attendance, /teacherAccess/);
+  assert.match(attendance, /router\.get\("\/",view/);
+  for (const status of ["FULL_DAY_LEAVE", "HALF_DAY_LEAVE", "SHORT_LEAVE"]) assert.match(attendanceUi, new RegExp(status));
+  assert.match(attendanceUi, /overrideApprovedLeave/);
+  assert.match(portal, /leave-attachment/);
+  assert.match(portal, /\/portal\/leaves\/\$\{leave\.id\}\/attachment/);
+  assert.match(admin, /\/admin\/leaves\/\$\{item\.id\}\/attachment/);
+  assert.match(upload, /purpose === "leave-attachment" \? 5/);
+  assert.match(workspace, /role==="PARENT"[^]*requestParentLeave/);
 });
 
 test("finalized evaluations are immutable and results are never accidentally absent", () => {
