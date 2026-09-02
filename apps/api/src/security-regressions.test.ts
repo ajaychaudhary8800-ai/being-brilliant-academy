@@ -67,6 +67,26 @@ test("approved leave attendance requires an explicit audited administrator overr
   assert.equal(assertApprovedLeaveAttendance(AttendanceStatus.SHORT_LEAVE, AttendanceStatus.PRESENT, Role.BRANCH_ADMIN, true, "Verified correction"), true);
 });
 
+test("teacher approved-leave override updates the synchronized record without weakening duplicate protection", async () => {
+  const attendance = await readFile(new URL("./routes/attendance.ts", import.meta.url), "utf8");
+  const enforcement = await readFile(new URL("./routes/attendance-leave-enforcement.ts", import.meta.url), "utf8");
+  const teacherPost = attendance.slice(attendance.indexOf('router.post("/teachers/records"'), attendance.indexOf('router.patch("/teachers/records/:id"'));
+  const existingBranch = teacherPost.slice(teacherPost.indexOf("if(existing)"), teacherPost.indexOf("res.status(201)"));
+
+  assert.match(teacherPost, /teacherAttendance\.findUnique\(\{where:\{teacherId_date:/);
+  assert.match(existingBranch, /authorizedApprovedLeaveOverride/);
+  assert.match(existingBranch, /existing\.status!==override\.approvedStatus/);
+  assert.match(existingBranch, /TEACHER_ATTENDANCE_EXISTS/);
+  assert.match(existingBranch, /teacherAttendance\.update\(\{where:\{id:existing\.id\}/);
+  assert.doesNotMatch(existingBranch, /teacherAttendance\.create/);
+  assert.match(teacherPost, /res\.status\(201\)[^]*teacherAttendance\.create/);
+  assert.match(enforcement, /Role\.SUPER_ADMIN[^]*Role\.BRANCH_ADMIN/);
+  assert.match(enforcement, /assertTargetScope/);
+  assert.match(enforcement, /approvedStatus[^]*newStatus[^]*attendanceRecordId[^]*previousStatus/);
+  assert.match(enforcement, /action: "ATTENDANCE_LEAVE_OVERRIDE"/);
+  assert.doesNotMatch(enforcement, /leaveRequest\.(?:update|delete)/);
+});
+
 test("leave management is tenant scoped, race safe, auditable and attendance integrated", async () => {
   const leave = await readFile(new URL("./routes/leave-management.ts", import.meta.url), "utf8");
   const enforcement = await readFile(new URL("./routes/attendance-leave-enforcement.ts", import.meta.url), "utf8");

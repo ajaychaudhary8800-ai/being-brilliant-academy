@@ -13,6 +13,13 @@ const attendanceManagers: Role[] = [Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TE
 const day = (value: Date) => new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
 const overrideInput = z.object({ overrideApprovedLeave: z.boolean().optional().default(false), overrideReason: z.string().trim().max(1000).nullable().optional() }).passthrough();
 type Context = { kind: "student" | "teacher"; personId: string; date: Date; status: AttendanceStatus; entityId?: string };
+type AppliedOverride = { leaveRequestId: string; kind: Context["kind"]; personId: string; date: string; approvedStatus: AttendanceStatus; newStatus: AttendanceStatus; attendanceRecordId?: string; previousStatus?: AttendanceStatus };
+const approvedLeaveOverrides = Symbol("approvedLeaveOverrides");
+type OverrideRequest = AuthRequest & { [approvedLeaveOverrides]?: AppliedOverride[] };
+
+export function authorizedApprovedLeaveOverride(req: AuthRequest, context: Context) {
+  return (req as OverrideRequest)[approvedLeaveOverrides]?.find(item => item.kind === context.kind && item.personId === context.personId && item.date === day(context.date).toISOString().slice(0, 10) && item.newStatus === context.status);
+}
 
 async function approvedLeave(context: Context) {
   return prisma.leaveRequest.findFirst({
@@ -81,16 +88,17 @@ router.use(async (req: AuthRequest, res, next) => {
   const targets = await contexts(req);
   if (!targets.length) return next();
   const override = overrideInput.parse({ ...req.query, ...req.body });
-  const applied: Array<{ leaveRequestId: string; kind: string; personId: string; date: string; requestedStatus: AttendanceStatus }> = [];
+  const applied: AppliedOverride[] = [];
   for (const target of targets) {
     await assertTargetScope(req, target);
     const leave = await approvedLeave(target);
     if (!leave) continue;
     const approvedStatus = attendanceStatusForLeave(leave.leaveType);
     if (assertApprovedLeaveAttendance(approvedStatus, target.status, req.auth!.role, override.overrideApprovedLeave, override.overrideReason)) {
-      applied.push({ leaveRequestId: leave.id, kind: target.kind, personId: target.personId, date: day(target.date).toISOString().slice(0, 10), requestedStatus: target.status });
+      applied.push({ leaveRequestId: leave.id, kind: target.kind, personId: target.personId, date: day(target.date).toISOString().slice(0, 10), approvedStatus, newStatus: target.status });
     }
   }
+  if (applied.length) (req as OverrideRequest)[approvedLeaveOverrides] = applied;
   if (applied.length) res.once("finish", () => {
     if (res.statusCode < 400) void prisma.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "ATTENDANCE_LEAVE_OVERRIDE", entity: "Attendance", metadata: { reason: override.overrideReason, records: applied } } }).catch(error => console.error("Attendance leave override audit failed", error));
   });
