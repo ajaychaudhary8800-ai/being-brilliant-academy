@@ -1,4 +1,4 @@
-import { MasterReviewStatus, MasterStatus, Role } from "@prisma/client";
+import { MasterReviewStatus, MasterStatus, Prisma, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { Router } from "express";
 import { z } from "zod";
@@ -57,6 +57,12 @@ async function branchScope(req: AuthRequest) {
 async function requireBranchAccess(req: AuthRequest, branchId: string) {
   const allowed = await branchScope(req);
   if (allowed && !allowed.includes(branchId)) throw new AppError(403, "BRANCH_FORBIDDEN", "You do not have access to this branch");
+}
+
+async function requireValidTeacherBranch(req: AuthRequest, branchId: string) {
+  await requireBranchAccess(req, branchId);
+  const branch = await prisma.branch.findFirst({ where: { id: branchId, isActive: true }, select: { id: true } });
+  if (!branch) throw new AppError(422, "INVALID_TEACHER_BRANCH", "Select an active branch in this organization");
 }
 
 function branchWithLegacyLabels<T extends { id: string; branchName: string; branchCode?: string }>(branch: T) {
@@ -184,6 +190,15 @@ const teacherPhotoReference = z.union([z.string().url(), z.string().regex(/^\/ap
 const teacherInput = z.object({ employeeNo: z.string().trim().min(3).max(40), name: z.string().trim().min(2).max(100), email: z.string().trim().toLowerCase().email(), password: z.string().min(8).max(128).optional(), mobile: z.string().trim().min(7).max(20).nullable().optional(), photoUrl: teacherPhotoReference.nullable().optional(), qualification: z.string().trim().max(150).nullable().optional(), specialization: z.string().trim().max(150).nullable().optional(), branchId: z.string().cuid(), subjectIds: z.array(z.string().cuid()).max(100).optional(), specializationIds: z.array(z.string().cuid()).max(100).optional(), maxPeriodsPerDay: z.number().int().min(1).max(50).nullable().optional(), maxPeriodsPerWeek: z.number().int().min(1).max(300).nullable().optional(), isActive: z.boolean().optional() });
 const teacherQuery = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(10), search: z.string().trim().optional(), branchId: z.string().cuid().optional(), specialization: z.string().trim().optional(), status: z.enum(["active", "inactive"]).optional(), sortBy: z.enum(["employeeNo", "name", "specialization", "createdAt"]).default("createdAt"), sortOrder: z.enum(["asc", "desc"]).default("desc") });
 
+function teacherDuplicateError(error: unknown) {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return null;
+  const target = Array.isArray(error.meta?.target) ? error.meta.target.join(" ") : String(error.meta?.target ?? "");
+  if (target.includes("email")) return new AppError(409, "TEACHER_EMAIL_EXISTS", "A user already uses this email address");
+  if (target.includes("employeeNo")) return new AppError(409, "TEACHER_EMPLOYEE_NO_EXISTS", "A teacher already uses this employee number");
+  if (target.includes("phone")) return new AppError(409, "TEACHER_MOBILE_EXISTS", "A user already uses this mobile number");
+  return new AppError(409, "DUPLICATE_TEACHER", "A unique teacher value already exists");
+}
+
 function requireTeacherPhotoAccess(req: AuthRequest, photoUrl: string | null | undefined) {
   if (!photoUrl) return;
   let pathname = photoUrl;
@@ -234,22 +249,24 @@ router.get("/teachers", async (req: AuthRequest, res) => {
 router.get("/teachers/:id", async (req: AuthRequest, res) => { const data = await prisma.teacherProfile.findUnique({ where: { id: String(req.params.id) }, select: teacherSelect }); if (!data) throw new AppError(404, "TEACHER_NOT_FOUND", "Teacher not found"); await requireBranchAccess(req, data.branch.id); res.json({ data: teacherWithLegacyBranch(data) }); });
 router.post("/teachers", async (req: AuthRequest, res) => {
   const input = teacherInput.extend({ password: z.string().min(8).max(128) }).parse(req.body);
-  requireTeacherPhotoAccess(req, input.photoUrl); await requireBranchAccess(req, input.branchId); const [subjectIds, specializationIds] = await Promise.all([validateTeacherSubjects(input.subjectIds), validateTeacherSpecializations(input.specializationIds)]);
-  const data = await prisma.teacherProfile.create({ data: {
-    employeeNo: input.employeeNo, qualification: input.qualification ?? null, specialization: input.specialization ?? null,
-    maxPeriodsPerDay: input.maxPeriodsPerDay ?? null, maxPeriodsPerWeek: input.maxPeriodsPerWeek ?? null,
-    branch: { connect: { id: input.branchId } },
-    ...(subjectIds?.length ? { subjects: { create: subjectIds.map(subjectId => ({ organizationId: req.auth!.organizationId, subjectId })) } } : {}),
-    ...(specializationIds?.length ? { specializationsNormalized: { create: specializationIds.map(specializationId => ({ organizationId: req.auth!.organizationId, specializationId })) } } : {}),
-    user: { create: { name: input.name, email: input.email, passwordHash: await bcrypt.hash(input.password, 12), phone: input.mobile ?? null, avatarUrl: input.photoUrl ?? null, isActive: input.isActive ?? true, role: Role.TEACHER } },
-  }, select: teacherSelect });
+  requireTeacherPhotoAccess(req, input.photoUrl); await requireValidTeacherBranch(req, input.branchId); const [subjectIds, specializationIds, passwordHash] = await Promise.all([validateTeacherSubjects(input.subjectIds), validateTeacherSpecializations(input.specializationIds), bcrypt.hash(input.password, 12)]);
+  let data;
+  try {
+    data = await prisma.$transaction(async tx => {
+      const user = await tx.user.create({ data: { name: input.name, email: input.email, passwordHash, phone: input.mobile ?? null, avatarUrl: input.photoUrl ?? null, isActive: input.isActive ?? true, role: Role.TEACHER }, select: { id: true } });
+      const teacher = await tx.teacherProfile.create({ data: { userId: user.id, employeeNo: input.employeeNo, qualification: input.qualification ?? null, specialization: input.specialization ?? null, maxPeriodsPerDay: input.maxPeriodsPerDay ?? null, maxPeriodsPerWeek: input.maxPeriodsPerWeek ?? null, branchId: input.branchId }, select: { id: true } });
+      if (subjectIds?.length) await tx.teacherSubject.createMany({ data: subjectIds.map(subjectId => ({ organizationId: req.auth!.organizationId, teacherId: teacher.id, subjectId })), skipDuplicates: true });
+      if (specializationIds?.length) await tx.teacherSpecialization.createMany({ data: specializationIds.map(specializationId => ({ organizationId: req.auth!.organizationId, teacherId: teacher.id, specializationId })), skipDuplicates: true });
+      return tx.teacherProfile.findUniqueOrThrow({ where: { id: teacher.id }, select: teacherSelect });
+    });
+  } catch (error) { throw teacherDuplicateError(error) ?? error; }
   res.status(201).json({ data: teacherWithLegacyBranch(data) });
 });
 router.patch("/teachers/:id", async (req: AuthRequest, res) => {
   const input = teacherInput.partial().parse(req.body); requireTeacherPhotoAccess(req, input.photoUrl);
   const existing = await prisma.teacherProfile.findUnique({ where: { id: String(req.params.id) }, select: { id: true, userId: true, branchId: true, user: { select: { avatarUrl: true } } } });
   if (!existing) throw new AppError(404, "TEACHER_NOT_FOUND", "Teacher not found");
-  await requireBranchAccess(req, existing.branchId); if (input.branchId) await requireBranchAccess(req, input.branchId); const [subjectIds, specializationIds] = await Promise.all([validateTeacherSubjects(input.subjectIds, existing.id), validateTeacherSpecializations(input.specializationIds, existing.id)]);
+  await requireBranchAccess(req, existing.branchId); if (input.branchId && input.branchId !== existing.branchId) await requireValidTeacherBranch(req, input.branchId); const [subjectIds, specializationIds] = await Promise.all([validateTeacherSubjects(input.subjectIds, existing.id), validateTeacherSpecializations(input.specializationIds, existing.id)]);
   let subjectSync: TeacherSubjectSyncPlan | undefined;
   if (subjectIds !== undefined) {
     const existingSubjectIds = (await prisma.teacherSubject.findMany({ where: { teacherId: existing.id }, select: { subjectId: true } })).map(row => row.subjectId);
@@ -260,7 +277,8 @@ router.patch("/teachers/:id", async (req: AuthRequest, res) => {
       if (subjectSync.blockedSubjectIds.length) throw new AppError(409, "TEACHER_SUBJECT_IN_USE", "Deactivate active teacher allocations before removing their subject mapping");
     }
   }
-  const data = await prisma.$transaction(async tx => {
+  let data;
+  try { data = await prisma.$transaction(async tx => {
     await tx.user.update({ where: { id: existing.userId }, data: { ...(input.name ? { name: input.name } : {}), ...(input.email ? { email: input.email } : {}), ...(input.mobile !== undefined ? { phone: input.mobile } : {}), ...(input.photoUrl !== undefined ? { avatarUrl: input.photoUrl } : {}), ...(input.isActive !== undefined ? { isActive: input.isActive } : {}), ...(input.password ? { passwordHash: await bcrypt.hash(input.password, 12) } : {}) } });
     if (subjectIds !== undefined && subjectSync) {
       if (subjectSync.removeSubjectIds.length) await tx.teacherSubject.deleteMany({ where: { teacherId: existing.id, subjectId: { in: subjectSync.removeSubjectIds } } });
@@ -269,7 +287,7 @@ router.patch("/teachers/:id", async (req: AuthRequest, res) => {
     }
     if (specializationIds) { await tx.teacherSpecialization.deleteMany({ where: { teacherId: existing.id, specializationId: { notIn: specializationIds } } }); if (specializationIds.length) await tx.teacherSpecialization.createMany({ data: specializationIds.map(specializationId => ({ organizationId: req.auth!.organizationId, teacherId: existing.id, specializationId })), skipDuplicates: true }); }
     return tx.teacherProfile.update({ where: { id: existing.id }, data: { ...(input.employeeNo ? { employeeNo: input.employeeNo } : {}), ...(input.qualification !== undefined ? { qualification: input.qualification } : {}), ...(input.specialization !== undefined ? { specialization: input.specialization } : {}), ...(input.maxPeriodsPerDay !== undefined ? { maxPeriodsPerDay: input.maxPeriodsPerDay } : {}), ...(input.maxPeriodsPerWeek !== undefined ? { maxPeriodsPerWeek: input.maxPeriodsPerWeek } : {}), ...(input.branchId ? { branchId: input.branchId } : {}) }, select: teacherSelect });
-  });
+  }); } catch (error) { throw teacherDuplicateError(error) ?? error; }
   if (input.photoUrl !== undefined && input.photoUrl !== existing.user.avatarUrl) await deleteUnusedTeacherPhoto(req.auth!.organizationId, existing.user.avatarUrl).catch(error => logger.warn({ err: error, teacherId: existing.id }, "Unable to remove replaced teacher photo"));
   res.json({ data: teacherWithLegacyBranch(data) });
 });

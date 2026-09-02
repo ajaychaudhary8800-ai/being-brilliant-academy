@@ -283,9 +283,39 @@ test("teacher edit intentionally synchronizes only visible canonical subjects", 
   assert.match(api, /planTeacherSubjectSync/);
   assert.match(api, /subjectId: \{ in: subjectSync\.removeSubjectIds \}/);
   assert.doesNotMatch(api, /subjectId: \{ notIn: subjectIds \}/);
+  assert.match(api, /status: "ACTIVE", subjectId: \{ in: subjectSync\.removeSubjectIds \}/);
+  assert.match(api, /tx\.teacherSpecialization\.deleteMany/);
+  assert.match(api, /tx\.teacherSpecialization\.createMany/);
+  assert.match(api, /if \(input\.branchId && input\.branchId !== existing\.branchId\) await requireValidTeacherBranch/);
   assert.match(web, /legacyReviewStatus === "CONFIRMED"/);
   assert.match(web, /hidden legacy mappings/);
   assert.match(web, /body: JSON\.stringify\(payload\)/);
+});
+
+test("teacher create uses atomic tenant-scoped writes and preserves failed-photo cleanup", async () => {
+  const api = await readFile(new URL("./routes/admin.ts", import.meta.url), "utf8");
+  const web = await readFile(new URL("../../web/app/admin/teachers/page.tsx", import.meta.url), "utf8");
+  const batchForm = await readFile(new URL("../../web/components/batch-form.tsx", import.meta.url), "utf8");
+  const createRoute = api.slice(api.indexOf('router.post("/teachers"'), api.indexOf('router.patch("/teachers/:id"'));
+
+  assert.match(createRoute, /requireValidTeacherBranch\(req, input\.branchId\)/);
+  assert.match(createRoute, /validateTeacherSubjects\(input\.subjectIds\)/);
+  assert.match(createRoute, /validateTeacherSpecializations\(input\.specializationIds\)/);
+  assert.match(api, /prisma\.branch\.findFirst\(\{ where: \{ id: branchId, isActive: true \}/);
+  assert.match(createRoute, /prisma\.\$transaction/);
+  assert.match(createRoute, /tx\.user\.create/);
+  assert.match(createRoute, /tx\.teacherProfile\.create/);
+  assert.match(createRoute, /userId: user\.id/);
+  assert.match(createRoute, /branchId: input\.branchId/);
+  assert.match(createRoute, /tx\.teacherSubject\.createMany/);
+  assert.match(createRoute, /tx\.teacherSpecialization\.createMany/);
+  assert.doesNotMatch(createRoute, /specializationsNormalized:\s*\{\s*create/);
+  assert.match(api, /TEACHER_EMAIL_EXISTS/);
+  assert.match(api, /TEACHER_EMPLOYEE_NO_EXISTS/);
+  assert.match(web, /if \(uploadedPhotoUrl\) await fetch/);
+  assert.match(web, /method: "DELETE"/);
+  assert.match(batchForm, /Field label="Start Date \*" name="startsAt" type="date"/);
+  assert.match(batchForm, /Field label="End Date" name="endsAt" type="date" required=\{false\}/);
 });
 
 test("subject cleanup is dependency-complete, tenant-safe and history-preserving", async () => {
