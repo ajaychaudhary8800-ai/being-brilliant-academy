@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { AnswerSheetStatus, AttendanceStatus, ExaminationResultStatus, ExaminationStatus, HalfDaySession, HomeworkSubmissionStatus, LeaveType, Role } from "@prisma/client";
+import { AnswerSheetStatus, AttendanceStatus, ExaminationResultStatus, ExaminationStatus, ExaminationType, HalfDaySession, HomeworkSubmissionStatus, LeaveType, Role } from "@prisma/client";
 import { assertClassroomBranchChange, requireRequestedBranch } from "./lib/branch-policy.js";
-import { assertAnswerSheetAccess, assertEvaluationOpen, assertExaminationManager, assertStudentExaminationEligible, assertStudentExaminationPublished, evaluationStatus, examinationResultFor } from "./lib/examination-policy.js";
+import { answerSubmissionState, assertAnswerSheetAccess, assertAnswerSheetReplaceable, assertEvaluationOpen, assertExaminationHistoricalFieldsEditable, assertExaminationManager, assertExaminationStatusTransition, assertSingleConditionalMutation, assertStudentExaminationEligible, assertStudentExaminationPublished, changesCoreExaminationField, evaluationStatus, examinationResultFor, publishedEvaluation, type ExaminationHistoricalActivity } from "./lib/examination-policy.js";
 import { assertHomeworkSubmissionReplaceable, assertHomeworkSubmissionReplaced, replaceableHomeworkSubmissionStatuses } from "./lib/homework-policy.js";
 import { assertApprovedLeaveAttendance, assertLeaveAttendanceCompatible, attendanceStatusForLeave, validateLeaveDates } from "./lib/leave-attendance-policy.js";
 import { noticeRecipientConstraints } from "./lib/notice-policy.js";
@@ -182,6 +182,74 @@ test("examination evaluator and answer-sheet access policies reject IDOR", () =>
   assert.throws(() => assertAnswerSheetAccess(Role.STUDENT, "other-student", "student", "teacher"), /not assigned/);
   assert.equal(evaluationStatus(false), AnswerSheetStatus.UNDER_REVIEW);
   assert.equal(evaluationStatus(true), AnswerSheetStatus.EVALUATED);
+});
+
+test("examination answer-sheet replacement locks review and finalized states", () => {
+  assert.doesNotThrow(() => assertAnswerSheetReplaceable(AnswerSheetStatus.SUBMITTED, null));
+  assert.doesNotThrow(() => assertAnswerSheetReplaceable(AnswerSheetStatus.LATE_SUBMITTED, null));
+  assert.throws(() => assertAnswerSheetReplaceable(AnswerSheetStatus.UNDER_REVIEW, null), /after review has started/);
+  assert.throws(() => assertAnswerSheetReplaceable(AnswerSheetStatus.EVALUATED, new Date()), /after review has started/);
+  assert.doesNotThrow(() => assertSingleConditionalMutation(1, "CONFLICT", "conflict"));
+  assert.throws(() => assertSingleConditionalMutation(0, "CONFLICT", "conflict"), /conflict/);
+});
+
+test("examination submission windows require the matching live lifecycle", () => {
+  const examDate = new Date("2026-09-03T00:00:00.000Z"), base = { examDate, startMinute: 600, endMinute: 660 };
+  assert.throws(() => answerSubmissionState({ ...base, status: ExaminationStatus.SCHEDULED }, new Date("2026-09-03T09:59:00.000Z")), /before the examination starts/);
+  assert.equal(answerSubmissionState({ ...base, status: ExaminationStatus.SCHEDULED }, new Date("2026-09-03T10:30:00.000Z")).status, AnswerSheetStatus.SUBMITTED);
+  assert.throws(() => answerSubmissionState({ ...base, status: ExaminationStatus.SCHEDULED }, new Date("2026-09-03T11:01:00.000Z")), /closed/);
+  assert.equal(answerSubmissionState({ ...base, status: ExaminationStatus.COMPLETED }, new Date("2026-09-03T11:01:00.000Z")).status, AnswerSheetStatus.LATE_SUBMITTED);
+  for (const status of [ExaminationStatus.RESULTS_PUBLISHED, ExaminationStatus.ARCHIVED]) assert.throws(() => answerSubmissionState({ ...base, status }, new Date("2026-09-03T11:01:00.000Z")), /closed/);
+});
+
+test("examination evaluation details remain private until finalized publication", () => {
+  const draft = { marksObtained: 42, teacherRemarks: "provisional", finalizedAt: null };
+  assert.deepEqual(publishedEvaluation(ExaminationStatus.COMPLETED, draft), { ...draft, marksObtained: null, teacherRemarks: null });
+  const finalized = { ...draft, finalizedAt: new Date("2026-09-03T12:00:00.000Z") };
+  assert.deepEqual(publishedEvaluation(ExaminationStatus.COMPLETED, finalized), { ...finalized, marksObtained: null, teacherRemarks: null });
+  assert.equal(publishedEvaluation(ExaminationStatus.RESULTS_PUBLISHED, finalized).marksObtained, 42);
+});
+
+test("examination lifecycle prevents backward and arbitrary status transitions", () => {
+  assert.doesNotThrow(() => assertExaminationStatusTransition(ExaminationStatus.DRAFT, ExaminationStatus.SCHEDULED));
+  assert.doesNotThrow(() => assertExaminationStatusTransition(ExaminationStatus.COMPLETED, ExaminationStatus.RESULTS_PUBLISHED));
+  assert.doesNotThrow(() => assertExaminationStatusTransition(ExaminationStatus.RESULTS_PUBLISHED, ExaminationStatus.ARCHIVED));
+  assert.throws(() => assertExaminationStatusTransition(ExaminationStatus.DRAFT, ExaminationStatus.RESULTS_PUBLISHED), /cannot change/);
+  assert.throws(() => assertExaminationStatusTransition(ExaminationStatus.ARCHIVED, ExaminationStatus.DRAFT), /cannot change/);
+  assert.equal(changesCoreExaminationField({ maximumMarks: 80 }, { maximumMarks: 100 }), true);
+  assert.equal(changesCoreExaminationField({ remarks: "updated" }, { maximumMarks: 100 }), false);
+});
+
+test("examination type becomes immutable when historical activity exists", () => {
+  const typeChange = { type: ExaminationType.FINAL }, current = { type: ExaminationType.UNIT_TEST };
+  const assertTypeChangeAllowed = (activity: ExaminationHistoricalActivity) => {
+    if (changesCoreExaminationField(typeChange, current)) assertExaminationHistoricalFieldsEditable(activity);
+  };
+  assert.doesNotThrow(() => assertTypeChangeAllowed({ publishedQuestionPapers: 0, answerSheets: 0, results: 0 }));
+  assert.throws(() => assertTypeChangeAllowed({ publishedQuestionPapers: 1, answerSheets: 0, results: 0 }), /Core examination fields cannot change/);
+  assert.throws(() => assertTypeChangeAllowed({ publishedQuestionPapers: 0, answerSheets: 1, results: 0 }), /Core examination fields cannot change/);
+  assert.throws(() => assertTypeChangeAllowed({ publishedQuestionPapers: 0, answerSheets: 0, results: 1 }), /Core examination fields cannot change/);
+});
+
+test("examination routes use conditional writes, publication gates and atomic audit coverage", async () => {
+  const workflow = await readFile(new URL("./routes/examination-workflow.ts", import.meta.url), "utf8");
+  const admin = await readFile(new URL("./routes/admin-examinations.ts", import.meta.url), "utf8");
+  const policy = await readFile(new URL("./lib/examination-policy.ts", import.meta.url), "utf8");
+  const portal = await readFile(new URL("./routes/portals.ts", import.meta.url), "utf8");
+  assert.match(workflow, /status: \{ in: replaceableAnswerSheetStatuses \}/);
+  assert.match(workflow, /organizationId: req\.auth!\.organizationId,[^]*examinationId: exam\.id,[^]*studentId: student\.id/);
+  assert.match(workflow, /assertSingleConditionalMutation\(updated\.count/);
+  assert.match(workflow, /status: submission\.examinationStatus/);
+  assert.match(workflow, /TransactionIsolationLevel\.Serializable/);
+  assert.match(workflow, /publishedEvaluation\(row\.status/);
+  assert.match(workflow, /select: \{ id: true \}[^]*select: \{ fileName: true, mimeType: true, fileSize: true, fileData: true \}/);
+  assert.match(admin, /assertExaminationHistoricalFieldsEditable/);
+  assert.match(policy, /EXAMINATION_ACTIVITY_LOCKED/);
+  assert.match(admin, /ANSWER_SHEET_RESULTS_AUTHORITATIVE/);
+  assert.match(admin, /tx\.auditLog\.create/);
+  assert.match(admin, /GENERATE_RESULTS[^]*PUBLISH/);
+  assert.match(portal, /examination:\{status:ExaminationStatus\.RESULTS_PUBLISHED\}/);
+  assert.match(portal, /r\.examination\.status!==ExaminationStatus\.RESULTS_PUBLISHED/);
 });
 
 test("teacher photos enforce image signatures, size and tenant-scoped generated paths", () => {
@@ -399,7 +467,8 @@ test("academic selectors and examination files use canonical scoped contracts", 
   assert.match(examinationWorkflow, /assertDocumentFileExtension/);
   assert.match(examinationWorkflow, /allowedAnswerSheetTypes/);
   assert.match(examinationWorkflow, /QUESTION_PAPER_IN_USE/);
-  assert.match(examinationWorkflow, /assertAnswerSheetAccess/);
+  assert.match(examinationWorkflow, /authorization = \{ student: \{ userId: req\.auth!\.userId \} \}/);
+  assert.match(examinationWorkflow, /authorization = \{ examination: \{ teacher: \{ userId: req\.auth!\.userId \} \} \}/);
   assert.match(examinationWorkflow, /assertEvaluationOpen/);
   assert.match(examinationBranchEnforcement, /branchUser\.findFirst/);
   assert.match(examinationBranchEnforcement, /BRANCH_FORBIDDEN/);
