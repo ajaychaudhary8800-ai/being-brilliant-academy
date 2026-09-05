@@ -36,13 +36,18 @@ export function examinationResultFor(marks: number, maximumMarks: number, passin
   return { marksObtained: marks, percentage, status: marks >= passingMarks ? ExaminationResultStatus.PASS : ExaminationResultStatus.FAIL, generatedAt: now };
 }
 
-export function assertStudentExaminationEligible<T extends { batchId: string; academicSessionId: string }>(student: T | null, exam: { batchId: string; academicSessionId: string }): asserts student is T {
-  if (!student || student.batchId !== exam.batchId || student.academicSessionId !== exam.academicSessionId) throw new AppError(403, "EXAMINATION_ACCESS_DENIED", "This examination is not assigned to your batch and academic session");
+export function assertStudentExaminationEligible<T extends { organizationId: string; batchId: string; academicSessionId: string }>(student: T | null, exam: { organizationId: string; batchId: string; academicSessionId: string }): asserts student is T {
+  if (!student || student.organizationId !== exam.organizationId || student.batchId !== exam.batchId || student.academicSessionId !== exam.academicSessionId) throw new AppError(403, "EXAMINATION_ACCESS_DENIED", "This examination is not assigned to your organization, batch and academic session");
 }
 
 export function assertStudentExaminationPublished(status: ExaminationStatus) {
   const publishedStatuses: ExaminationStatus[] = [ExaminationStatus.SCHEDULED, ExaminationStatus.COMPLETED, ExaminationStatus.RESULTS_PUBLISHED];
   if (!publishedStatuses.includes(status)) throw new AppError(403, "EXAMINATION_UNPUBLISHED", "This examination is not published for student access");
+}
+
+export function assertQuestionPaperAvailable(status: ExaminationStatus, publishedAt: Date | null, now = new Date()) {
+  assertStudentExaminationPublished(status);
+  if (!publishedAt || publishedAt > now) throw new AppError(403, "QUESTION_PAPER_UNPUBLISHED", "Question paper is not available yet");
 }
 
 export function examinationStart(exam: { examDate: Date; startMinute: number }) {

@@ -7,6 +7,7 @@ import {
   IndianRupee, Loader2, LogOut, Mail, MapPin, NotebookPen, Search, Send, UserRound, Users,
 } from "lucide-react";
 import { AppRole, AuthGate, errorMessage, getAccessToken, useAuth } from "./auth-provider";
+import { openAuthenticatedDocument } from "./authenticated-download";
 import { documentAsBase64, validateDocumentFile } from "./document-upload";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
@@ -153,7 +154,7 @@ function HomeworkSubmissionAction({ item, reload }: { item: StudentHomework; rel
 function StudentHomeworkSection({ items, query, reload }: { items: StudentHomework[]; query: string; reload: () => Promise<void> }) {
   const [downloadError, setDownloadError] = useState("");
   const rows = items.filter(item => includes(query, item.title, item.subject.name, item.teacher.user.name, item.course.title, item.batch.name, item.status));
-  async function download(item: StudentHomework) { setDownloadError(""); try { const response = await fetch(`${API}/admin/homeworks/${item.id}/attachment`, { headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` } }); if (!response.ok) throw new Error("Unable to download assignment"); const url = URL.createObjectURL(await response.blob()); window.open(url, "_blank", "noopener,noreferrer"); setTimeout(() => URL.revokeObjectURL(url), 60_000); } catch (cause) { setDownloadError(errorMessage(cause)); } }
+  async function download(item: StudentHomework) { setDownloadError(""); try { await openAuthenticatedDocument({ url: `${API}/portal/downloads/homework/${item.id}`, token: getAccessToken() ?? "", fileName: item.attachmentName ?? "homework-attachment", fallbackError: "Unable to download assignment" }); } catch (cause) { setDownloadError(errorMessage(cause)); } }
   return <section><SectionTitle title="Homework" description="Published assignments for your batch and your submission status."/>{downloadError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{downloadError}</p>}{rows.length ? <div className="grid gap-5 xl:grid-cols-2">{rows.map(item => <article key={item.id} className="card p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase text-brand-700">{item.subject.name}</p><h3 className="mt-1 text-lg font-black">{item.title}</h3><p className="text-sm text-slate-500">{item.teacher.user.name} · {item.course.title} · {item.batch.name}</p></div><Badge value={item.status}/></div><p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-600">{item.description}</p><div className="mt-4 flex flex-wrap gap-4 text-sm"><span>Assigned <b>{shortDate(item.assignedDate)}</b></span><span>Due <b>{dateTime(item.dueDate)}</b></span><span>Marks <b>{item.maximumMarks}</b></span></div>{item.hasAttachment && <button onClick={() => void download(item)} className="btn mt-4"><Download size={16}/>View assignment</button>}<HomeworkSubmissionAction item={item} reload={reload}/></article>)}</div> : <Empty icon={NotebookPen}>No published homework assigned.</Empty>}</section>;
 }
 

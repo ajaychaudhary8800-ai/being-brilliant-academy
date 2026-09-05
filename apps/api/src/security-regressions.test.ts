@@ -149,8 +149,8 @@ test("finalized evaluations are immutable and results are never accidentally abs
 });
 
 test("historical academic sessions cannot access current examination papers", () => {
-  assert.doesNotThrow(() => assertStudentExaminationEligible({ batchId: "b", academicSessionId: "s1" }, { batchId: "b", academicSessionId: "s1" }));
-  assert.throws(() => assertStudentExaminationEligible({ batchId: "b", academicSessionId: "old" }, { batchId: "b", academicSessionId: "current" }), /batch and academic session/);
+  assert.doesNotThrow(() => assertStudentExaminationEligible({ organizationId: "org", batchId: "b", academicSessionId: "s1" }, { organizationId: "org", batchId: "b", academicSessionId: "s1" }));
+  assert.throws(() => assertStudentExaminationEligible({ organizationId: "org", batchId: "b", academicSessionId: "old" }, { organizationId: "org", batchId: "b", academicSessionId: "current" }), /organization, batch and academic session/);
   assert.doesNotThrow(() => assertStudentExaminationPublished(ExaminationStatus.SCHEDULED));
   assert.throws(() => assertStudentExaminationPublished(ExaminationStatus.DRAFT), /not published/);
   assert.throws(() => assertStudentExaminationPublished(ExaminationStatus.ARCHIVED), /not published/);
@@ -244,6 +244,7 @@ test("examination routes use conditional writes, publication gates and atomic au
   assert.match(workflow, /TransactionIsolationLevel\.Serializable/);
   assert.match(workflow, /publishedEvaluation\(row\.status/);
   assert.match(workflow, /select: \{ id: true \}[^]*select: \{ fileName: true, mimeType: true, fileSize: true, fileData: true \}/);
+  assert.match(workflow, /answer-sheets\/:answerSheetId\/file[^]*storedDocumentHeaders\(\{ \.\.\.sheet, fallbackName: "answer-sheet" \}[^]*storedDocumentBuffer\(sheet\.fileData\)/);
   assert.match(admin, /assertExaminationHistoricalFieldsEditable/);
   assert.match(policy, /EXAMINATION_ACTIVITY_LOCKED/);
   assert.match(admin, /ANSWER_SHEET_RESULTS_AUTHORITATIVE/);
@@ -488,6 +489,9 @@ test("homework routes enforce ownership, secure attachments and submission final
   assert.match(homework, /router\.patch\("\/homeworks\/submissions\/:id\/evaluate"[^]*await manage\(req,s\.homework\)/);
   assert.match(homework, /router\.get\("\/homeworks\/:id\/attachment"[^]*await readAccess\(req,x\)/);
   assert.match(homework, /router\.get\("\/homeworks\/submissions\/:id\/attachment"[^]*x\.student\.userId!==req\.auth!\.userId[^]*await manage\(req,x\.homework\)/);
+  assert.match(portals, /studentOrganizationId: student\?\.organizationId[^]*studentStatus: student\?\.status/);
+  assert.match(portals, /student: \{ organizationId: req\.auth!\.organizationId, batchId: homework\.batchId, status: StudentStatus\.ACTIVE \}/);
+  assert.match(portals, /parentStudentOrganizationId: linked\?\.student\.organizationId[^]*parentStudentStatus: linked\?\.student\.status/);
   assert.match(homework, /assertDocumentFileExtension/);
   assert.match(homework, /decodeVerifiedUpload\(a\.base64,a\.mimeType as AllowedDocumentType,5\*1024\*1024\)/);
   assert.doesNotMatch(homework, /Buffer\.from\(a\.base64,"base64"\)/);

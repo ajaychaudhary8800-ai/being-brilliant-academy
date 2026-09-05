@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Download, FileCheck2, Loader2, Trash2, Upload } from "lucide-react";
 import { AuthGate, getAccessToken } from "../../../components/auth-provider";
+import { openAuthenticatedDocument } from "../../../components/authenticated-download";
 import { documentAsBase64, validateDocumentFile } from "../../../components/document-upload";
 import Sidebar from "../../../components/sidebar";
 
@@ -80,10 +81,9 @@ function Content() {
   }
 
   async function download(path: string, name: string) {
-    const response = await fetch(`${API}/exam-workflow${path}`, { headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` } });
-    if (!response.ok) return setError((await response.json()).error?.message ?? "Download failed");
-    const url = URL.createObjectURL(await response.blob()), link = document.createElement("a");
-    link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url);
+    setError("");
+    try { await openAuthenticatedDocument({ url: `${API}/exam-workflow${path}`, token: getAccessToken() ?? "", fileName: name, fallbackError: "Download failed" }); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Download failed"); }
   }
 
   const exam = exams.find(item => item.id === selected);

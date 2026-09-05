@@ -1,10 +1,12 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
-import { AttendanceStatus, ExaminationStatus, HomeworkStatus, PaymentMode, Role, TeacherAllocationStatus, TimetableStatus } from "@prisma/client";
+import { AttendanceStatus, ExaminationStatus, HomeworkStatus, PaymentMode, Role, StudentStatus, TeacherAllocationStatus, TimetableStatus } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/http.js";
+import { assertHomeworkAttachmentAccess } from "../lib/homework-policy.js";
+import { loadAuthorizedDocument, storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -253,7 +255,60 @@ async function mayAccessStudent(req: AuthRequest, studentId: string) {
   if (req.auth!.role === Role.PARENT) return Boolean(await prisma.parentStudent.findUnique({ where: { parentId_studentId: { parentId: id(req), studentId } } }));
   const teacher = await teacherForUser(id(req)); const student = teacher && await prisma.studentProfile.findUnique({ where: { id: studentId }, select: { branchId: true } }); return Boolean(teacher && student?.branchId === teacher.branchId);
 }
-router.get("/downloads/homework/:homeworkId", async (req: AuthRequest, res) => { const homework=await prisma.homework.findUnique({where:{id:String(req.params.homeworkId)},select:{branchId:true,batchId:true,teacherId:true,status:true,attachmentData:true,attachmentName:true,attachmentMime:true}});if(!homework)throw new AppError(404,"HOMEWORK_NOT_FOUND","Homework not found");if(req.auth!.role===Role.STUDENT){const student=await studentForUser(id(req));if(student?.batchId!==homework.batchId||!(["PUBLISHED","CLOSED"] as string[]).includes(homework.status))throw new AppError(403,"FORBIDDEN","Download access denied");}else if(req.auth!.role===Role.PARENT){const linked=await prisma.parentStudent.findFirst({where:{parentId:id(req),student:{batchId:homework.batchId}}});if(!linked||!(["PUBLISHED","CLOSED"] as string[]).includes(homework.status))throw new AppError(403,"FORBIDDEN","Download access denied");}else if(req.auth!.role===Role.TEACHER){const teacher=await teacherForUser(id(req));if(teacher?.id!==homework.teacherId)throw new AppError(403,"FORBIDDEN","Download access denied");}else if(req.auth!.role===Role.BRANCH_ADMIN){const branch=await prisma.branchUser.findFirst({where:{userId:id(req),branchId:homework.branchId},select:{branchId:true}});if(!branch)throw new AppError(403,"FORBIDDEN","Download access denied");}else if(req.auth!.role!==Role.SUPER_ADMIN)throw new AppError(403,"FORBIDDEN","Download access denied");if(!homework.attachmentData)throw new AppError(404,"ATTACHMENT_NOT_FOUND","Attachment not found");res.set({"Content-Type":homework.attachmentMime!,"Content-Disposition":`attachment; filename="${homework.attachmentName!.replace(/["\r\n]/g,"")}"`}).send(Buffer.from(homework.attachmentData));});
+router.get("/downloads/homework/:homeworkId", async (req: AuthRequest, res) => {
+  const homework = await prisma.homework.findFirst({
+    where: { id: String(req.params.homeworkId), organizationId: req.auth!.organizationId },
+    select: { organizationId: true, branchId: true, batchId: true, teacherId: true, status: true, attachmentName: true, attachmentMime: true, attachmentSize: true },
+  });
+  if (!homework) throw new AppError(404, "HOMEWORK_NOT_FOUND", "Homework not found");
+
+  const student = req.auth!.role === Role.STUDENT
+    ? await prisma.studentProfile.findFirst({
+      where: { userId: id(req), organizationId: req.auth!.organizationId },
+      select: { organizationId: true, batchId: true, status: true },
+    })
+    : null;
+  const linked = req.auth!.role === Role.PARENT
+    ? await prisma.parentStudent.findFirst({
+      where: {
+        parentId: id(req),
+        organizationId: req.auth!.organizationId,
+        student: { organizationId: req.auth!.organizationId, batchId: homework.batchId, status: StudentStatus.ACTIVE },
+      },
+      select: { student: { select: { organizationId: true, batchId: true, status: true } } },
+    })
+    : null;
+  const teacher = req.auth!.role === Role.TEACHER ? await teacherForUser(id(req)) : null;
+  const branch = req.auth!.role === Role.BRANCH_ADMIN
+    ? await prisma.branchUser.findFirst({ where: { userId: id(req), branchId: homework.branchId }, select: { branchId: true } })
+    : null;
+  const download = await loadAuthorizedDocument(() => assertHomeworkAttachmentAccess({
+      role: req.auth!.role,
+      requestOrganizationId: req.auth!.organizationId,
+      homeworkOrganizationId: homework.organizationId,
+      homeworkStatus: homework.status,
+      homeworkBatchId: homework.batchId,
+      homeworkTeacherId: homework.teacherId,
+      studentOrganizationId: student?.organizationId,
+      studentBatchId: student?.batchId,
+      studentStatus: student?.status,
+      parentLinked: Boolean(linked),
+      parentStudentOrganizationId: linked?.student.organizationId,
+      parentStudentBatchId: linked?.student.batchId,
+      parentStudentStatus: linked?.student.status,
+      teacherId: teacher?.id,
+      branchAllowed: Boolean(branch),
+    }), async () => {
+      if (!homework.attachmentName || !homework.attachmentMime || homework.attachmentSize === null) throw new AppError(404, "ATTACHMENT_NOT_FOUND", "Attachment not found");
+      const stored = await prisma.homework.findFirst({
+        where: { id: String(req.params.homeworkId), organizationId: req.auth!.organizationId },
+        select: { attachmentData: true },
+      });
+      return { stored, metadata: { fileName: homework.attachmentName, mimeType: homework.attachmentMime, fileSize: homework.attachmentSize } };
+    });
+  if (!download.stored?.attachmentData) throw new AppError(404, "ATTACHMENT_NOT_FOUND", "Attachment not found");
+  res.set(storedDocumentHeaders({ ...download.metadata, fallbackName: "homework-attachment" }, "attachment")).send(storedDocumentBuffer(download.stored.attachmentData));
+});
 router.get("/downloads/certificate/:certificateId", async (req: AuthRequest, res) => { const c=await prisma.certificate.findUnique({where:{id:String(req.params.certificateId)},include:{student:{include:{user:true,batch:{include:{course:true}}}}}});if(!c||c.status==="DRAFT")throw new AppError(404,"CERTIFICATE_NOT_FOUND","Issued certificate not found");if(!(await mayAccessStudent(req,c.studentId)))throw new AppError(403,"FORBIDDEN","Download access denied");sendPdf(res,`${c.type.replaceAll("_"," ")} CERTIFICATE`,[`Certificate No: ${c.certificateNumber}`,`Student: ${c.student.user.name}`,`Admission: ${c.student.admissionNo}`,`Course: ${c.student.batch.course?.title??"N/A"}`,`Purpose: ${c.purpose}`,`Issued: ${c.issueDate?.toISOString().slice(0,10)??"N/A"}`],`${c.certificateNumber}.pdf`);});
 router.get("/downloads/report-card/:resultId", async (req: AuthRequest, res) => { const r=await prisma.examinationResult.findUnique({where:{id:String(req.params.resultId)},include:{student:{include:{user:true,batch:{include:{course:true}}}},examination:{include:{subject:true}}}});if(!r||r.examination.status!==ExaminationStatus.RESULTS_PUBLISHED)throw new AppError(404,"RESULT_NOT_FOUND","Result not found");if(!(await mayAccessStudent(req,r.studentId)))throw new AppError(403,"FORBIDDEN","Download access denied");sendPdf(res,"STUDENT REPORT CARD",[`Student: ${r.student.user.name}`,`Admission: ${r.student.admissionNo} | Roll: ${r.student.rollNo}`,`Course: ${r.student.batch.course?.title??"N/A"}`,`Examination: ${r.examination.name} | Subject: ${r.examination.subject.name}`,`Marks: ${r.marksObtained??"Absent"}/${r.examination.maximumMarks}`,`Percentage: ${r.percentage??"-"}% | Grade: ${r.grade??"-"} | GPA: ${r.gpa??"-"}`,`Rank: ${r.rank??"-"} | Result: ${r.status}`],"report-card.pdf");});
 function sendPdf(res:any,title:string,lines:string[],filename:string){const content=[title,...lines].map((x,i)=>`BT /F1 ${i?11:18} Tf 45 ${790-i*35} Td (${x.replace(/[()\\]/g,"\\$&")}) Tj ET`).join("\n"),objects=["<< /Type /Catalog /Pages 2 0 R >>","<< /Type /Pages /Kids [3 0 R] /Count 1 >>","<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",`<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];let pdf="%PDF-1.4\n",offsets=[0];objects.forEach((object,index)=>{offsets.push(Buffer.byteLength(pdf));pdf+=`${index+1} 0 obj\n${object}\nendobj\n`});const at=Buffer.byteLength(pdf);pdf+=`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(x=>String(x).padStart(10,"0")+" 00000 n ").join("\n")}\ntrailer << /Size 6 /Root 1 0 R >>\nstartxref\n${at}\n%%EOF`;res.set({"Content-Type":"application/pdf","Content-Disposition":`attachment; filename="${filename.replace(/["\r\n]/g,"")}"`}).send(Buffer.from(pdf));}

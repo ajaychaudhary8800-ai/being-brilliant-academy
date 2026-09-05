@@ -7,15 +7,16 @@ import {
   assertAnswerSheetReplaceable,
   assertEvaluationOpen,
   assertExaminationManager,
+  assertQuestionPaperAvailable,
   assertSingleConditionalMutation,
   assertStudentExaminationEligible,
-  assertStudentExaminationPublished,
   evaluationStatus,
   examinationResultFor,
   publishedEvaluation,
   replaceableAnswerSheetStatuses,
 } from "../lib/examination-policy.js";
 import { prisma } from "../lib/prisma.js";
+import { loadAuthorizedDocument, storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
 import { allowedAnswerSheetTypes, allowedDocumentTypes, assertDocumentFileExtension, decodeVerifiedUpload, type AllowedDocumentType } from "../lib/secure-upload.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
@@ -46,8 +47,8 @@ async function branchAccess(req: AuthRequest, branchId: string) {
 }
 
 async function examination(req: AuthRequest, examinationId: string) {
-  const exam = await prisma.examination.findUnique({
-    where: { id: examinationId },
+  const exam = await prisma.examination.findFirst({
+    where: { id: examinationId, organizationId: req.auth!.organizationId },
     include: { teacher: { select: { userId: true } }, questionPaper: { select: { id: true, publishedAt: true, _count: { select: { answerSheets: true } } } } },
   });
   if (!exam) throw new AppError(404, "EXAMINATION_NOT_FOUND", "Examination not found");
@@ -86,15 +87,18 @@ router.put("/examinations/:examinationId/question-paper", async (req: AuthReques
 
 router.get("/examinations/:examinationId/question-paper", async (req: AuthRequest, res) => {
   const exam = await examination(req, id.parse(req.params.examinationId));
-  if (req.auth!.role === Role.STUDENT) {
-    const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { batchId: true, academicSessionId: true } });
-    assertStudentExaminationEligible(student, exam);
-    assertStudentExaminationPublished(exam.status);
-    if (!exam.questionPaper?.publishedAt || exam.questionPaper.publishedAt > new Date()) throw new AppError(403, "QUESTION_PAPER_UNPUBLISHED", "Question paper is not available yet");
-  } else mayManage(req, exam);
-  const paper = await prisma.examinationQuestionPaper.findUnique({ where: { examinationId: exam.id } });
+  const paper = await loadAuthorizedDocument(async () => {
+    if (req.auth!.role === Role.STUDENT) {
+      const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { organizationId: true, batchId: true, academicSessionId: true } });
+      assertStudentExaminationEligible(student, exam);
+      assertQuestionPaperAvailable(exam.status, exam.questionPaper?.publishedAt ?? null);
+    } else mayManage(req, exam);
+  }, () => prisma.examinationQuestionPaper.findFirst({
+      where: { examinationId: exam.id, organizationId: req.auth!.organizationId },
+      select: { fileName: true, mimeType: true, fileSize: true, fileData: true },
+    }));
   if (!paper) throw new AppError(404, "QUESTION_PAPER_NOT_FOUND", "Question paper not found");
-  res.set({ "Content-Type": paper.mimeType, "Content-Length": String(paper.fileSize), "Content-Disposition": `inline; filename="${paper.fileName.replace(/["\r\n]/g, "")}"` }).send(paper.fileData);
+  res.set(storedDocumentHeaders({ ...paper, fallbackName: "question-paper" }, "inline")).send(storedDocumentBuffer(paper.fileData));
 });
 
 router.delete("/examinations/:examinationId/question-paper", async (req: AuthRequest, res) => {
@@ -119,7 +123,7 @@ router.delete("/examinations/:examinationId/question-paper", async (req: AuthReq
 router.put("/examinations/:examinationId/answer-sheet", async (req: AuthRequest, res) => {
   if (req.auth!.role !== Role.STUDENT) throw new AppError(403, "STUDENT_REQUIRED", "Student access is required");
   const exam = await examination(req, id.parse(req.params.examinationId));
-  const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { id: true, batchId: true, academicSessionId: true } });
+  const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { id: true, organizationId: true, batchId: true, academicSessionId: true } });
   assertStudentExaminationEligible(student, exam);
   const now = new Date();
   const submission = answerSubmissionState(exam, now);
@@ -173,7 +177,7 @@ router.get("/answer-sheets/:answerSheetId/file", async (req: AuthRequest, res) =
   if (!authorized) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
   const sheet = await prisma.examinationAnswerSheet.findUnique({ where: { id: authorized.id }, select: { fileName: true, mimeType: true, fileSize: true, fileData: true } });
   if (!sheet) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
-  res.set({ "Content-Type": sheet.mimeType, "Content-Length": String(sheet.fileSize), "Content-Disposition": `inline; filename="${sheet.fileName.replace(/["\r\n]/g, "")}"` }).send(sheet.fileData);
+  res.set(storedDocumentHeaders({ ...sheet, fallbackName: "answer-sheet" }, "inline")).send(storedDocumentBuffer(sheet.fileData));
 });
 
 router.patch("/answer-sheets/:answerSheetId/evaluation", async (req: AuthRequest, res) => {
