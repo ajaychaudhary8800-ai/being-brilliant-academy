@@ -1,7 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
-import { ExaminationStatus, PaymentMode, Role } from "@prisma/client";
+import { AttendanceStatus, ExaminationStatus, HomeworkStatus, PaymentMode, Role, TeacherAllocationStatus, TimetableStatus } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/http.js";
@@ -23,6 +23,98 @@ const assertRole = (req: AuthRequest, role: Role) => {
 };
 const studentForUser = (userId: string) => prisma.studentProfile.findUnique({ where: { userId }, include: { user: true, branch: true, batch: { include: { course: true } } } });
 const teacherForUser = (userId: string) => prisma.teacherProfile.findUnique({ where: { userId }, include: { user: true, branch: true } });
+async function authorizedTeacherBatchIds(teacherId: string) {
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const [timetables, allocations] = await Promise.all([
+    prisma.timetable.findMany({ where: { teacherId, status: TimetableStatus.ACTIVE }, select: { batchId: true } }),
+    prisma.teacherAllocation.findMany({ where: { teacherId, status: TeacherAllocationStatus.ACTIVE, effectiveFrom: { lte: today }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }] }, select: { batchId: true } }),
+  ]);
+  return [...new Set([...timetables, ...allocations].map(item => item.batchId))];
+}
+type PortalMessageParticipant = {
+  id: string;
+  organizationId: string;
+  role: Role;
+  isActive: boolean;
+  teacherId: string | null;
+  studentBatchId: string | null;
+  childBatchIds: string[];
+};
+type PortalMessageAuthorizationStore = {
+  participant: (userId: string) => Promise<PortalMessageParticipant | null>;
+  teacherBatchIds: (teacherId: string) => Promise<string[]>;
+};
+const portalMessageParticipant = async (userId: string): Promise<PortalMessageParticipant | null> => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      organizationId: true,
+      role: true,
+      isActive: true,
+      teacherProfile: { select: { id: true } },
+      studentProfile: { select: { batchId: true, status: true } },
+      parentChildren: { select: { student: { select: { batchId: true, status: true, user: { select: { isActive: true } } } } } },
+    },
+  });
+  if (!user) return null;
+  return {
+    id: user.id,
+    organizationId: user.organizationId,
+    role: user.role,
+    isActive: user.isActive,
+    teacherId: user.teacherProfile?.id ?? null,
+    studentBatchId: user.studentProfile?.status === "ACTIVE" ? user.studentProfile.batchId : null,
+    childBatchIds: [...new Set(user.parentChildren.filter(link => link.student.status === "ACTIVE" && link.student.user.isActive).map(link => link.student.batchId))],
+  };
+};
+const portalMessageAuthorizationStore: PortalMessageAuthorizationStore = {
+  participant: portalMessageParticipant,
+  teacherBatchIds: authorizedTeacherBatchIds,
+};
+const unavailableRecipient = () => new AppError(404, "RECIPIENT_NOT_AVAILABLE", "Recipient is not available");
+const sharesBatch = (left: readonly string[], right: readonly string[]) => {
+  const allowed = new Set(left);
+  return right.some(batchId => allowed.has(batchId));
+};
+export async function assertPortalMessageRecipientAuthorized(
+  sender: { userId: string; role: Role; organizationId: string },
+  recipientId: string,
+  store: PortalMessageAuthorizationStore = portalMessageAuthorizationStore,
+) {
+  const [senderProfile, recipient] = await Promise.all([store.participant(sender.userId), store.participant(recipientId)]);
+  const validParticipants = senderProfile
+    && recipient
+    && senderProfile.id !== recipient.id
+    && senderProfile.organizationId === sender.organizationId
+    && recipient.organizationId === sender.organizationId
+    && senderProfile.role === sender.role
+    && senderProfile.isActive
+    && recipient.isActive
+    && portalRoles.includes(senderProfile.role)
+    && portalRoles.includes(recipient.role);
+  if (!validParticipants) throw unavailableRecipient();
+
+  let permitted = false;
+  if (sender.role === Role.TEACHER && senderProfile.teacherId) {
+    const batchIds = await store.teacherBatchIds(senderProfile.teacherId);
+    permitted = recipient.role === Role.STUDENT
+      ? Boolean(recipient.studentBatchId && batchIds.includes(recipient.studentBatchId))
+      : recipient.role === Role.PARENT && sharesBatch(batchIds, recipient.childBatchIds);
+  } else if (sender.role === Role.STUDENT && senderProfile.studentBatchId && recipient.role === Role.TEACHER && recipient.teacherId) {
+    permitted = (await store.teacherBatchIds(recipient.teacherId)).includes(senderProfile.studentBatchId);
+  } else if (sender.role === Role.PARENT && senderProfile.childBatchIds.length && recipient.role === Role.TEACHER && recipient.teacherId) {
+    permitted = sharesBatch(senderProfile.childBatchIds, await store.teacherBatchIds(recipient.teacherId));
+  }
+  if (!permitted) throw unavailableRecipient();
+  return recipient;
+}
+const teacherContactRelationship = (batchIds: string[], today: Date) => ({
+  OR: [
+    { timetables: { some: { batchId: { in: batchIds }, status: TimetableStatus.ACTIVE } } },
+    { allocations: { some: { batchId: { in: batchIds }, status: TeacherAllocationStatus.ACTIVE, effectiveFrom: { lte: today }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }] } } },
+  ],
+});
 async function ownedChild(parentId: string, studentId: string) {
   const link = await prisma.parentStudent.findUnique({ where: { parentId_studentId: { parentId, studentId } }, include: { student: { include: { user: true, branch: true, batch: { include: { course: true } } } } } });
   if (!link) throw new AppError(403, "CHILD_ACCESS_DENIED", "This student is not linked to your account");
@@ -56,19 +148,27 @@ router.patch("/notifications/:notificationId/read", async (req: AuthRequest, res
 router.delete("/notifications/:notificationId", async (req: AuthRequest, res) => { await prisma.notification.deleteMany({ where: { id: String(req.params.notificationId), userId: id(req) } }); res.status(204).end(); });
 
 router.get("/messages", async (req: AuthRequest, res) => { const q = pageSchema.parse(req.query); const where = { OR: [{ senderId: id(req), senderArchived: false }, { recipientId: id(req), recipientArchived: false }], ...(q.search ? { AND: { OR: [{ subject: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] } } : {}) }; const [data,total]=await Promise.all([prisma.portalMessage.findMany({where,include:{sender:{select:{id:true,name:true,role:true}},recipient:{select:{id:true,name:true,role:true}}},orderBy:{createdAt:"desc"},skip:(q.page-1)*q.limit,take:q.limit}),prisma.portalMessage.count({where})]); res.json({data,meta:{...q,total,pages:Math.ceil(total/q.limit)}}); });
-router.post("/messages", async (req: AuthRequest, res) => { const input=z.object({recipientId:z.string().cuid(),subject:z.string().trim().min(2).max(160),body:z.string().trim().min(1).max(5000)}).parse(req.body); const recipient=await prisma.user.findUnique({where:{id:input.recipientId},select:{role:true}}); if(!recipient||!portalRoles.includes(recipient.role)) throw new AppError(400,"INVALID_RECIPIENT","Recipient must be a portal user"); if(req.auth!.role===Role.PARENT&&recipient.role!==Role.TEACHER) throw new AppError(403,"FORBIDDEN","Parents may communicate with teachers"); if(req.auth!.role===Role.STUDENT&&recipient.role!==Role.TEACHER) throw new AppError(403,"FORBIDDEN","Students may communicate with teachers"); res.status(201).json({data:await prisma.portalMessage.create({data:{senderId:id(req),...input}})}); });
+router.post("/messages", async (req: AuthRequest, res) => {
+  const input = z.object({ recipientId: z.string().cuid(), subject: z.string().trim().min(2).max(160), body: z.string().trim().min(1).max(5000) }).parse(req.body);
+  await assertPortalMessageRecipientAuthorized({ userId: id(req), role: req.auth!.role, organizationId: req.auth!.organizationId }, input.recipientId);
+  res.status(201).json({ data: await prisma.portalMessage.create({ data: { senderId: id(req), ...input } }) });
+});
 router.patch("/messages/:messageId", async (req: AuthRequest,res)=>{const input=z.object({read:z.boolean().optional(),archived:z.boolean().optional()}).parse(req.body);const message=await prisma.portalMessage.findUnique({where:{id:String(req.params.messageId)}});if(!message||(message.senderId!==id(req)&&message.recipientId!==id(req)))throw new AppError(404,"NOT_FOUND","Message not found");const data=message.senderId===id(req)?{senderArchived:input.archived}:{recipientArchived:input.archived,...(input.read?{readAt:new Date()}: {})};res.json({data:await prisma.portalMessage.update({where:{id:message.id},data})});});
 router.get("/contacts", async (req: AuthRequest, res) => {
   let data: { id: string; name: string; role: Role }[] = [];
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
   if (req.auth!.role === Role.STUDENT) {
     const student = await studentForUser(id(req));
-    if (student) data = await prisma.user.findMany({ where: { role: Role.TEACHER, teacherProfile: { branchId: student.branchId } }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } });
+    if (student?.status === "ACTIVE" && student.user.isActive) data = await prisma.user.findMany({ where: { role: Role.TEACHER, isActive: true, teacherProfile: teacherContactRelationship([student.batchId], today) }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } });
   } else if (req.auth!.role === Role.PARENT) {
-    const branchIds = (await prisma.parentStudent.findMany({ where: { parentId: id(req) }, select: { student: { select: { branchId: true } } } })).map(x => x.student.branchId);
-    data = await prisma.user.findMany({ where: { role: Role.TEACHER, teacherProfile: { branchId: { in: branchIds } } }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } });
+    const batchIds = (await prisma.parentStudent.findMany({ where: { parentId: id(req), student: { status: "ACTIVE", user: { isActive: true } } }, select: { student: { select: { batchId: true } } } })).map(link => link.student.batchId);
+    data = await prisma.user.findMany({ where: { role: Role.TEACHER, isActive: true, teacherProfile: teacherContactRelationship(batchIds, today) }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } });
   } else {
     const teacher = await teacherForUser(id(req));
-    if (teacher) data = await prisma.user.findMany({ where: { OR: [{ role: Role.STUDENT, studentProfile: { branchId: teacher.branchId } }, { role: Role.PARENT, parentChildren: { some: { student: { branchId: teacher.branchId } } } }] }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } });
+    if (teacher) {
+      const batchIds = await authorizedTeacherBatchIds(teacher.id);
+      data = await prisma.user.findMany({ where: { isActive: true, OR: [{ role: Role.STUDENT, studentProfile: { batchId: { in: batchIds }, status: "ACTIVE" } }, { role: Role.PARENT, parentChildren: { some: { student: { batchId: { in: batchIds }, status: "ACTIVE", user: { isActive: true } } } } }] }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } });
+    }
   }
   res.json({ data });
 });
@@ -83,18 +183,28 @@ router.post("/leaves",async(req:AuthRequest,res)=>{const input=z.object({fromDat
 router.delete("/leaves/:leaveId",async(req:AuthRequest,res)=>{const result=await prisma.leaveRequest.deleteMany({where:{id:String(req.params.leaveId),userId:id(req),status:"PENDING"}});if(!result.count)throw new AppError(409,"LEAVE_LOCKED","Only pending leave requests can be deleted");res.status(204).end();});
 
 async function studentData(student: NonNullable<Awaited<ReturnType<typeof studentForUser>>>) {
-  const [attendance, homeworks, submissions, timetable, results, fees, certificates, progress] = await Promise.all([
-    prisma.attendance.findMany({where:{studentId:student.userId},orderBy:{date:"desc"},take:100}),
-    prisma.homework.findMany({where:{batchId:student.batchId,status:{in:["PUBLISHED","CLOSED"]}},include:{subject:true,teacher:{include:{user:{select:{name:true}}}}},orderBy:{dueDate:"desc"},take:100}),
-    prisma.homeworkSubmission.findMany({where:{studentId:student.id},include:{homework:{select:{title:true,maximumMarks:true}}},orderBy:{submittedAt:"desc"}}),
-    prisma.timetable.findMany({where:{batchId:student.batchId,status:"ACTIVE"},include:{subject:true,teacher:{include:{user:{select:{name:true}}}},classroom:true},orderBy:[{day:"asc"},{startMinute:"asc"}]}),
-    prisma.examinationResult.findMany({where:{studentId:student.id,examination:{status:ExaminationStatus.RESULTS_PUBLISHED}},include:{examination:{include:{subject:true}}},orderBy:{createdAt:"desc"}}),
-    prisma.fee.findMany({where:{studentId:student.id},include:{payments:true},orderBy:{dueDate:"desc"}}),
-    prisma.certificate.findMany({where:{studentId:student.id,status:{not:"ARCHIVED"}},orderBy:{createdAt:"desc"}}),
-    prisma.lessonProgress.findMany({where:{userId:student.userId},include:{lesson:{include:{subject:true}}},orderBy:{updatedAt:"desc"}}),
+  const [attendance, homeworks, timetable, examinations, fees, certificates, progress] = await Promise.all([
+    prisma.attendance.findMany({ where: { studentId: student.userId }, select: { id: true, date: true, status: true, remarks: true, batch: { select: { id: true, name: true, course: { select: { title: true } } } } }, orderBy: { date: "desc" }, take: 100 }),
+    prisma.homework.findMany({ where: { batchId: student.batchId, status: { in: [HomeworkStatus.PUBLISHED, HomeworkStatus.CLOSED] } }, select: { id: true, title: true, description: true, type: true, assignedDate: true, dueDate: true, maximumMarks: true, status: true, attachmentName: true, subject: { select: { id: true, name: true } }, teacher: { select: { id: true, user: { select: { name: true } } } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true } }, submissions: { where: { studentId: student.id }, select: { id: true, submittedAt: true, attachmentName: true, answerText: true, marksObtained: true, feedback: true, status: true, evaluatedAt: true }, orderBy: { submittedAt: "desc" }, take: 1 } }, orderBy: { dueDate: "asc" }, take: 100 }),
+    prisma.timetable.findMany({ where: { batchId: student.batchId, status: TimetableStatus.ACTIVE }, select: { id: true, day: true, startMinute: true, endMinute: true, periodNumber: true, academicSession: true, subject: { select: { id: true, name: true } }, teacher: { select: { id: true, user: { select: { name: true } } } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true } }, classroom: { select: { id: true, name: true } } }, orderBy: [{ day: "asc" }, { startMinute: "asc" }] }),
+    prisma.examination.findMany({ where: { batchId: student.batchId, academicSessionId: student.academicSessionId, status: { in: [ExaminationStatus.SCHEDULED, ExaminationStatus.COMPLETED, ExaminationStatus.RESULTS_PUBLISHED] } }, select: { id: true, name: true, type: true, status: true, examDate: true, startMinute: true, endMinute: true, maximumMarks: true, subject: { select: { id: true, name: true } }, results: { where: { studentId: student.id }, select: { id: true, marksObtained: true, percentage: true, grade: true, rank: true, status: true } }, answerSheets: { where: { studentId: student.id }, select: { id: true, status: true, finalizedAt: true } } }, orderBy: { examDate: "asc" } }),
+    prisma.fee.findMany({ where: { studentId: student.id }, select: { id: true, feeHead: true, totalPaise: true, discountPaise: true, finePaise: true, amountPaidPaise: true, dueDate: true, status: true, remarks: true, payments: { select: { id: true, amountPaise: true, paymentDate: true, paymentMode: true, receiptNumber: true }, orderBy: { paymentDate: "desc" } } }, orderBy: { dueDate: "desc" } }),
+    prisma.certificate.findMany({ where: { studentId: student.id, status: { not: "ARCHIVED" } }, select: { id: true, certificateNumber: true, type: true, purpose: true, issueDate: true, status: true }, orderBy: { issueDate: "desc" } }),
+    prisma.lessonProgress.findMany({ where: { userId: student.userId }, select: { id: true, completed: true, watchPercentage: true, updatedAt: true, lesson: { select: { id: true, title: true, subject: { select: { id: true, name: true } } } } }, orderBy: { updatedAt: "desc" } }),
   ]);
-  const present=attendance.filter(a=>a.status==="PRESENT"||a.status==="LATE").length;
-  return {profile:student,attendance:{records:attendance,percentage:attendance.length?Math.round(present*10000/attendance.length)/100:0},homework:{assignments:homeworks,submissions},timetable,examinations:results,fees,certificates,lms:{progress,continueLearning:progress.filter(p=>!p.completed).slice(0,10),completed:progress.filter(p=>p.completed)}};
+  const present = attendance.filter(item => item.status === AttendanceStatus.PRESENT || item.status === AttendanceStatus.LATE).length;
+  const leaveStatuses: AttendanceStatus[] = [AttendanceStatus.LEAVE, AttendanceStatus.EXCUSED, AttendanceStatus.FULL_DAY_LEAVE, AttendanceStatus.HALF_DAY_LEAVE, AttendanceStatus.SHORT_LEAVE];
+  const summary = { total: attendance.length, present: attendance.filter(item => item.status === AttendanceStatus.PRESENT).length, absent: attendance.filter(item => item.status === AttendanceStatus.ABSENT).length, late: attendance.filter(item => item.status === AttendanceStatus.LATE).length, leave: attendance.filter(item => leaveStatuses.includes(item.status)).length };
+  return {
+    profile: { name: student.user.name, admissionNo: student.admissionNo, rollNo: student.rollNo, status: student.status, academicSession: student.academicSession, branch: { id: student.branch.id, name: student.branch.branchName }, course: student.batch.course ? { id: student.batch.course.id, name: student.batch.course.title } : { id: "", name: "Course not assigned" }, batch: { id: student.batch.id, name: student.batch.name } },
+    attendance: { records: attendance, summary, percentage: attendance.length ? Math.round(present * 10000 / attendance.length) / 100 : 0 },
+    homework: { assignments: homeworks.map(item => ({ ...item, hasAttachment: Boolean(item.attachmentName), submission: item.submissions[0] ?? null, submissions: undefined })) },
+    timetable,
+    examinations: examinations.map(item => ({ ...item, result: item.status === ExaminationStatus.RESULTS_PUBLISHED ? item.results[0] ?? null : null, submission: item.answerSheets[0] ?? null, results: undefined, answerSheets: undefined })),
+    fees,
+    certificates,
+    lms: { progress, continueLearning: progress.filter(item => !item.completed).slice(0, 10), completed: progress.filter(item => item.completed) },
+  };
 }
 
 router.get("/student/dashboard",allow(Role.STUDENT),async(req:AuthRequest,res)=>{const student=await studentForUser(id(req));if(!student)throw new AppError(404,"PROFILE_NOT_FOUND","Student profile not found");res.json({data:await studentData(student)});});
@@ -109,8 +219,34 @@ router.get("/parent/dashboard",allow(Role.PARENT),async(req:AuthRequest,res)=>{c
 router.get("/parent/children/:studentId",allow(Role.PARENT),async(req:AuthRequest,res)=>res.json({data:await studentData(await ownedChild(id(req),String(req.params.studentId)))}));
 router.post("/parent/children/:studentId/fees/:feeId/pay",allow(Role.PARENT),async(req:AuthRequest,res)=>{const student=await ownedChild(id(req),String(req.params.studentId));const input=z.object({amountPaise:z.number().int().positive(),paymentMode:z.nativeEnum(PaymentMode),transactionId:z.string().trim().max(100).optional()}).parse(req.body);const fee=await prisma.fee.findFirst({where:{id:String(req.params.feeId),studentId:student.id}});if(!fee)throw new AppError(404,"FEE_NOT_FOUND","Fee record not found");const balance=fee.totalPaise-fee.discountPaise+fee.finePaise-fee.amountPaidPaise;if(input.amountPaise>balance)throw new AppError(400,"EXCESS_PAYMENT","Payment exceeds the outstanding balance");const receiptNumber=`PR-${Date.now()}-${randomUUID().slice(0,6).toUpperCase()}`;const paid=fee.amountPaidPaise+input.amountPaise;const payment=await prisma.$transaction(async tx=>{const p=await tx.feePayment.create({data:{feeId:fee.id,amountPaise:input.amountPaise,paymentMode:input.paymentMode,transactionId:input.transactionId,receiptNumber,collectedById:id(req)}});await tx.fee.update({where:{id:fee.id},data:{amountPaidPaise:paid,status:paid>=fee.totalPaise-fee.discountPaise+fee.finePaise?"PAID":"PARTIAL"}});return p;});res.status(201).json({data:payment});});
 
-router.get("/teacher/dashboard",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const teacher=await teacherForUser(id(req));if(!teacher)throw new AppError(404,"PROFILE_NOT_FOUND","Teacher profile not found");const [timetable,homework,examinations,attendance,students,certificates]=await Promise.all([prisma.timetable.findMany({where:{teacherId:teacher.id,status:{not:"ARCHIVED"}},include:{batch:true,subject:true,classroom:true},orderBy:[{day:"asc"},{startMinute:"asc"}]}),prisma.homework.findMany({where:{teacherId:teacher.id},include:{batch:true,subject:true,_count:{select:{submissions:true}}},orderBy:{dueDate:"desc"}}),prisma.examination.findMany({where:{teacherId:teacher.id},include:{batch:true,subject:true,_count:{select:{results:true}}},orderBy:{examDate:"desc"}}),prisma.attendance.findMany({where:{teacherId:teacher.id},orderBy:{date:"desc"},take:100}),prisma.studentProfile.findMany({where:{branchId:teacher.branchId,status:"ACTIVE"},include:{user:{select:{name:true,email:true,phone:true}},batch:{include:{course:true}}},orderBy:{rollNo:"asc"}}),prisma.certificate.findMany({where:{branchId:teacher.branchId,status:"ISSUED"},include:{student:{include:{user:{select:{name:true}}}}},take:100,orderBy:{issueDate:"desc"}})]);res.json({data:{profile:teacher,myClasses:timetable,homework,examinations,attendance,students,certificates}});});
-router.post("/teacher/attendance",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const teacher=await teacherForUser(id(req));if(!teacher)throw new AppError(404,"PROFILE_NOT_FOUND","Teacher profile not found");const input=z.object({studentUserId:z.string().cuid(),batchId:z.string().cuid(),date:z.coerce.date(),status:z.enum(["PRESENT","ABSENT","LATE","LEAVE"]),remarks:z.string().max(1000).optional()}).parse(req.body);const owned=await prisma.timetable.findFirst({where:{teacherId:teacher.id,batchId:input.batchId}});const student=await prisma.studentProfile.findFirst({where:{userId:input.studentUserId,batchId:input.batchId,branchId:teacher.branchId}});if(!owned||!student)throw new AppError(403,"CLASS_ACCESS_DENIED","Teacher is not assigned to this student's class");const data=await prisma.attendance.upsert({where:{studentId_batchId_date:{studentId:input.studentUserId,batchId:input.batchId,date:input.date}},create:{...input,studentId:input.studentUserId,teacherId:teacher.id,markedById:id(req)},update:{status:input.status,remarks:input.remarks,teacherId:teacher.id,markedById:id(req)}});res.status(201).json({data});});
+router.get("/teacher/dashboard", allow(Role.TEACHER), async (req: AuthRequest, res) => {
+  const teacher = await teacherForUser(id(req));
+  if (!teacher) throw new AppError(404, "PROFILE_NOT_FOUND", "Teacher profile not found");
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const [timetable, allocations] = await Promise.all([
+    prisma.timetable.findMany({ where: { teacherId: teacher.id, status: TimetableStatus.ACTIVE }, select: { id: true, batchId: true, subjectId: true, day: true, startMinute: true, endMinute: true, periodNumber: true, academicSession: true, branch: { select: { id: true, branchName: true } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true } }, subject: { select: { id: true, name: true } }, classroom: { select: { id: true, name: true } } }, orderBy: [{ day: "asc" }, { startMinute: "asc" }] }),
+    prisma.teacherAllocation.findMany({ where: { teacherId: teacher.id, status: TeacherAllocationStatus.ACTIVE, effectiveFrom: { lte: today }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }] }, select: { id: true, batchId: true, subjectId: true, weeklyPeriods: true, effectiveFrom: true, effectiveTo: true, branch: { select: { id: true, branchName: true } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true } }, subject: { select: { id: true, name: true } } }, orderBy: [{ batch: { name: "asc" } }, { subject: { name: "asc" } }] }),
+  ]);
+  const batchIds = [...new Set([...timetable, ...allocations].map(item => item.batchId))];
+  const [homework, examinations, attendance, students] = await Promise.all([
+    prisma.homework.findMany({ where: { teacherId: teacher.id }, select: { id: true, title: true, description: true, type: true, assignedDate: true, dueDate: true, maximumMarks: true, status: true, attachmentName: true, branch: { select: { id: true, branchName: true } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true } }, subject: { select: { id: true, name: true } }, _count: { select: { submissions: true } }, submissions: { where: { status: { in: ["SUBMITTED", "LATE"] } }, select: { id: true } } }, orderBy: { dueDate: "desc" } }),
+    prisma.examination.findMany({ where: { teacherId: teacher.id }, select: { id: true, name: true, type: true, status: true, examDate: true, startMinute: true, endMinute: true, maximumMarks: true, branch: { select: { id: true, branchName: true } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true } }, subject: { select: { id: true, name: true } }, questionPaper: { select: { id: true, fileName: true, publishedAt: true } }, _count: { select: { answerSheets: true, results: true } } }, orderBy: { examDate: "desc" } }),
+    prisma.attendance.findMany({ where: { teacherId: teacher.id, ...(batchIds.length ? { batchId: { in: batchIds } } : { batchId: { in: [] } }) }, select: { id: true, date: true, status: true, remarks: true, student: { select: { name: true, studentProfile: { select: { admissionNo: true } } } }, batch: { select: { id: true, name: true, course: { select: { title: true } } } } }, orderBy: { date: "desc" }, take: 100 }),
+    prisma.studentProfile.findMany({ where: { batchId: { in: batchIds }, status: "ACTIVE" }, select: { id: true, admissionNo: true, rollNo: true, status: true, user: { select: { id: true, name: true, email: true, phone: true } }, branch: { select: { id: true, branchName: true } }, batch: { select: { id: true, name: true, course: { select: { id: true, title: true } } } } }, orderBy: [{ batch: { name: "asc" } }, { rollNo: "asc" }] }),
+  ]);
+  const studentCount = new Map<string, number>();
+  for (const student of students) studentCount.set(student.batch.id, (studentCount.get(student.batch.id) ?? 0) + 1);
+  res.json({ data: {
+    profile: { id: teacher.id, name: teacher.user.name, employeeNo: teacher.employeeNo, qualification: teacher.qualification, specialization: teacher.specialization, branch: { id: teacher.branch.id, name: teacher.branch.branchName } },
+    myClasses: allocations.map(item => ({ ...item, studentCount: studentCount.get(item.batch.id) ?? 0, schedule: timetable.filter(period => period.batchId === item.batchId && period.subjectId === item.subjectId) })),
+    timetable,
+    homework: homework.map(item => ({ ...item, hasAttachment: Boolean(item.attachmentName), pendingEvaluation: item.submissions.length, submissions: undefined })),
+    examinations,
+    attendance,
+    students: students.map(student => ({ id: student.id, attendanceTargetId: student.user.id, admissionNo: student.admissionNo, rollNo: student.rollNo, status: student.status, name: student.user.name, email: student.user.email, phone: student.user.phone, branch: { id: student.branch.id, name: student.branch.branchName }, course: student.batch.course ? { id: student.batch.course.id, name: student.batch.course.title } : { id: "", name: "Course not assigned" }, batch: { id: student.batch.id, name: student.batch.name } })),
+  } });
+});
+router.post("/teacher/attendance", allow(Role.TEACHER), async () => { throw new AppError(410, "USE_ATTENDANCE_WORKFLOW", "Use the protected attendance workflow"); });
 
 async function mayAccessStudent(req: AuthRequest, studentId: string) {
   if (req.auth!.role === Role.STUDENT) return Boolean(await prisma.studentProfile.findFirst({ where: { id: studentId, userId: id(req) } }));

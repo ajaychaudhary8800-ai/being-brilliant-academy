@@ -11,16 +11,17 @@ const answerSheetTypes = Object.fromEntries(
   Object.entries(questionPaperTypes).filter(([mimeType]) => ["application/pdf", "image/jpeg", "image/png"].includes(mimeType)),
 );
 
-export function validateDocumentFile(file: File, purpose: "question-paper" | "answer-sheet" | "leave-attachment") {
-  const allowed = purpose === "question-paper" ? questionPaperTypes : answerSheetTypes;
+export function validateDocumentFile(file: File, purpose: "question-paper" | "answer-sheet" | "leave-attachment" | "homework") {
+  const acceptsOfficeDocument = purpose === "question-paper" || purpose === "homework";
+  const allowed = acceptsOfficeDocument ? questionPaperTypes : answerSheetTypes;
   const extension = file.name.toLowerCase().split(".").pop() ?? "";
   if (!allowed[file.type] || !allowed[file.type].includes(extension)) {
-    return purpose === "question-paper"
+    return acceptsOfficeDocument
       ? "Choose a PDF, JPG, JPEG, PNG, DOC or DOCX file with a matching extension."
       : "Choose a PDF, JPG, JPEG or PNG file with a matching extension.";
   }
   if (!file.size) return "The selected document is empty.";
-  const maximumBytes = purpose === "leave-attachment" ? 5 * 1024 * 1024 : maximumDocumentBytes;
+  const maximumBytes = purpose === "leave-attachment" || purpose === "homework" ? 5 * 1024 * 1024 : maximumDocumentBytes;
   if (file.size > maximumBytes) return `Document size must not exceed ${maximumBytes / 1024 / 1024} MB.`;
   return null;
 }

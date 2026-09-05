@@ -13,6 +13,7 @@ import { allowedAnswerSheetTypes, assertDocumentFileExtension, assertImageFileEx
 import { allocationWhere, effectiveDateForSession } from "./lib/subject-resolution.js";
 import { createTeacherPhotoLocation, parseTeacherPhotoLocation } from "./lib/teacher-photo.js";
 import { createStoredImageLocation, parseStoredImageLocation } from "./lib/stored-image.js";
+import { assertPortalMessageRecipientAuthorized } from "./routes/portals.js";
 
 test("feature router scopes preserve unrelated public APIs", () => {
   assert.equal(pathMatches("/courses", ["/admin/leaves", "/portal/leaves"]), false);
@@ -135,8 +136,8 @@ test("leave management is tenant scoped, race safe, auditable and attendance int
   assert.match(portal, /leave-attachment/);
   assert.match(portal, /\/portal\/leaves\/\$\{leave\.id\}\/attachment/);
   assert.match(admin, /\/admin\/leaves\/\$\{item\.id\}\/attachment/);
-  assert.match(upload, /purpose === "leave-attachment" \? 5/);
-  assert.match(workspace, /role==="PARENT"[^]*requestParentLeave/);
+  assert.match(upload, /purpose === "leave-attachment" \|\| purpose === "homework" \? 5/);
+  assert.match(workspace, /requestParentLeave[^]*role === "PARENT"/);
 });
 
 test("finalized evaluations are immutable and results are never accidentally absent", () => {
@@ -248,7 +249,7 @@ test("examination routes use conditional writes, publication gates and atomic au
   assert.match(admin, /ANSWER_SHEET_RESULTS_AUTHORITATIVE/);
   assert.match(admin, /tx\.auditLog\.create/);
   assert.match(admin, /GENERATE_RESULTS[^]*PUBLISH/);
-  assert.match(portal, /examination:\{status:ExaminationStatus\.RESULTS_PUBLISHED\}/);
+  assert.match(portal, /item\.status === ExaminationStatus\.RESULTS_PUBLISHED/);
   assert.match(portal, /r\.examination\.status!==ExaminationStatus\.RESULTS_PUBLISHED/);
 });
 
@@ -497,10 +498,129 @@ test("homework routes enforce ownership, secure attachments and submission final
   assert.match(homework, /role\(req,\[Role\.STUDENT\]\)/);
   assert.match(homework, /router\.get\("\/homeworks",async\(req:AuthRequest,res\)=>\{role\(req,staff\)/);
   assert.match(homework, /router\.get\("\/homeworks\/:id",\(req:AuthRequest,_res,next\)=>\{role\(req,staff\)/);
-  assert.match(portals, /status:\{in:\["PUBLISHED","CLOSED"\]\}/);
+  assert.match(portals, /status: \{ in: \[HomeworkStatus\.PUBLISHED, HomeworkStatus\.CLOSED\] \}/);
   assert.match(portals, /Role\.BRANCH_ADMIN[^]*branchUser\.findFirst/);
   assert.match(subjectEnforcement, /requireAllocatedSubject/);
   for (const action of ["CREATE", "UPDATE", "STATUS_CHANGE", "DELETE", "REPLACE", "EVALUATE"]) assert.match(homework, new RegExp(`"${action}"`));
   assert.equal(homework.match(/tx\.auditLog\.create/g)?.length, 6);
   assert.doesNotMatch(homework, /await audit\(req/);
+});
+
+type MessageParticipant = {
+  id: string;
+  organizationId: string;
+  role: Role;
+  isActive: boolean;
+  teacherId: string | null;
+  studentBatchId: string | null;
+  childBatchIds: string[];
+};
+const messageParticipant = (id: string, role: Role, values: Partial<Omit<MessageParticipant, "id" | "role">> = {}): MessageParticipant => ({
+  id,
+  role,
+  organizationId: "organization-a",
+  isActive: true,
+  teacherId: null,
+  studentBatchId: null,
+  childBatchIds: [],
+  ...values,
+});
+const portalMessageStore = (participants: MessageParticipant[], teacherBatches: Record<string, string[]>) => {
+  const byId = new Map(participants.map(participant => [participant.id, participant]));
+  return {
+    participant: async (userId: string) => byId.get(userId) ?? null,
+    teacherBatchIds: async (teacherId: string) => teacherBatches[teacherId] ?? [],
+  };
+};
+const unavailablePortalRecipient = (error: unknown) => {
+  const value = error as { status?: number; code?: string; message?: string };
+  return value.status === 404 && value.code === "RECIPIENT_NOT_AVAILABLE" && value.message === "Recipient is not available";
+};
+
+test("teacher message authorization permits only students and linked parents in assigned batches", async () => {
+  const store = portalMessageStore([
+    messageParticipant("teacher-user", Role.TEACHER, { teacherId: "teacher-profile" }),
+    messageParticipant("student-authorized", Role.STUDENT, { studentBatchId: "batch-a" }),
+    messageParticipant("student-unrelated", Role.STUDENT, { studentBatchId: "batch-b" }),
+    messageParticipant("parent-authorized", Role.PARENT, { childBatchIds: ["batch-a"] }),
+    messageParticipant("parent-unrelated", Role.PARENT, { childBatchIds: ["batch-b"] }),
+  ], { "teacher-profile": ["batch-a"] });
+  const sender = { userId: "teacher-user", role: Role.TEACHER, organizationId: "organization-a" };
+
+  await assert.doesNotReject(assertPortalMessageRecipientAuthorized(sender, "student-authorized", store));
+  await assert.doesNotReject(assertPortalMessageRecipientAuthorized(sender, "parent-authorized", store));
+  await assert.rejects(assertPortalMessageRecipientAuthorized(sender, "student-unrelated", store), unavailablePortalRecipient);
+  await assert.rejects(assertPortalMessageRecipientAuthorized(sender, "parent-unrelated", store), unavailablePortalRecipient);
+});
+
+test("student and parent message authorization requires a teacher assigned to their batch", async () => {
+  const store = portalMessageStore([
+    messageParticipant("student-user", Role.STUDENT, { studentBatchId: "batch-a" }),
+    messageParticipant("parent-user", Role.PARENT, { childBatchIds: ["batch-a"] }),
+    messageParticipant("teacher-authorized", Role.TEACHER, { teacherId: "teacher-a" }),
+    messageParticipant("teacher-unrelated", Role.TEACHER, { teacherId: "teacher-b" }),
+  ], { "teacher-a": ["batch-a"], "teacher-b": ["batch-b"] });
+
+  await assert.doesNotReject(assertPortalMessageRecipientAuthorized({ userId: "student-user", role: Role.STUDENT, organizationId: "organization-a" }, "teacher-authorized", store));
+  await assert.rejects(assertPortalMessageRecipientAuthorized({ userId: "student-user", role: Role.STUDENT, organizationId: "organization-a" }, "teacher-unrelated", store), unavailablePortalRecipient);
+  await assert.doesNotReject(assertPortalMessageRecipientAuthorized({ userId: "parent-user", role: Role.PARENT, organizationId: "organization-a" }, "teacher-authorized", store));
+  await assert.rejects(assertPortalMessageRecipientAuthorized({ userId: "parent-user", role: Role.PARENT, organizationId: "organization-a" }, "teacher-unrelated", store), unavailablePortalRecipient);
+});
+
+test("portal message authorization rejects cross-tenant recipients and recipient-id tampering without disclosure", async () => {
+  const store = portalMessageStore([
+    messageParticipant("teacher-user", Role.TEACHER, { teacherId: "teacher-profile" }),
+    messageParticipant("visible-contact", Role.STUDENT, { studentBatchId: "batch-a" }),
+    messageParticipant("tampered-recipient", Role.STUDENT, { studentBatchId: "batch-b" }),
+    messageParticipant("cross-tenant-student", Role.STUDENT, { organizationId: "organization-b", studentBatchId: "batch-a" }),
+    messageParticipant("cross-tenant-parent", Role.PARENT, { organizationId: "organization-b", childBatchIds: ["batch-a"] }),
+    messageParticipant("student-user", Role.STUDENT, { studentBatchId: "batch-a" }),
+    messageParticipant("cross-tenant-teacher", Role.TEACHER, { organizationId: "organization-b", teacherId: "teacher-cross" }),
+  ], { "teacher-profile": ["batch-a"], "teacher-cross": ["batch-a"] });
+  const teacherSender = { userId: "teacher-user", role: Role.TEACHER, organizationId: "organization-a" };
+
+  await assert.doesNotReject(assertPortalMessageRecipientAuthorized(teacherSender, "visible-contact", store));
+  await assert.rejects(assertPortalMessageRecipientAuthorized(teacherSender, "tampered-recipient", store), unavailablePortalRecipient);
+  await assert.rejects(assertPortalMessageRecipientAuthorized(teacherSender, "cross-tenant-student", store), unavailablePortalRecipient);
+  await assert.rejects(assertPortalMessageRecipientAuthorized(teacherSender, "cross-tenant-parent", store), unavailablePortalRecipient);
+  await assert.rejects(assertPortalMessageRecipientAuthorized({ userId: "student-user", role: Role.STUDENT, organizationId: "organization-a" }, "cross-tenant-teacher", store), unavailablePortalRecipient);
+  await assert.rejects(assertPortalMessageRecipientAuthorized(teacherSender, "missing-recipient", store), unavailablePortalRecipient);
+});
+
+test("portal attendance course labels tolerate a legitimate missing course relation", async () => {
+  const moduleUrl = new URL("../../web/components/portal-workspace.tsx", import.meta.url).href;
+  const workspace = await import(moduleUrl) as { portalCourseTitle: (course: { title: string | null } | null | undefined) => string };
+  assert.equal(workspace.portalCourseTitle({ title: "Foundation Course" }), "Foundation Course");
+  assert.equal(workspace.portalCourseTitle(null), "Course not assigned");
+  assert.equal(workspace.portalCourseTitle(undefined), "Course not assigned");
+  assert.equal(workspace.portalCourseTitle({ title: "" }), "Course not assigned");
+});
+
+test("teacher and student portals use scoped domain workflows instead of raw record rendering", async () => {
+  const portals = await readFile(new URL("./routes/portals.ts", import.meta.url), "utf8");
+  const attendance = await readFile(new URL("./routes/attendance.ts", import.meta.url), "utf8");
+  const workspace = await readFile(new URL("../../web/components/portal-workspace.tsx", import.meta.url), "utf8");
+
+  assert.match(portals, /authorizedTeacherBatchIds[^]*teacherAllocation\.findMany[^]*TeacherAllocationStatus\.ACTIVE/);
+  assert.match(portals, /studentProfile: \{ batchId: \{ in: batchIds \}, status: "ACTIVE" \}/);
+  assert.match(portals, /parentChildren: \{ some: \{ student: \{ batchId: \{ in: batchIds \}, status: "ACTIVE"/);
+  assert.match(portals, /assertPortalMessageRecipientAuthorized/);
+  assert.match(portals, /teacherContactRelationship/);
+  assert.match(portals, /status: \{ in: \[HomeworkStatus\.PUBLISHED, HomeworkStatus\.CLOSED\] \}/);
+  assert.match(portals, /submissions: \{ where: \{ studentId: student\.id \}/);
+  assert.match(portals, /academicSessionId: student\.academicSessionId/);
+  assert.match(portals, /item\.status === ExaminationStatus\.RESULTS_PUBLISHED/);
+  assert.match(portals, /fee\.findMany\(\{ where: \{ studentId: student\.id \}/);
+  assert.match(portals, /USE_ATTENDANCE_WORKFLOW/);
+  assert.match(attendance, /teacherId:own\.id,batchId:data\.batchId,status:"ACTIVE"/);
+  assert.match(attendance, /teacherAllocation\.findFirst[^]*effectiveFrom:\{lte:attendanceDate\}/);
+  assert.match(attendance, /CLASS_ACCESS_DENIED/);
+
+  assert.doesNotMatch(workspace, /function DataPanel|Object\.entries\(/);
+  assert.match(workspace, /Loading your portal/);
+  assert.match(workspace, /Unable to load your portal/);
+  assert.match(workspace, /No published homework assigned/);
+  assert.match(workspace, /\/admin\/homeworks\/\$\{item\.id\}\/submissions/);
+  assert.match(workspace, /\/portal\/examinations/);
+  assert.match(workspace, /\/portal\/leaves/);
 });
