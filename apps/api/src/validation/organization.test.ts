@@ -23,3 +23,9 @@ test("accepts stored organization logos while rejecting other uploaded-image kin
   assert.equal(organizationSettingsUpdateSchema.parse({ logoUrl }).logoUrl, logoUrl);
   assert.throws(() => organizationSettingsUpdateSchema.parse({ logoUrl: logoUrl.replace("organization-logo", "student-photo") }));
 });
+
+test("accepts valid IANA Organization timezones and rejects invalid identifiers", () => {
+  assert.equal(organizationSettingsUpdateSchema.parse({ timezone: "Asia/Calcutta" }).timezone, "Asia/Calcutta");
+  assert.equal(organizationSettingsUpdateSchema.parse({ timezone: "America/New_York" }).timezone, "America/New_York");
+  assert.throws(() => organizationSettingsUpdateSchema.parse({ timezone: "Invalid/Timezone" }));
+});

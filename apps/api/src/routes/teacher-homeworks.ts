@@ -99,6 +99,7 @@ async function submissionForTeacher(req: AuthRequest, submissionId: string) {
 
 router.get("/homeworks/options", async (req: AuthRequest, res) => {
   const teacher = await teacherForRequest(req);
+  const organization = await prisma.organization.findUniqueOrThrow({ where: { id: req.auth!.organizationId }, select: { timezone: true, locale: true } });
   const effectiveAt = new Date();
   const allocationContexts = await prisma.teacherAllocation.findMany({
     where: {
@@ -153,6 +154,8 @@ router.get("/homeworks/options", async (req: AuthRequest, res) => {
     subjects,
     timetables: allowedTimetables,
     students: [],
+    timeZone: organization.timezone,
+    locale: organization.locale,
   }, meta: { reason: valid.length ? null : "NO_EFFECTIVE_TEACHER_ALLOCATION" } });
 });
 

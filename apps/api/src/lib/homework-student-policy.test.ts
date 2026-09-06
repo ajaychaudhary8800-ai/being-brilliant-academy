@@ -11,6 +11,7 @@ import {
   replaceableHomeworkSubmissionStatuses,
 } from "./homework-policy.js";
 import { assertDocumentFileExtension, decodeVerifiedUpload } from "./secure-upload.js";
+import { parseInstitutionDateTime } from "./institution-time.js";
 
 const eligibleStudent = {
   role: Role.STUDENT,
@@ -78,10 +79,11 @@ test("text-only and file-only Homework submissions are valid while empty submiss
 });
 
 test("server submission time assigns on-time and late status at the due boundary", () => {
-  const due = new Date("2026-09-08T10:00:00.000Z");
-  assert.equal(homeworkSubmissionStatusAt(due, new Date("2026-09-08T09:59:59.999Z")), HomeworkSubmissionStatus.SUBMITTED);
+  const due = parseInstitutionDateTime("2026-09-08T10:00", "Asia/Calcutta");
+  assert.equal(due.toISOString(), "2026-09-08T04:30:00.000Z");
+  assert.equal(homeworkSubmissionStatusAt(due, new Date("2026-09-08T04:29:59.999Z")), HomeworkSubmissionStatus.SUBMITTED);
   assert.equal(homeworkSubmissionStatusAt(due, due), HomeworkSubmissionStatus.SUBMITTED);
-  assert.equal(homeworkSubmissionStatusAt(due, new Date("2026-09-08T10:00:00.001Z")), HomeworkSubmissionStatus.LATE);
+  assert.equal(homeworkSubmissionStatusAt(due, new Date("2026-09-08T04:30:00.001Z")), HomeworkSubmissionStatus.LATE);
 });
 
 test("replacement remains limited to SUBMITTED or LATE and requires one conditional update", () => {

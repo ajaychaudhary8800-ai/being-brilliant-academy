@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { GroupLabelType } from "@prisma/client";
+import { isIanaTimeZone } from "../lib/institution-time.js";
 
 const settingsRecord = z.record(z.any());
 const organizationLogoReference = z.union([
@@ -15,7 +16,7 @@ export const organizationBrandingSchema = z.object({
   logoUrl: organizationLogoReference.nullable().optional(),
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   secondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-  timezone: z.string().min(3).max(60),
+  timezone: z.string().min(3).max(60).refine(isIanaTimeZone, "Timezone must be a valid IANA timezone"),
   locale: z.string().min(2).max(20),
   currency: z.string().length(3),
   academicYearStartMonth: z.number().int().min(1).max(12),

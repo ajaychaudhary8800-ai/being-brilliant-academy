@@ -185,7 +185,7 @@ router.post("/leaves",async(req:AuthRequest,res)=>{const input=z.object({fromDat
 router.delete("/leaves/:leaveId",async(req:AuthRequest,res)=>{const result=await prisma.leaveRequest.deleteMany({where:{id:String(req.params.leaveId),userId:id(req),status:"PENDING"}});if(!result.count)throw new AppError(409,"LEAVE_LOCKED","Only pending leave requests can be deleted");res.status(204).end();});
 
 async function studentData(student: NonNullable<Awaited<ReturnType<typeof studentForUser>>>) {
-  const [attendance, homeworks, timetable, examinations, fees, certificates, progress] = await Promise.all([
+  const [attendance, homeworks, timetable, examinations, fees, certificates, progress, organization] = await Promise.all([
     prisma.attendance.findMany({ where: { studentId: student.userId }, select: { id: true, date: true, status: true, remarks: true, batch: { select: { id: true, name: true, course: { select: { title: true } } } } }, orderBy: { date: "desc" }, take: 100 }),
     prisma.homework.findMany({ where: { batchId: student.batchId, status: { in: [HomeworkStatus.PUBLISHED, HomeworkStatus.CLOSED] } }, select: { id: true, title: true, description: true, type: true, assignedDate: true, dueDate: true, maximumMarks: true, status: true, attachmentName: true, subject: { select: { id: true, name: true } }, teacher: { select: { id: true, user: { select: { name: true } } } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true } }, submissions: { where: { studentId: student.id }, select: { id: true, submittedAt: true, attachmentName: true, answerText: true, marksObtained: true, feedback: true, status: true, evaluatedAt: true }, orderBy: { submittedAt: "desc" }, take: 1 } }, orderBy: { dueDate: "asc" }, take: 100 }),
     prisma.timetable.findMany({ where: { batchId: student.batchId, status: TimetableStatus.ACTIVE }, select: { id: true, day: true, startMinute: true, endMinute: true, periodNumber: true, academicSession: true, subject: { select: { id: true, name: true } }, teacher: { select: { id: true, user: { select: { name: true } } } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true } }, classroom: { select: { id: true, name: true } } }, orderBy: [{ day: "asc" }, { startMinute: "asc" }] }),
@@ -193,11 +193,14 @@ async function studentData(student: NonNullable<Awaited<ReturnType<typeof studen
     prisma.fee.findMany({ where: { studentId: student.id }, select: { id: true, feeHead: true, totalPaise: true, discountPaise: true, finePaise: true, amountPaidPaise: true, dueDate: true, status: true, remarks: true, payments: { select: { id: true, amountPaise: true, paymentDate: true, paymentMode: true, receiptNumber: true }, orderBy: { paymentDate: "desc" } } }, orderBy: { dueDate: "desc" } }),
     prisma.certificate.findMany({ where: { studentId: student.id, status: { not: "ARCHIVED" } }, select: { id: true, certificateNumber: true, type: true, purpose: true, issueDate: true, status: true }, orderBy: { issueDate: "desc" } }),
     prisma.lessonProgress.findMany({ where: { userId: student.userId }, select: { id: true, completed: true, watchPercentage: true, updatedAt: true, lesson: { select: { id: true, title: true, subject: { select: { id: true, name: true } } } } }, orderBy: { updatedAt: "desc" } }),
+    prisma.organization.findUniqueOrThrow({ where: { id: student.organizationId }, select: { timezone: true, locale: true } }),
   ]);
   const present = attendance.filter(item => item.status === AttendanceStatus.PRESENT || item.status === AttendanceStatus.LATE).length;
   const leaveStatuses: AttendanceStatus[] = [AttendanceStatus.LEAVE, AttendanceStatus.EXCUSED, AttendanceStatus.FULL_DAY_LEAVE, AttendanceStatus.HALF_DAY_LEAVE, AttendanceStatus.SHORT_LEAVE];
   const summary = { total: attendance.length, present: attendance.filter(item => item.status === AttendanceStatus.PRESENT).length, absent: attendance.filter(item => item.status === AttendanceStatus.ABSENT).length, late: attendance.filter(item => item.status === AttendanceStatus.LATE).length, leave: attendance.filter(item => leaveStatuses.includes(item.status)).length };
   return {
+    timeZone: organization.timezone,
+    locale: organization.locale,
     profile: { name: student.user.name, admissionNo: student.admissionNo, rollNo: student.rollNo, status: student.status, academicSession: student.academicSession, branch: { id: student.branch.id, name: student.branch.branchName }, course: student.batch.course ? { id: student.batch.course.id, name: student.batch.course.title } : { id: "", name: "Course not assigned" }, batch: { id: student.batch.id, name: student.batch.name } },
     attendance: { records: attendance, summary, percentage: attendance.length ? Math.round(present * 10000 / attendance.length) / 100 : 0 },
     homework: { assignments: homeworks.map(item => ({ ...item, hasAttachment: Boolean(item.attachmentName), submission: item.submissions[0] ?? null, submissions: undefined })) },
@@ -224,6 +227,7 @@ router.post("/parent/children/:studentId/fees/:feeId/pay",allow(Role.PARENT),asy
 router.get("/teacher/dashboard", allow(Role.TEACHER), async (req: AuthRequest, res) => {
   const teacher = await teacherForUser(id(req));
   if (!teacher) throw new AppError(404, "PROFILE_NOT_FOUND", "Teacher profile not found");
+  const organization = await prisma.organization.findUniqueOrThrow({ where: { id: req.auth!.organizationId }, select: { timezone: true, locale: true } });
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
   const [timetable, allocations] = await Promise.all([
     prisma.timetable.findMany({ where: { teacherId: teacher.id, status: TimetableStatus.ACTIVE }, select: { id: true, batchId: true, subjectId: true, day: true, startMinute: true, endMinute: true, periodNumber: true, academicSession: true, branch: { select: { id: true, branchName: true } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true } }, subject: { select: { id: true, name: true } }, classroom: { select: { id: true, name: true } } }, orderBy: [{ day: "asc" }, { startMinute: "asc" }] }),
@@ -239,6 +243,8 @@ router.get("/teacher/dashboard", allow(Role.TEACHER), async (req: AuthRequest, r
   const studentCount = new Map<string, number>();
   for (const student of students) studentCount.set(student.batch.id, (studentCount.get(student.batch.id) ?? 0) + 1);
   res.json({ data: {
+    timeZone: organization.timezone,
+    locale: organization.locale,
     profile: { id: teacher.id, name: teacher.user.name, employeeNo: teacher.employeeNo, qualification: teacher.qualification, specialization: teacher.specialization, branch: { id: teacher.branch.id, name: teacher.branch.branchName } },
     myClasses: allocations.map(item => ({ ...item, studentCount: studentCount.get(item.batch.id) ?? 0, schedule: timetable.filter(period => period.batchId === item.batchId && period.subjectId === item.subjectId) })),
     timetable,
