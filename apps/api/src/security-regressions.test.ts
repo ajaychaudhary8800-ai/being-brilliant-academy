@@ -498,6 +498,9 @@ test("homework routes enforce ownership, secure attachments and submission final
   assert.match(homeworkPolicy, /SUBMISSION_REVIEW_STARTED/);
   assert.match(homework, /homeworkSubmission\.updateMany\(\{where:\{\.\.\.where,id:existing\.id,status:\{in:replaceableHomeworkSubmissionStatuses\}\}/);
   assert.match(homework, /assertHomeworkSubmissionReplaced\(changed\.count\)/);
+  assert.match(homework, /homeworkSubmission\.updateMany\(\{where:\{id:s\.id,organizationId:req\.auth!\.organizationId,status:\{in:evaluableHomeworkSubmissionStatuses\}\}/);
+  assert.match(homework, /assertHomeworkSubmissionEvaluated\(changed\.count\)/);
+  assert.match(homework, /homework\.updateMany\(\{where:\{id:existing\.id,organizationId:req\.auth!\.organizationId,status:expectedStatus\}/);
   assert.match(homework, /marksObtained:null,feedback:null,evaluatedAt:null/);
   assert.match(homework, /role\(req,\[Role\.STUDENT\]\)/);
   assert.match(homework, /router\.get\("\/homeworks",async\(req:AuthRequest,res\)=>\{role\(req,staff\)/);
@@ -508,6 +511,37 @@ test("homework routes enforce ownership, secure attachments and submission final
   for (const action of ["CREATE", "UPDATE", "STATUS_CHANGE", "DELETE", "REPLACE", "EVALUATE"]) assert.match(homework, new RegExp(`"${action}"`));
   assert.equal(homework.match(/tx\.auditLog\.create/g)?.length, 6);
   assert.doesNotMatch(homework, /await audit\(req/);
+});
+
+test("Teacher Homework management uses a dedicated allocation-scoped route", async () => {
+  const route = await readFile(new URL("./routes/teacher-homeworks.ts", import.meta.url), "utf8");
+  const server = await readFile(new URL("./server.ts", import.meta.url), "utf8");
+  const page = await readFile(new URL("../../web/app/teacher/homeworks/page.tsx", import.meta.url), "utf8");
+  const adminPage = await readFile(new URL("../../web/app/admin/homeworks/page.tsx", import.meta.url), "utf8");
+  const workspace = await readFile(new URL("../../web/components/portal-workspace.tsx", import.meta.url), "utf8");
+
+  assert.match(route, /router\.use\(requireAuth, allow\(Role\.TEACHER\)\)/);
+  assert.match(route, /userId: req\.auth!\.userId, organizationId: req\.auth!\.organizationId/);
+  assert.match(route, /requireAllocatedSubject\(currentTeacherHomeworkAllocationContext\(\{[^]*branchId: context\.branchId[^]*courseId: context\.courseId[^]*batchId: context\.batchId[^]*teacherId: teacher\.id[^]*academicSessionId: batch\.academicSessionId[^]*subjectId: context\.subjectId/);
+  assert.doesNotMatch(route, /effectiveAt: context\.assignedDate/);
+  assert.match(route, /assertActiveTeacherHomeworkUser\(teacher\.user\.isActive\)/);
+  assert.match(route, /status: teacherHomeworkCreateStatus\(req\.body\?\.status\)/);
+  assert.match(route, /assertTeacherHomeworkTransition\(homework\.status, status\)/);
+  assert.match(route, /expectedStatus: homework\.status/);
+  assert.match(route, /authenticatedTeacherHomeworkId\(teacher\.id, req\.body\?\.teacherId\)/);
+  assert.match(route, /assertHomeworkManagerAccess\(\{[^]*requestOrganizationId: req\.auth!\.organizationId[^]*homeworkTeacherId: homework\.teacherId[^]*authenticatedTeacherId: teacher\.id[^]*branchAllowed: homework\.branchId === teacher\.branchId/);
+  assert.match(route, /homeworkSubmission\.findFirst\(\{[^]*organizationId: req\.auth!\.organizationId[^]*homework: \{ select: \{ organizationId: true, teacherId: true, branchId: true, courseId: true, batchId: true, subjectId: true, status: true \} \}/);
+  assert.match(route, /assertTeacherHomeworkEvaluationOpen\(submission\.homework\.status\)[^]*assertAllocatedContext\(req, teacher, submission\.homework\)/);
+  assert.match(route, /router\.delete\("\/homeworks\/:homeworkId"[^]*Teachers cannot delete homework/);
+  assert.match(server, /app\.use\("\/api\/v1\/teacher", adminSubjectOptions\);\s*app\.use\("\/api\/v1\/teacher", teacherHomeworks\);/);
+  assert.match(page, /const ROOT = "\/teacher\/homeworks"/);
+  assert.match(page, /AuthGate roles=\{\["TEACHER"\]\}/);
+  assert.match(page, /openAuthenticatedDocument/);
+  assert.match(page, /No eligible classes or batches assigned to you/);
+  assert.match(page, /No eligible subjects for this selection/);
+  assert.match(workspace, /href="\/teacher\/homeworks"/);
+  assert.doesNotMatch(workspace, /href="\/admin\/homeworks"/);
+  assert.match(adminPage, /AuthGate roles=\{\["SUPER_ADMIN", "BRANCH_ADMIN"\]\}/);
 });
 
 type MessageParticipant = {
