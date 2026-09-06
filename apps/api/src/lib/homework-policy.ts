@@ -67,6 +67,56 @@ export function assertActiveTeacherHomeworkUser(isActive: boolean) {
   if (!isActive) throw new AppError(403, "INACTIVE_ACCOUNT", "An active Teacher account is required");
 }
 
+export type StudentHomeworkSubmissionAccess = {
+  role: Role;
+  requestOrganizationId: string;
+  homeworkOrganizationId: string;
+  homeworkStatus: HomeworkStatus;
+  homeworkBatchId: string;
+  homeworkCourseId: string;
+  userIsActive: boolean;
+  studentOrganizationId: string;
+  studentBatchId: string;
+  studentCourseId: string | null;
+  studentStatus: StudentStatus;
+};
+
+export function assertStudentHomeworkSubmissionAccess(access: StudentHomeworkSubmissionAccess) {
+  if (access.role !== Role.STUDENT) {
+    throw new AppError(403, "FORBIDDEN", "Only Students may submit Homework");
+  }
+  if (!access.userIsActive) {
+    throw new AppError(403, "INACTIVE_ACCOUNT", "An active Student account is required");
+  }
+  const eligible = access.studentStatus === StudentStatus.ACTIVE
+    && access.requestOrganizationId === access.homeworkOrganizationId
+    && access.studentOrganizationId === access.homeworkOrganizationId
+    && access.studentBatchId === access.homeworkBatchId
+    && access.studentCourseId === access.homeworkCourseId;
+  if (!eligible) {
+    throw new AppError(403, "STUDENT_NOT_ELIGIBLE", "Homework is not assigned to this Student");
+  }
+  if (access.homeworkStatus !== HomeworkStatus.PUBLISHED) {
+    throw new AppError(409, "HOMEWORK_NOT_OPEN", "Homework is not open for submission");
+  }
+}
+
+export function assertStudentHomeworkIdentityNotSupplied(requestedStudentId: unknown) {
+  if (requestedStudentId !== undefined) {
+    throw new AppError(422, "STUDENT_ID_NOT_ALLOWED", "Student identity is derived from the authenticated account");
+  }
+}
+
+export function assertHomeworkSubmissionContent(answerText: string | null | undefined, hasAttachment: boolean) {
+  if (!answerText?.trim() && !hasAttachment) {
+    throw new AppError(422, "SUBMISSION_CONTENT_REQUIRED", "Add an answer or an attachment before submitting Homework");
+  }
+}
+
+export function homeworkSubmissionStatusAt(dueDate: Date, submittedAt: Date) {
+  return submittedAt > dueDate ? HomeworkSubmissionStatus.LATE : HomeworkSubmissionStatus.SUBMITTED;
+}
+
 export type TeacherHomeworkAllocationContext = {
   branchId: string;
   courseId: string;

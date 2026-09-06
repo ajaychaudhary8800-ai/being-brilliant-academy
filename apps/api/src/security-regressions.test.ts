@@ -476,11 +476,14 @@ test("academic selectors and examination files use canonical scoped contracts", 
   assert.match(examinationBranchEnforcement, /BRANCH_FORBIDDEN/);
 });
 
-test("homework routes enforce ownership, secure attachments and submission finality", async () => {
+test("homework routes enforce ownership, secure attachments and Student submission finality", async () => {
   const homework = await readFile(new URL("./routes/homeworks.ts", import.meta.url), "utf8");
+  const studentHomework = await readFile(new URL("./routes/student-homeworks.ts", import.meta.url), "utf8");
   const homeworkPolicy = await readFile(new URL("./lib/homework-policy.ts", import.meta.url), "utf8");
   const portals = await readFile(new URL("./routes/portals.ts", import.meta.url), "utf8");
   const subjectEnforcement = await readFile(new URL("./routes/admin-subject-enforcement.ts", import.meta.url), "utf8");
+  const server = await readFile(new URL("./server.ts", import.meta.url), "utf8");
+  const workspace = await readFile(new URL("../../web/components/portal-workspace.tsx", import.meta.url), "utf8");
 
   assert.match(homework, /async function manage[^]*Role\.BRANCH_ADMIN[^]*access\(req,homework\.branchId\)[^]*Role\.TEACHER[^]*homework\.teacherId/);
   assert.match(homework, /router\.patch\("\/homeworks\/:id"[^]*await manage\(req,old\)/);
@@ -496,21 +499,36 @@ test("homework routes enforce ownership, secure attachments and submission final
   assert.match(homework, /decodeVerifiedUpload\(a\.base64,a\.mimeType as AllowedDocumentType,5\*1024\*1024\)/);
   assert.doesNotMatch(homework, /Buffer\.from\(a\.base64,"base64"\)/);
   assert.match(homeworkPolicy, /SUBMISSION_REVIEW_STARTED/);
-  assert.match(homework, /homeworkSubmission\.updateMany\(\{where:\{\.\.\.where,id:existing\.id,status:\{in:replaceableHomeworkSubmissionStatuses\}\}/);
-  assert.match(homework, /assertHomeworkSubmissionReplaced\(changed\.count\)/);
+  assert.match(studentHomework, /router\.use\(requireAuth, allow\(Role\.STUDENT\)\)/);
+  assert.match(studentHomework, /router\.post\("\/homeworks\/:id\/submissions"/);
+  assert.match(studentHomework, /user: \{ select: \{ isActive: true \} \}/);
+  assert.match(studentHomework, /student\.batch\.courseId/);
+  assert.match(studentHomework, /assertStudentHomeworkIdentityNotSupplied/);
+  assert.match(studentHomework, /assertHomeworkSubmissionContent/);
+  assert.match(studentHomework, /homeworkSubmission\.updateMany\(\{[^]*updatedAt: existing\.updatedAt[^]*status: \{ in: replaceableHomeworkSubmissionStatuses \}/);
+  assert.match(studentHomework, /assertHomeworkSubmissionReplaced\(changed\.count\)/);
+  assert.match(studentHomework, /TransactionIsolationLevel\.Serializable/);
+  assert.match(studentHomework, /code === "P2002" \|\| code === "P2034"/);
+  assert.match(studentHomework, /tx\.auditLog\.create\(\{[^]*entity: "HomeworkSubmission"[^]*metadata: \{ homeworkId: homework\.id, studentProfileId: student\.id \}/);
+  assert.doesNotMatch(studentHomework, /metadata:[^}]*(?:base64|attachmentData|answerText)/);
   assert.match(homework, /homeworkSubmission\.updateMany\(\{where:\{id:s\.id,organizationId:req\.auth!\.organizationId,status:\{in:evaluableHomeworkSubmissionStatuses\}\}/);
   assert.match(homework, /assertHomeworkSubmissionEvaluated\(changed\.count\)/);
   assert.match(homework, /homework\.updateMany\(\{where:\{id:existing\.id,organizationId:req\.auth!\.organizationId,status:expectedStatus\}/);
-  assert.match(homework, /marksObtained:null,feedback:null,evaluatedAt:null/);
-  assert.match(homework, /role\(req,\[Role\.STUDENT\]\)/);
+  assert.match(studentHomework, /marksObtained: null,[^]*feedback: null,[^]*evaluatedAt: null/);
+  assert.doesNotMatch(homework, /post\("\/homeworks\/:id\/submissions"/);
   assert.match(homework, /router\.get\("\/homeworks",async\(req:AuthRequest,res\)=>\{role\(req,staff\)/);
   assert.match(homework, /router\.get\("\/homeworks\/:id",\(req:AuthRequest,_res,next\)=>\{role\(req,staff\)/);
   assert.match(portals, /status: \{ in: \[HomeworkStatus\.PUBLISHED, HomeworkStatus\.CLOSED\] \}/);
   assert.match(portals, /Role\.BRANCH_ADMIN[^]*branchUser\.findFirst/);
   assert.match(subjectEnforcement, /requireAllocatedSubject/);
-  for (const action of ["CREATE", "UPDATE", "STATUS_CHANGE", "DELETE", "REPLACE", "EVALUATE"]) assert.match(homework, new RegExp(`"${action}"`));
-  assert.equal(homework.match(/tx\.auditLog\.create/g)?.length, 6);
+  for (const action of ["CREATE", "UPDATE", "STATUS_CHANGE", "DELETE", "EVALUATE"]) assert.match(homework, new RegExp(`"${action}"`));
+  for (const action of ["CREATE", "REPLACE"]) assert.match(studentHomework, new RegExp(`"${action}"`));
+  assert.equal(homework.match(/tx\.auditLog\.create/g)?.length, 5);
+  assert.equal(studentHomework.match(/tx\.auditLog\.create/g)?.length, 1);
   assert.doesNotMatch(homework, /await audit\(req/);
+  assert.match(server, /app\.use\("\/api\/v1\/student", studentHomeworks\);\s*app\.use\("\/api\/v1\/teacher"/);
+  assert.match(workspace, /apiRequest\(`\/student\/homeworks\/\$\{item\.id\}\/submissions`/);
+  assert.doesNotMatch(workspace, /apiRequest\(`\/admin\/homeworks\/\$\{item\.id\}\/submissions`/);
 });
 
 test("Teacher Homework management uses a dedicated allocation-scoped route", async () => {
@@ -658,7 +676,7 @@ test("teacher and student portals use scoped domain workflows instead of raw rec
   assert.match(workspace, /Loading your portal/);
   assert.match(workspace, /Unable to load your portal/);
   assert.match(workspace, /No published homework assigned/);
-  assert.match(workspace, /\/admin\/homeworks\/\$\{item\.id\}\/submissions/);
+  assert.match(workspace, /\/student\/homeworks\/\$\{item\.id\}\/submissions/);
   assert.match(workspace, /\/portal\/examinations/);
   assert.match(workspace, /\/portal\/leaves/);
 });
