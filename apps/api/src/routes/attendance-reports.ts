@@ -9,7 +9,7 @@ import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
 const id = z.string().cuid();
-const reportInput = z.object({
+export const attendanceReportInput = z.object({
   mode: z.enum(["student", "teacher"]).default("student"),
   month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
   from: z.coerce.date().optional(),
@@ -25,7 +25,7 @@ const reportInput = z.object({
   if (value.mode === "teacher" && (value.courseId || value.batchId || value.studentId)) context.addIssue({ code: z.ZodIssueCode.custom, message: "Student filters cannot be used for teacher reports" });
   if (value.from && value.to && value.from > value.to) context.addIssue({ code: z.ZodIssueCode.custom, message: "Report start must be on or before report end" });
 });
-type ReportInput = z.infer<typeof reportInput>;
+type ReportInput = z.infer<typeof attendanceReportInput>;
 const day = (value: Date) => new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
 const dateText = (value: Date) => value.toISOString().slice(0, 10);
 function range(value: ReportInput) {
@@ -90,7 +90,7 @@ function xmlWorkbook(report: Awaited<ReturnType<typeof loadReport>>, organizatio
   const body = [...output.metadata.map(row => `<Row>${row.map(cell => `<Cell><Data ss:Type="String">${escapeXml(cell)}</Data></Cell>`).join("")}</Row>`), `<Row>${output.headers.map(cell => `<Cell><Data ss:Type="String">${escapeXml(cell)}</Data></Cell>`).join("")}</Row>`, ...output.rows.map(row => `<Row>${row.map(cell => `<Cell><Data ss:Type="String">${escapeXml(cell)}</Data></Cell>`).join("")}</Row>`)].join("");
   return `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Header"><Font ss:Bold="1"/></Style></Styles><Worksheet ss:Name="Attendance"><Table>${body}</Table></Worksheet></Workbook>`;
 }
-function pdfReport(report: Awaited<ReturnType<typeof loadReport>>, organizationName: string) {
+export function pdfReport(report: Awaited<ReturnType<typeof loadReport>>, organizationName: string) {
   const output = exportRows(report, organizationName);
   const lines = [...output.metadata.map(row => row.join("  |  ")), "", output.headers.join(" | "), ...output.rows.map(row => row.join(" | "))];
   const pages: string[][] = [];
@@ -99,7 +99,7 @@ function pdfReport(report: Awaited<ReturnType<typeof loadReport>>, organizationN
   const objects: string[] = ["<< /Type /Catalog /Pages 2 0 R >>", ""];
   const pageRefs: string[] = [];
   for (const page of pages) {
-    const content = page.map((line, index) => `BT /F1 ${index < 5 ? 12 : 7} Tf 30 ${810 - index * 21} Td (${line.replace(/[()\\]/g, "\\$&")}) Tj ET`).join("\n");
+    const content = page.map((line, index) => `BT /F1 ${index < 5 ? 12 : 7} Tf 30 ${565 - index * 14} Td (${line.replace(/[()\\]/g, "\\$&")}) Tj ET`).join("\n");
     const contentObject = objects.length + 1; objects.push(`<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`);
     const pageObject = objects.length + 1; objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 ${fontObject} 0 R >> >> /Contents ${contentObject} 0 R >>`); pageRefs.push(`${pageObject} 0 R`);
   }
@@ -110,9 +110,16 @@ function pdfReport(report: Awaited<ReturnType<typeof loadReport>>, organizationN
   const xref = Buffer.byteLength(pdf); pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(value => `${String(value).padStart(10, "0")} 00000 n `).join("\n")}\ntrailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return Buffer.from(pdf);
 }
+export function attendancePdfResponse(report: Awaited<ReturnType<typeof loadReport>>, organizationName: string) {
+  return {
+    status: 200 as const,
+    headers: { "Content-Type": "application/pdf", "Content-Disposition": "attachment; filename=attendance-report.pdf" },
+    body: pdfReport(report, organizationName),
+  };
+}
 async function organizationName(req: AuthRequest) { return (await prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { name: true } }))?.name ?? "Being Brilliant Academy"; }
-router.get("/reports", async (req: AuthRequest, res) => res.json({ data: await loadReport(req, reportInput.parse(req.query)) }));
-const exportHandler = async (req: AuthRequest, res: Response) => { const query = reportInput.parse(req.query); const format = z.enum(["pdf", "excel"]).parse(req.query.format); const report = await loadReport(req, query); const name = await organizationName(req); if (format === "pdf") return res.set({ "Content-Type": "application/pdf", "Content-Disposition": "attachment; filename=attendance-report.pdf" }).send(pdfReport(report, name)); return res.set({ "Content-Type": "application/vnd.ms-excel", "Content-Disposition": "attachment; filename=attendance-report.xls" }).send(xmlWorkbook(report, name)); };
+router.get("/reports", async (req: AuthRequest, res) => res.json({ data: await loadReport(req, attendanceReportInput.parse(req.query)) }));
+const exportHandler = async (req: AuthRequest, res: Response) => { const query = attendanceReportInput.parse(req.query); const format = z.enum(["pdf", "excel"]).parse(req.query.format); const report = await loadReport(req, query); const name = await organizationName(req); if (format === "pdf") { const response = attendancePdfResponse(report, name); return res.status(response.status).set(response.headers).send(response.body); } return res.set({ "Content-Type": "application/vnd.ms-excel", "Content-Disposition": "attachment; filename=attendance-report.xls" }).send(xmlWorkbook(report, name)); };
 router.get("/reports/export", exportHandler);
 router.get("/export", exportHandler);
 
