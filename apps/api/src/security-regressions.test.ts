@@ -345,6 +345,24 @@ test("notice acknowledgement applies the same recipient eligibility policy as li
   assert.match(policy, /expiresAt: \{ gte: now \}/);
 });
 
+test("attendance reports and exports are tenant and branch scoped and share filtered data", async () => {
+  const route = await readFile(new URL("./routes/attendance-reports.ts", import.meta.url), "utf8");
+  const server = await readFile(new URL("./server.ts", import.meta.url), "utf8");
+  assert.match(route, /router\.use\(requireAuth, allow\(Role\.SUPER_ADMIN, Role\.BRANCH_ADMIN\)\)/);
+  assert.match(route, /organizationId, date: \{ gte: from, lt: to \}/);
+  assert.match(route, /branchScope\(req, input\.branchId\)/);
+  assert.match(route, /mode: z\.enum\(\["student", "teacher"\]\)/);
+  assert.match(route, /courseId: id\.optional\(\)/);
+  assert.match(route, /teacherId: id\.optional\(\)/);
+  assert.match(route, /status: z\.nativeEnum\(AttendanceStatus\)\.optional\(\)/);
+  assert.match(route, /router\.get\("\/reports"/);
+  assert.match(route, /router\.get\("\/reports\/export"/);
+  assert.match(route, /loadReport\(req, query\)/);
+  assert.match(route, /exportRows\(report, organizationName\)/);
+  assert.doesNotMatch(route, /organizationId.*metadata|organizationId.*headers/i);
+  assert.match(server, /attendanceReports/);
+});
+
 test("portal acknowledgement state and action remain server-backed and tenant-safe", async () => {
   const portals = await readFile(new URL("./routes/portals.ts", import.meta.url), "utf8");
   const notices = await readFile(new URL("./routes/notice-board.ts", import.meta.url), "utf8");
