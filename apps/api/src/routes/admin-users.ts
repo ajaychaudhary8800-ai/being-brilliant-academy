@@ -10,6 +10,7 @@ import { env } from "../config.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { assertCanChangeUserRole, managedUserBranchIds } from "../lib/user-administration-policy.js";
 import { assertEligibleParentStudent, assertParentBranchScope, parentRelationships } from "../lib/parent-administration-policy.js";
+import { summarizeAdminUser } from "../lib/admin-user-summary.js";
 
 const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
@@ -29,7 +30,6 @@ const userSelect = {
 } as const;
 
 function branchesOf(user: any) { return [...new Set(managedUserBranchIds({ branchAssignments: user.branchAssignments.map((x: any) => ({ branchId: x.branch.id })), studentProfile: user.studentProfile ? { branchId: user.studentProfile.branch.id } : null, teacherProfile: user.teacherProfile ? { branchId: user.teacherProfile.branch.id } : null, employee: user.employee ? { branchId: user.employee.branch.id } : null, parentChildren: user.parentChildren.map((x: any) => ({ student: { branchId: x.student.branch.id } })) }))]; }
-function summary(user: any) { return { ...user, branches: [...new Map([...(user.branchAssignments ?? []).map((x: any) => [x.branch.id, x.branch]), user.studentProfile ? [user.studentProfile.branch.id, user.studentProfile.branch] : [], user.teacherProfile ? [user.teacherProfile.branch.id, user.teacherProfile.branch] : [], ...(user.parentChildren ?? []).map((x: any) => [x.student.branch.id, x.student.branch])].filter(Boolean) as any).values()], linkedProfile: user.studentProfile ? "STUDENT" : user.teacherProfile ? "TEACHER" : user.employee ? "EMPLOYEE" : user.role === Role.PARENT ? "PARENT" : null, parentChildren: user.role === Role.PARENT ? user.parentChildren.map((x: any) => ({ id: x.student.id, name: x.student.user.name, admissionNo: x.student.admissionNo, relationship: x.relationship, status: x.student.status, branch: x.student.branch.branchName, batch: x.student.batch?.name ?? null, course: x.student.batch?.course?.title ?? null })) : [] }; }
 
 async function loadTarget(req: AuthRequest, id: string) {
   const target = await prisma.user.findUnique({ where: { id }, select: userSelect });
@@ -58,7 +58,7 @@ router.get("/users", async (req: AuthRequest, res) => {
   if (q.search) filters.push({ OR: [{ name: { contains: q.search, mode: "insensitive" as const } }, { email: { contains: q.search, mode: "insensitive" as const } }, { phone: { contains: q.search, mode: "insensitive" as const } }] });
   const where = { ...(filters.length ? { AND: filters } : {}), ...(q.role ? { role: q.role } : {}), ...(q.status ? { isActive: q.status === "active" } : {}) };
   const [total, data] = await prisma.$transaction([prisma.user.count({ where }), prisma.user.findMany({ where, select: userSelect, orderBy: { createdAt: "desc" }, skip: (q.page - 1) * q.limit, take: q.limit })]);
-  res.json({ data: data.map(summary), meta: { total, page: q.page, limit: q.limit, totalPages: Math.max(1, Math.ceil(total / q.limit)) } });
+  res.json({ data: data.map(summarizeAdminUser), meta: { total, page: q.page, limit: q.limit, totalPages: Math.max(1, Math.ceil(total / q.limit)) } });
 });
 
 router.get("/users/students", async (req: AuthRequest, res) => {
