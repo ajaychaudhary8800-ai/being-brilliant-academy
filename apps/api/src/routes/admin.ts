@@ -9,6 +9,7 @@ import { deleteObject } from "../lib/storage.js";
 import { planTeacherSubjectSync, type TeacherSubjectSyncPlan } from "../lib/teacher-subject-sync.js";
 import { parseTeacherPhotoLocation } from "../lib/teacher-photo.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { assertCanChangeUserRole, managedUserBranchIds } from "../lib/user-administration-policy.js";
 
 const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
@@ -87,14 +88,69 @@ router.get("/overview", async (_req, res) => {
   res.json({ data: { students, courses, activeEnrollments: active, revenuePaise: paid._sum.amount ?? 0, totalBranches, activeBranches, inactiveBranches: totalBranches - activeBranches } });
 });
 
-router.get("/users", async (_req, res) => {
-  const data = await prisma.user.findMany({ select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 100 });
+const managedUserSelect = {
+  id: true,
+  name: true,
+  email: true,
+  role: true,
+  isActive: true,
+  createdAt: true,
+  branchAssignments: { select: { branchId: true } },
+  studentProfile: { select: { branchId: true } },
+  teacherProfile: { select: { branchId: true } },
+  employee: { select: { branchId: true } },
+  parentChildren: { select: { student: { select: { branchId: true } } } },
+} as const;
+
+router.get("/users", async (req: AuthRequest, res) => {
+  const branches = await branchScope(req);
+  const where = branches ? {
+    OR: [
+      { branchAssignments: { some: { branchId: { in: branches } } } },
+      { studentProfile: { branchId: { in: branches } } },
+      { teacherProfile: { branchId: { in: branches } } },
+      { employee: { branchId: { in: branches } } },
+      { parentChildren: { some: { student: { branchId: { in: branches } } } } },
+    ],
+  } : {};
+  const data = await prisma.user.findMany({ where, select: managedUserSelect, orderBy: { createdAt: "desc" }, take: 100 });
   res.json({ data });
 });
 
-router.patch("/users/:id/role", async (req, res) => {
+router.patch("/users/:id/role", async (req: AuthRequest, res) => {
   const role = z.object({ role: z.nativeEnum(Role) }).parse(req.body).role;
-  const data = await prisma.user.update({ where: { id: String(req.params.id) }, data: { role }, select: { id: true, role: true } });
+  const target = await prisma.user.findUnique({ where: { id: String(req.params.id) }, select: managedUserSelect });
+  if (!target) throw new AppError(404, "USER_NOT_FOUND", "User not found");
+  const actorBranches = await branchScope(req) ?? [];
+  const administrator = { id: req.auth!.userId, role: req.auth!.role, branchIds: actorBranches };
+  const managedTarget = {
+    id: target.id,
+    role: target.role,
+    isActive: target.isActive,
+    branchIds: managedUserBranchIds(target),
+    hasStudentProfile: Boolean(target.studentProfile),
+    hasTeacherProfile: Boolean(target.teacherProfile),
+    hasEmployeeProfile: Boolean(target.employee),
+    hasParentLinks: target.parentChildren.length > 0,
+  };
+  if (target.role === role) return res.json({ data: { id: target.id, role: target.role } });
+  const data = await prisma.$transaction(async tx => {
+    const activeSuperAdministrators = await tx.user.count({ where: { role: Role.SUPER_ADMIN, isActive: true } });
+    assertCanChangeUserRole(administrator, managedTarget, role, activeSuperAdministrators);
+    const changed = await tx.user.updateMany({ where: { id: target.id, role: target.role, isActive: true }, data: { role } });
+    if (changed.count !== 1) throw new AppError(409, "USER_ROLE_CHANGED", "The user role changed; reload and try again");
+    const revoked = await tx.session.deleteMany({ where: { userId: target.id } });
+    await tx.auditLog.create({
+      data: {
+        actorId: req.auth!.userId,
+        action: "USER_ROLE_CHANGED",
+        entity: "User",
+        entityId: target.id,
+        metadata: { previousRole: target.role, nextRole: role, revokedSessions: revoked.count },
+      },
+    });
+    return { id: target.id, role };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   res.json({ data });
 });
 

@@ -6,6 +6,8 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/http.js";
 import { assertHomeworkAttachmentAccess } from "../lib/homework-policy.js";
+import { announcementRecipientConstraints, communicationScope } from "../lib/communication-authorization.js";
+import { assertMessageRecipientAuthorized } from "../lib/message-policy.js";
 import { loadAuthorizedDocument, storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
@@ -33,84 +35,7 @@ async function authorizedTeacherBatchIds(teacherId: string) {
   ]);
   return [...new Set([...timetables, ...allocations].map(item => item.batchId))];
 }
-type PortalMessageParticipant = {
-  id: string;
-  organizationId: string;
-  role: Role;
-  isActive: boolean;
-  teacherId: string | null;
-  studentBatchId: string | null;
-  childBatchIds: string[];
-};
-type PortalMessageAuthorizationStore = {
-  participant: (userId: string) => Promise<PortalMessageParticipant | null>;
-  teacherBatchIds: (teacherId: string) => Promise<string[]>;
-};
-const portalMessageParticipant = async (userId: string): Promise<PortalMessageParticipant | null> => {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      organizationId: true,
-      role: true,
-      isActive: true,
-      teacherProfile: { select: { id: true } },
-      studentProfile: { select: { batchId: true, status: true } },
-      parentChildren: { select: { student: { select: { batchId: true, status: true, user: { select: { isActive: true } } } } } },
-    },
-  });
-  if (!user) return null;
-  return {
-    id: user.id,
-    organizationId: user.organizationId,
-    role: user.role,
-    isActive: user.isActive,
-    teacherId: user.teacherProfile?.id ?? null,
-    studentBatchId: user.studentProfile?.status === "ACTIVE" ? user.studentProfile.batchId : null,
-    childBatchIds: [...new Set(user.parentChildren.filter(link => link.student.status === "ACTIVE" && link.student.user.isActive).map(link => link.student.batchId))],
-  };
-};
-const portalMessageAuthorizationStore: PortalMessageAuthorizationStore = {
-  participant: portalMessageParticipant,
-  teacherBatchIds: authorizedTeacherBatchIds,
-};
-const unavailableRecipient = () => new AppError(404, "RECIPIENT_NOT_AVAILABLE", "Recipient is not available");
-const sharesBatch = (left: readonly string[], right: readonly string[]) => {
-  const allowed = new Set(left);
-  return right.some(batchId => allowed.has(batchId));
-};
-export async function assertPortalMessageRecipientAuthorized(
-  sender: { userId: string; role: Role; organizationId: string },
-  recipientId: string,
-  store: PortalMessageAuthorizationStore = portalMessageAuthorizationStore,
-) {
-  const [senderProfile, recipient] = await Promise.all([store.participant(sender.userId), store.participant(recipientId)]);
-  const validParticipants = senderProfile
-    && recipient
-    && senderProfile.id !== recipient.id
-    && senderProfile.organizationId === sender.organizationId
-    && recipient.organizationId === sender.organizationId
-    && senderProfile.role === sender.role
-    && senderProfile.isActive
-    && recipient.isActive
-    && portalRoles.includes(senderProfile.role)
-    && portalRoles.includes(recipient.role);
-  if (!validParticipants) throw unavailableRecipient();
-
-  let permitted = false;
-  if (sender.role === Role.TEACHER && senderProfile.teacherId) {
-    const batchIds = await store.teacherBatchIds(senderProfile.teacherId);
-    permitted = recipient.role === Role.STUDENT
-      ? Boolean(recipient.studentBatchId && batchIds.includes(recipient.studentBatchId))
-      : recipient.role === Role.PARENT && sharesBatch(batchIds, recipient.childBatchIds);
-  } else if (sender.role === Role.STUDENT && senderProfile.studentBatchId && recipient.role === Role.TEACHER && recipient.teacherId) {
-    permitted = (await store.teacherBatchIds(recipient.teacherId)).includes(senderProfile.studentBatchId);
-  } else if (sender.role === Role.PARENT && senderProfile.childBatchIds.length && recipient.role === Role.TEACHER && recipient.teacherId) {
-    permitted = sharesBatch(senderProfile.childBatchIds, await store.teacherBatchIds(recipient.teacherId));
-  }
-  if (!permitted) throw unavailableRecipient();
-  return recipient;
-}
+export const assertPortalMessageRecipientAuthorized = assertMessageRecipientAuthorized;
 const teacherContactRelationship = (batchIds: string[], today: Date) => ({
   OR: [
     { timetables: { some: { batchId: { in: batchIds }, status: TimetableStatus.ACTIVE } } },
@@ -175,7 +100,7 @@ router.get("/contacts", async (req: AuthRequest, res) => {
   res.json({ data });
 });
 
-router.get("/announcements", async (req: AuthRequest,res)=>{const q=pageSchema.parse(req.query);let branchId:string|undefined;if(req.auth!.role===Role.STUDENT)branchId=(await studentForUser(id(req)))?.branchId;if(req.auth!.role===Role.TEACHER)branchId=(await teacherForUser(id(req)))?.branchId;const where={isArchived:false,AND:[{OR:[{audience:null},{audience:req.auth!.role}]},{OR:[{branchId:null},...(branchId?[{branchId}]:[])]}],...(q.search?{OR:[{title:{contains:q.search,mode:"insensitive" as const}},{body:{contains:q.search,mode:"insensitive" as const}}]}:{})};const [data,total]=await Promise.all([prisma.announcement.findMany({where,include:{author:{select:{name:true,role:true}}},orderBy:{publishedAt:"desc"},skip:(q.page-1)*q.limit,take:q.limit}),prisma.announcement.count({where})]);res.json({data,meta:{...q,total,pages:Math.ceil(total/q.limit)}});});
+router.get("/announcements", async (req: AuthRequest,res)=>{const q=pageSchema.parse(req.query),eligibility=announcementRecipientConstraints(await communicationScope(req)),where={isArchived:false,deletedAt:null,...eligibility,...(q.search?{OR:[{title:{contains:q.search,mode:"insensitive" as const}},{body:{contains:q.search,mode:"insensitive" as const}}]}:{})};const [data,total]=await Promise.all([prisma.announcement.findMany({where,include:{author:{select:{name:true,role:true}}},orderBy:{publishedAt:"desc"},skip:(q.page-1)*q.limit,take:q.limit}),prisma.announcement.count({where})]);res.json({data,meta:{...q,total,pages:Math.ceil(total/q.limit)}});});
 router.post("/announcements",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const teacher=await teacherForUser(id(req));if(!teacher)throw new AppError(404,"PROFILE_NOT_FOUND","Teacher profile not found");const input=z.object({title:z.string().trim().min(2).max(160),body:z.string().trim().min(1).max(10000),audience:z.nativeEnum(Role).refine(v=>v===Role.STUDENT||v===Role.PARENT)}).parse(req.body);res.status(201).json({data:await prisma.announcement.create({data:{...input,branchId:teacher.branchId,authorId:id(req)}})});});
 router.patch("/announcements/:announcementId/archive",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const a=await prisma.announcement.findFirst({where:{id:String(req.params.announcementId),authorId:id(req)}});if(!a)throw new AppError(404,"NOT_FOUND","Announcement not found");res.json({data:await prisma.announcement.update({where:{id:a.id},data:{isArchived:true}})});});
 router.delete("/announcements/:announcementId",allow(Role.TEACHER),async(req:AuthRequest,res)=>{await prisma.announcement.deleteMany({where:{id:String(req.params.announcementId),authorId:id(req),isArchived:true}});res.status(204).end();});
