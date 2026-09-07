@@ -43,7 +43,7 @@ const teacherContactRelationship = (batchIds: string[], today: Date) => ({
   ],
 });
 async function ownedChild(parentId: string, studentId: string) {
-  const link = await prisma.parentStudent.findUnique({ where: { parentId_studentId: { parentId, studentId } }, include: { student: { include: { user: true, branch: true, batch: { include: { course: true } } } } } });
+  const link = await prisma.parentStudent.findFirst({ where: { parentId, studentId, student: { status: StudentStatus.ACTIVE, user: { isActive: true } } }, include: { student: { include: { user: true, branch: true, batch: { include: { course: true } } } } } });
   if (!link) throw new AppError(403, "CHILD_ACCESS_DENIED", "This student is not linked to your account");
   return link.student;
 }
@@ -155,12 +155,12 @@ async function studentData(student: NonNullable<Awaited<ReturnType<typeof studen
 router.get("/student/dashboard",allow(Role.STUDENT),async(req:AuthRequest,res)=>{const student=await studentForUser(id(req));if(!student)throw new AppError(404,"PROFILE_NOT_FOUND","Student profile not found");res.json({data:await studentData(student)});});
 router.get("/parent/children", allow(Role.PARENT), async (req: AuthRequest, res) => {
   const data = await prisma.parentStudent.findMany({
-    where: { parentId: id(req) },
+    where: { parentId: id(req), student: { status: StudentStatus.ACTIVE, user: { isActive: true } } },
     include: { student: { include: { user: { select: { name: true, email: true, phone: true, avatarUrl: true } }, branch: true, batch: { include: { course: true } } } } },
   });
   res.json({ data });
 });
-router.get("/parent/dashboard",allow(Role.PARENT),async(req:AuthRequest,res)=>{const links=await prisma.parentStudent.findMany({where:{parentId:id(req)},include:{student:{include:{user:true,branch:true,batch:{include:{course:true}}}}}});const children=await Promise.all(links.map(l=>studentData(l.student)));res.json({data:{children}});});
+router.get("/parent/dashboard",allow(Role.PARENT),async(req:AuthRequest,res)=>{const links=await prisma.parentStudent.findMany({where:{parentId:id(req),student:{status:StudentStatus.ACTIVE,user:{isActive:true}}},include:{student:{include:{user:true,branch:true,batch:{include:{course:true}}}}}});const children=await Promise.all(links.map(l=>studentData(l.student)));res.json({data:{children}});});
 router.get("/parent/children/:studentId",allow(Role.PARENT),async(req:AuthRequest,res)=>res.json({data:await studentData(await ownedChild(id(req),String(req.params.studentId)))}));
 router.post("/parent/children/:studentId/fees/:feeId/pay",allow(Role.PARENT),async(req:AuthRequest,res)=>{const student=await ownedChild(id(req),String(req.params.studentId));const input=z.object({amountPaise:z.number().int().positive(),paymentMode:z.nativeEnum(PaymentMode),transactionId:z.string().trim().max(100).optional()}).parse(req.body);const fee=await prisma.fee.findFirst({where:{id:String(req.params.feeId),studentId:student.id}});if(!fee)throw new AppError(404,"FEE_NOT_FOUND","Fee record not found");const balance=fee.totalPaise-fee.discountPaise+fee.finePaise-fee.amountPaidPaise;if(input.amountPaise>balance)throw new AppError(400,"EXCESS_PAYMENT","Payment exceeds the outstanding balance");const receiptNumber=`PR-${Date.now()}-${randomUUID().slice(0,6).toUpperCase()}`;const paid=fee.amountPaidPaise+input.amountPaise;const payment=await prisma.$transaction(async tx=>{const p=await tx.feePayment.create({data:{feeId:fee.id,amountPaise:input.amountPaise,paymentMode:input.paymentMode,transactionId:input.transactionId,receiptNumber,collectedById:id(req)}});await tx.fee.update({where:{id:fee.id},data:{amountPaidPaise:paid,status:paid>=fee.totalPaise-fee.discountPaise+fee.finePaise?"PAID":"PARTIAL"}});return p;});res.status(201).json({data:payment});});
 
