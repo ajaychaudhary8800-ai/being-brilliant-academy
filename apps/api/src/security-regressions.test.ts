@@ -345,6 +345,26 @@ test("notice acknowledgement applies the same recipient eligibility policy as li
   assert.match(policy, /expiresAt: \{ gte: now \}/);
 });
 
+test("portal acknowledgement state and action remain server-backed and tenant-safe", async () => {
+  const portals = await readFile(new URL("./routes/portals.ts", import.meta.url), "utf8");
+  const notices = await readFile(new URL("./routes/notice-board.ts", import.meta.url), "utf8");
+  const workspace = await readFile(new URL("../../web/components/portal-workspace.tsx", import.meta.url), "utf8");
+  assert.match(portals, /organizationId: req\.auth!\.organizationId/);
+  assert.match(portals, /reads: \{ where: \{ userId: req\.auth!\.userId \}/);
+  assert.match(portals, /acknowledgedAt: item\.reads\[0\]\?\.readAt \?\? null/);
+  assert.match(notices, /organizationId: req\.auth!\.organizationId/);
+  assert.match(notices, /requiresAcknowledgement: true/);
+  assert.match(notices, /announcementRead\.upsert/);
+  assert.match(notices, /userId: req\.auth!\.userId/);
+  assert.match(notices, /update: \{\}/);
+  assert.match(workspace, /\/notices\/\$\{encodeURIComponent\(noticeId\)\}\/acknowledge/);
+  assert.match(workspace, /response\.status === 401/);
+  assert.match(workspace, /response\.status === 403/);
+  assert.match(workspace, /response\.status === 404/);
+  assert.match(workspace, /disabled=\{busyId !== null\}/);
+  assert.match(workspace, /formatInstitutionDateTime\(item\.acknowledgedAt, settings\)/);
+});
+
 test("academic administration is normalized, role protected and branch scoped", async () => {
   const subjects = await readFile(new URL("./routes/admin-subjects.ts", import.meta.url), "utf8");
   const allocations = await readFile(new URL("./routes/admin-teacher-allocations.ts", import.meta.url), "utf8");

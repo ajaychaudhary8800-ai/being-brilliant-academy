@@ -100,7 +100,22 @@ router.get("/contacts", async (req: AuthRequest, res) => {
   res.json({ data });
 });
 
-router.get("/announcements", async (req: AuthRequest,res)=>{const q=pageSchema.parse(req.query),eligibility=announcementRecipientConstraints(await communicationScope(req)),where={isArchived:false,deletedAt:null,...eligibility,...(q.search?{OR:[{title:{contains:q.search,mode:"insensitive" as const}},{body:{contains:q.search,mode:"insensitive" as const}}]}:{})};const [data,total]=await Promise.all([prisma.announcement.findMany({where,include:{author:{select:{name:true,role:true}}},orderBy:{publishedAt:"desc"},skip:(q.page-1)*q.limit,take:q.limit}),prisma.announcement.count({where})]);res.json({data,meta:{...q,total,pages:Math.ceil(total/q.limit)}});});
+router.get("/announcements", async (req: AuthRequest, res) => {
+  const q = pageSchema.parse(req.query);
+  const eligibility = announcementRecipientConstraints(await communicationScope(req));
+  const where = { organizationId: req.auth!.organizationId, isArchived: false, deletedAt: null, ...eligibility, ...(q.search ? { OR: [{ title: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] } : {}) };
+  const [data, total] = await Promise.all([
+    prisma.announcement.findMany({
+      where,
+      include: { author: { select: { name: true, role: true } }, reads: { where: { userId: req.auth!.userId }, select: { readAt: true }, take: 1 } },
+      orderBy: { publishedAt: "desc" },
+      skip: (q.page - 1) * q.limit,
+      take: q.limit,
+    }),
+    prisma.announcement.count({ where }),
+  ]);
+  res.json({ data: data.map(item => ({ ...item, acknowledgedAt: item.reads[0]?.readAt ?? null, reads: undefined })), meta: { ...q, total, pages: Math.ceil(total / q.limit) } });
+});
 router.post("/announcements",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const teacher=await teacherForUser(id(req));if(!teacher)throw new AppError(404,"PROFILE_NOT_FOUND","Teacher profile not found");const input=z.object({title:z.string().trim().min(2).max(160),body:z.string().trim().min(1).max(10000),audience:z.nativeEnum(Role).refine(v=>v===Role.STUDENT||v===Role.PARENT)}).parse(req.body);res.status(201).json({data:await prisma.announcement.create({data:{...input,branchId:teacher.branchId,authorId:id(req)}})});});
 router.patch("/announcements/:announcementId/archive",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const a=await prisma.announcement.findFirst({where:{id:String(req.params.announcementId),authorId:id(req)}});if(!a)throw new AppError(404,"NOT_FOUND","Announcement not found");res.json({data:await prisma.announcement.update({where:{id:a.id},data:{isArchived:true}})});});
 router.delete("/announcements/:announcementId",allow(Role.TEACHER),async(req:AuthRequest,res)=>{await prisma.announcement.deleteMany({where:{id:String(req.params.announcementId),authorId:id(req),isArchived:true}});res.status(204).end();});
