@@ -81,6 +81,7 @@ test("Student Homework production routes persist, protect and expose submissions
   let staleOnUpdate = false;
   let updateWhere: Record<string, unknown> | null = null;
   let transactionIsolation: string | null = null;
+  let authenticatedUserActive = true;
   let sequence = 0;
 
   function homeworkFixture(overrides: Record<string, unknown> = {}) {
@@ -136,6 +137,7 @@ test("Student Homework production routes persist, protect and expose submissions
     staleOnUpdate = false;
     updateWhere = null;
     transactionIsolation = null;
+    authenticatedUserActive = true;
   }
 
   function nextDate() {
@@ -271,6 +273,7 @@ test("Student Homework production routes persist, protect and expose submissions
     trialEndsAt: null,
     subscriptionEndsAt: null,
   }));
+  patch((systemPrisma as any).user, "findFirst", async () => ({ isActive: authenticatedUserActive }));
   patch((systemPrisma as any).tenantAccessAudit, "create", async () => ({}));
   patch((prisma as any).studentProfile, "findFirst", async ({ where }: any) => (
     where.userId === student.userId && where.organizationId === student.organizationId ? student : null
@@ -369,6 +372,11 @@ test("Student Homework production routes persist, protect and expose submissions
     await t.test("actual HTTP route enforces authentication and Student-only role", async () => {
       reset();
       assert.equal((await request(`/api/v1/student/homeworks/${HOMEWORK_ID}/submissions`, { method: "POST", body: { answerText: "answer" } })).status, 401);
+      authenticatedUserActive = false;
+      const disabled = await submit({ answerText: "answer" });
+      assert.equal(disabled.status, 401);
+      assert.equal(disabled.payload.error.code, "INVALID_TOKEN");
+      authenticatedUserActive = true;
       for (const role of [Role.TEACHER, Role.PARENT, Role.SUPER_ADMIN, Role.BRANCH_ADMIN]) {
         const response = await submit({ answerText: "answer" }, token(`role-${role}`, role));
         assert.equal(response.status, 403);

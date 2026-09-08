@@ -21,6 +21,14 @@ export async function requireAuth(req: AuthRequest, _res: Response, next: NextFu
     const log = (allowed: boolean, reason?: string) => systemPrisma.tenantAccessAudit.create({
       data: { organizationId: target, userId: claim.userId, method: req.method, path: req.originalUrl, ipAddress: req.ip, userAgent: req.header("user-agent"), allowed, reason },
     }).catch(() => {});
+    const user = await systemPrisma.user.findFirst({
+      where: { id: claim.userId, organizationId: claim.organizationId },
+      select: { isActive: true },
+    });
+    if (!user?.isActive) {
+      void log(false, "USER_INACTIVE");
+      throw new AppError(401, "INVALID_TOKEN", "Your session has expired");
+    }
     if (requested && !platform && requested !== claim.organizationId) {
       void log(false, "TENANT_MISMATCH");
       throw new AppError(403, "TENANT_MISMATCH", "Cross-organization access denied");

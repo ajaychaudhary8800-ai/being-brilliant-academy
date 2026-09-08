@@ -35,3 +35,10 @@ test("the page keeps the raw token out of browser persistence and removes it fro
   assert.doesNotMatch(source, /localStorage|sessionStorage|document\.cookie|console\./);
   assert.match(source, /history\.replaceState/);
 });
+
+test("public registration presents the established strong password policy", () => {
+  const source = readFileSync(new URL("../app/register/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /minLength=\{10\}/);
+  assert.match(source, /maxLength=\{128\}/);
+  assert.match(source, /uppercase and lowercase letters and at least one number/);
+});
