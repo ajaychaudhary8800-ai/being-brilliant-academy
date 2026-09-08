@@ -1,10 +1,10 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { randomUUID } from "node:crypto";
-import { AttendanceStatus, ExaminationStatus, HomeworkStatus, PaymentMode, Role, StudentStatus, TeacherAllocationStatus, TimetableStatus } from "@prisma/client";
+import { AttendanceStatus, ExaminationStatus, HomeworkStatus, Role, StudentStatus, TeacherAllocationStatus, TimetableStatus } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/http.js";
+import { rejectUnverifiedParentPayment } from "../lib/finance-integrity.js";
 import { assertHomeworkAttachmentAccess } from "../lib/homework-policy.js";
 import { announcementRecipientConstraints, communicationScope } from "../lib/communication-authorization.js";
 import { assertMessageRecipientAuthorized } from "../lib/message-policy.js";
@@ -162,7 +162,12 @@ router.get("/parent/children", allow(Role.PARENT), async (req: AuthRequest, res)
 });
 router.get("/parent/dashboard",allow(Role.PARENT),async(req:AuthRequest,res)=>{const links=await prisma.parentStudent.findMany({where:{parentId:id(req),student:{status:StudentStatus.ACTIVE,user:{isActive:true}}},include:{student:{include:{user:true,branch:true,batch:{include:{course:true}}}}}});const children=await Promise.all(links.map(l=>studentData(l.student)));res.json({data:{children}});});
 router.get("/parent/children/:studentId",allow(Role.PARENT),async(req:AuthRequest,res)=>res.json({data:await studentData(await ownedChild(id(req),String(req.params.studentId)))}));
-router.post("/parent/children/:studentId/fees/:feeId/pay",allow(Role.PARENT),async(req:AuthRequest,res)=>{const student=await ownedChild(id(req),String(req.params.studentId));const input=z.object({amountPaise:z.number().int().positive(),paymentMode:z.nativeEnum(PaymentMode),transactionId:z.string().trim().max(100).optional()}).parse(req.body);const fee=await prisma.fee.findFirst({where:{id:String(req.params.feeId),studentId:student.id}});if(!fee)throw new AppError(404,"FEE_NOT_FOUND","Fee record not found");const balance=fee.totalPaise-fee.discountPaise+fee.finePaise-fee.amountPaidPaise;if(input.amountPaise>balance)throw new AppError(400,"EXCESS_PAYMENT","Payment exceeds the outstanding balance");const receiptNumber=`PR-${Date.now()}-${randomUUID().slice(0,6).toUpperCase()}`;const paid=fee.amountPaidPaise+input.amountPaise;const payment=await prisma.$transaction(async tx=>{const p=await tx.feePayment.create({data:{feeId:fee.id,amountPaise:input.amountPaise,paymentMode:input.paymentMode,transactionId:input.transactionId,receiptNumber,collectedById:id(req)}});await tx.fee.update({where:{id:fee.id},data:{amountPaidPaise:paid,status:paid>=fee.totalPaise-fee.discountPaise+fee.finePaise?"PAID":"PARTIAL"}});return p;});res.status(201).json({data:payment});});
+router.post("/parent/children/:studentId/fees/:feeId/pay", allow(Role.PARENT), async (req: AuthRequest) => {
+  const student = await ownedChild(id(req), String(req.params.studentId));
+  const fee = await prisma.fee.findFirst({ where: { id: String(req.params.feeId), studentId: student.id }, select: { id: true } });
+  if (!fee) throw new AppError(404, "FEE_NOT_FOUND", "Fee record not found");
+  rejectUnverifiedParentPayment();
+});
 
 router.get("/teacher/dashboard", allow(Role.TEACHER), async (req: AuthRequest, res) => {
   const teacher = await teacherForUser(id(req));
