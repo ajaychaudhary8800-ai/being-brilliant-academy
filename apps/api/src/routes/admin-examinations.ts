@@ -1,6 +1,7 @@
 import { ExaminationResultStatus, ExaminationStatus, ExaminationType, Prisma, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
+import { examinationCodeConflict, isExaminationCodeConflict } from "../lib/examination-uniqueness.js";
 import { AppError } from "../lib/http.js";
 import { assertExaminationHistoricalFieldsEditable, assertExaminationStatusTransition, assertSingleConditionalMutation, changesCoreExaminationField } from "../lib/examination-policy.js";
 import { prisma } from "../lib/prisma.js";
@@ -54,18 +55,27 @@ async function access(req: AuthRequest, branchId: string) {
   if (allowed && !allowed.includes(branchId)) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
 }
 
-async function validate(data: z.infer<typeof input>, exclude?: string) {
+async function validate(data: z.infer<typeof input>, organizationId: string, exclude?: string) {
   const startMinute = mins(data.startTime), endMinute = mins(data.endTime);
   if (endMinute <= startMinute) throw new AppError(422, "INVALID_TIME_RANGE", "End time must be after start time");
   if (data.passingMarks > data.maximumMarks) throw new AppError(422, "PASSING_MARKS_EXCEED_MAXIMUM", "Passing marks cannot exceed maximum marks");
-  const [batch, subject, teacher] = await Promise.all([
+  const [batch, subject, teacher, duplicateCode] = await Promise.all([
     prisma.batch.findUnique({ where: { id: data.batchId }, select: { branchId: true, courseId: true, academicSession: true, academicSessionId: true } }),
     prisma.courseSubject.findUnique({ where: { courseId_subjectId: { courseId: data.courseId, subjectId: data.subjectId } }, select: { isActive: true } }),
     prisma.teacherProfile.findUnique({ where: { id: data.teacherId }, select: { branchId: true } }),
+    prisma.examination.findFirst({
+      where: {
+        organizationId,
+        code: { equals: data.code, mode: "insensitive" },
+        ...(exclude ? { id: { not: exclude } } : {}),
+      },
+      select: { id: true },
+    }),
   ]);
   if (!batch || batch.branchId !== data.branchId || batch.courseId !== data.courseId || batch.academicSession !== data.academicSession) throw new AppError(422, "INVALID_BATCH_RELATION", "Batch must match Branch, Course and Academic Session");
   if (!subject?.isActive) throw new AppError(422, "INVALID_SUBJECT_RELATION", "Subject must belong to Course");
   if (!teacher || teacher.branchId !== data.branchId) throw new AppError(422, "INVALID_TEACHER_RELATION", "Teacher must belong to Branch");
+  if (duplicateCode) throw examinationCodeConflict();
   const examDate = new Date(data.examDate); examDate.setUTCHours(0, 0, 0, 0);
   const conflict = await prisma.examination.findFirst({ where: { examDate, status: { not: ExaminationStatus.ARCHIVED }, startMinute: { lt: endMinute }, endMinute: { gt: startMinute }, OR: [{ batchId: data.batchId }, { teacherId: data.teacherId }], ...(exclude ? { id: { not: exclude } } : {}) }, select: { batchId: true, teacherId: true } });
   if (conflict) throw new AppError(409, conflict.batchId === data.batchId ? "BATCH_EXAM_CONFLICT" : "TEACHER_EXAM_CONFLICT", "An examination overlaps this Batch or Teacher schedule");
@@ -144,7 +154,7 @@ router.post("/examinations", async (req: AuthRequest, res) => {
   const data = input.parse(req.body);
   if (data.status !== ExaminationStatus.DRAFT) throw new AppError(409, "INVALID_EXAMINATION_STATUS_TRANSITION", "New examinations must begin in DRAFT status");
   await access(req, data.branchId);
-  const normalized = await validate(data), { startTime, endTime, ...rest } = data;
+  const normalized = await validate(data, req.auth!.organizationId), { startTime, endTime, ...rest } = data;
   try {
     const created = await prisma.$transaction(async tx => {
       const value = await tx.examination.create({ data: { organizationId: req.auth!.organizationId, ...rest, ...normalized }, select });
@@ -153,7 +163,7 @@ router.post("/examinations", async (req: AuthRequest, res) => {
     });
     res.status(201).json({ data: shape(created) });
   } catch (error: any) {
-    if (error.code === "P2002") throw new AppError(409, "DUPLICATE_EXAMINATION", "Exam Code or Batch/Subject/Exam Type already exists");
+    if (isExaminationCodeConflict(error)) throw examinationCodeConflict();
     throw error;
   }
 });
@@ -166,7 +176,7 @@ router.patch("/examinations/:id", async (req: AuthRequest, res) => {
   if (partial.branchId) await access(req, partial.branchId);
   if (partial.status) assertExaminationStatusTransition(old.status, partial.status);
   const merged: any = { ...old, startTime: clock(old.startMinute), endTime: clock(old.endMinute), ...partial };
-  const normalized = await validate(merged, old.id), { startTime, endTime, ...rest } = partial;
+  const normalized = await validate(merged, req.auth!.organizationId, old.id), { startTime, endTime, ...rest } = partial;
   try {
     const updated = await prisma.$transaction(async tx => {
       const locked = await tx.examination.updateMany({ where: { id: old.id, organizationId: req.auth!.organizationId, status: old.status }, data: { updatedAt: new Date() } });
@@ -181,7 +191,7 @@ router.patch("/examinations/:id", async (req: AuthRequest, res) => {
     }, serializable);
     res.json({ data: shape(updated) });
   } catch (error: any) {
-    if (error.code === "P2002") throw new AppError(409, "DUPLICATE_EXAMINATION", "Exam Code or Batch/Subject/Exam Type already exists");
+    if (isExaminationCodeConflict(error)) throw examinationCodeConflict();
     throw error;
   }
 });

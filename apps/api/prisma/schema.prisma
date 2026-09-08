@@ -2089,7 +2089,7 @@ model Examination {
   organizationId    String              @default("org_default")
   id                String              @id @default(cuid())
   name              String
-  code              String              @unique
+  code              String
   type              ExaminationType
   branchId          String
   courseId          String
@@ -2117,7 +2117,7 @@ model Examination {
   questionPaper     ExaminationQuestionPaper?
   answerSheets      ExaminationAnswerSheet[]
 
-  @@unique([batchId, subjectId, type, academicSession])
+  @@unique([organizationId, code])
   @@index([branchId])
   @@index([courseId])
   @@index([batchId, examDate])
