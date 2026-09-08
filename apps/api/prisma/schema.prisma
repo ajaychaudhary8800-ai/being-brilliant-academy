@@ -1230,7 +1230,8 @@ model User {
   parentChildren           ParentStudent[]            @relation("ParentLinks")
   sentMessages             PortalMessage[]            @relation("MessageSender")
   receivedMessages         PortalMessage[]            @relation("MessageRecipient")
-  leaveRequests            LeaveRequest[]
+  leaveRequests            LeaveRequest[] @relation("LeaveRequestSubject")
+  submittedLeaveRequests   LeaveRequest[] @relation("LeaveRequestSubmitter")
   approvedLeaveRequests    LeaveRequest[] @relation("LeaveRequestApprover")
   authoredAnnouncements    Announcement[]
   employee                 Employee?
@@ -3498,10 +3499,12 @@ model LeaveRequest {
   attachmentMime String?
   attachmentData Bytes?
   approvedById   String?
+  submittedById  String?
   approvedAt     DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-  user           User     @relation(fields: [userId], references: [id])
+  user           User     @relation("LeaveRequestSubject", fields: [userId], references: [id])
+  submittedBy    User?    @relation("LeaveRequestSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
   approvedBy     User?    @relation("LeaveRequestApprover", fields: [approvedById], references: [id], onDelete: Restrict)
   branch         Branch   @relation(fields: [branchId], references: [id])
 
@@ -3509,6 +3512,7 @@ model LeaveRequest {
   @@index([branchId, status])
   @@index([organizationId])
   @@index([approvedById])
+  @@index([submittedById])
 }
 
 model SupportTicket {

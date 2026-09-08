@@ -110,7 +110,9 @@ test("leave management is tenant scoped, race safe, auditable and attendance int
   const upload = await readFile(new URL("../../web/components/document-upload.ts", import.meta.url), "utf8");
   const workspace = await readFile(new URL("../../web/components/portal-workspace.tsx", import.meta.url), "utf8");
   assert.match(leave, /router\.get\("\/portal\/leaves"/);
-  assert.match(leave, /role === Role\.PARENT\) return next\(\)/);
+  assert.match(leave, /Role\.PARENT\]\.includes\(req\.auth!\.role\)/);
+  assert.doesNotMatch(leave, /role === Role\.PARENT\) return next\(\)/);
+  assert.match(leave, /userId: student\.user\.id, submittedById: req\.auth!\.userId, branchId: student\.branchId/);
   assert.match(leave, /userId: req\.auth!\.userId/);
   assert.match(leave, /OUTSIDE_ACADEMIC_SESSION/);
   assert.match(leave, /OVERLAPPING_LEAVE/);
