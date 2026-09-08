@@ -11,8 +11,10 @@ export type LmsActor = {
 
 export type LmsTarget = {
   branchId: string | null;
+  courseId?: string | null;
   teacherId: string | null;
   batchId: string | null;
+  subjectId?: string | null;
   status: string;
 };
 
@@ -39,6 +41,12 @@ export function lmsModuleCourseWhere(actor: LmsActor) {
   if (actor.role === Role.SUPER_ADMIN) return {};
   if (actor.branchIds.length === 0) return { course: { is: { branchId: { in: [] as string[] } } } };
   return { course: { is: { OR: [{ branchId: { in: actor.branchIds } }, { branchId: null }] } } };
+}
+
+export function lmsLessonBranchFilter(actor: LmsActor, requestedBranchId?: string) {
+  if (actor.role === Role.SUPER_ADMIN) return requestedBranchId;
+  if (requestedBranchId && !actor.branchIds.includes(requestedBranchId)) throw denied();
+  return requestedBranchId ?? { in: actor.branchIds };
 }
 
 export function assertLmsContentAccess(actor: LmsActor, target: LmsTarget) {

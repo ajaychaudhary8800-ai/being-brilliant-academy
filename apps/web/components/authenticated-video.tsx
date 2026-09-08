@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { getAccessToken } from "./auth-provider";
 
-export function AuthenticatedVideo({ url, className }: { url: string; className?: string }) {
+export function AuthenticatedVideo({ url, className, initialTime = 0, onTimeUpdate, onEnded }: {
+  url: string;
+  className?: string;
+  initialTime?: number;
+  onTimeUpdate?: (seconds: number) => void;
+  onEnded?: () => void;
+}) {
   const [source, setSource] = useState<string>();
   const [error, setError] = useState("");
 
@@ -30,5 +36,13 @@ export function AuthenticatedVideo({ url, className }: { url: string; className?
 
   if (error) return <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>;
   if (!source) return <p className="mt-4 text-sm text-slate-500">Loading video…</p>;
-  return <video controls className={className} src={source} />;
+  return <video
+    controls
+    preload="metadata"
+    className={className}
+    src={source}
+    onLoadedMetadata={event => { if (initialTime > 0 && initialTime < event.currentTarget.duration) event.currentTarget.currentTime = initialTime; }}
+    onTimeUpdate={event => onTimeUpdate?.(event.currentTarget.currentTime)}
+    onEnded={onEnded}
+  />;
 }

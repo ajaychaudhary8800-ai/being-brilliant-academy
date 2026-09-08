@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { Role } from "@prisma/client";
-import { assertLmsContentAccess, assertLmsManagementAccess, assertLmsModuleManagementAccess, lmsModuleCourseWhere, type LmsActor } from "./lms-policy.js";
+import { assertLmsContentAccess, assertLmsManagementAccess, assertLmsModuleManagementAccess, lmsLessonBranchFilter, lmsModuleCourseWhere, type LmsActor } from "./lms-policy.js";
 
 const target = { branchId: "branch-a", teacherId: "teacher-a", batchId: "batch-a", status: "PUBLISHED" };
 const actor = (role: Role, overrides: Partial<LmsActor> = {}): LmsActor => ({ role, branchIds: [], ...overrides });
@@ -48,15 +48,24 @@ test("Module option scope includes only authorized branch and shared Courses", (
   });
 });
 
+test("Lesson list branch filters cannot escape assigned Branch Admin scope", () => {
+  assert.deepEqual(lmsLessonBranchFilter(actor(Role.SUPER_ADMIN), "branch-b"), "branch-b");
+  assert.deepEqual(lmsLessonBranchFilter(actor(Role.BRANCH_ADMIN, { branchIds: ["branch-a"] })), { in: ["branch-a"] });
+  assert.equal(lmsLessonBranchFilter(actor(Role.BRANCH_ADMIN, { branchIds: ["branch-a"] }), "branch-a"), "branch-a");
+  assert.throws(() => lmsLessonBranchFilter(actor(Role.BRANCH_ADMIN, { branchIds: ["branch-a"] }), "branch-b"));
+  assert.deepEqual(lmsLessonBranchFilter(actor(Role.BRANCH_ADMIN)), { in: [] });
+});
+
 test("LMS routers authenticate management and constrain learner progress routes", () => {
   const source = readFileSync(new URL("../routes/admin-lms.ts", import.meta.url), "utf8");
-  assert.match(source, /admin\.use\(requireAuth,allow\(Role\.SUPER_ADMIN,Role\.BRANCH_ADMIN,Role\.TEACHER\)\)/);
-  assert.match(source, /router\.patch\("\/lms\/lessons\/:id\/progress",allow\(Role\.STUDENT\)/);
-  assert.match(source, /router\.get\("\/lms\/me",allow\(Role\.STUDENT\)/);
-  assert.match(source, /await view\(req,x\.lesson\)/);
-  assert.match(source, /assertLmsModuleManagementAccess\(current,course\)/);
-  assert.match(source, /prisma\.module\.create\(\{data:d\}\)/);
+  assert.match(source, /admin\.use\(requireAuth,\s*allow\(Role\.SUPER_ADMIN,\s*Role\.BRANCH_ADMIN,\s*Role\.TEACHER\)\)/);
+  assert.match(source, /router\.patch\("\/lms\/lessons\/:id\/progress",\s*allow\(Role\.STUDENT\)/);
+  assert.match(source, /router\.get\("\/lms\/me",\s*allow\(Role\.STUDENT\)/);
+  assert.match(source, /assertLmsRequestContentAccess\(req,\s*lesson\)/);
+  assert.match(source, /assertLmsRequestContentAccess\(req,\s*attachment\.lesson\)/);
+  assert.match(source, /assertLmsModuleManagementAccess\(current,\s*course\)/);
+  assert.match(source, /prisma\.module\.create\(\{\s*data\s*\}\)/);
   assert.doesNotMatch(source, /prisma\.module\.upsert/);
   assert.match(source, /MODULE_POSITION_CONFLICT/);
-  assert.match(source, /if\(!m\|\|m\.courseId!==d\.courseId\)throw new AppError\(422,"INVALID_MODULE_RELATION"/);
+  assert.match(source, /module\.courseId !== data\.courseId\) throw new AppError\(422, "INVALID_MODULE_RELATION"/);
 });
