@@ -9,7 +9,14 @@ import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
-router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
+router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.ACCOUNTANT));
+router.use((req: AuthRequest, _res, next) => {
+  const collection = req.method === "POST" && /^\/fees\/[^/]+\/collect$/.test(req.path);
+  if (req.auth?.role === Role.ACCOUNTANT && !(req.method === "GET" || collection)) {
+    return next(new AppError(403, "ACCOUNTANT_FEE_READ_ONLY", "Accountants may only collect payments or read fee records"));
+  }
+  next();
+});
 
 const input = z.object({
   studentId: z.string().cuid(), branchId: z.string().cuid(),
@@ -30,7 +37,7 @@ const decorate = <T extends { totalPaise: number; discountPaise: number; finePai
 const dateOnly = (value: Date) => new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
 
 async function assignedBranchIds(req: AuthRequest) {
-  if (req.auth!.role !== Role.BRANCH_ADMIN) return [];
+  if (req.auth!.role !== Role.BRANCH_ADMIN && req.auth!.role !== Role.ACCOUNTANT) return [];
   return (await prisma.branchUser.findMany({ where: { userId: req.auth!.userId }, select: { branchId: true } })).map(item => item.branchId);
 }
 async function branchWhere(req: AuthRequest, requestedBranchId?: string) {
@@ -87,7 +94,7 @@ router.get("/fees", async (req: AuthRequest, res) => {
 router.get("/fees/:id", async (req: AuthRequest, res) => {
   const data = await prisma.fee.findUnique({ where: { id: String(req.params.id) }, select }); if (!data) throw new AppError(404, "FEE_NOT_FOUND", "Fee not found"); await access(req, data.branch.id); res.json({ data: decorate(data) });
 });
-router.post("/fees", async (req: AuthRequest, res) => {
+router.post("/fees", allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN), async (req: AuthRequest, res) => {
   const data = input.parse(req.body); amounts(data); const permittedBranchIds = await assignedBranchIds(req); assertFinanceBranchAccess(req.auth!.role, permittedBranchIds, data.branchId); const dueDate = dateOnly(data.dueDate);
   try {
     const created = await prisma.$transaction(async tx => { assertFinanceBranchAccess(req.auth!.role, permittedBranchIds, data.branchId); await relations(tx, data); if (await tx.fee.findFirst({ where: { studentId: data.studentId, batchId: data.batchId ?? null, feeHead: { equals: data.feeHead, mode: "insensitive" }, dueDate }, select: { id: true } })) throw new AppError(409, "FEE_EXISTS", "This fee record already exists"); const fee = await tx.fee.create({ data: { ...data, dueDate, status: feeStatus(data.totalPaise, data.discountPaise, data.finePaise, 0, dueDate) }, select }); await tx.auditLog.create({ data: auditRecord(req, "FEE_CREATED", "Fee", fee.id, { branchId: data.branchId, totalPaise: data.totalPaise, discountPaise: data.discountPaise, finePaise: data.finePaise }) }); return fee; }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -97,7 +104,7 @@ router.post("/fees", async (req: AuthRequest, res) => {
     throw error;
   }
 });
-router.patch("/fees/:id", async (req: AuthRequest, res) => {
+router.patch("/fees/:id", allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN), async (req: AuthRequest, res) => {
   const permittedBranchIds = await assignedBranchIds(req), data = input.partial().parse(req.body);
   try {
     const updated = await prisma.$transaction(async tx => {
@@ -141,7 +148,7 @@ router.get("/fees/payments/:paymentId/receipt", async (req: AuthRequest, res) =>
   await prisma.auditLog.create({ data: auditRecord(req, "RECEIPT_REGENERATED", "FeePayment", payment.id, { feeId: payment.feeId, receiptNumber: payment.receiptNumber, amountPaise: payment.amountPaise }) });
   sendPdf(res, "Fee Receipt", [`Receipt: ${payment.receiptNumber}`, `Student: ${payment.fee.student.user.name} (${payment.fee.student.admissionNo})`, `Fee: ${payment.fee.feeHead}`, `Amount: INR ${(payment.amountPaise / 100).toFixed(2)}`, `Mode: ${payment.paymentMode}`, `Transaction: ${payment.transactionId ?? "-"}`, `Date: ${payment.paymentDate.toISOString()}`], `${payment.receiptNumber}.pdf`);
 });
-router.delete("/fees/:id", async (req: AuthRequest, res) => {
+router.delete("/fees/:id", allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN), async (req: AuthRequest, res) => {
   const permittedBranchIds = await assignedBranchIds(req);
   try {
     await prisma.$transaction(async tx => {

@@ -2,12 +2,13 @@ import { Role } from "@prisma/client";
 import { AppError } from "./http.js";
 
 export function requireRequestedBranch(role: Role, assignedBranchIds: readonly string[], requestedBranchId?: string) {
-  if (role === Role.BRANCH_ADMIN && requestedBranchId && !assignedBranchIds.includes(requestedBranchId)) {
+  const branchScoped = role === Role.BRANCH_ADMIN || role === Role.ACCOUNTANT;
+  if (branchScoped && requestedBranchId && !assignedBranchIds.includes(requestedBranchId)) {
     throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
   }
   return requestedBranchId
     ? { branchId: requestedBranchId }
-    : role === Role.BRANCH_ADMIN
+    : branchScoped
       ? { branchId: { in: [...assignedBranchIds] } }
       : {};
 }

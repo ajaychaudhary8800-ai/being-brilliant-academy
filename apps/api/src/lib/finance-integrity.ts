@@ -47,17 +47,18 @@ export function assertRelatedBranch(entity: string, expectedBranchId: string, ac
 }
 
 export function assertFinanceBranchAccess(role: Role, assignedBranchIds: readonly string[], targetBranchId: string) {
-  if (role === Role.BRANCH_ADMIN && !assignedBranchIds.includes(targetBranchId)) {
+  if ((role === Role.BRANCH_ADMIN || role === Role.ACCOUNTANT) && !assignedBranchIds.includes(targetBranchId)) {
     throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
   }
 }
 
 export function canReadFinanceMasterData(role: Role, assignedBranchIds: readonly string[]) {
+  if (role === Role.ACCOUNTANT) return false;
   return role !== Role.BRANCH_ADMIN || assignedBranchIds.length > 0;
 }
 
 export function assertSystemAccountCreationAllowed(role: Role, isSystem: boolean) {
-  if (role === Role.BRANCH_ADMIN && isSystem) {
+  if ((role === Role.BRANCH_ADMIN || role === Role.ACCOUNTANT) && isSystem) {
     throw new AppError(403, "SYSTEM_ACCOUNT_FORBIDDEN", "Only super administrators may create system accounts");
   }
 }

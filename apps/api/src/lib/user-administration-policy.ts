@@ -20,6 +20,12 @@ export type UserAdministrator = {
 
 const branchAdministratorAssignableRoles = new Set<Role>([Role.STUDENT, Role.TEACHER, Role.PARENT, Role.EMPLOYEE]);
 
+export function assertCanAdministerUserTarget(actorRole: Role, targetRole: Role) {
+  if (targetRole === Role.ACCOUNTANT && actorRole !== Role.SUPER_ADMIN) {
+    throw new AppError(403, "ACCOUNTANT_ROLE_FORBIDDEN", "Only super administrators may manage Accountant access");
+  }
+}
+
 function assertCompatibleProfile(target: ManagedUser, role: Role) {
   const compatible = role === Role.STUDENT ? target.hasStudentProfile
     : role === Role.TEACHER ? target.hasTeacherProfile
@@ -35,6 +41,7 @@ export function assertCanChangeUserRole(
   nextRole: Role,
   activeSuperAdministratorCount: number,
 ) {
+  assertCanAdministerUserTarget(actor.role, target.role);
   if (!target.isActive) throw new AppError(409, "INACTIVE_USER_ROLE_LOCKED", "Activate the user before changing their role");
   if (target.role === nextRole) return;
 
@@ -47,6 +54,10 @@ export function assertCanChangeUserRole(
     }
   } else if (actor.role !== Role.SUPER_ADMIN) {
     throw new AppError(403, "USER_ADMIN_REQUIRED", "User administrator access is required");
+  }
+
+  if ((nextRole === Role.ACCOUNTANT || target.role === Role.ACCOUNTANT) && actor.role !== Role.SUPER_ADMIN) {
+    throw new AppError(403, "ACCOUNTANT_ROLE_FORBIDDEN", "Only super administrators may manage Accountant access");
   }
 
   if (target.role === Role.SUPER_ADMIN && nextRole !== Role.SUPER_ADMIN && activeSuperAdministratorCount <= 1) {

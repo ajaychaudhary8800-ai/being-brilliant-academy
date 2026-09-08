@@ -8,7 +8,7 @@ import { prisma } from "../lib/prisma.js";
 import { sendEmail } from "../lib/notifications.js";
 import { env } from "../config.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
-import { assertCanChangeUserRole, managedUserBranchIds } from "../lib/user-administration-policy.js";
+import { assertCanAdministerUserTarget, assertCanChangeUserRole, managedUserBranchIds } from "../lib/user-administration-policy.js";
 import { assertEligibleParentStudent, assertParentBranchScope, parentRelationships } from "../lib/parent-administration-policy.js";
 import { summarizeAdminUser } from "../lib/admin-user-summary.js";
 
@@ -36,6 +36,7 @@ async function loadTarget(req: AuthRequest, id: string) {
   if (!target) throw new AppError(404, "USER_NOT_FOUND", "User not found");
   const allowed = await branchIdsForActor(req); const targetBranches = branchesOf(target);
   if (allowed && (!targetBranches.length || targetBranches.some(branchId => !allowed.includes(branchId)))) throw new AppError(403, "USER_BRANCH_FORBIDDEN", "The user is outside your assigned branch scope");
+  assertCanAdministerUserTarget(req.auth!.role, target.role);
   return target;
 }
 
@@ -65,6 +66,24 @@ router.get("/users/students", async (req: AuthRequest, res) => {
   const allowed = await branchIdsForActor(req);
   const data = await prisma.studentProfile.findMany({ where: { status: "ACTIVE", user: { isActive: true }, ...(allowed ? { branchId: { in: allowed } } : {}) }, select: { id: true, admissionNo: true, user: { select: { name: true } }, branch: { select: { id: true, branchName: true } }, batch: { select: { name: true, course: { select: { title: true } } } } }, orderBy: { admissionNo: "asc" }, take: 500 });
   res.json({ data });
+});
+
+const accountantInput = z.object({ name: z.string().trim().min(2).max(100), email: z.string().trim().toLowerCase().email(), phone: z.string().trim().min(7).max(20).nullable().optional(), isActive: z.boolean().default(true), branchIds: z.array(z.string().cuid()).max(100).refine(ids => new Set(ids).size === ids.length, "Duplicate branches are not allowed").default([]) });
+router.post("/users/accountants", allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
+  const input = accountantInput.parse(req.body);
+  const branches = await prisma.branch.findMany({ where: { id: { in: input.branchIds }, organizationId: req.auth!.organizationId }, select: { id: true } });
+  if (branches.length !== input.branchIds.length) throw new AppError(422, "INVALID_BRANCH_ASSIGNMENT", "Every branch must belong to the current organization");
+  try {
+    const result = await prisma.$transaction(async tx => {
+      const user = await tx.user.create({ data: { organizationId: req.auth!.organizationId, name: input.name, email: input.email, phone: input.phone ?? null, isActive: input.isActive, role: Role.ACCOUNTANT, passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12) }, select: { id: true, organizationId: true, name: true, email: true, role: true, isActive: true } });
+      if (input.branchIds.length) await tx.branchUser.createMany({ data: input.branchIds.map(branchId => ({ organizationId: req.auth!.organizationId, userId: user.id, branchId })) });
+      await tx.auditLog.create({ data: { actorId: req.auth!.userId, action: "USER_CREATED", entity: "User", entityId: user.id, metadata: { role: Role.ACCOUNTANT, branchCount: input.branchIds.length } } });
+      return user;
+    });
+    let setup: unknown = null;
+    try { setup = await issueSetup(result.id, result.organizationId, result.email, result.name); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: result.id, metadata: { role: Role.ACCOUNTANT, delivery: (setup as any)?.skipped ? "SKIPPED" : "SENT" } } }); } catch { setup = { skipped: true, reason: "EMAIL_DELIVERY_FAILED" }; }
+    res.status(201).json({ data: { ...result, setup } });
+  } catch (error) { const mapped = mapUnique(error); if (mapped) throw mapped; throw error; }
 });
 
 const parentInput = z.object({ name: z.string().trim().min(2).max(100), email: z.string().trim().toLowerCase().email(), phone: z.string().trim().min(7).max(20).nullable().optional(), isActive: z.boolean().default(true), students: z.array(z.object({ studentId: z.string().cuid(), relationship: relationSchema })).min(1).max(20) });
@@ -124,5 +143,21 @@ router.patch("/users/:id", async (req: AuthRequest, res) => {
 });
 
 router.post("/users/:id/setup-email", async (req: AuthRequest, res) => { const target = await loadTarget(req, String(req.params.id)); try { const result = await issueSetup(target.id, req.auth!.organizationId, target.email, target.name); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: target.id, metadata: { delivery: result.skipped ? "SKIPPED" : "SENT" } } }); res.status(202).json({ data: { sent: !result.skipped, skipped: result.skipped } }); } catch { throw new AppError(502, "RESET_EMAIL_FAILED", "Unable to send the setup email"); } });
+
+router.put("/users/:id/accountant-branches", allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
+  const branchIds = z.array(z.string().cuid()).max(100).refine(ids => new Set(ids).size === ids.length, "Duplicate branches are not allowed").parse(req.body.branchIds);
+  const target = await prisma.user.findUnique({ where: { id: String(req.params.id) }, select: { id: true, organizationId: true, role: true } });
+  if (!target) throw new AppError(404, "USER_NOT_FOUND", "User not found");
+  if (target.organizationId !== req.auth!.organizationId) throw new AppError(404, "USER_NOT_FOUND", "User not found");
+  if (target.role !== Role.ACCOUNTANT) throw new AppError(409, "ACCOUNTANT_ROLE_REQUIRED", "Branch assignments are available only for Accountant accounts");
+  const branches = await prisma.branch.findMany({ where: { id: { in: branchIds }, organizationId: req.auth!.organizationId }, select: { id: true } });
+  if (branches.length !== branchIds.length) throw new AppError(422, "INVALID_BRANCH_ASSIGNMENT", "Every branch must belong to the current organization");
+  await prisma.$transaction(async tx => {
+    await tx.branchUser.deleteMany({ where: { userId: target.id, organizationId: req.auth!.organizationId } });
+    if (branchIds.length) await tx.branchUser.createMany({ data: branchIds.map(branchId => ({ organizationId: req.auth!.organizationId, userId: target.id, branchId })) });
+    await tx.auditLog.create({ data: { actorId: req.auth!.userId, action: "ACCOUNTANT_BRANCHES_CHANGED", entity: "User", entityId: target.id, metadata: { branchCount: branchIds.length, branchIds } } });
+  });
+  res.json({ data: { userId: target.id, branchIds } });
+});
 
 export default router;

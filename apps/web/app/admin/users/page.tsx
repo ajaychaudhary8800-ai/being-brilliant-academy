@@ -7,6 +7,7 @@ import { formatAdminUserDate, normalizeAdminUsersResponse, type AdminUserRow } f
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 const headers = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${getAccessToken() ?? ""}` });
+const ACCOUNTANT_ROLE = "ACCOUNTANT";
 type Student = { id: string; admissionNo: string; user: { name: string }; branch: { branchName: string }; batch: { name: string; course: { title: string } | null } };
 
 function Content() {

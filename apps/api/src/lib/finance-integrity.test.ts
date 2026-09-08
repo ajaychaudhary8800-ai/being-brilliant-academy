@@ -38,6 +38,14 @@ test("branch administrators cannot override their assigned finance branches", ()
   assert.deepEqual(requireRequestedBranch(Role.SUPER_ADMIN, [], "branch-b"), { branchId: "branch-b" });
 });
 
+test("accountants are always limited to assigned branches, including zero-branch users", () => {
+  assert.deepEqual(requireRequestedBranch(Role.ACCOUNTANT, ["branch-a"], "branch-a"), { branchId: "branch-a" });
+  assert.deepEqual(requireRequestedBranch(Role.ACCOUNTANT, []), { branchId: { in: [] } });
+  assert.throws(() => requireRequestedBranch(Role.ACCOUNTANT, ["branch-a"], "branch-b"), cause => (cause as { code?: string }).code === "BRANCH_FORBIDDEN");
+  assert.doesNotThrow(() => assertFinanceBranchAccess(Role.ACCOUNTANT, ["branch-a"], "branch-a"));
+  assert.throws(() => assertFinanceBranchAccess(Role.ACCOUNTANT, [], "branch-a"), cause => (cause as { code?: string }).code === "BRANCH_FORBIDDEN");
+});
+
 test("paid fees lock identity while unpaid fees remain editable", () => {
   assert.doesNotThrow(() => assertPaidFeeIdentityUnchanged(fee, { studentId: "student-b", feeHead: "Transport" }, 0));
   for (const update of [
@@ -79,6 +87,7 @@ test("finance master data requires an assigned branch for branch administrators"
   assert.equal(canReadFinanceMasterData(Role.BRANCH_ADMIN, []), false);
   assert.equal(canReadFinanceMasterData(Role.BRANCH_ADMIN, ["branch-a"]), true);
   assert.equal(canReadFinanceMasterData(Role.SUPER_ADMIN, []), true);
+  assert.equal(canReadFinanceMasterData(Role.ACCOUNTANT, ["branch-a"]), false);
 });
 
 test("only super administrators may create system ledger accounts", () => {
@@ -88,6 +97,7 @@ test("only super administrators may create system ledger accounts", () => {
     (error: unknown) => (error as { code?: string }).code === "SYSTEM_ACCOUNT_FORBIDDEN",
   );
   assert.doesNotThrow(() => assertSystemAccountCreationAllowed(Role.SUPER_ADMIN, true));
+  assert.throws(() => assertSystemAccountCreationAllowed(Role.ACCOUNTANT, true), cause => (cause as { code?: string }).code === "SYSTEM_ACCOUNT_FORBIDDEN");
 });
 
 test("fee status is derived from authoritative totals", () => {

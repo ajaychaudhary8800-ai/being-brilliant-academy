@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getAccessToken } from "./auth-provider";
+import { getAccessToken, useAuth } from "./auth-provider";
 import { useGroupTerminology } from "./use-group-terminology";
 import {
   Award, BarChart3, BookOpen, Building2, CalendarCheck, CalendarClock, ClipboardCheck,
@@ -19,6 +19,7 @@ const menu = [
   { name: "Students", href: "/admin/students", icon: Users },
   { name: "Teachers", href: "/admin/teachers", icon: UserRoundCheck },
   { name: "User Management", href: "/admin/users", icon: Users },
+  { name: "Accountants", href: "/admin/accountants", icon: Landmark },
   { name: "Subject Master", href: "/admin/subjects", icon: BookOpen },
   { name: "Teacher Allocation", href: "/admin/teacher-allocations", icon: ClipboardCheck },
   { name: "Classrooms", href: "/admin/classrooms", icon: Building2 },
@@ -55,8 +56,11 @@ const menu = [
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { user } = useAuth();
   const group = useGroupTerminology();
-  return <nav className="space-y-1">{menu.map((entry) => { const item = entry.href === "/admin/batches" ? { ...entry, name: group.plural } : entry;
+  const accountantMenu = new Set(["/admin/finance", "/admin/fees", "/admin/fee-defaulters"]);
+  const visibleMenu = user?.role === "ACCOUNTANT" ? menu.filter(entry => accountantMenu.has(entry.href)) : menu;
+  return <nav className="space-y-1">{visibleMenu.map((entry) => { const item = entry.href === "/admin/batches" ? { ...entry, name: group.plural } : entry;
     const Icon = item.icon;
     const active = pathname === item.href;
     return <Link key={item.name} href={item.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${active ? "bg-brand-700 text-white shadow-lg shadow-blue-900/15" : "text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-900"}`}><Icon size={18}/>{item.name}</Link>;

@@ -146,3 +146,14 @@ test("receipt retrieval remains branch-scoped and records regeneration", async (
   assert.match(receipt, /await access\(req, payment\.fee\.branchId\)/);
   assert.match(receipt, /RECEIPT_REGENERATED/);
 });
+
+test("Accountant finance access is branch-scoped and read-only except collection", async () => {
+  const finance = await readFile(new URL("./finance.ts", import.meta.url), "utf8");
+  const fees = await readFile(new URL("./admin-fees.ts", import.meta.url), "utf8");
+  assert.match(finance, /allow\(Role\.SUPER_ADMIN, Role\.BRANCH_ADMIN, Role\.ACCOUNTANT\)/);
+  assert.match(finance, /req\.auth\?\.role === Role\.ACCOUNTANT && req\.method !== "GET"/);
+  assert.match(finance, /Role\.ACCOUNTANT \? \(await prisma\.branchUser\.findMany/);
+  assert.match(fees, /allow\(Role\.SUPER_ADMIN, Role\.BRANCH_ADMIN, Role\.ACCOUNTANT\)/);
+  assert.match(fees, /req\.auth\?\.role === Role\.ACCOUNTANT/);
+  assert.match(fees, /req\.method === "POST" && \/\^\\\/fees/);
+});

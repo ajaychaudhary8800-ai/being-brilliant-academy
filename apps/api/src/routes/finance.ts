@@ -8,11 +8,17 @@ import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
-router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
+router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.ACCOUNTANT));
+router.use((req: AuthRequest, _res, next) => {
+  if (req.auth?.role === Role.ACCOUNTANT && req.method !== "GET") {
+    return next(new AppError(403, "ACCOUNTANT_FINANCE_READ_ONLY", "Accountants may only read finance records here"));
+  }
+  next();
+});
 const id = (req: AuthRequest) => req.auth!.userId;
 const date = (value: Date) => new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
 const page = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20), search: z.string().trim().optional(), sortOrder: z.enum(["asc", "desc"]).default("desc") });
-async function scope(req: AuthRequest) { return req.auth!.role === Role.BRANCH_ADMIN ? (await prisma.branchUser.findMany({ where: { userId: id(req) }, select: { branchId: true } })).map(item => item.branchId) : null; }
+async function scope(req: AuthRequest) { return req.auth!.role === Role.BRANCH_ADMIN || req.auth!.role === Role.ACCOUNTANT ? (await prisma.branchUser.findMany({ where: { userId: id(req) }, select: { branchId: true } })).map(item => item.branchId) : null; }
 async function branchWhere(req: AuthRequest, requested?: string) { return requireRequestedBranch(req.auth!.role, (await scope(req)) ?? [], requested); }
 async function access(req: AuthRequest, branchId: string) { assertFinanceBranchAccess(req.auth!.role, (await scope(req)) ?? [], branchId); }
 const auditData = (req: AuthRequest, action: string, entity: string, entityId?: string, metadata?: object) => ({ organizationId: req.auth!.organizationId, actorId: id(req), action, entity, entityId, metadata: metadata ? safeFinanceAuditMetadata(metadata) : undefined });

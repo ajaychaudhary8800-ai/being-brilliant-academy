@@ -523,6 +523,7 @@ datasource db {
 enum Role {
   SUPER_ADMIN
   BRANCH_ADMIN
+  ACCOUNTANT
   TEACHER
   STUDENT
   PARENT

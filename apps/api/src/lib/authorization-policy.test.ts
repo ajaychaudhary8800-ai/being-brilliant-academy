@@ -3,7 +3,7 @@ import test from "node:test";
 import { Role } from "@prisma/client";
 import { announcementRecipientConstraints, circularRecipientConstraints, eventRecipientConstraints } from "./communication-authorization.js";
 import { assertMessageRecipientAuthorized, type MessageParticipant } from "./message-policy.js";
-import { assertCanChangeUserRole, managedUserBranchIds, type ManagedUser } from "./user-administration-policy.js";
+import { assertCanAdministerUserTarget, assertCanChangeUserRole, managedUserBranchIds, type ManagedUser } from "./user-administration-policy.js";
 
 const user = (values: Partial<ManagedUser> = {}): ManagedUser => ({
   id: "target",
@@ -23,6 +23,68 @@ test("branch administrators cannot grant administrator roles or change themselve
   const actor = { id: "admin", role: Role.BRANCH_ADMIN, branchIds: ["branch-a"] } as const;
   assert.throws(() => assertCanChangeUserRole(actor, user(), Role.SUPER_ADMIN, 2), cause => errorCode(cause) === "ROLE_GRANT_FORBIDDEN");
   assert.throws(() => assertCanChangeUserRole({ ...actor, id: "target" }, user(), Role.TEACHER, 2), cause => errorCode(cause) === "SELF_PRIVILEGE_CHANGE_FORBIDDEN");
+});
+
+test("only super administrators may grant or remove the Accountant role", () => {
+  assert.throws(() => assertCanChangeUserRole(
+    { id: "admin", role: Role.BRANCH_ADMIN, branchIds: ["branch-a"] },
+    user(),
+    Role.ACCOUNTANT,
+    2,
+  ), cause => errorCode(cause) === "ROLE_GRANT_FORBIDDEN");
+  assert.doesNotThrow(() => assertCanChangeUserRole(
+    { id: "admin", role: Role.SUPER_ADMIN, branchIds: [] },
+    user(),
+    Role.ACCOUNTANT,
+    2,
+  ));
+  assert.throws(() => assertCanChangeUserRole(
+    { id: "admin", role: Role.BRANCH_ADMIN, branchIds: ["branch-a"] },
+    user({ role: Role.ACCOUNTANT, branchIds: ["branch-a"] }),
+    Role.STUDENT,
+    2,
+  ), cause => errorCode(cause) === "ACCOUNTANT_ROLE_FORBIDDEN");
+});
+
+test("same-branch Accountant identity, credentials and lifecycle remain Super Admin managed", () => {
+  const protectedOperations = [
+    "edit metadata",
+    "change email",
+    "deactivate",
+    "activate",
+    "change role",
+    "assign branches",
+    "revoke branches",
+    "send setup email",
+  ];
+  for (const operation of protectedOperations) {
+    assert.throws(
+      () => assertCanAdministerUserTarget(Role.BRANCH_ADMIN, Role.ACCOUNTANT),
+      cause => errorCode(cause) === "ACCOUNTANT_ROLE_FORBIDDEN",
+      `Branch Admin must not ${operation} for a same-branch Accountant`,
+    );
+  }
+  assert.doesNotThrow(() => assertCanAdministerUserTarget(Role.SUPER_ADMIN, Role.ACCOUNTANT));
+  assert.doesNotThrow(() => assertCanAdministerUserTarget(Role.BRANCH_ADMIN, Role.STUDENT));
+});
+
+test("Accountant role administration rejects same-role and removal requests from Branch Admin", () => {
+  const actor = { id: "admin", role: Role.BRANCH_ADMIN, branchIds: ["branch-a"] } as const;
+  const accountant = user({ role: Role.ACCOUNTANT, branchIds: ["branch-a"] });
+  assert.throws(
+    () => assertCanChangeUserRole(actor, accountant, Role.ACCOUNTANT, 2),
+    cause => errorCode(cause) === "ACCOUNTANT_ROLE_FORBIDDEN",
+  );
+  assert.throws(
+    () => assertCanChangeUserRole(actor, accountant, Role.STUDENT, 2),
+    cause => errorCode(cause) === "ACCOUNTANT_ROLE_FORBIDDEN",
+  );
+  assert.doesNotThrow(() => assertCanChangeUserRole(
+    { id: "super", role: Role.SUPER_ADMIN, branchIds: [] },
+    accountant,
+    Role.ACCOUNTANT,
+    2,
+  ));
 });
 
 test("branch administrators cannot change users outside their assigned branches", () => {
