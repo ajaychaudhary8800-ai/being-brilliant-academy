@@ -46,6 +46,22 @@ export function formatInstitutionDateTime(value: string | Date, settings: Instit
   }).format(instant);
 }
 
+export function formatInstitutionTime(value: string | Date, settings: InstitutionRegionalSettings) {
+  const instant = validInstant(value);
+  if (!instant) return invalidInstitutionDateDisplay;
+  return new Intl.DateTimeFormat(resolvedLocale(settings.locale), {
+    timeZone: resolvedTimeZone(settings.timeZone),
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(instant);
+}
+
+export function institutionWeekday(value: string | Date, timeZone?: string | null) {
+  const instant = validInstant(value);
+  if (!instant) return "";
+  return new Intl.DateTimeFormat("en-US", { timeZone: resolvedTimeZone(timeZone), weekday: "long" }).format(instant).toUpperCase();
+}
+
 export function institutionDateTimeInput(value: string | Date, timeZone?: string | null) {
   const instant = validInstant(value);
   if (!instant) return "";

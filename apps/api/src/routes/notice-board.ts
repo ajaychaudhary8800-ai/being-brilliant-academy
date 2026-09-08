@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { AppError } from "../lib/http.js";
+import { parseInstitutionDateTimeOrInstant } from "../lib/institution-time.js";
 import { assignedBranchIds, communicationScope } from "../lib/communication-authorization.js";
 import { noticeRecipientConstraints } from "../lib/notice-policy.js";
 import { prisma } from "../lib/prisma.js";
@@ -13,12 +14,21 @@ router.use(requireAuth);
 const admins: Role[] = [Role.SUPER_ADMIN, Role.BRANCH_ADMIN];
 const id = z.string().cuid();
 const input = z.object({
-  title: z.string().trim().min(2).max(160), body: z.string().trim().min(1).max(100000), branchId: id.nullable().optional(), batchId: id.nullable().optional(), audience: z.nativeEnum(Role).nullable().optional(), category: z.string().trim().max(80).nullable().optional(), priority: z.enum(["LOW", "NORMAL", "HIGH", "URGENT"]).default("NORMAL"), publishedAt: z.coerce.date().optional(), expiresAt: z.coerce.date().nullable().optional(), isPinned: z.boolean().default(false), requiresAcknowledgement: z.boolean().default(false), isArchived: z.boolean().default(false), attachment: z.object({ name: z.string().trim().min(1).max(180), mimeType: z.enum(["application/pdf", "image/jpeg", "image/png"]), base64: z.string().min(1) }).nullable().optional(),
+  title: z.string().trim().min(2).max(160), body: z.string().trim().min(1).max(100000), branchId: id.nullable().optional(), batchId: id.nullable().optional(), audience: z.nativeEnum(Role).nullable().optional(), category: z.string().trim().max(80).nullable().optional(), priority: z.enum(["LOW", "NORMAL", "HIGH", "URGENT"]).default("NORMAL"), publishedAt: z.string().trim().min(1).optional(), expiresAt: z.string().trim().min(1).nullable().optional(), isPinned: z.boolean().default(false), requiresAcknowledgement: z.boolean().default(false), isArchived: z.boolean().default(false), attachment: z.object({ name: z.string().trim().min(1).max(180), mimeType: z.enum(["application/pdf", "image/jpeg", "image/png"]), base64: z.string().min(1) }).nullable().optional(),
 });
 
 async function assignedBranches(req: AuthRequest) { return assignedBranchIds(req.auth!.userId); }
 async function requireBranch(req: AuthRequest, branchId?: string | null) { if (req.auth!.role === Role.BRANCH_ADMIN && (!branchId || !(await assignedBranches(req)).includes(branchId))) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied"); }
 function attachment(value: z.infer<typeof input>["attachment"]) { if (!value) return {}; const data = decodeVerifiedUpload(value.base64, value.mimeType, 5 * 1024 * 1024); return { attachmentName: value.name, attachmentMime: value.mimeType, attachmentData: data }; }
+async function institutionDates(req: AuthRequest, value: { publishedAt?: string; expiresAt?: string | null }) {
+  if (value.publishedAt === undefined && value.expiresAt === undefined) return {};
+  const organization = await prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { timezone: true } });
+  if (!organization) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
+  return {
+    ...(value.publishedAt === undefined ? {} : { publishedAt: parseInstitutionDateTimeOrInstant(value.publishedAt, organization.timezone) }),
+    ...(value.expiresAt === undefined ? {} : { expiresAt: value.expiresAt === null ? null : parseInstitutionDateTimeOrInstant(value.expiresAt, organization.timezone) }),
+  };
+}
 type NoticeTarget = { branchId?: string | null; batchId?: string | null; publishedAt?: Date; expiresAt?: Date | null };
 async function validateTarget(req: AuthRequest, candidate: NoticeTarget, existing: NoticeTarget = {}) {
   const branchId = candidate.branchId !== undefined ? candidate.branchId : existing.branchId;
@@ -45,8 +55,8 @@ router.get("/notices", async (req: AuthRequest, res) => {
   res.json({ data, meta: { total, page: q.page, limit: q.limit, totalPages: Math.max(1, Math.ceil(total / q.limit)) } });
 });
 
-router.post("/admin/notices", async (req: AuthRequest, res) => { if (!admins.includes(req.auth!.role)) throw new AppError(403, "ADMIN_REQUIRED", "Administrator access is required"); const data = input.parse(req.body); await validateTarget(req, data); const { attachment: file, ...rest } = data, notice = await prisma.announcement.create({ data: { ...rest, kind: "NOTICE", authorId: req.auth!.userId, ...attachment(file) } }); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "CREATE", entity: "Notice", entityId: notice.id } }); res.status(201).json({ data: { ...notice, attachmentData: undefined } }); });
-router.patch("/admin/notices/:noticeId", async (req: AuthRequest, res) => { if (!admins.includes(req.auth!.role)) throw new AppError(403, "ADMIN_REQUIRED", "Administrator access is required"); const old = await prisma.announcement.findFirst({ where: { id: id.parse(req.params.noticeId), kind: "NOTICE" } }); if (!old) throw new AppError(404, "NOTICE_NOT_FOUND", "Notice not found"); await requireBranch(req, old.branchId); const data = input.partial().parse(req.body); await validateTarget(req, data, old); const { attachment: file, ...rest } = data, notice = await prisma.announcement.update({ where: { id: old.id }, data: { ...rest, ...(file === undefined ? {} : attachment(file)) } }); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "UPDATE", entity: "Notice", entityId: notice.id } }); res.json({ data: { ...notice, attachmentData: undefined } }); });
+router.post("/admin/notices", async (req: AuthRequest, res) => { if (!admins.includes(req.auth!.role)) throw new AppError(403, "ADMIN_REQUIRED", "Administrator access is required"); const raw = input.parse(req.body), { publishedAt, expiresAt, ...fields } = raw, data = { ...fields, ...await institutionDates(req, { publishedAt, expiresAt }) }; await validateTarget(req, data); const { attachment: file, ...rest } = data, notice = await prisma.announcement.create({ data: { ...rest, kind: "NOTICE", authorId: req.auth!.userId, ...attachment(file) } }); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "CREATE", entity: "Notice", entityId: notice.id } }); res.status(201).json({ data: { ...notice, attachmentData: undefined } }); });
+router.patch("/admin/notices/:noticeId", async (req: AuthRequest, res) => { if (!admins.includes(req.auth!.role)) throw new AppError(403, "ADMIN_REQUIRED", "Administrator access is required"); const old = await prisma.announcement.findFirst({ where: { id: id.parse(req.params.noticeId), kind: "NOTICE" } }); if (!old) throw new AppError(404, "NOTICE_NOT_FOUND", "Notice not found"); await requireBranch(req, old.branchId); const raw = input.partial().parse(req.body), { publishedAt, expiresAt, ...fields } = raw, data = { ...fields, ...await institutionDates(req, { publishedAt, expiresAt }) }; await validateTarget(req, data, old); const { attachment: file, ...rest } = data, notice = await prisma.announcement.update({ where: { id: old.id }, data: { ...rest, ...(file === undefined ? {} : attachment(file)) } }); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "UPDATE", entity: "Notice", entityId: notice.id } }); res.json({ data: { ...notice, attachmentData: undefined } }); });
 router.post("/notices/:noticeId/acknowledge", async (req: AuthRequest, res) => {
   const eligibility = await recipientConstraints(req);
   const notice = await prisma.announcement.findFirst({ where: { id: id.parse(req.params.noticeId), organizationId: req.auth!.organizationId, kind: "NOTICE", requiresAcknowledgement: true, isArchived: false, deletedAt: null, ...eligibility }, select: { id: true } });

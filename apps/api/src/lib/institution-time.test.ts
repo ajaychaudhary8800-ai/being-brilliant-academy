@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { homeworkCreateDateTimes, homeworkUpdateDateTimes, isIanaTimeZone, parseDateOnly, parseInstitutionDateTime } from "./institution-time.js";
+import { homeworkCreateDateTimes, homeworkUpdateDateTimes, isIanaTimeZone, parseDateOnly, parseInstitutionDateTime, parseInstitutionDateTimeOrInstant } from "./institution-time.js";
 
 test("institution-local Homework time is converted exactly once to UTC", () => {
   const dueDate = parseInstitutionDateTime("2026-09-08T10:00", "Asia/Calcutta");
@@ -58,6 +58,13 @@ test("correct and legacy edit round-trips remain stable for five cycles", () => 
 test("DST-capable IANA zones convert unambiguous wall-clock times correctly", () => {
   assert.equal(parseInstitutionDateTime("2026-07-15T10:00", "America/New_York").toISOString(), "2026-07-15T14:00:00.000Z");
   assert.equal(parseInstitutionDateTime("2026-01-15T10:00", "America/New_York").toISOString(), "2026-01-15T15:00:00.000Z");
+});
+
+test("shared scheduling input accepts institution wall time and explicit instants without double conversion", () => {
+  assert.equal(parseInstitutionDateTimeOrInstant("2026-09-08T10:00", "Asia/Calcutta").toISOString(), "2026-09-08T04:30:00.000Z");
+  assert.equal(parseInstitutionDateTimeOrInstant("2026-09-08T04:30:00.000Z", "America/New_York").toISOString(), "2026-09-08T04:30:00.000Z");
+  assert.equal(parseInstitutionDateTimeOrInstant("2026-09-08T10:00:00+05:30", "UTC").toISOString(), "2026-09-08T04:30:00.000Z");
+  assert.throws(() => parseInstitutionDateTimeOrInstant("2026-09-08T10:00:00", "Asia/Calcutta"), (error: any) => error.code === "INVALID_INSTITUTION_DATETIME");
 });
 
 const zone = "Asia/Calcutta";

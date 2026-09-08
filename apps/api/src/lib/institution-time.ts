@@ -9,6 +9,7 @@ type LocalDateTimeParts = {
 };
 
 const localDateTimePattern = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
+const instantPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 const dateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 export function isIanaTimeZone(timeZone: string) {
@@ -82,6 +83,14 @@ export function parseInstitutionDateTime(value: string, timeZone: string) {
     throw new AppError(422, "INVALID_INSTITUTION_DATETIME", detail);
   }
   return matches[0];
+}
+
+export function parseInstitutionDateTimeOrInstant(value: string, timeZone: string) {
+  if (localDateTimePattern.test(value)) return parseInstitutionDateTime(value, timeZone);
+  if (!instantPattern.test(value)) throw new AppError(422, "INVALID_INSTITUTION_DATETIME", "Use an institution-local date and time or an ISO timestamp with an explicit offset");
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) throw new AppError(422, "INVALID_INSTITUTION_DATETIME", "Use a valid date and time");
+  return instant;
 }
 
 export function parseDateOnly(value: string) {

@@ -4,7 +4,9 @@ import {
   defaultInstitutionTimeZone,
   formatInstitutionDate,
   formatInstitutionDateTime,
+  formatInstitutionTime,
   institutionDateTimeInput,
+  institutionWeekday,
   invalidInstitutionDateDisplay,
 } from "./institution-time";
 
@@ -62,6 +64,19 @@ test("submission instants use institution time and remain browser independent", 
   assert.match(expected, /10:00/);
   assert.equal(formatInstitutionDateTime("not-a-date", settings), invalidInstitutionDateDisplay);
   assert.equal(formatInstitutionDateTime(instant, { timeZone: "Invalid/Timezone", locale: "Invalid/Locale" }), formatInstitutionDateTime(instant, { timeZone: defaultInstitutionTimeZone, locale: "en-IN" }));
+});
+
+test("attendance clock times render in institution time across UTC boundaries", () => {
+  assert.match(formatInstitutionTime("2026-09-07T22:45:00.000Z", settings), /4:15/);
+  assert.match(formatInstitutionTime("2026-09-08T18:45:00.000Z", settings), /12:15/);
+  assert.equal(formatInstitutionTime("not-a-date", settings), invalidInstitutionDateDisplay);
+});
+
+test("timetable current day follows the institution across the UTC date boundary", () => {
+  const instant = "2026-09-06T20:00:00.000Z";
+  assert.equal(institutionWeekday(instant, "UTC"), "SUNDAY");
+  assert.equal(institutionWeekday(instant, "Asia/Calcutta"), "MONDAY");
+  assert.equal(institutionWeekday("invalid", "Asia/Calcutta"), "");
 });
 
 test("UTC runtime preserves the assigned calendar day", () => {

@@ -311,7 +311,7 @@ router.get("/communication/circulars", async (req: AuthRequest, res) => {
   const access = await circularAccess(req);
   const where: Prisma.CircularWhereInput = { deletedAt: null, isArchived: admins.includes(req.auth!.role) ? query.archived === "true" : false, ...access, ...(query.search ? { OR: [{ number: { contains: query.search, mode: "insensitive" } }, { title: { contains: query.search, mode: "insensitive" } }] } : {}) };
   const [data, total] = await Promise.all([
-    prisma.circular.findMany({ where, include: { versions: { orderBy: { version: "desc" }, take: 1 }, _count: { select: { acknowledgements: true, downloads: true } } }, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { createdAt: "desc" } }),
+    prisma.circular.findMany({ where, include: { branch: { select: { branchName: true, branchCode: true } }, versions: { orderBy: { version: "desc" }, take: 1 }, _count: { select: { acknowledgements: true, downloads: true } } }, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { createdAt: "desc" } }),
     prisma.circular.count({ where }),
   ]);
   res.json({ data, meta: { total, page: query.page, totalPages: Math.ceil(total / query.limit) } });
@@ -363,7 +363,7 @@ router.get("/communication/events", async (req: AuthRequest, res) => {
   const access = await eventAccess(req);
   const where: Prisma.CalendarEventWhereInput = { deletedAt: null, isArchived: admins.includes(req.auth!.role) ? query.archived === "true" : false, ...access, ...(query.type ? { type: query.type } : {}), ...(query.from || query.to ? { startsAt: { ...(query.from ? { gte: query.from } : {}), ...(query.to ? { lte: query.to } : {}) } } : {}), ...(query.search ? { title: { contains: query.search, mode: "insensitive" } } : {}) };
   const [data, total] = await Promise.all([
-    prisma.calendarEvent.findMany({ where, include: { _count: { select: { rsvps: true } } }, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { startsAt: "asc" } }),
+    prisma.calendarEvent.findMany({ where, include: { branch: { select: { branchName: true, branchCode: true } }, batch: { select: { name: true, code: true } }, _count: { select: { rsvps: true } } }, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { startsAt: "asc" } }),
     prisma.calendarEvent.count({ where }),
   ]);
   res.json({ data, meta: { total, page: query.page, totalPages: Math.ceil(total / query.limit) } });

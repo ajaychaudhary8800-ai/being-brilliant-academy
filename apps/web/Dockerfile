@@ -17,6 +17,7 @@ RUN apk add --no-cache tini curl && addgroup -S nextjs && adduser -S -G nextjs n
 WORKDIR /app
 COPY --from=build --chown=nextjs:nextjs /workspace/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nextjs /workspace/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build --chown=nextjs:nextjs /workspace/apps/web/public ./apps/web/public
 USER nextjs
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD curl -fsS http://127.0.0.1:3000/api/health || exit 1
