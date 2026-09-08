@@ -1,3 +1,10 @@
+export const organizationCreationCopy = {
+  heading: "Add New Organization",
+  submit: "Create Organization",
+} as const;
+
+export const defaultOrganizationTimezone = "Asia/Kolkata";
+
 export function organizationSlug(name: string) {
   return name.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }

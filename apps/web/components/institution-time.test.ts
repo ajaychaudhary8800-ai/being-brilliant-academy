@@ -12,6 +12,14 @@ import {
 
 const settings = { timeZone: "Asia/Calcutta", locale: "en-IN" };
 
+test("existing Asia/Calcutta settings remain compatible with Asia/Kolkata", () => {
+  const instant = "2026-09-08T04:30:00.000Z";
+  assert.equal(
+    formatInstitutionDateTime(instant, { timeZone: "Asia/Calcutta", locale: "en-IN" }),
+    formatInstitutionDateTime(instant, { timeZone: "Asia/Kolkata", locale: "en-IN" }),
+  );
+});
+
 test("the stored UTC Homework deadline renders at the intended institution-local time", () => {
   const rendered = formatInstitutionDateTime("2026-09-08T04:30:00.000Z", settings);
   assert.match(rendered, /10:00/);

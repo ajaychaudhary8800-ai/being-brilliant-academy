@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { organizationNameUpdate, organizationSlug } from "./organization-form";
+import { defaultOrganizationTimezone, organizationCreationCopy, organizationNameUpdate, organizationSlug } from "./organization-form";
+
+test("organization creation uses neutral wording and the current Indian timezone", () => {
+  assert.equal(organizationCreationCopy.heading, "Add New Organization");
+  assert.equal(organizationCreationCopy.submit, "Create Organization");
+  assert.equal(defaultOrganizationTimezone, "Asia/Kolkata");
+});
 
 test("organization slugs are lowercase and URL safe", () => {
+  assert.equal(organizationSlug("QA Test Academy"), "qa-test-academy");
   assert.equal(organizationSlug("  Brilliant School & Academy!  "), "brilliant-school-academy");
 });
 

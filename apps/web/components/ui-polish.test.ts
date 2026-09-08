@@ -37,3 +37,18 @@ test("explicit enum presentation is used by examination UI", () => {
   assert.match(page, /displayLabel/);
   assert.match(page, /apiType/);
 });
+
+test("organization creation preserves subscriptions, platform authorization, and tenant-scoped logo settings", () => {
+  const organizationsPage = read("apps/web/app/admin/organizations/page.tsx");
+  const organizationsRoute = read("apps/api/src/routes/organizations.ts");
+  const settingsPage = read("apps/web/app/admin/organization-settings/page.tsx");
+  const uploadsRoute = read("apps/api/src/routes/image-uploads.ts");
+
+  assert.match(organizationsPage, /Subscription status/);
+  assert.match(organizationsPage, /Subscription plan/);
+  assert.doesNotMatch(organizationsPage, /logoUrl|ImageUploadField/);
+  assert.match(organizationsRoute, /r\.post\("\/platform\/organizations",async\(q:AuthRequest,s\)=>\{platform\(q\)/);
+  assert.match(settingsPage, /ImageUploadField label="Institution Logo"/);
+  assert.match(settingsPage, /\/admin\/image-uploads/);
+  assert.match(uploadsRoute, /createStoredImageLocation\(input\.kind, req\.auth!\.organizationId, input\.mimeType\)/);
+});
