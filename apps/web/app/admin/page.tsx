@@ -16,6 +16,7 @@ import {
   getAccessToken,
 } from "../../components/auth-provider";
 import Sidebar from "../../components/sidebar";
+import { useGroupTerminology } from "../../components/use-group-terminology";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -23,6 +24,7 @@ const API_URL =
 
 function AdminContent() {
   const { logout } = useAuth();
+  const terms = useGroupTerminology();
 
   const [overview, setOverview] = useState<{
     students: number;
@@ -86,7 +88,7 @@ function AdminContent() {
     },
     {
       icon: BarChart3,
-      label: "Courses",
+      label: terms.courses,
       value: loadingData
         ? "Loading..."
         : String(overview?.courses ?? 0),
@@ -116,15 +118,17 @@ function AdminContent() {
 
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-bold">
-            Academy Overview
+            {terms.overviewTitle}
           </h1>
 
           <button
+            type="button"
+            aria-label="Log out"
             onClick={() => void logout()}
             className="flex items-center gap-2 rounded border px-4 py-2"
           >
             <LogOut size={18} />
-            Logout
+            Log out
           </button>
         </div>
 

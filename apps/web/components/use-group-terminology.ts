@@ -2,16 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { getAccessToken } from "./auth-provider";
+import { institutionPresentation, type InstitutionPresentation } from "./institution-presentation";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
-export type GroupTerminology = { singular: string; plural: string; course: string; select: string; add: string };
-const fallback: GroupTerminology = { singular: "Batch", plural: "Batches", course: "Course", select: "Select Batch", add: "Add Batch" };
-const cache = new Map<string, GroupTerminology>();
-const pending = new Map<string, Promise<GroupTerminology>>();
+export type GroupTerminology = InstitutionPresentation;
+const fallback = institutionPresentation();
+const cache = new Map<string, InstitutionPresentation>();
+const pending = new Map<string, Promise<InstitutionPresentation>>();
 
 export function groupTerminology(type?: string, custom?: string | null): GroupTerminology {
-  const singular = type === "SECTION" ? "Section" : type === "GROUP" ? "Group" : type === "CUSTOM" && custom?.trim() ? custom.trim() : "Batch";
-  return { singular, plural: singular.endsWith("s") ? singular : `${singular}s`, course: type === "SECTION" ? "Class" : "Course", select: `Select ${singular}`, add: `Add ${singular}` };
+  return institutionPresentation(type, custom);
 }
 
 export function useGroupTerminology() {

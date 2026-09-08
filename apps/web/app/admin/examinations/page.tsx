@@ -4,12 +4,14 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Archive, ChevronLeft, ChevronRight, Download, Edit3, Eye, FileCheck2, FileDown, Loader2, Plus, Search, Trash2, X } from "lucide-react";
 import { AuthGate, getAccessToken } from "../../../components/auth-provider";
 import Sidebar from "../../../components/sidebar";
+import { displayLabel } from "../../../components/display-label";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1", h = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${getAccessToken() ?? ""}` }), types = ["UNIT_TEST", "MID_TERM", "FINAL", "PRACTICAL", "MOCK", "OTHER"], statuses = ["DRAFT", "SCHEDULED", "COMPLETED", "RESULTS_PUBLISHED", "ARCHIVED"];
 type Exam = {
     id: string;
     name: string;
     code: string;
     type: string;
+    apiType?: string;
     academicSession: string;
     examDate: string;
     startTime: string;
@@ -17,6 +19,7 @@ type Exam = {
     maximumMarks: number;
     passingMarks: number;
     status: string;
+    apiStatus?: string;
     remarks: string | null;
     branch: any;
     course: any;
@@ -37,7 +40,7 @@ function Content() {
         const [r, o, d] = await Promise.all([fetch(`${API}/admin/examinations?${p}`, { headers: h() }), fetch(`${API}/admin/examinations/options`, { headers: h() }), fetch(`${API}/admin/examinations/dashboard`, { headers: h() })]), [j, oj, dj] = await Promise.all([r.json(), o.json(), d.json()]);
         if (!r.ok || !o.ok || !d.ok)
             throw Error(j.error?.message ?? oj.error?.message ?? dj.error?.message ?? "Unable to load examination options");
-        setItems(j.data);
+        setItems(j.data.map((item: Exam) => ({ ...item, apiType: item.type, apiStatus: item.status, type: displayLabel(item.type), status: displayLabel(item.status) })));
         setMeta(j.meta);
         setOpts(oj.data);
         setStats(dj.data);
@@ -69,7 +72,7 @@ function Content() {
     function open(m: any, x?: Exam) { setMode(m); setSelected(x ?? null); if (!x)
         setForm(blank);
     else {
-        setForm({ name: x.name, code: x.code, type: x.type, branchId: x.branch.id, courseId: x.course.id, batchId: x.batch.id, subjectId: x.subject.id, teacherId: x.teacher.id, academicSession: x.academicSession, examDate: x.examDate.slice(0, 10), startTime: x.startTime, endTime: x.endTime, maximumMarks: x.maximumMarks, passingMarks: x.passingMarks, status: x.status, remarks: x.remarks ?? "" });
+        setForm({ name: x.name, code: x.code, type: x.apiType ?? x.type, branchId: x.branch.id, courseId: x.course.id, batchId: x.batch.id, subjectId: x.subject.id, teacherId: x.teacher.id, academicSession: x.academicSession, examDate: x.examDate.slice(0, 10), startTime: x.startTime, endTime: x.endTime, maximumMarks: x.maximumMarks, passingMarks: x.passingMarks, status: x.apiStatus ?? x.status, remarks: x.remarks ?? "" });
         setMarks(Object.fromEntries(x.results.map(r => [r.student.id, r.marksObtained == null ? "" : String(r.marksObtained)])));
     } }
     async function submit(e: FormEvent) { e.preventDefault(); const r = await fetch(mode === "add" ? `${API}/admin/examinations` : `${API}/admin/examinations/${selected!.id}`, { method: mode === "add" ? "POST" : "PATCH", headers: h(), body: JSON.stringify({ ...form, remarks: form.remarks || null }) }), j = await r.json(); if (!r.ok)

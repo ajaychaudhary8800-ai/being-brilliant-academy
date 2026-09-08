@@ -27,7 +27,7 @@ const day = (value: Date) => new Date(Date.UTC(value.getUTCFullYear(), value.get
 const leaveSelect = {
   id: true, fromDate: true, toDate: true, reason: true, leaveType: true, halfDaySession: true, status: true, remarks: true,
   attachmentName: true, attachmentMime: true, approvedAt: true, submittedById: true, createdAt: true, updatedAt: true,
-  user: { select: { id: true, name: true, role: true, studentProfile: { select: { id: true, admissionNo: true, className: true, batch: { select: { name: true, code: true } }, parents: { select: { parentId: true, relationship: true } } } } } },
+  user: { select: { id: true, name: true, role: true, studentProfile: { select: { id: true, admissionNo: true, className: true, batch: { select: { name: true, code: true, course: { select: { title: true } } } }, parents: { select: { parentId: true, relationship: true } } } } } },
   submittedBy: { select: { id: true, name: true, role: true } }, branch: { select: { id: true, branchName: true } }, approvedBy: { select: { id: true, name: true } },
 } as const;
 type SelectedLeave = Prisma.LeaveRequestGetPayload<{ select: typeof leaveSelect }>;
@@ -51,7 +51,7 @@ async function regionalSettings(organizationId: string) {
 async function parentLeaveChildren(organizationId: string, parentId: string) {
   const links = await prisma.parentStudent.findMany({
     where: { organizationId, parentId, parent: { organizationId, role: Role.PARENT, isActive: true }, student: { organizationId, status: StudentStatus.ACTIVE, user: { organizationId, isActive: true }, branch: { organizationId } } },
-    select: { relationship: true, student: { select: { id: true, admissionNo: true, className: true, user: { select: { name: true } }, batch: { select: { name: true, code: true } } } } },
+    select: { relationship: true, student: { select: { id: true, admissionNo: true, className: true, user: { select: { name: true } }, batch: { select: { name: true, code: true, course: { select: { title: true } } } } } } },
     orderBy: { student: { user: { name: "asc" } } },
   });
   return links.map(link => ({ studentId: link.student.id, name: link.student.user.name, admissionNo: link.student.admissionNo, className: link.student.className, batch: link.student.batch, relationship: link.relationship }));

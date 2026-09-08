@@ -4,18 +4,20 @@ import { useCallback, useEffect, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Download, Eye, Loader2, Search, X } from "lucide-react";
 import { AuthGate, getAccessToken } from "../../../components/auth-provider";
 import { formatInstitutionDate, formatInstitutionDateTime, type InstitutionRegionalSettings } from "../../../components/institution-time";
+import { displayLabel } from "../../../components/display-label";
+import { parentLeaveAcademicLabel } from "../../../components/parent-leave";
 import Sidebar from "../../../components/sidebar";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 const headers = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${getAccessToken() ?? ""}` });
-type Leave = { id: string; fromDate: string; toDate: string; leaveType: string; halfDaySession: string | null; reason: string; status: string; remarks: string | null; attachmentName: string | null; approvedAt: string | null; createdAt: string; legacyChildUnspecified: boolean; relationship: string | null; user: { name: string; role: string; studentProfile: { admissionNo: string; className: string; batch: { name: string; code: string } } | null }; submittedBy: { name: string; role: string } | null; branch: { id: string; branchName: string }; approvedBy: { name: string } | null };
+type Leave = { id: string; fromDate: string; toDate: string; leaveType: string; halfDaySession: string | null; reason: string; status: string; remarks: string | null; attachmentName: string | null; approvedAt: string | null; createdAt: string; legacyChildUnspecified: boolean; relationship: string | null; user: { name: string; role: string; studentProfile: { admissionNo: string; className: string; batch: { name: string; code: string; course?: { title: string } | null } } | null }; submittedBy: { name: string; role: string } | null; branch: { id: string; branchName: string }; approvedBy: { name: string } | null };
 type Branch = { id: string; branchName: string };
 async function json(response: Response) { const body = await response.json().catch(() => null); if (!response.ok) throw Error(body?.error?.message ?? "Request failed"); return body; }
-const label = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, character => character.toUpperCase());
+const label = displayLabel;
 
 function ApplicantIdentity({ item }: { item: Leave }) {
   if (item.legacyChildUnspecified) return <><b>{item.user.name}</b><br/><span className="text-amber-700">Child not recorded (legacy request)</span></>;
-  if (item.submittedBy?.role === "PARENT") return <><b>{item.user.name}</b>{item.user.studentProfile && <><br/><span>{item.user.studentProfile.admissionNo} · {item.user.studentProfile.className} · {item.user.studentProfile.batch.name}</span></>}<br/><small>Guardian: {item.submittedBy.name}{item.relationship ? ` · ${item.relationship}` : ""}</small></>;
+  if (item.submittedBy?.role === "PARENT") return <div><b>{item.user.name}</b>{item.user.studentProfile && <><br/><small>Admission No: {item.user.studentProfile.admissionNo}</small><br/><small>Batch/Class: {parentLeaveAcademicLabel(item.user.studentProfile)}</small></>}<br/><small>Guardian: {item.submittedBy.name}{item.relationship ? ` · ${item.relationship}` : ""}</small></div>;
   return <><b>{item.user.name}</b><br/>{label(item.user.role)}</>;
 }
 
