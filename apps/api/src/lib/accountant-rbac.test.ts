@@ -34,3 +34,32 @@ test("Accountant frontend navigation is limited to finance and fee workspaces", 
   assert.match(provisioning, /AuthGate roles=\{\["SUPER_ADMIN"\]\}/);
   assert.match(provisioning, /\/admin\/users\/accountants/);
 });
+
+test("Accountant fee requests reach the role-aware routers before broad admin guards", async () => {
+  const server = await readFile(new URL("../server.ts", import.meta.url), "utf8");
+  const scopedFeeMount = 'app.use("/api/v1/admin", onlyPaths(["/fees"], adminFees))';
+  const defaulterMount = 'app.use("/api/v1", onlyPaths(["/admin/fee-defaulters"], feeDefaulters))';
+  const firstBroadAdminMount = 'app.use("/api/v1/admin", adminAcademicSessions)';
+  assert.ok(server.indexOf(scopedFeeMount) > -1);
+  assert.ok(server.indexOf(defaulterMount) > -1);
+  assert.ok(server.indexOf(firstBroadAdminMount) > server.indexOf(scopedFeeMount));
+  assert.ok(server.indexOf(firstBroadAdminMount) > server.indexOf(defaulterMount));
+  assert.equal(server.indexOf(scopedFeeMount), server.lastIndexOf(scopedFeeMount));
+  assert.equal(server.indexOf(defaulterMount), server.lastIndexOf(defaulterMount));
+});
+
+test("Accountant fee pages avoid admin-only initialization and suppress prohibited controls", async () => {
+  const fees = await readFile(new URL("../../../web/app/admin/fees/page.tsx", import.meta.url), "utf8");
+  const finance = await readFile(new URL("../../../web/app/admin/finance/page.tsx", import.meta.url), "utf8");
+  const auth = await readFile(new URL("../../../web/components/auth-provider.tsx", import.meta.url), "utf8");
+
+  assert.match(fees, /AuthGate roles=\{\["SUPER_ADMIN","BRANCH_ADMIN","ACCOUNTANT"\]\}/);
+  assert.match(fees, /if\(!canManageFees\)return;[^]*\/admin\/students[^]*\/admin\/batches/);
+  assert.match(fees, /canManageFees&&<button onClick=\{\(\)=>void open\("form"\)\}[^]*Add Fee/);
+  assert.match(fees, /canManageFees&&<button onClick=\{\(\)=>void open\("form",f\)\}[^]*Edit<\/button>/);
+  assert.match(fees, /canManageFees&&<button onClick=\{\(\)=>void remove\(f\)\}[^]*Trash2/);
+  assert.match(fees, /\/fees\/\$\{selected!\.id\}\/collect/);
+  assert.match(finance, /canImportAccounts && tab === "accounts" && <label/);
+  assert.match(finance, /user\?\.role === "SUPER_ADMIN" \|\| user\?\.role === "BRANCH_ADMIN"/);
+  assert.doesNotMatch(auth, /accountantFeeAccess/);
+});

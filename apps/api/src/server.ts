@@ -115,6 +115,10 @@ app.get("/metrics", async (req, res) => {
 app.use("/api/v1/auth", auth);
 app.use("/api/v1", teacherPhotos);
 app.use("/api/v1", imageUploads);
+// These role-aware fee routers must run before broad admin routers whose
+// router-level guards intentionally reject non-admin roles.
+app.use("/api/v1/admin", onlyPaths(["/fees"], adminFees));
+app.use("/api/v1", onlyPaths(["/admin/fee-defaulters"], feeDefaulters));
 app.use("/api/v1/admin", adminAcademicSessions);
 app.use("/api/v1/admin", adminSubjects);
 app.use("/api/v1/admin", adminTeacherAllocations);
@@ -131,7 +135,6 @@ app.use("/api/v1/teacher", teacherHomeworks);
 app.use("/api/v1", onlyPaths(["/platform/organizations"], organizationProvisioning));
 app.use("/api/v1", onlyPaths(["/portal/leaves", "/admin/leaves"], leaveManagement));
 app.use("/api/v1/attendance", attendanceLeaveEnforcement);
-app.use("/api/v1", onlyPaths(["/admin/fee-defaulters"], feeDefaulters));
 app.use("/api/v1", onlyPaths(["/notices", "/admin/notices"], noticeBoard));
 app.use("/api/v1", onlyPaths(["/birthdays", "/admin/teachers"], birthdays));
 // Mount role-aware learning routes before broad admin routers that intentionally
@@ -139,7 +142,7 @@ app.use("/api/v1", onlyPaths(["/birthdays", "/admin/teachers"], birthdays));
 app.use("/api/v1", onlyPaths(["/premium"], premiumExperience));
 app.use("/api/v1", onlyPaths(["/learning"], learningEcosystem));
 
-app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations)); app.use("/api/v1", onlyPaths(["/analytics"], analytics)); app.use("/api/v1", onlyPaths(["/inventory"], inventory)); app.use("/api/v1", onlyPaths(["/communication"], communication)); app.use("/api/v1", onlyPaths(["/hostel"], hostel)); app.use("/api/v1", onlyPaths(["/library"], library)); app.use("/api/v1", onlyPaths(["/transport"], transport)); app.use("/api/v1", onlyPaths(["/finance"], finance)); app.use("/api/v1", onlyPaths(["/hr", "/employee"], hrPayroll)); app.use("/api/v1/portal", portals); app.use("/api/v1/courses", courses); app.use("/api/v1/learning", learning); app.use("/api/v1/learning", lmsLearning); app.use("/api/v1/admin", adminCertificates); app.use("/api/v1/admin", adminStudents); app.use("/api/v1/admin", adminTimetables); app.use("/api/v1/admin", homeworks); app.use("/api/v1/admin", adminExaminations); app.use("/api/v1/admin", adminLms); app.use("/api/v1/admin", adminUsers); app.use("/api/v1/admin", admin); app.use("/api/v1/admin", adminCourses); app.use("/api/v1/admin", adminBatches); app.use("/api/v1/admin", adminFees); app.use("/api/v1/admin", adminTests); app.use("/api/v1/admin", adminEnquiries); app.use("/api/v1/attendance", attendanceReports); app.use("/api/v1/attendance", attendance); app.use("/api/v1/payments", payments); app.use("/api/v1/exams", exams);
+app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations)); app.use("/api/v1", onlyPaths(["/analytics"], analytics)); app.use("/api/v1", onlyPaths(["/inventory"], inventory)); app.use("/api/v1", onlyPaths(["/communication"], communication)); app.use("/api/v1", onlyPaths(["/hostel"], hostel)); app.use("/api/v1", onlyPaths(["/library"], library)); app.use("/api/v1", onlyPaths(["/transport"], transport)); app.use("/api/v1", onlyPaths(["/finance"], finance)); app.use("/api/v1", onlyPaths(["/hr", "/employee"], hrPayroll)); app.use("/api/v1/portal", portals); app.use("/api/v1/courses", courses); app.use("/api/v1/learning", learning); app.use("/api/v1/learning", lmsLearning); app.use("/api/v1/admin", adminCertificates); app.use("/api/v1/admin", adminStudents); app.use("/api/v1/admin", adminTimetables); app.use("/api/v1/admin", homeworks); app.use("/api/v1/admin", adminExaminations); app.use("/api/v1/admin", adminLms); app.use("/api/v1/admin", adminUsers); app.use("/api/v1/admin", admin); app.use("/api/v1/admin", adminCourses); app.use("/api/v1/admin", adminBatches); app.use("/api/v1/admin", adminTests); app.use("/api/v1/admin", adminEnquiries); app.use("/api/v1/attendance", attendanceReports); app.use("/api/v1/attendance", attendance); app.use("/api/v1/payments", payments); app.use("/api/v1/exams", exams);
 app.use(notFound, errorHandler);
 
 export const server = app.listen(env.PORT, () => logger.info({ port: env.PORT }, "API listening"));
