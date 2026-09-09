@@ -33,6 +33,31 @@ const shape = (value: any) => ({ ...value, branch: value.branch ? { ...value.bra
 const unique = (values: string[]) => [...new Set(values)];
 const allocationPairs = (allocations: TeacherLmsAllocation[]) => allocations.map(item => ({ branchId: item.branchId, courseId: item.courseId, batchId: item.batchId, subjectId: item.subjectId }));
 
+function matchesUniqueTarget(target: unknown, expectedFields: string[]): boolean {
+  const expected = expectedFields.map(field => field.toLowerCase());
+  if (Array.isArray(target)) {
+    const fields = target.filter((field): field is string => typeof field === "string").map(field => field.toLowerCase());
+    if (fields.length === expected.length && expected.every(field => fields.includes(field))) return true;
+    return fields.length === 1 && matchesUniqueTarget(fields[0], expectedFields);
+  }
+  if (typeof target !== "string") return false;
+  const tokens = (target.match(/[A-Za-z][A-Za-z0-9]*/g) ?? []).map(token => token.toLowerCase());
+  const fields = tokens.filter(token => token !== "lesson" && token !== "key");
+  return fields.length === expected.length && expected.every(field => fields.includes(field));
+}
+
+function throwLessonWriteConflict(error: unknown): never {
+  const candidate = error as { code?: unknown; meta?: { target?: unknown } };
+  if (candidate?.code !== "P2002") throw error;
+  if (matchesUniqueTarget(candidate.meta?.target, ["moduleId", "position"])) {
+    throw new AppError(409, "LESSON_POSITION_CONFLICT", "Lesson order already exists in this Module");
+  }
+  if (matchesUniqueTarget(candidate.meta?.target, ["batchId", "subjectId", "chapter", "title"])) {
+    throw new AppError(409, "LESSON_TITLE_CONFLICT", "Lesson title already exists for this Batch, Subject and Chapter");
+  }
+  throw error;
+}
+
 function bytes(value: z.infer<typeof file>, max: number, types: string[]) {
   const data = Buffer.from(value.base64, "base64");
   if (!data.length || data.length > max) throw new AppError(422, "INVALID_FILE_SIZE", `File exceeds ${Math.round(max / 1048576)} MB`);
@@ -133,7 +158,7 @@ admin.post("/lms/lessons", async (req: AuthRequest, res) => {
   try {
     const lesson = await prisma.lesson.create({ data: { ...rest, type: video || data.videoUrl ? "VIDEO" : "NOTES", content: data.notes, ...(videoData ? { videoName: video!.name, videoMime: video!.mimeType, videoSize: videoData.length, videoData } : {}), attachments: { create: attachments.map(attachment => { const data = bytes(attachment, 5 * 1048576, ["application/pdf", "image/jpeg", "image/png", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]); return { name: attachment.name, mimeType: attachment.mimeType, size: data.length, data }; }) } }, select });
     res.status(201).json({ data: shape(lesson) });
-  } catch (error: any) { if (error.code === "P2002") throw new AppError(409, "DUPLICATE_LESSON_OR_ORDER", "Lesson title or order already exists in this Chapter/Module"); throw error; }
+  } catch (error) { throwLessonWriteConflict(error); }
 });
 
 admin.patch("/lms/lessons/:id", async (req: AuthRequest, res) => {
@@ -145,7 +170,7 @@ admin.patch("/lms/lessons/:id", async (req: AuthRequest, res) => {
   try {
     const lesson = await prisma.lesson.update({ where: { id: old.id }, data: { ...rest, ...(videoData ? { videoName: video!.name, videoMime: video!.mimeType, videoSize: videoData.length, videoData } : {}), ...(attachments ? { attachments: { create: attachments.map(attachment => { const data = bytes(attachment, 5 * 1048576, ["application/pdf", "image/jpeg", "image/png", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]); return { name: attachment.name, mimeType: attachment.mimeType, size: data.length, data }; }) } } : {}) }, select });
     res.json({ data: shape(lesson) });
-  } catch (error: any) { if (error.code === "P2002") throw new AppError(409, "DUPLICATE_LESSON_OR_ORDER", "Lesson title or order already exists"); throw error; }
+  } catch (error) { throwLessonWriteConflict(error); }
 });
 
 admin.patch("/lms/lessons/:id/status", async (req: AuthRequest, res) => {

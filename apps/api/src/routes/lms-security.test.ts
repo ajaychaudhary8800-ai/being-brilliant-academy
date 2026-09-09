@@ -19,7 +19,7 @@ const ORGANIZATION = id("01"), BRANCH_A = id("02"), BRANCH_B = id("03"), COURSE_
 
 test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and metadata protection", async t => {
   let branchAssignments = [BRANCH_A], allocationAvailable = true, studentBatch = BATCH_A, studentActive = true, targetStatus: LmsContentStatus = LmsContentStatus.PUBLISHED, targetCourse = COURSE_A, targetBatch = BATCH_A, targetSubject = SUBJECT_A, targetBranch = BRANCH_A, targetTeacher = TEACHER_A;
-  let capturedLessonWhere: any = null, createdLesson = false, progressWrites = 0;
+  let capturedLessonWhere: any = null, capturedLessonCreate: any = null, createdLesson = false, successfulLessonUpdates = 0, lessonCreateError: unknown = null, lessonUpdateError: unknown = null, progressWrites = 0;
   const optionWheres: Record<string, any> = {};
   const allocation = { branchId: BRANCH_A, courseId: COURSE_A, batchId: BATCH_A, subjectId: SUBJECT_A };
   const fullLesson = () => ({ id: LESSON, title: "Authorized Lesson", description: "A secure Lesson", notes: "Teacher notes", position: 1, type: "VIDEO", videoUrl: null, videoName: "lesson.mp4", videoMime: "video/mp4", videoSize: 4, durationSeconds: 600, preview: false, chapter: "Motion", status: targetStatus, module: { id: MODULE_A, title: "Mechanics", position: 1 }, branch: { id: targetBranch, branchName: "Branch A" }, course: { id: COURSE_A, title: "Physics" }, batch: { id: targetBatch, name: "Batch A", code: "BA" }, subject: { id: SUBJECT_A, name: "Physics", code: "PHY" }, teacher: { id: targetTeacher, user: { name: "Teacher A" } }, homework: null, test: null, attachments: [{ id: ATTACHMENT, name: "notes.pdf", mimeType: "application/pdf", size: 4 }], progress: [] });
@@ -52,8 +52,8 @@ test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and 
   patch((prisma as any).lesson, "count", async ({ where }: any) => { capturedLessonWhere = where; return 0; });
   patch((prisma as any).lesson, "findMany", async ({ where }: any) => { capturedLessonWhere = where; return where.status === LmsContentStatus.PUBLISHED && where.batchId === studentBatch && targetStatus === LmsContentStatus.PUBLISHED && targetBatch === studentBatch ? [fullLesson()] : []; });
   patch((prisma as any).lesson, "findUnique", async ({ select }: any) => select?.videoData ? target() : select?.branchId && !select?.title ? target() : { ...fullLesson(), branchId: targetBranch, courseId: targetCourse, batchId: targetBatch, subjectId: targetSubject, teacherId: targetTeacher });
-  patch((prisma as any).lesson, "create", async () => { createdLesson = true; return fullLesson(); });
-  patch((prisma as any).lesson, "update", async () => fullLesson());
+  patch((prisma as any).lesson, "create", async ({ data }: any) => { capturedLessonCreate = data; if (lessonCreateError) throw lessonCreateError; createdLesson = true; return { ...fullLesson(), ...data }; });
+  patch((prisma as any).lesson, "update", async ({ data }: any) => { if (lessonUpdateError) throw lessonUpdateError; successfulLessonUpdates += 1; return { ...fullLesson(), ...data }; });
   patch((prisma as any).lessonProgress, "upsert", async ({ create }: any) => { progressWrites += 1; return { id: id("21"), ...create, watchPercentage: Math.round(create.watchedSeconds / 6) }; });
   patch((prisma as any).lessonAttachment, "findUnique", async () => ({ id: ATTACHMENT, name: "notes.pdf", mimeType: "application/pdf", data: Buffer.from("file"), lesson: target() }));
   patch((prisma as any).videoTimestampBookmark, "findMany", async () => []);
@@ -68,6 +68,7 @@ test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and 
   const token = (userId: string, role: Role) => jwt.sign({ userId, role, organizationId: ORGANIZATION }, env.JWT_ACCESS_SECRET, { expiresIn: "5m" });
   async function request(path: string, role: Role, options: { method?: string; body?: unknown; userId?: string } = {}) { const response = await fetch(`http://127.0.0.1:${port}${path}`, { method: options.method ?? "GET", headers: { Authorization: `Bearer ${token(options.userId ?? (role === Role.STUDENT ? STUDENT_USER : role === Role.TEACHER ? TEACHER_USER : id(role.toLowerCase())), role)}`, ...(options.body === undefined ? {} : { "Content-Type": "application/json" }) }, ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }) }); const payload = await response.json().catch(() => null); return { status: response.status, payload }; }
   const validLesson = { title: "New Lesson", description: "Teacher-created Lesson", moduleId: MODULE_A, branchId: BRANCH_A, courseId: COURSE_A, batchId: BATCH_A, subjectId: SUBJECT_A, teacherId: TEACHER_A, chapter: "Motion", videoUrl: null, notes: "Notes", durationSeconds: 600, position: 1, preview: false, status: "DRAFT", homeworkId: null, testId: null, video: null, attachments: [] };
+  const p2002 = (target: unknown) => Object.assign(new Error("Unique constraint failed"), { code: "P2002", meta: { target } });
 
   try {
     await t.test("production-equivalent admin ordering reaches Teacher LMS while protecting Academic Sessions", async () => {
@@ -102,6 +103,36 @@ test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and 
         const response = await request("/api/v1/admin/lms/lessons", Role.TEACHER, { method: "POST", body: { ...validLesson, ...change } }); assert.equal(response.status, expected);
       }
     });
+    await t.test("Lesson create classifies position and title conflicts without mislabeling unknown P2002 targets", async () => {
+      lessonCreateError = p2002(["position", "moduleId"]);
+      let response = await request("/api/v1/admin/lms/lessons", Role.TEACHER, { method: "POST", body: { ...validLesson, title: "A different title", position: 2 } });
+      assert.equal(response.status, 409); assert.equal(response.payload.error.code, "LESSON_POSITION_CONFLICT"); assert.equal(response.payload.error.message, "Lesson order already exists in this Module");
+
+      lessonCreateError = p2002("Lesson_batchId_subjectId_chapter_title_key");
+      response = await request("/api/v1/admin/lms/lessons", Role.TEACHER, { method: "POST", body: { ...validLesson, title: "Repeated title", position: 99 } });
+      assert.equal(capturedLessonCreate.position, 99); assert.equal(response.status, 409); assert.equal(response.payload.error.code, "LESSON_TITLE_CONFLICT"); assert.equal(response.payload.error.message, "Lesson title already exists for this Batch, Subject and Chapter");
+
+      lessonCreateError = p2002(["attachmentId", "name"]);
+      response = await request("/api/v1/admin/lms/lessons", Role.TEACHER, { method: "POST", body: validLesson });
+      assert.equal(response.status, 500); assert.equal(response.payload.error.code, "INTERNAL_ERROR"); assert.equal(response.payload.error.message, "An unexpected error occurred");
+
+      lessonCreateError = null; createdLesson = false;
+      response = await request("/api/v1/admin/lms/lessons", Role.TEACHER, { method: "POST", body: { ...validLesson, title: "Unused title", position: 99 } });
+      assert.equal(response.status, 201); assert.equal(createdLesson, true); assert.equal(capturedLessonCreate.title, "Unused title"); assert.equal(capturedLessonCreate.position, 99);
+    });
+    await t.test("Lesson update uses the same precise conflict mapping and does not persist rejected changes", async () => {
+      successfulLessonUpdates = 0; lessonUpdateError = p2002("Lesson_position_moduleId_key");
+      let response = await request(`/api/v1/admin/lms/lessons/${LESSON}`, Role.TEACHER, { method: "PATCH", body: { position: 2 } });
+      assert.equal(response.status, 409); assert.equal(response.payload.error.code, "LESSON_POSITION_CONFLICT"); assert.equal(successfulLessonUpdates, 0);
+
+      lessonUpdateError = p2002(["title", "chapter", "subjectId", "batchId"]);
+      response = await request(`/api/v1/admin/lms/lessons/${LESSON}`, Role.TEACHER, { method: "PATCH", body: { title: "Repeated title", chapter: "Repeated chapter" } });
+      assert.equal(response.status, 409); assert.equal(response.payload.error.code, "LESSON_TITLE_CONFLICT"); assert.equal(successfulLessonUpdates, 0);
+
+      lessonUpdateError = null;
+      response = await request(`/api/v1/admin/lms/lessons/${LESSON}`, Role.TEACHER, { method: "PATCH", body: { title: "Unused update title", position: 3 } });
+      assert.equal(response.status, 200); assert.equal(successfulLessonUpdates, 1);
+    });
     await t.test("administrator Lesson assignment and reassignment require an active exact Teacher allocation", async () => {
       allocationAvailable = false;
       for (const role of [Role.SUPER_ADMIN, Role.BRANCH_ADMIN]) {
@@ -115,6 +146,10 @@ test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and 
       allocationAvailable = true;
       assert.equal((await request("/api/v1/admin/lms/lessons", Role.SUPER_ADMIN, { method: "POST", body: validLesson })).status, 201);
       assert.equal((await request("/api/v1/admin/lms/lessons", Role.BRANCH_ADMIN, { method: "POST", body: validLesson })).status, 201);
+      assert.equal((await request(`/api/v1/admin/lms/lessons/${LESSON}`, Role.SUPER_ADMIN, { method: "PATCH", body: { title: "Super Admin update" } })).status, 200);
+      assert.equal((await request(`/api/v1/admin/lms/lessons/${LESSON}`, Role.BRANCH_ADMIN, { method: "PATCH", body: { title: "Branch Admin update" } })).status, 200);
+      const crossBranch = await request("/api/v1/admin/lms/lessons", Role.BRANCH_ADMIN, { method: "POST", body: { ...validLesson, branchId: BRANCH_B } });
+      assert.equal(crossBranch.status, 403); assert.equal(crossBranch.payload.error.code, "LMS_FORBIDDEN");
     });
     await t.test("Student list and progress require active Batch and PUBLISHED Lesson", async () => {
       studentActive = true; studentBatch = BATCH_A; targetBatch = BATCH_A; targetStatus = LmsContentStatus.PUBLISHED;

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { lessonOrderFromInput, teacherLessonRequestPayload } from "./portal-lms-workspace";
 
 const workspace = readFileSync(new URL("./portal-lms-workspace.tsx", import.meta.url), "utf8");
 const portal = readFileSync(new URL("./portal-workspace.tsx", import.meta.url), "utf8");
@@ -26,6 +27,14 @@ test("Teacher workspace uses authorized Lesson management without Module creatio
   assert.match(teacher, /options\.allocations\.some\(allocation => allocation\.branchId === form\.branchId && allocation\.courseId === form\.courseId && allocation\.batchId === form\.batchId && allocation\.subjectId === item\.subject\.id\)/);
   assert.match(teacher, /update\("moduleId", ""\)/);
   assert.doesNotMatch(teacher, /\/admin\/lms\/modules/);
+});
+
+test("Teacher visible Lesson order is submitted as the numeric API position", () => {
+  const payload = teacherLessonRequestPayload({ title: "Creation test", description: "Description", moduleId: "module", branchId: "branch", courseId: "course", batchId: "batch", subjectId: "subject", teacherId: "teacher", chapter: "Chapter", videoUrl: "", notes: "", durationSeconds: 300, position: lessonOrderFromInput("99"), preview: false, status: "DRAFT", homeworkId: "", testId: "", video: null, attachments: [] });
+  assert.equal(payload.position, 99);
+  assert.equal(typeof payload.position, "number");
+  assert.match(workspace, /Lesson order[^]*update\("position", lessonOrderFromInput\(event\.target\.value\)\)/);
+  assert.match(workspace, /JSON\.stringify\(teacherLessonRequestPayload\(form\)\)/);
 });
 
 test("Teacher workspace separates bootstrap failure, missing allocation and normal Lesson states", () => {
