@@ -92,8 +92,7 @@ export async function requireTeacherLmsAllocation(
   target: TeacherLmsAllocation & { teacherId: string; academicSessionId: string },
   effectiveAt = new Date(),
 ) {
-  if (actor.role !== Role.TEACHER) return;
-  if (!actor.teacherProfileId || actor.teacherProfileId !== target.teacherId) {
+  if (actor.role === Role.TEACHER && (!actor.teacherProfileId || actor.teacherProfileId !== target.teacherId)) {
     assertLmsManagementAccess(actor, { branchId: target.branchId, teacherId: target.teacherId });
   }
   await requireAllocatedSubject({

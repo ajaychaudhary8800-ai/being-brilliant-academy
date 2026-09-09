@@ -28,6 +28,18 @@ test("Teacher workspace uses authorized Lesson management without Module creatio
   assert.doesNotMatch(teacher, /\/admin\/lms\/modules/);
 });
 
+test("Teacher workspace separates bootstrap failure, missing allocation and normal Lesson states", () => {
+  const teacher = workspace.slice(workspace.indexOf("export function TeacherLmsWorkspace"), workspace.indexOf("export function StudentLmsWorkspace"));
+  assert.match(teacher, /bootstrapError/);
+  assert.match(teacher, /Unable to load Learning/);
+  assert.match(teacher, /Try again/);
+  assert.match(teacher, /if \(bootstrapError\) return/);
+  assert.match(teacher, /if \(!options\.allocations\.length\) return/);
+  assert.match(teacher, /No active teaching allocation is available for Learning/);
+  assert.match(teacher, /Ask an administrator to configure your Teacher Allocation/);
+  assert.ok(teacher.indexOf('if (!options.allocations.length) return') < teacher.indexOf('Add Lesson'));
+});
+
 test("Teacher workspace securely previews video, attachments and owned progress", () => {
   const teacher = workspace.slice(workspace.indexOf("export function TeacherLmsWorkspace"), workspace.indexOf("export function StudentLmsWorkspace"));
   assert.match(teacher, /<LessonMedia lesson=\{viewing\}/);

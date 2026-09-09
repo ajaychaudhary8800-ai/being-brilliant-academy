@@ -8,6 +8,8 @@ import jwt from "jsonwebtoken";
 import { env } from "../config.js";
 import { errorHandler } from "../lib/http.js";
 import { prisma, systemPrisma } from "../lib/prisma.js";
+import { onlyPaths } from "../lib/scoped-router.js";
+import adminAcademicSessions from "./admin-academic-sessions.js";
 import adminLms, { lmsLearning } from "./admin-lms.js";
 import learning from "./learning.js";
 import premiumExperience from "./premium-experience.js";
@@ -16,7 +18,7 @@ const id = (suffix: string) => `clms000000000000000000${suffix}`;
 const ORGANIZATION = id("01"), BRANCH_A = id("02"), BRANCH_B = id("03"), COURSE_A = id("04"), COURSE_B = id("05"), BATCH_A = id("06"), BATCH_B = id("07"), BATCH_COURSE_B = id("08"), SUBJECT_A = id("09"), SUBJECT_B = id("10"), MODULE_A = id("11"), MODULE_B = id("12"), LESSON = id("13"), ATTACHMENT = id("14"), TEACHER_A = id("15"), TEACHER_B = id("16"), TEACHER_USER = id("17"), STUDENT_USER = id("18");
 
 test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and metadata protection", async t => {
-  let branchAssignments = [BRANCH_A], studentBatch = BATCH_A, studentActive = true, targetStatus: LmsContentStatus = LmsContentStatus.PUBLISHED, targetCourse = COURSE_A, targetBatch = BATCH_A, targetSubject = SUBJECT_A, targetBranch = BRANCH_A, targetTeacher = TEACHER_A;
+  let branchAssignments = [BRANCH_A], allocationAvailable = true, studentBatch = BATCH_A, studentActive = true, targetStatus: LmsContentStatus = LmsContentStatus.PUBLISHED, targetCourse = COURSE_A, targetBatch = BATCH_A, targetSubject = SUBJECT_A, targetBranch = BRANCH_A, targetTeacher = TEACHER_A;
   let capturedLessonWhere: any = null, createdLesson = false, progressWrites = 0;
   const optionWheres: Record<string, any> = {};
   const allocation = { branchId: BRANCH_A, courseId: COURSE_A, batchId: BATCH_A, subjectId: SUBJECT_A };
@@ -39,7 +41,7 @@ test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and 
   patch((prisma as any).test, "findMany", async ({ where }: any) => { optionWheres.tests = where; return []; });
   patch((prisma as any).studentProfile, "findMany", async ({ where }: any) => { optionWheres.students = where; return []; });
   patch((prisma as any).teacherAllocation, "findMany", async () => [allocation]);
-  patch((prisma as any).teacherAllocation, "findFirst", async ({ where }: any) => where.branchId === allocation.branchId && where.courseId === allocation.courseId && where.batchId === allocation.batchId && where.teacherId === TEACHER_A && where.subjectId === allocation.subjectId ? { id: id("19") } : null);
+  patch((prisma as any).teacherAllocation, "findFirst", async ({ where }: any) => allocationAvailable && where.branchId === allocation.branchId && where.courseId === allocation.courseId && where.batchId === allocation.batchId && where.teacherId === TEACHER_A && where.subjectId === allocation.subjectId ? { id: id("19") } : null);
   patch((prisma as any).courseSubject, "findUnique", async () => ({ isActive: true }));
   patch((prisma as any).teacherSubject, "findUnique", async () => ({ subjectId: SUBJECT_A }));
   patch((prisma as any).subject, "findUnique", async () => ({ status: "ACTIVE", legacyReviewStatus: "CONFIRMED" }));
@@ -51,6 +53,7 @@ test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and 
   patch((prisma as any).lesson, "findMany", async ({ where }: any) => { capturedLessonWhere = where; return where.status === LmsContentStatus.PUBLISHED && where.batchId === studentBatch && targetStatus === LmsContentStatus.PUBLISHED && targetBatch === studentBatch ? [fullLesson()] : []; });
   patch((prisma as any).lesson, "findUnique", async ({ select }: any) => select?.videoData ? target() : select?.branchId && !select?.title ? target() : { ...fullLesson(), branchId: targetBranch, courseId: targetCourse, batchId: targetBatch, subjectId: targetSubject, teacherId: targetTeacher });
   patch((prisma as any).lesson, "create", async () => { createdLesson = true; return fullLesson(); });
+  patch((prisma as any).lesson, "update", async () => fullLesson());
   patch((prisma as any).lessonProgress, "upsert", async ({ create }: any) => { progressWrites += 1; return { id: id("21"), ...create, watchPercentage: Math.round(create.watchedSeconds / 6) }; });
   patch((prisma as any).lessonAttachment, "findUnique", async () => ({ id: ATTACHMENT, name: "notes.pdf", mimeType: "application/pdf", data: Buffer.from("file"), lesson: target() }));
   patch((prisma as any).videoTimestampBookmark, "findMany", async () => []);
@@ -59,7 +62,7 @@ test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and 
   patch((prisma as any).lessonAiAsset, "upsert", async ({ create }: any) => create);
   patch(prisma as any, "$transaction", async (operations: any) => Array.isArray(operations) ? Promise.all(operations) : operations({}));
 
-  const application = express(); application.use(express.json({ limit: "12mb" })); application.use("/api/v1/admin", adminLms); application.use("/api/v1/learning", learning); application.use("/api/v1/learning", lmsLearning); application.use("/api/v1", premiumExperience); application.use(errorHandler);
+  const application = express(); application.use(express.json({ limit: "12mb" })); application.use("/api/v1/admin", onlyPaths(["/lms"], adminLms)); application.use("/api/v1/admin", adminAcademicSessions); application.use("/api/v1/learning", learning); application.use("/api/v1/learning", lmsLearning); application.use("/api/v1", premiumExperience); application.use(errorHandler);
   const server = application.listen(0, "127.0.0.1"); await new Promise<void>((resolve, reject) => { server.once("listening", resolve); server.once("error", reject); });
   const port = (server.address() as AddressInfo).port;
   const token = (userId: string, role: Role) => jwt.sign({ userId, role, organizationId: ORGANIZATION }, env.JWT_ACCESS_SECRET, { expiresIn: "5m" });
@@ -67,6 +70,15 @@ test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and 
   const validLesson = { title: "New Lesson", description: "Teacher-created Lesson", moduleId: MODULE_A, branchId: BRANCH_A, courseId: COURSE_A, batchId: BATCH_A, subjectId: SUBJECT_A, teacherId: TEACHER_A, chapter: "Motion", videoUrl: null, notes: "Notes", durationSeconds: 600, position: 1, preview: false, status: "DRAFT", homeworkId: null, testId: null, video: null, attachments: [] };
 
   try {
+    await t.test("production-equivalent admin ordering reaches Teacher LMS while protecting Academic Sessions", async () => {
+      assert.equal((await request("/api/v1/admin/lms/options", Role.TEACHER)).status, 200);
+      assert.equal((await request("/api/v1/admin/lms/lessons", Role.TEACHER)).status, 200);
+      for (const role of [Role.STUDENT, Role.PARENT, Role.ACCOUNTANT]) {
+        assert.equal((await request("/api/v1/admin/lms/options", role)).status, 403);
+      }
+      const academicSessions = await request("/api/v1/admin/academic-sessions", Role.TEACHER);
+      assert.equal(academicSessions.status, 403); assert.equal(academicSessions.payload.error.code, "FORBIDDEN");
+    });
     await t.test("Teacher options are restricted to the active exact allocation tuple", async () => {
       const response = await request("/api/v1/admin/lms/options", Role.TEACHER);
       assert.equal(response.status, 200); assert.deepEqual(response.payload.data.allocations, [allocation]);
@@ -89,6 +101,20 @@ test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and 
       for (const [change, expected] of [[{ teacherId: TEACHER_B }, 403], [{ courseId: COURSE_B, batchId: BATCH_COURSE_B, moduleId: MODULE_B }, 422], [{ batchId: BATCH_B }, 422], [{ subjectId: SUBJECT_B }, 422], [{ branchId: BRANCH_B }, 403], [{ moduleId: MODULE_B }, 422]] as const) {
         const response = await request("/api/v1/admin/lms/lessons", Role.TEACHER, { method: "POST", body: { ...validLesson, ...change } }); assert.equal(response.status, expected);
       }
+    });
+    await t.test("administrator Lesson assignment and reassignment require an active exact Teacher allocation", async () => {
+      allocationAvailable = false;
+      for (const role of [Role.SUPER_ADMIN, Role.BRANCH_ADMIN]) {
+        const response = await request("/api/v1/admin/lms/lessons", role, { method: "POST", body: validLesson });
+        assert.equal(response.status, 422); assert.equal(response.payload.error.code, "TEACHER_SUBJECT_NOT_ALLOCATED");
+      }
+      for (const change of [{ teacherId: TEACHER_B }, { batchId: BATCH_B }, { subjectId: SUBJECT_B }, { courseId: COURSE_B, batchId: BATCH_COURSE_B, moduleId: MODULE_B }]) {
+        const reassignment = await request(`/api/v1/admin/lms/lessons/${LESSON}`, Role.SUPER_ADMIN, { method: "PATCH", body: change });
+        assert.equal(reassignment.status, 422); assert.equal(reassignment.payload.error.code, "TEACHER_SUBJECT_NOT_ALLOCATED");
+      }
+      allocationAvailable = true;
+      assert.equal((await request("/api/v1/admin/lms/lessons", Role.SUPER_ADMIN, { method: "POST", body: validLesson })).status, 201);
+      assert.equal((await request("/api/v1/admin/lms/lessons", Role.BRANCH_ADMIN, { method: "POST", body: validLesson })).status, 201);
     });
     await t.test("Student list and progress require active Batch and PUBLISHED Lesson", async () => {
       studentActive = true; studentBatch = BATCH_A; targetBatch = BATCH_A; targetStatus = LmsContentStatus.PUBLISHED;

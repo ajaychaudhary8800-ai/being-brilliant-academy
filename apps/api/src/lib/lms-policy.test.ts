@@ -69,3 +69,13 @@ test("LMS routers authenticate management and constrain learner progress routes"
   assert.match(source, /MODULE_POSITION_CONFLICT/);
   assert.match(source, /module\.courseId !== data\.courseId\) throw new AppError\(422, "INVALID_MODULE_RELATION"/);
 });
+
+test("production server mounts only the LMS path before broad admin guards", () => {
+  const server = readFileSync(new URL("../server.ts", import.meta.url), "utf8");
+  const scopedLms = 'app.use("/api/v1/admin", onlyPaths(["/lms"], adminLms));';
+  const broadAcademicSessions = 'app.use("/api/v1/admin", adminAcademicSessions);';
+  assert.ok(server.indexOf(scopedLms) >= 0);
+  assert.ok(server.indexOf(scopedLms) < server.indexOf(broadAcademicSessions));
+  assert.doesNotMatch(server, /app\.use\("\/api\/v1\/admin", adminLms\)/);
+  assert.match(server, /adminAcademicSessions/);
+});
