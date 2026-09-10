@@ -289,6 +289,10 @@ test("student photos and organization logos use tenant-scoped safe image paths",
 test("allocation date policy excludes future and expired allocations", () => {
   const point = new Date("2026-08-20T00:00:00Z"), where = allocationWhere({ branchId: "br", courseId: "c", batchId: "b", teacherId: "t", academicSessionId: "s", effectiveAt: point });
   assert.deepEqual(where.effectiveFrom, { lte: point }); assert.deepEqual(where.OR, [{ effectiveTo: null }, { effectiveTo: { gte: point } }]);
+  assert.deepEqual(where.branch, { isActive: true });
+  assert.deepEqual(where.academicSession, { isArchived: false });
+  assert.deepEqual(where.batch, { status: "ACTIVE" });
+  assert.deepEqual(where.teacher, { branchId: "br", user: { isActive: true } });
   const start = new Date("2026-04-01T00:00:00Z"), end = new Date("2027-03-31T00:00:00Z"), range = allocationWhere({ branchId: "br", courseId: "c", batchId: "b", teacherId: "t", academicSessionId: "s", rangeStart: start, rangeEnd: end });
   assert.deepEqual(range.effectiveFrom, { lte: end }); assert.deepEqual(range.OR, [{ effectiveTo: null }, { effectiveTo: { gte: start } }]);
   assert.equal(effectiveDateForSession(start, end, new Date("2025-12-01T00:00:00Z")), start);
@@ -488,6 +492,8 @@ test("course edit uses the existing scoped PATCH contract and validates conflict
 
 test("academic selectors and examination files use canonical scoped contracts", async () => {
   const timetableApi = await readFile(new URL("./routes/admin-timetables.ts", import.meta.url), "utf8");
+  const homeworkApi = await readFile(new URL("./routes/homeworks.ts", import.meta.url), "utf8");
+  const examinationApi = await readFile(new URL("./routes/admin-examinations.ts", import.meta.url), "utf8");
   const subjectEnforcement = await readFile(new URL("./routes/admin-subject-enforcement.ts", import.meta.url), "utf8");
   const subjectResolution = await readFile(new URL("./lib/subject-resolution.ts", import.meta.url), "utf8");
   const examinationWorkflow = await readFile(new URL("./routes/examination-workflow.ts", import.meta.url), "utf8");
@@ -495,6 +501,8 @@ test("academic selectors and examination files use canonical scoped contracts", 
   const timetableWeb = await readFile(new URL("../../web/app/admin/timetables/page.tsx", import.meta.url), "utf8");
   const homeworkWeb = await readFile(new URL("../../web/app/admin/homeworks/page.tsx", import.meta.url), "utf8");
   const examinationWeb = await readFile(new URL("../../web/app/admin/examinations/page.tsx", import.meta.url), "utf8");
+  const teacherHomeworkWeb = await readFile(new URL("../../web/app/teacher/homeworks/page.tsx", import.meta.url), "utf8");
+  const nginx = await readFile(new URL("../../../infra/nginx/nginx.conf", import.meta.url), "utf8");
 
   assert.match(timetableApi, /classroom\.findUnique/);
   assert.match(timetableApi, /CLASSROOM_SCHEDULE_CONFLICT/);
@@ -505,6 +513,19 @@ test("academic selectors and examination files use canonical scoped contracts", 
     assert.match(source, /<label>Course<select/);
     assert.match(source, /<label>Teacher<select[^]*<label>Subject<select/);
   }
+  for (const source of [timetableWeb, homeworkWeb, examinationWeb, teacherHomeworkWeb]) {
+    assert.match(source, /new AbortController\(\)/);
+    assert.match(source, /return \(\) => controller\.abort\(\)/);
+  }
+  const timetableOptions = timetableApi.slice(timetableApi.indexOf('router.get("/timetables/options"'), timetableApi.indexOf('router.get("/timetables/dashboard"'));
+  const homeworkOptions = homeworkApi.slice(homeworkApi.indexOf('router.get("/homeworks/options"'), homeworkApi.indexOf('router.get("/homeworks/dashboard"'));
+  const examinationOptions = examinationApi.slice(examinationApi.indexOf('router.get("/examinations/options"'), examinationApi.indexOf('router.get("/examinations/dashboard"'));
+  for (const source of [timetableOptions, homeworkOptions, examinationOptions]) {
+    assert.match(source, /subjects: ?\[\]/);
+    assert.doesNotMatch(source, /courseSubject\.findMany/);
+  }
+  assert.match(nginx, /img-src 'self' data: blob: https:/);
+  assert.match(nginx, /media-src 'self' blob: https:/);
   assert.match(timetableWeb, /No active classrooms for this branch/);
   assert.match(examinationWorkflow, /assertDocumentFileExtension/);
   assert.match(examinationWorkflow, /allowedAnswerSheetTypes/);

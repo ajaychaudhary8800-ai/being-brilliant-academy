@@ -94,14 +94,16 @@ function Content() {
             setOpts(current => ({ ...current, subjects: [{ courseId: form.courseId, subject: { id: "", name: "Select a batch, teacher and session to load allocated subjects" } }] }));
             return;
         }
+        const controller = new AbortController();
         const params = new URLSearchParams({ branchId: form.branchId, courseId: form.courseId, batchId: form.batchId, teacherId: form.teacherId, academicSession: form.academicSession });
-        fetch(`${API}/admin/subject-options?${params}`, { headers: heads() }).then(async response => {
+        fetch(`${API}/admin/subject-options?${params}`, { headers: heads(), signal: controller.signal }).then(async response => {
             const result = await response.json();
             if (!response.ok)
                 throw new Error(result.error?.message ?? "Unable to load allocated subjects");
             const subjects = result.data.length ? result.data.map((subject: any) => ({ courseId: form.courseId, subject })) : [{ courseId: form.courseId, subject: { id: "", name: "No active teacher allocation matches this batch and session" } }];
             setOpts(current => ({ ...current, subjects }));
-        }).catch(cause => setError(cause instanceof Error ? cause.message : "Unable to load allocated subjects"));
+        }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load allocated subjects"); });
+        return () => controller.abort();
     }, [form.branchId, form.courseId, form.batchId, form.teacherId, form.academicSession]);
     useEffect(() => {
         const selectedBatch = opts.batches.find(item => item.id === form.batchId);

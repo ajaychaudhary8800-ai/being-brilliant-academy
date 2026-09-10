@@ -163,6 +163,7 @@ function TeacherHomeworkContent() {
       setSubjectError("");
       return;
     }
+    const controller = new AbortController();
     const params = new URLSearchParams({
       branchId: form.branchId,
       courseId: form.courseId,
@@ -173,13 +174,16 @@ function TeacherHomeworkContent() {
     });
     setLoadingSubjects(true);
     setSubjectError("");
-    void request(`/teacher/subject-options?${params}`).then(result => {
+    void request(`/teacher/subject-options?${params}`, { signal: controller.signal }).then(result => {
       setSubjects(result.data);
       if (!result.data.length) setSubjectError("No eligible subjects for this selection.");
     }).catch(cause => {
-      setSubjects([]);
-      setSubjectError(errorMessage(cause));
-    }).finally(() => setLoadingSubjects(false));
+      if (!controller.signal.aborted) {
+        setSubjects([]);
+        setSubjectError(errorMessage(cause));
+      }
+    }).finally(() => { if (!controller.signal.aborted) setLoadingSubjects(false); });
+    return () => controller.abort();
   }, [form.batchId, form.branchId, form.courseId, form.teacherId, mode, selectedBatch?.academicSessionId]);
 
   const courses = useMemo(() => [...new Map(options.batches.filter(batch => !form.branchId || batch.branchId === form.branchId).map(batch => [batch.courseId, { id: batch.courseId, title: batch.course.title }])).values()], [form.branchId, options.batches]);
