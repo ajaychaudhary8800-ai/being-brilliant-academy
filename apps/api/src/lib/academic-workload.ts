@@ -1,4 +1,4 @@
-import { LeaveRequestStatus, SubstitutionStatus, TimetableDay, TimetablePeriodType, TimetableStatus } from "@prisma/client";
+import { LeaveRequestStatus, SubstitutionStatus, TimetableDay, TimetablePeriodType, TimetableStatus, type Prisma } from "@prisma/client";
 import { prisma } from "./prisma.js";
 
 const days = [TimetableDay.SUNDAY, TimetableDay.MONDAY, TimetableDay.TUESDAY, TimetableDay.WEDNESDAY, TimetableDay.THURSDAY, TimetableDay.FRIDAY, TimetableDay.SATURDAY];
@@ -20,8 +20,8 @@ export function summarizeSlots(date: Date, periods: Array<{ periodNumber: number
   return { date: utcDay(date).toISOString().slice(0, 10), day: timetableDay(date), availablePeriods: teaching.length, regularTeaching, substitution, otherDuty, totalOccupied, freePeriods: Math.max(0, teaching.length - totalOccupied), states };
 }
 
-export async function teacherOnApprovedLeave(teacherId: string, date: Date) {
-  return Boolean(await prisma.leaveRequest.findFirst({ where: { user: { teacherProfile: { id: teacherId } }, status: LeaveRequestStatus.APPROVED, fromDate: { lte: utcDay(date) }, toDate: { gte: utcDay(date) } }, select: { id: true } }));
+export async function teacherOnApprovedLeave(teacherId: string, date: Date, client: Prisma.TransactionClient | typeof prisma = prisma) {
+  return Boolean(await client.leaveRequest.findFirst({ where: { user: { teacherProfile: { id: teacherId } }, status: LeaveRequestStatus.APPROVED, fromDate: { lte: utcDay(date) }, toDate: { gte: utcDay(date) } }, select: { id: true } }));
 }
 
 export async function dailyWorkload(teacherId: string, branchId: string, academicSessionId: string, date: Date): Promise<WorkloadSummary> {

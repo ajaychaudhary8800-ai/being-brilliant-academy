@@ -112,6 +112,8 @@ test("expense approval and fee adjustment keep journals, business records, and a
   assert.match(adjustment, /assertFinanceBranchAccess/);
   assert.match(adjustment, /createBalanced\(tx, req/);
   assert.match(adjustment, /tx\.feeAdjustment\.create/);
+  assert.match(adjustment, /adjustedFeeAmounts/);
+  assert.match(adjustment, /tx\.fee\.update/);
   assert.match(adjustment, /audit\(tx, req, "CREATE", "FeeAdjustment"/);
 });
 

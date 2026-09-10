@@ -4,6 +4,7 @@ import { FeeStatus, JournalStatus, Role } from "@prisma/client";
 import { requireRequestedBranch } from "./branch-policy.js";
 import {
   assertFeeCanBeDeleted,
+  adjustedFeeAmounts,
   assertFinanceBranchAccess,
   assertPaidFeeIdentityUnchanged,
   assertPaymentWithinAuthoritativeBalance,
@@ -25,6 +26,8 @@ const fee = {
   batchId: "batch-a",
   feeHead: "Tuition",
   totalPaise: 100_00,
+  discountPaise: 0,
+  finePaise: 0,
   dueDate: new Date("2026-09-01T00:00:00.000Z"),
 };
 
@@ -55,6 +58,8 @@ test("paid fees lock identity while unpaid fees remain editable", () => {
     { batchId: "batch-b" },
     { feeHead: "Transport" },
     { totalPaise: 200_00 },
+    { discountPaise: 10_00 },
+    { finePaise: 5_00 },
     { dueDate: new Date("2026-10-01T00:00:00.000Z") },
   ]) {
     assert.throws(() => assertPaidFeeIdentityUnchanged(fee, update, 1), (error: unknown) => (error as { code?: string }).code === "PAID_FEE_IDENTITY_LOCKED");
@@ -118,6 +123,16 @@ test("authoritative payment totals reject sequential or concurrent over-collecti
     () => assertPaymentWithinAuthoritativeBalance(10_000, 0, 0, 10_000, 1),
     (error: unknown) => (error as { code?: string }).code === "PAYMENT_EXCEEDS_BALANCE",
   );
+});
+
+test("audited fee adjustments derive operational totals without rewriting the original amount", () => {
+  const current = { totalPaise: 10_000, discountPaise: 500, finePaise: 100, amountPaidPaise: 4_000 };
+  assert.deepEqual(adjustedFeeAmounts(current, "DISCOUNT", 500), { discountPaise: 1_000, finePaise: 100 });
+  assert.deepEqual(adjustedFeeAmounts(current, "SCHOLARSHIP", 500), { discountPaise: 1_000, finePaise: 100 });
+  assert.deepEqual(adjustedFeeAmounts(current, "FINE", 500), { discountPaise: 500, finePaise: 600 });
+  assert.deepEqual(adjustedFeeAmounts(current, "REFUND", 500), { discountPaise: 500, finePaise: 100 });
+  assert.throws(() => adjustedFeeAmounts(current, "DISCOUNT", 9_501), cause => (cause as { code?: string }).code === "INVALID_FEE_ADJUSTMENT");
+  assert.throws(() => adjustedFeeAmounts({ ...current, amountPaidPaise: 9_500 }, "DISCOUNT", 200), cause => (cause as { code?: string }).code === "ADJUSTMENT_BELOW_PAID");
 });
 
 test("unverified parent payment declarations are rejected", () => {

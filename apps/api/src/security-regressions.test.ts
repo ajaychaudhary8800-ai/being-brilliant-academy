@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { AnswerSheetStatus, AttendanceStatus, ExaminationResultStatus, ExaminationStatus, ExaminationType, HalfDaySession, HomeworkSubmissionStatus, LeaveType, Role } from "@prisma/client";
+import { AnswerSheetStatus, AttendanceStatus, ExaminationResultStatus, ExaminationStatus, ExaminationType, HalfDaySession, HomeworkSubmissionStatus, LeaveType, Role, StudentStatus } from "@prisma/client";
 import { assertClassroomBranchChange, requireRequestedBranch } from "./lib/branch-policy.js";
-import { answerSubmissionState, assertAnswerSheetAccess, assertAnswerSheetReplaceable, assertEvaluationOpen, assertExaminationHistoricalFieldsEditable, assertExaminationManager, assertExaminationStatusTransition, assertSingleConditionalMutation, assertStudentExaminationEligible, assertStudentExaminationPublished, changesCoreExaminationField, evaluationStatus, examinationResultFor, publishedEvaluation, type ExaminationHistoricalActivity } from "./lib/examination-policy.js";
+import { answerSubmissionState, assertActiveStudentExaminationEligible, assertAnswerSheetAccess, assertAnswerSheetReplaceable, assertEvaluationOpen, assertExaminationHistoricalFieldsEditable, assertExaminationManager, assertExaminationStatusTransition, assertSingleConditionalMutation, assertStudentExaminationEligible, assertStudentExaminationPublished, changesCoreExaminationField, evaluationStatus, examinationResultFor, publishedEvaluation, type ExaminationHistoricalActivity } from "./lib/examination-policy.js";
 import { assertHomeworkSubmissionReplaceable, assertHomeworkSubmissionReplaced, replaceableHomeworkSubmissionStatuses } from "./lib/homework-policy.js";
 import { assertApprovedLeaveAttendance, assertLeaveAttendanceCompatible, attendanceStatusForLeave, validateLeaveDates } from "./lib/leave-attendance-policy.js";
 import { noticeRecipientConstraints } from "./lib/notice-policy.js";
@@ -158,6 +158,15 @@ test("historical academic sessions cannot access current examination papers", ()
   assert.throws(() => assertStudentExaminationPublished(ExaminationStatus.ARCHIVED), /not published/);
 });
 
+test("examination eligibility requires an active same-branch student", () => {
+  const student = { organizationId: "org", branchId: "branch-a", batchId: "batch-a", academicSessionId: "session-a", status: StudentStatus.ACTIVE, user: { isActive: true } };
+  const exam = { organizationId: "org", branchId: "branch-a", batchId: "batch-a", academicSessionId: "session-a" };
+  assert.doesNotThrow(() => assertActiveStudentExaminationEligible(student, exam));
+  assert.throws(() => assertActiveStudentExaminationEligible({ ...student, branchId: "branch-b" }, exam), /active student/i);
+  assert.throws(() => assertActiveStudentExaminationEligible({ ...student, status: StudentStatus.INACTIVE }, exam), /active student/i);
+  assert.throws(() => assertActiveStudentExaminationEligible({ ...student, user: { isActive: false } }, exam), /active student/i);
+});
+
 test("upload validation rejects malformed base64 and MIME spoofing", () => {
   const pdf = Buffer.from("%PDF-1.7\nvalid-test").toString("base64");
   assert.equal(decodeVerifiedUpload(pdf, "application/pdf").subarray(0, 5).toString(), "%PDF-");
@@ -175,6 +184,15 @@ test("examination documents enforce filename, MIME, answer formats and size", ()
   assert.equal(allowedAnswerSheetTypes.includes("application/msword" as never), false);
   const tooLarge = Buffer.concat([Buffer.from("%PDF-"), Buffer.alloc(1024 * 1024)]).toString("base64");
   assert.throws(() => decodeVerifiedUpload(tooLarge, "application/pdf", 1024 * 1024), /1 MB/);
+  const maximumBytes = 10 * 1024 * 1024;
+  const maximumEncodedLength = Math.ceil(maximumBytes / 3) * 4;
+  const representativeJsonOverhead = Buffer.byteLength(JSON.stringify({ fileName: "answer-sheet.pdf", mimeType: "application/pdf", base64: "", remarks: "x".repeat(2000) }));
+  assert.ok(maximumEncodedLength <= 14_000_000);
+  assert.ok(maximumEncodedLength + representativeJsonOverhead < 15 * 1024 * 1024);
+  const maximum = Buffer.concat([Buffer.from("%PDF-"), Buffer.alloc(maximumBytes - 5)]).toString("base64");
+  assert.equal(decodeVerifiedUpload(maximum, "application/pdf").length, maximumBytes);
+  const oversized = Buffer.concat([Buffer.from("%PDF-"), Buffer.alloc(maximumBytes - 4)]).toString("base64");
+  assert.throws(() => decodeVerifiedUpload(oversized, "application/pdf"), /10 MB/);
 });
 
 test("examination evaluator and answer-sheet access policies reject IDOR", () => {
@@ -244,8 +262,11 @@ test("examination routes use conditional writes, publication gates and atomic au
   assert.match(workflow, /assertSingleConditionalMutation\(updated\.count/);
   assert.match(workflow, /status: submission\.examinationStatus/);
   assert.match(workflow, /TransactionIsolationLevel\.Serializable/);
+  assert.match(workflow, /EXAMINATION_ALLOCATION_REQUIRED/);
+  assert.match(workflow, /teacherAllocation\.findFirst/);
+  assert.match(workflow, /assertActiveStudentExaminationEligible/);
   assert.match(workflow, /publishedEvaluation\(row\.status/);
-  assert.match(workflow, /select: \{ id: true \}[^]*select: \{ fileName: true, mimeType: true, fileSize: true, fileData: true \}/);
+  assert.match(workflow, /select: \{ id: true, examination:[^]*select: \{ fileName: true, mimeType: true, fileSize: true, fileData: true \}/);
   assert.match(workflow, /answer-sheets\/:answerSheetId\/file[^]*storedDocumentHeaders\(\{ \.\.\.sheet, fallbackName: "answer-sheet" \}[^]*storedDocumentBuffer\(sheet\.fileData\)/);
   assert.match(admin, /assertExaminationHistoricalFieldsEditable/);
   assert.match(policy, /EXAMINATION_ACTIVITY_LOCKED/);
@@ -419,6 +440,10 @@ test("academic administration is normalized, role protected and branch scoped", 
   assert.match(operations, /branchUser\.findFirst/);
   assert.match(operations, /teacherOnApprovedLeave/);
   assert.match(operations, /rankSubstituteCandidates/);
+  assert.match(operations, /TransactionIsolationLevel\.Serializable/);
+  assert.match(operations, /eligibleCandidate\(occurrence\.timetable, occurrence\.date, input\.substituteTeacherId, tx\)/);
+  assert.match(operations, /code === "P2034"/);
+  assert.match(operations, /tx\.auditLog\.create/);
   assert.doesNotMatch(`${subjects}\n${allocations}\n${operations}`, /name:\s*["']Free["']/i);
 });
 
@@ -479,6 +504,7 @@ test("subject cleanup is dependency-complete, tenant-safe and history-preserving
 test("course edit uses the existing scoped PATCH contract and validates conflicts", async () => {
   const api = await readFile(new URL("./routes/admin-courses.ts", import.meta.url), "utf8");
   const list = await readFile(new URL("../../web/app/admin/courses/page.tsx", import.meta.url), "utf8");
+  const detail = await readFile(new URL("../../web/app/admin/courses/[id]/page.tsx", import.meta.url), "utf8");
   const form = await readFile(new URL("../../web/components/course-form.tsx", import.meta.url), "utf8");
   assert.match(api, /router\.patch\("\/courses\/:id"/);
   assert.match(api, /await scope\(req, old\.branchId\)/);
@@ -487,6 +513,17 @@ test("course edit uses the existing scoped PATCH contract and validates conflict
   assert.match(api, /COURSE_CODE_EXISTS/);
   assert.match(api, /validateTaxonomy\(merged\)/);
   assert.match(list, /\/admin\/courses\/\$\{course\.id\}\/edit/);
+  assert.match(list, /\/admin\/courses\/\$\{course\.id\}/);
+  assert.match(detail, /fetch\(`\$\{API\}\/admin\/courses\/\$\{id\}`/);
+  assert.match(detail, /Authorization: `Bearer \$\{token \?\? ""\}`/);
+  assert.match(detail, /response\.status === 401/);
+  assert.match(detail, /response\.status === 403/);
+  assert.match(detail, /response\.status === 404/);
+  assert.match(detail, /Subject Master associations/);
+  assert.match(detail, /AuthGate roles=\{\["SUPER_ADMIN", "BRANCH_ADMIN"\]\}/);
+  assert.doesNotMatch(detail, /dangerouslySetInnerHTML/);
+  assert.match(detail, /NEXT_PUBLIC_API_URL \?\? "http:\/\/localhost:4000\/api\/v1"/);
+  assert.doesNotMatch(detail, /https:\/\//);
   assert.match(form, /method: courseId \? "PATCH" : "POST"/);
 });
 

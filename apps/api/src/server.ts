@@ -91,7 +91,7 @@ const redisStore = redis ? new RedisStore({ sendCommand: sendRedisCommand }) : u
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: env.RATE_LIMIT_MAX, standardHeaders: "draft-8", legacyHeaders: false, store: redisStore, skip: (req) => req.path.startsWith("/health") || req.path === "/metrics" }));
 app.use("/api/v1/auth/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: env.AUTH_RATE_LIMIT_MAX, standardHeaders: "draft-8", legacyHeaders: false, store: redis ? new RedisStore({ prefix: "rl:auth:", sendCommand: sendRedisCommand }) : undefined }));
 app.use("/api/v1/payments/razorpay/webhook", express.raw({ type: "application/json" }));
-app.use(express.json({ limit: "12mb" }));
+app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
