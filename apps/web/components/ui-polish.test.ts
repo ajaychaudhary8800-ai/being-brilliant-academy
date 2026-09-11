@@ -46,7 +46,9 @@ test("organization creation preserves subscriptions, platform authorization, and
 
   assert.match(organizationsPage, /Subscription status/);
   assert.match(organizationsPage, /Subscription plan/);
-  assert.doesNotMatch(organizationsPage, /logoUrl|ImageUploadField/);
+  assert.match(organizationsPage, /ImageUploadField label="Organization Logo"/);
+  assert.match(organizationsPage, /x-organization-id/);
+  assert.match(organizationsPage, /discardLogo/);
   assert.match(organizationsRoute, /r\.post\("\/platform\/organizations",async\(q:AuthRequest,s\)=>\{platform\(q\)/);
   assert.match(settingsPage, /ImageUploadField label="Institution Logo"/);
   assert.match(settingsPage, /\/admin\/image-uploads/);
