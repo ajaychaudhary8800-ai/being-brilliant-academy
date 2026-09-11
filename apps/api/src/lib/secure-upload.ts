@@ -8,6 +8,8 @@ export const allowedTeacherPhotoTypes = ["image/jpeg", "image/png", "image/webp"
 export type AllowedTeacherPhotoType = typeof allowedTeacherPhotoTypes[number];
 export const allowedImageTypes = allowedTeacherPhotoTypes;
 export type AllowedImageType = AllowedTeacherPhotoType;
+export const allowedCommunicationAttachmentTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"] as const;
+export type AllowedCommunicationAttachmentType = typeof allowedCommunicationAttachmentTypes[number];
 const imageExtensions: Record<AllowedImageType, readonly string[]> = { "image/jpeg": ["jpg", "jpeg"], "image/png": ["png"], "image/webp": ["webp"] };
 const documentExtensions: Record<AllowedDocumentType, readonly string[]> = {
   "application/pdf": ["pdf"],
@@ -15,6 +17,12 @@ const documentExtensions: Record<AllowedDocumentType, readonly string[]> = {
   "image/png": ["png"],
   "application/msword": ["doc"],
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ["docx"],
+};
+const communicationExtensions: Record<AllowedCommunicationAttachmentType, readonly string[]> = {
+  "application/pdf": ["pdf"],
+  "image/jpeg": ["jpg", "jpeg"],
+  "image/png": ["png"],
+  "image/webp": ["webp"],
 };
 
 function fileExtension(fileName: string, description: string) {
@@ -30,6 +38,11 @@ export function assertImageFileExtension(fileName: string, mimeType: AllowedImag
 export function assertDocumentFileExtension(fileName: string, mimeType: AllowedDocumentType) {
   const extension = fileExtension(fileName, "Document");
   if (!documentExtensions[mimeType].includes(extension)) throw new AppError(422, "FILE_EXTENSION_MISMATCH", "Document filename extension does not match the declared file type");
+}
+
+export function assertCommunicationFileExtension(fileName: string, mimeType: AllowedCommunicationAttachmentType) {
+  const extension = fileExtension(fileName, "Attachment");
+  if (!communicationExtensions[mimeType].includes(extension)) throw new AppError(422, "FILE_EXTENSION_MISMATCH", "Attachment filename extension does not match the declared file type");
 }
 
 function strictBase64(value: string) {
@@ -56,6 +69,13 @@ export function decodeVerifiedUpload(base64: string, mimeType: AllowedDocumentTy
   const fileData = strictBase64(base64);
   if (!fileData.length || fileData.length > maximumBytes) throw new AppError(422, "INVALID_FILE_SIZE", `File must be between 1 byte and ${Math.floor(maximumBytes / 1024 / 1024)} MB`);
   if (!matches(fileData, mimeType)) throw new AppError(422, "FILE_TYPE_MISMATCH", "Decoded file content does not match the declared file type");
+  return fileData;
+}
+
+export function decodeVerifiedCommunicationUpload(base64: string, mimeType: AllowedCommunicationAttachmentType, maximumBytes = 10 * 1024 * 1024) {
+  const fileData = strictBase64(base64);
+  if (!fileData.length || fileData.length > maximumBytes) throw new AppError(422, "INVALID_FILE_SIZE", `Attachment size must be between 1 byte and ${Math.floor(maximumBytes / 1024 / 1024)} MB`);
+  if (!matches(fileData, mimeType)) throw new AppError(422, "FILE_TYPE_MISMATCH", "Decoded attachment content does not match the declared file type");
   return fileData;
 }
 

@@ -12,6 +12,8 @@ import {
 import { AppError } from "../lib/http.js";
 import { assertMessageRecipientAuthorized, assertMessageRecipientsAuthorized, assertThreadMember } from "../lib/message-policy.js";
 import { prisma } from "../lib/prisma.js";
+import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
+import { allowedCommunicationAttachmentTypes, assertCommunicationFileExtension, decodeVerifiedCommunicationUpload, type AllowedCommunicationAttachmentType } from "../lib/secure-upload.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -33,16 +35,20 @@ function allow(req: AuthRequest, roles: readonly Role[]) {
 }
 
 function attachment(value: { name?: string; mimeType?: string; base64?: string }) {
-  if (!value.base64) return {};
-  const data = Buffer.from(value.base64, "base64");
-  if (!data.length
-    || data.length > 10 * 1024 * 1024
-    || !value.name
-    || !value.mimeType
-    || ![/^application\/pdf$/, /^image\/(png|jpeg|webp)$/].some(pattern => pattern.test(value.mimeType!))) {
-    throw new AppError(422, "INVALID_ATTACHMENT", "PDF or image attachment must be at most 10 MB");
+  if (value.base64 === undefined && value.name === undefined && value.mimeType === undefined) return {};
+  if (!value.base64 || !value.name || !value.mimeType || !(allowedCommunicationAttachmentTypes as readonly string[]).includes(value.mimeType)) {
+    throw new AppError(422, "INVALID_ATTACHMENT", "PDF or image attachment must include a matching filename, MIME type and file");
   }
-  return { attachmentName: value.name, attachmentMime: value.mimeType, attachmentData: data };
+  const mimeType = value.mimeType as AllowedCommunicationAttachmentType;
+  assertCommunicationFileExtension(value.name, mimeType);
+  const data = decodeVerifiedCommunicationUpload(value.base64, mimeType);
+  return { attachmentName: value.name, attachmentMime: mimeType, attachmentData: data };
+}
+
+function sendAttachment(res: import("express").Response, value: { attachmentName: string | null; attachmentMime: string | null; attachmentData: Uint8Array | null } | null) {
+  if (!value?.attachmentName || !value.attachmentMime || !value.attachmentData) throw new AppError(404, "ATTACHMENT_NOT_FOUND", "Attachment not found");
+  const data = storedDocumentBuffer(value.attachmentData);
+  res.set(storedDocumentHeaders({ fileName: value.attachmentName, mimeType: value.attachmentMime, fileSize: data.length, fallbackName: "communication-attachment" }, "attachment")).send(data);
 }
 
 async function audit(req: AuthRequest, action: string, entity: string, entityId?: string, metadata?: unknown) {
@@ -164,6 +170,12 @@ router.get("/communication/announcements", async (req: AuthRequest, res) => {
     prisma.announcement.count({ where }),
   ]);
   res.json({ data, meta: { total, page: query.page, totalPages: Math.ceil(total / query.limit) } });
+});
+
+router.get("/communication/announcements/:id/attachment", async (req: AuthRequest, res) => {
+  const access = await announcementAccess(req);
+  const announcement = await prisma.announcement.findFirst({ where: { id: id.parse(req.params.id), deletedAt: null, isArchived: false, ...access }, select: { attachmentName: true, attachmentMime: true, attachmentData: true } });
+  sendAttachment(res, announcement);
 });
 
 router.post("/communication/announcements", async (req: AuthRequest, res) => {
@@ -355,6 +367,12 @@ router.get("/communication/circulars/:id/pdf", async (req: AuthRequest, res) => 
   await prisma.circularDownload.create({ data: { circularId: circular.id, userId: userId(req), ipAddress: req.ip } });
   const filename = circular.number.replace(/[^A-Za-z0-9_-]/g, "_");
   res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${filename}.pdf"` }).send(circular.versions[0]?.pdfData ?? Buffer.from(`%PDF-1.4\n${circular.title}\n${circular.versions[0]?.body ?? ""}\n%%EOF`));
+});
+
+router.get("/communication/circulars/:id/attachment", async (req: AuthRequest, res) => {
+  const access = await circularAccess(req);
+  const circular = await prisma.circular.findFirst({ where: { id: id.parse(req.params.id), deletedAt: null, isArchived: false, ...access }, include: { versions: { orderBy: { version: "desc" }, take: 1 } } });
+  sendAttachment(res, circular?.versions[0] ?? null);
 });
 
 const eventInput = z.object({ branchId: id.nullable().optional(), batchId: id.nullable().optional(), title: z.string().min(2).max(160), description: z.string().max(10000).optional(), type: z.enum(["SCHOOL", "HOLIDAY", "EXAM", "PTM", "MEETING", "REMINDER"]), startsAt: z.coerce.date(), endsAt: z.coerce.date(), location: z.string().max(200).optional(), audience: z.nativeEnum(Role).nullable().optional(), reminders: z.array(z.number().int().min(0)).default([]), status: z.enum(["SCHEDULED", "CANCELLED", "COMPLETED"]).default("SCHEDULED") });

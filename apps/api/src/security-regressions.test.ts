@@ -372,6 +372,21 @@ test("notice acknowledgement applies the same recipient eligibility policy as li
   assert.match(policy, /expiresAt: \{ gte: now \}/);
 });
 
+test("communication attachments use verified uploads and authorized download routes", async () => {
+  const communication = await readFile(new URL("./routes/communication.ts", import.meta.url), "utf8");
+  const notices = await readFile(new URL("./routes/notice-board.ts", import.meta.url), "utf8");
+  const upload = await readFile(new URL("./lib/secure-upload.ts", import.meta.url), "utf8");
+  assert.match(upload, /decodeVerifiedCommunicationUpload/);
+  assert.match(upload, /assertCommunicationFileExtension/);
+  assert.match(communication, /router\.get\("\/communication\/announcements\/:id\/attachment"/);
+  assert.match(communication, /announcementAccess\(req\)[^]*findFirst/);
+  assert.match(communication, /storedDocumentHeaders/);
+  assert.match(communication, /router\.get\("\/communication\/circulars\/:id\/attachment"/);
+  assert.match(notices, /router\.get\("\/notices\/:noticeId\/attachment"/);
+  assert.match(notices, /recipientConstraints\(req\)/);
+  assert.match(notices, /storedDocumentHeaders/);
+});
+
 test("attendance reports and exports are tenant and branch scoped and share filtered data", async () => {
   const route = await readFile(new URL("./routes/attendance-reports.ts", import.meta.url), "utf8");
   const server = await readFile(new URL("./server.ts", import.meta.url), "utf8");
