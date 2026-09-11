@@ -16,7 +16,8 @@
     "docker:down": "docker compose down",
     "db:generate": "pnpm --filter @bba/api prisma:generate",
     "db:migrate": "pnpm --filter @bba/api prisma:migrate",
-    "db:seed": "pnpm --filter @bba/api prisma:seed"
+    "db:seed": "pnpm --filter @bba/api prisma:seed",
+    "test:integration:postgres": "pnpm --filter @bba/api exec tsx scripts/run-postgres-integration.mjs"
   },
   "devDependencies": { "typescript": "^5.7.3" }
 }
