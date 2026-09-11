@@ -1,5 +1,11 @@
 export type AdminOptionUrls = { branches: string; batches: string };
 
+export function resolveApiUrl(api: string, path: string) {
+  const base = api.replace(/\/$/, "");
+  if (/^https?:\/\//i.test(path) || path === base || path.startsWith(`${base}/`)) return path;
+  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 export function activeAdminOptionUrls(api: string): AdminOptionUrls {
   return {
     // The branches route intentionally exposes the legacy lowercase filter contract.
