@@ -10,6 +10,8 @@ export const allowedImageTypes = allowedTeacherPhotoTypes;
 export type AllowedImageType = AllowedTeacherPhotoType;
 export const allowedCommunicationAttachmentTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"] as const;
 export type AllowedCommunicationAttachmentType = typeof allowedCommunicationAttachmentTypes[number];
+export const allowedLibraryResourceTypes = ["application/pdf", "application/epub+zip"] as const;
+export type AllowedLibraryResourceType = typeof allowedLibraryResourceTypes[number];
 const imageExtensions: Record<AllowedImageType, readonly string[]> = { "image/jpeg": ["jpg", "jpeg"], "image/png": ["png"], "image/webp": ["webp"] };
 const documentExtensions: Record<AllowedDocumentType, readonly string[]> = {
   "application/pdf": ["pdf"],
@@ -24,6 +26,7 @@ const communicationExtensions: Record<AllowedCommunicationAttachmentType, readon
   "image/png": ["png"],
   "image/webp": ["webp"],
 };
+const libraryExtensions: Record<AllowedLibraryResourceType, readonly string[]> = { "application/pdf": ["pdf"], "application/epub+zip": ["epub"] };
 
 function fileExtension(fileName: string, description: string) {
   if (!fileName || fileName.length > 255 || fileName.includes("/") || fileName.includes("\\") || fileName.includes("\0")) throw new AppError(422, "INVALID_FILE_NAME", `${description} filename is invalid`);
@@ -45,6 +48,11 @@ export function assertCommunicationFileExtension(fileName: string, mimeType: All
   if (!communicationExtensions[mimeType].includes(extension)) throw new AppError(422, "FILE_EXTENSION_MISMATCH", "Attachment filename extension does not match the declared file type");
 }
 
+export function assertLibraryResourceFileExtension(fileName: string, mimeType: AllowedLibraryResourceType) {
+  const extension = fileExtension(fileName, "Library resource");
+  if (!libraryExtensions[mimeType].includes(extension)) throw new AppError(422, "FILE_EXTENSION_MISMATCH", "Library resource filename extension does not match the declared file type");
+}
+
 function strictBase64(value: string) {
   const paddingAt = value.indexOf("=");
   const padding = paddingAt === -1 ? "" : value.slice(paddingAt);
@@ -54,11 +62,30 @@ function strictBase64(value: string) {
   return bytes;
 }
 
-function matches(bytes: Buffer, mimeType: AllowedDocumentType | AllowedTeacherPhotoType) {
+function matchesEpub(bytes: Buffer) {
+  const mimePayload = Buffer.from("application/epub+zip", "ascii");
+  if (bytes.length < 30 || !bytes.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) return false;
+  const compression = bytes.readUInt16LE(8);
+  const compressedSize = bytes.readUInt32LE(18);
+  const uncompressedSize = bytes.readUInt32LE(22);
+  const fileNameLength = bytes.readUInt16LE(26);
+  const extraLength = bytes.readUInt16LE(28);
+  const fileNameStart = 30;
+  const fileNameEnd = fileNameStart + fileNameLength;
+  const dataStart = fileNameEnd + extraLength;
+  const dataEnd = dataStart + compressedSize;
+  if (fileNameEnd > bytes.length || dataStart > bytes.length || dataEnd > bytes.length) return false;
+  if (bytes.subarray(fileNameStart, fileNameEnd).toString("utf8") !== "mimetype") return false;
+  if (compression !== 0 || compressedSize !== mimePayload.length || uncompressedSize !== mimePayload.length) return false;
+  return bytes.subarray(dataStart, dataEnd).equals(mimePayload);
+}
+
+function matches(bytes: Buffer, mimeType: AllowedDocumentType | AllowedTeacherPhotoType | AllowedLibraryResourceType) {
   if (mimeType === "application/pdf") return bytes.subarray(0, 5).toString("ascii") === "%PDF-";
   if (mimeType === "image/jpeg") return bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
   if (mimeType === "image/png") return bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   if (mimeType === "image/webp") return bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  if (mimeType === "application/epub+zip") return matchesEpub(bytes);
   if (mimeType === "application/msword") return bytes.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
   if (!bytes.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) return false;
   const packageText = bytes.toString("latin1");
@@ -76,6 +103,13 @@ export function decodeVerifiedCommunicationUpload(base64: string, mimeType: Allo
   const fileData = strictBase64(base64);
   if (!fileData.length || fileData.length > maximumBytes) throw new AppError(422, "INVALID_FILE_SIZE", `Attachment size must be between 1 byte and ${Math.floor(maximumBytes / 1024 / 1024)} MB`);
   if (!matches(fileData, mimeType)) throw new AppError(422, "FILE_TYPE_MISMATCH", "Decoded attachment content does not match the declared file type");
+  return fileData;
+}
+
+export function decodeVerifiedLibraryResource(base64: string, mimeType: AllowedLibraryResourceType, maximumBytes = 10 * 1024 * 1024) {
+  const fileData = strictBase64(base64);
+  if (!fileData.length || fileData.length > maximumBytes) throw new AppError(422, "INVALID_FILE_SIZE", `Library resource must be between 1 byte and ${Math.floor(maximumBytes / 1024 / 1024)} MB`);
+  if (!matches(fileData, mimeType)) throw new AppError(422, "FILE_TYPE_MISMATCH", "Decoded library resource does not match the declared file type");
   return fileData;
 }
 

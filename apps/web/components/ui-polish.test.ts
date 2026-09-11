@@ -54,3 +54,13 @@ test("organization creation preserves subscriptions, platform authorization, and
   assert.match(settingsPage, /\/admin\/image-uploads/);
   assert.match(uploadsRoute, /createStoredImageLocation\(input\.kind, req\.auth!\.organizationId, input\.mimeType\)/);
 });
+
+test("attendance and fee-defaulter pages preserve contract labels and honest empty/action states", () => {
+  const attendance = read("apps/web/app/admin/attendance/page.tsx");
+  const defaulters = read("apps/web/app/admin/fee-defaulters/page.tsx");
+  assert.match(attendance, /b\.branch\.branchName/);
+  assert.match(attendance, /PRESENT/);
+  assert.match(attendance, /FULL_DAY_LEAVE/);
+  assert.match(defaulters, /No fee defaulters found\./);
+  assert.match(defaulters, /internal notification only/);
+});
