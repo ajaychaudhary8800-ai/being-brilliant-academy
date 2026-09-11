@@ -82,6 +82,11 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const terms = useGroupTerminology();
   const accountantRoutes = new Set(["/admin/finance", "/admin/fees", "/admin/fee-defaulters"]);
   const dynamicLabels: Record<DynamicLabel, string> = { courses: terms.courses, groups: terms.plural, educators: terms.educators, assessments: terms.assessments, learning: terms.learning };
+  const groupLabels: Record<string, string> = terms.mode === "SCHOOL"
+    ? { Institution: "School Setup", Academics: "Academics & Assessment", Admissions: "Admissions", "Reports & Analytics": "Reports & Analytics" }
+    : terms.mode === "COACHING"
+      ? { Institution: "Institute Setup", Academics: "Courses & Learning", Admissions: "Leads & Admissions", "Reports & Analytics": "Reports & Performance" }
+      : {};
   const groups = menuGroups.map((group) => ({
     ...group,
     entries: group.entries.filter((entry) => {
@@ -94,9 +99,10 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
 
   return <nav aria-label="Administration navigation" className="space-y-5">
     {groups.map((group) => {
+      const label = groupLabels[group.name] ?? group.name;
       const headingId = `nav-${group.name.replaceAll(" ", "-").toLowerCase()}`;
       return <section key={group.name} aria-labelledby={headingId}>
-        <h2 id={headingId} className="mb-1 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{group.name}</h2>
+        <h2 id={headingId} className="mb-1 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{label}</h2>
         <div className="space-y-1">{group.entries.map((entry) => {
           const Icon = entry.icon;
           const name = entry.dynamicLabel ? dynamicLabels[entry.dynamicLabel] : entry.name;
