@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Bell, CalendarDays, Download, FileText, Mail, MessageCircle, Paperclip, Plus, Search, Send } from "lucide-react";
 import { ProtectedAdminWorkspace } from "../../../components/admin-workspace";
+import { activeAdminOptionUrls } from "../../../components/admin-option-queries";
 import { errorMessage, getAccessToken } from "../../../components/auth-provider";
 import { communicationFields, type CommunicationRow } from "../../../components/communication-display";
 import type { InstitutionRegionalSettings } from "../../../components/institution-time";
@@ -14,7 +15,7 @@ type Option = { id: string; name?: string; title?: string; branchName?: string; 
 type FormState = { title: string; body: string; number: string; audience: string; branchId: string; batchId: string; scheduledAt: string; expiresAt: string; requiresAcknowledgement: boolean; file: File | null };
 
 async function request(path: string, init?: RequestInit) {
-  const response = await fetch(`${API}${path}`, {
+  const response = await fetch(path.startsWith("http") ? path : `${API}${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${getAccessToken() ?? ""}`, ...init?.headers },
   });
@@ -53,7 +54,8 @@ export default function Page() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    void Promise.all([request("/admin/branches?limit=100&status=active"), request("/admin/batches?limit=100&status=active")]).then(([branchResult, batchResult]) => {
+    const options = activeAdminOptionUrls(API);
+    void Promise.all([request(options.branches), request(options.batches)]).then(([branchResult, batchResult]) => {
       setBranches(branchResult.data ?? []);
       setBatches(batchResult.data ?? []);
     }).catch((cause) => setError(errorMessage(cause)));

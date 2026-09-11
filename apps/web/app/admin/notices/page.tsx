@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Archive, Download, Edit3, Loader2, Paperclip, Plus, Search, X } from "lucide-react";
 import { AuthGate, getAccessToken } from "../../../components/auth-provider";
+import { activeAdminOptionUrls } from "../../../components/admin-option-queries";
 import { formatInstitutionDateTime, institutionDateTimeInput, type InstitutionRegionalSettings } from "../../../components/institution-time";
 import Sidebar from "../../../components/sidebar";
 
@@ -48,7 +49,7 @@ function Content() {
   }, [search]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { void Promise.all([fetch(`${API}/admin/branches?limit=100&status=active`, { headers: headers() }).then(json), fetch(`${API}/admin/batches?limit=100&status=active`, { headers: headers() }).then(json)]).then(([branchResult, batchResult]) => { setBranches(branchResult.data ?? []); setBatches(batchResult.data ?? []); }).catch(cause => setError(cause instanceof Error ? cause.message : "Unable to load notice options")); }, []);
+  useEffect(() => { const options = activeAdminOptionUrls(API); void Promise.all([fetch(options.branches, { headers: headers() }).then(json), fetch(options.batches, { headers: headers() }).then(json)]).then(([branchResult, batchResult]) => { setBranches(branchResult.data ?? []); setBatches(batchResult.data ?? []); }).catch(cause => setError(cause instanceof Error ? cause.message : "Unable to load notice options")); }, []);
 
   function openCreate() {
     setForm({ ...blank, publishedAt: institutionDateTimeInput(new Date(), settings.timeZone) });
