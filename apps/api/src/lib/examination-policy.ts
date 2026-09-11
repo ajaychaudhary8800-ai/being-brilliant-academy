@@ -1,4 +1,4 @@
-import { AnswerSheetStatus, ExaminationResultStatus, ExaminationStatus, Role } from "@prisma/client";
+import { AnswerSheetStatus, ExaminationResultStatus, ExaminationStatus, Role, StudentStatus } from "@prisma/client";
 import { AppError } from "./http.js";
 
 export function assertEvaluationOpen(finalizedAt: Date | null) {
@@ -38,6 +38,13 @@ export function examinationResultFor(marks: number, maximumMarks: number, passin
 
 export function assertStudentExaminationEligible<T extends { organizationId: string; batchId: string; academicSessionId: string }>(student: T | null, exam: { organizationId: string; batchId: string; academicSessionId: string }): asserts student is T {
   if (!student || student.organizationId !== exam.organizationId || student.batchId !== exam.batchId || student.academicSessionId !== exam.academicSessionId) throw new AppError(403, "EXAMINATION_ACCESS_DENIED", "This examination is not assigned to your organization, batch and academic session");
+}
+
+export function assertActiveStudentExaminationEligible<T extends { organizationId: string; branchId: string; batchId: string; academicSessionId: string; status: StudentStatus; user: { isActive: boolean } }>(student: T | null, exam: { organizationId: string; branchId: string; batchId: string; academicSessionId: string }): asserts student is T {
+  assertStudentExaminationEligible(student, exam);
+  if (!student.user.isActive || student.status !== StudentStatus.ACTIVE || student.branchId !== exam.branchId) {
+    throw new AppError(403, "EXAMINATION_ACCESS_DENIED", "An active student in the examination branch, batch and academic session is required");
+  }
 }
 
 export function assertStudentExaminationPublished(status: ExaminationStatus) {

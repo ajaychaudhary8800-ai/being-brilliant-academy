@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { examinationCodeConflict, isExaminationCodeConflict } from "../lib/examination-uniqueness.js";
 import { AppError } from "../lib/http.js";
+import { requireRequestedBranch } from "../lib/branch-policy.js";
 import { assertExaminationHistoricalFieldsEditable, assertExaminationStatusTransition, assertSingleConditionalMutation, changesCoreExaminationField } from "../lib/examination-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -102,14 +103,13 @@ async function assertPublishable(client: Prisma.TransactionClient, examinationId
 
 router.get("/examinations/options", async (req: AuthRequest, res) => {
   const ids = await scope(req);
-  const [branches, batches, teachers, subjects, students] = await Promise.all([
-    prisma.branch.findMany({ where: ids ? { id: { in: ids } } : {}, select: { id: true, branchName: true, branchCode: true } }),
-    prisma.batch.findMany({ where: ids ? { branchId: { in: ids } } : {}, select: { id: true, name: true, code: true, branchId: true, courseId: true, academicSession: true, course: { select: { title: true } } } }),
-    prisma.teacherProfile.findMany({ where: ids ? { branchId: { in: ids } } : {}, select: { id: true, branchId: true, user: { select: { name: true } } } }),
-    prisma.courseSubject.findMany({ where: { isActive: true }, select: { courseId: true, subject: { select: { id: true, name: true, code: true } } } }),
+  const [branches, batches, teachers, students] = await Promise.all([
+    prisma.branch.findMany({ where: { isActive: true, ...(ids ? { id: { in: ids } } : {}) }, select: { id: true, branchName: true, branchCode: true } }),
+    prisma.batch.findMany({ where: { status: "ACTIVE", branch: { isActive: true }, ...(ids ? { branchId: { in: ids } } : {}) }, select: { id: true, name: true, code: true, branchId: true, courseId: true, academicSession: true, course: { select: { title: true } } } }),
+    prisma.teacherProfile.findMany({ where: { user: { isActive: true }, ...(ids ? { branchId: { in: ids } } : {}) }, select: { id: true, branchId: true, user: { select: { name: true } } } }),
     prisma.studentProfile.findMany({ where: ids ? { branchId: { in: ids } } : {}, select: { id: true, batchId: true, admissionNo: true, rollNo: true, user: { select: { name: true } } } }),
   ]);
-  res.json({ data: { branches: branches.map(value => ({ ...value, name: value.branchName, code: value.branchCode })), batches, teachers, subjects, students } });
+  res.json({ data: { branches: branches.map(value => ({ ...value, name: value.branchName, code: value.branchCode })), batches, teachers, subjects: [], students } });
 });
 
 router.get("/examinations/dashboard", async (req: AuthRequest, res) => {
@@ -138,7 +138,7 @@ router.get("/examinations/export", async (req: AuthRequest, res) => {
 router.get("/examinations", async (req: AuthRequest, res) => {
   const query = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20), search: z.string().trim().optional(), branchId: z.string().cuid().optional(), courseId: z.string().cuid().optional(), batchId: z.string().cuid().optional(), subjectId: z.string().cuid().optional(), teacherId: z.string().cuid().optional(), type: z.nativeEnum(ExaminationType).optional(), status: z.nativeEnum(ExaminationStatus).optional(), academicSession: z.string().optional(), sortBy: z.enum(["name", "code", "examDate", "startMinute", "maximumMarks", "status", "createdAt"]).default("examDate"), sortOrder: z.enum(["asc", "desc"]).default("asc") }).parse(req.query);
   const ids = await scope(req);
-  const where = { ...(ids ? { branchId: { in: ids } } : {}), ...(query.branchId ? { branchId: query.branchId } : {}), ...(query.courseId ? { courseId: query.courseId } : {}), ...(query.batchId ? { batchId: query.batchId } : {}), ...(query.subjectId ? { subjectId: query.subjectId } : {}), ...(query.teacherId ? { teacherId: query.teacherId } : {}), ...(query.type ? { type: query.type } : {}), ...(query.status ? { status: query.status } : {}), ...(query.academicSession ? { academicSession: query.academicSession } : {}), ...(query.search ? { OR: [{ name: { contains: query.search, mode: "insensitive" as const } }, { code: { contains: query.search, mode: "insensitive" as const } }, { batch: { name: { contains: query.search, mode: "insensitive" as const } } }, { subject: { name: { contains: query.search, mode: "insensitive" as const } } }] } : {}) };
+  const where = { ...requireRequestedBranch(req.auth!.role, ids ?? [], query.branchId), ...(query.courseId ? { courseId: query.courseId } : {}), ...(query.batchId ? { batchId: query.batchId } : {}), ...(query.subjectId ? { subjectId: query.subjectId } : {}), ...(query.teacherId ? { teacherId: query.teacherId } : {}), ...(query.type ? { type: query.type } : {}), ...(query.status ? { status: query.status } : {}), ...(query.academicSession ? { academicSession: query.academicSession } : {}), ...(query.search ? { OR: [{ name: { contains: query.search, mode: "insensitive" as const } }, { code: { contains: query.search, mode: "insensitive" as const } }, { batch: { name: { contains: query.search, mode: "insensitive" as const } } }, { subject: { name: { contains: query.search, mode: "insensitive" as const } } }] } : {}) };
   const [total, data] = await prisma.$transaction([prisma.examination.count({ where }), prisma.examination.findMany({ where, select, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { [query.sortBy]: query.sortOrder } })]);
   res.json({ data: data.map(shape), meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
 });

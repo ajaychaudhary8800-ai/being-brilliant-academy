@@ -15,3 +15,8 @@ test("the LMS preview uses authenticated delivery only for stored video", () => 
   assert.match(source, /selected\.videoName\?<AuthenticatedVideo/);
   assert.match(source, /selected\.videoUrl\?<video/);
 });
+
+test("the effective web CSP permits authenticated Blob and external HTTPS video sources", () => {
+  const nginx = readFileSync(new URL("../../../infra/nginx/nginx.conf", import.meta.url), "utf8");
+  assert.match(nginx, /media-src 'self' blob: https:/);
+});

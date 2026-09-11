@@ -1,4 +1,4 @@
-import { SubjectLegacyReviewStatus, SubjectStatus, TeacherAllocationStatus } from "@prisma/client";
+import { BatchStatus, SubjectLegacyReviewStatus, SubjectStatus, TeacherAllocationStatus } from "@prisma/client";
 import { AppError } from "./http.js";
 import { prisma } from "./prisma.js";
 
@@ -20,6 +20,10 @@ export function allocationWhere(context: SubjectContext) {
     academicSessionId: context.academicSessionId,
     ...(context.subjectId ? { subjectId: context.subjectId } : {}),
     status: TeacherAllocationStatus.ACTIVE,
+    branch: { isActive: true },
+    academicSession: { isArchived: false },
+    batch: { status: BatchStatus.ACTIVE },
+    teacher: { branchId: context.branchId, user: { isActive: true } },
     ...(effectiveAt
       ? { effectiveFrom: { lte: effectiveAt }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveAt } }] }
       : { effectiveFrom: { lte: context.rangeEnd! }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: context.rangeStart! } }] }),

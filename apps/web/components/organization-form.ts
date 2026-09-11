@@ -5,6 +5,13 @@ export const organizationCreationCopy = {
 
 export const defaultOrganizationTimezone = "Asia/Kolkata";
 
+export const organizationGroupTerminologyOptions = [
+  ["SECTION", "Section"],
+  ["BATCH", "Batch"],
+  ["GROUP", "Group"],
+  ["CUSTOM", "Custom label"],
+] as const;
+
 export function organizationSlug(name: string) {
   return name.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }

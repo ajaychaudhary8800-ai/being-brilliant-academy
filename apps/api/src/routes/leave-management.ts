@@ -5,6 +5,7 @@ import { AppError } from "../lib/http.js";
 import { assertLeaveAttendanceCompatible, attendanceStatusForLeave, validateLeaveDates } from "../lib/leave-attendance-policy.js";
 import { assertParentLeaveStudentAuthorized, isLegacyParentLeave, leaveDecisionRecipient } from "../lib/parent-leave-policy.js";
 import { prisma } from "../lib/prisma.js";
+import { storedDocumentHeaders } from "../lib/secure-download.js";
 import { assertDocumentFileExtension, decodeVerifiedUpload } from "../lib/secure-upload.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
@@ -184,7 +185,7 @@ router.delete("/portal/leaves/:leaveId", async (req: AuthRequest, res) => {
 async function sendAttachment(res: Response, leave: { attachmentName: string | null; attachmentMime: string | null; attachmentData: Uint8Array | null } | null) {
   if (!leave?.attachmentData || !leave.attachmentName || !leave.attachmentMime) throw new AppError(404, "LEAVE_ATTACHMENT_NOT_FOUND", "Leave attachment not found");
   const data = Buffer.from(leave.attachmentData);
-  res.set({ "Content-Type": leave.attachmentMime, "Content-Length": String(data.length), "Content-Disposition": `attachment; filename="${leave.attachmentName.replace(/["\r\n]/g, "")}"` }).send(data);
+  res.set(storedDocumentHeaders({ fileName: leave.attachmentName, mimeType: leave.attachmentMime, fileSize: data.length, fallbackName: "leave-attachment" }, "attachment")).send(data);
 }
 
 router.get("/portal/leaves/:leaveId/attachment", async (req: AuthRequest, res) => {

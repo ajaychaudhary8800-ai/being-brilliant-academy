@@ -8,6 +8,8 @@ export type PaidFeeIdentity = {
   batchId: string | null;
   feeHead: string;
   totalPaise: number;
+  discountPaise: number;
+  finePaise: number;
   dueDate: Date;
 };
 
@@ -20,6 +22,8 @@ export const paidFeeIdentityFields = [
   "batchId",
   "feeHead",
   "totalPaise",
+  "discountPaise",
+  "finePaise",
   "dueDate",
 ] as const;
 
@@ -138,6 +142,16 @@ export function assertPaymentWithinAuthoritativeBalance(total: number, discount:
   const balance = total - discount + fine - paid;
   if (amount > balance) throw new AppError(422, "PAYMENT_EXCEEDS_BALANCE", "Payment cannot exceed balance");
   return balance;
+}
+
+export type FeeAdjustmentType = "REFUND" | "DISCOUNT" | "SCHOLARSHIP" | "FINE";
+
+export function adjustedFeeAmounts(current: { totalPaise: number; discountPaise: number; finePaise: number; amountPaidPaise: number }, type: FeeAdjustmentType, amountPaise: number) {
+  const discountPaise = type === "DISCOUNT" || type === "SCHOLARSHIP" ? current.discountPaise + amountPaise : current.discountPaise;
+  const finePaise = type === "FINE" ? current.finePaise + amountPaise : current.finePaise;
+  if (discountPaise > current.totalPaise) throw new AppError(422, "INVALID_FEE_ADJUSTMENT", "Discount and scholarship adjustments cannot exceed the original fee amount");
+  if (current.totalPaise - discountPaise + finePaise < current.amountPaidPaise) throw new AppError(422, "ADJUSTMENT_BELOW_PAID", "An adjustment cannot reduce the obligation below the amount already paid");
+  return { discountPaise, finePaise };
 }
 
 export function isSerializableConflict(error: unknown) {

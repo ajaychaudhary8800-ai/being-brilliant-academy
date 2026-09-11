@@ -58,6 +58,10 @@ test("current server time, never a backdated assigned date, defines Teacher allo
     academicSessionId: "session-a",
     subjectId: "subject-a",
     status: TeacherAllocationStatus.ACTIVE,
+    branch: { isActive: true },
+    academicSession: { isArchived: false },
+    batch: { status: "ACTIVE" },
+    teacher: { branchId: "branch-a", user: { isActive: true } },
     effectiveFrom: { lte: serverNow },
     OR: [{ effectiveTo: null }, { effectiveTo: { gte: serverNow } }],
   });

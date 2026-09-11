@@ -96,7 +96,7 @@ test("tenant, branch, question-paper, submission, and grading authorization rema
   assert.match(admin, /await access\(req, partial\.branchId\)/);
   assert.match(branchEnforcement, /branchUser\.findFirst/);
   assert.match(branchEnforcement, /BRANCH_FORBIDDEN/);
-  assert.match(workflow, /assertStudentExaminationEligible\(student, exam\)/);
+  assert.match(workflow, /assertActiveStudentExaminationEligible\(student, exam\)/);
   assert.match(workflow, /assertExaminationManager\(req\.auth!\.role/);
   assert.match(workflow, /organizationId: req\.auth!\.organizationId/);
   assert.match(workflow, /assertEvaluationOpen/);
