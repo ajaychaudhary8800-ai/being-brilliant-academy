@@ -116,6 +116,27 @@ export function institutionCalendarDate(instant: Date, timeZone: string) {
   return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function nextCalendarDate(value: string) {
+  const date = parseDateOnly(value);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+export function institutionDateRange(from: string, to: string, timeZone: string) {
+  parseDateOnly(from);
+  parseDateOnly(to);
+  if (from > to) throw new AppError(422, "INVALID_DATE_RANGE", "From date must be on or before To date");
+  return {
+    start: parseInstitutionDateTime(`${from}T00:00`, timeZone),
+    endExclusive: parseInstitutionDateTime(`${nextCalendarDate(to)}T00:00`, timeZone),
+  };
+}
+
+export function institutionDayRange(instant: Date, timeZone: string) {
+  const date = institutionCalendarDate(instant, timeZone);
+  return institutionDateRange(date, date, timeZone);
+}
+
 function assertHomeworkDateOrder(dates: HomeworkDates, timeZone: string) {
   // assignedDate stores a calendar date; only dueDate represents an instant.
   if (institutionCalendarDate(dates.dueDate, timeZone) < dates.assignedDate.toISOString().slice(0, 10)) {

@@ -5,6 +5,8 @@ import { z } from "zod";
 import { requireRequestedBranch } from "../lib/branch-policy.js";
 import { assertFeeCanBeDeleted, assertFinanceBranchAccess, assertPaidFeeIdentityUnchanged, assertPaymentWithinAuthoritativeBalance, feeStatus, isSerializableConflict, safeFinanceAuditMetadata } from "../lib/finance-integrity.js";
 import { AppError } from "../lib/http.js";
+import { financeOperationsSummary } from "../lib/fee-reporting.js";
+import { institutionCalendarDate, institutionDateRange, institutionDayRange, parseInstitutionDateTimeOrInstant } from "../lib/institution-time.js";
 import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
@@ -31,7 +33,9 @@ const select = {
   student: { select: { id: true, admissionNo: true, user: { select: { id: true, name: true, email: true } } } },
   branch: { select: { id: true, branchName: true, branchCode: true } },
   course: { select: { id: true, title: true, courseCode: true } }, batch: { select: { id: true, name: true, code: true } },
-  payments: { orderBy: { paymentDate: "desc" as const } },
+  studentFeeAssignment: { select: { id: true, assignedAt: true, feePlan: { select: { id: true, code: true, name: true, version: true, status: true } } } },
+  feePlanComponent: { select: { id: true, installment: { select: { id: true, title: true, sequence: true, dueDate: true } } } },
+  payments: { orderBy: { paymentDate: "desc" as const }, select: { id: true, amountPaise: true, paymentDate: true, paymentMode: true, transactionId: true, receiptNumber: true, remarks: true, collectedById: true, offsets: { orderBy: { createdAt: "desc" as const }, select: { id: true, type: true, amountPaise: true, reason: true, reference: true, createdAt: true, createdBy: { select: { id: true, name: true, email: true } } } } } },
 } as const;
 const decorate = <T extends { totalPaise: number; discountPaise: number; finePaise: number; amountPaidPaise: number }>(fee: T) => ({ ...fee, balancePaise: Math.max(0, fee.totalPaise - fee.discountPaise + fee.finePaise - fee.amountPaidPaise) });
 const dateOnly = (value: Date) => new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
@@ -45,6 +49,11 @@ async function branchWhere(req: AuthRequest, requestedBranchId?: string) {
 }
 async function access(req: AuthRequest, branchId: string) {
   assertFinanceBranchAccess(req.auth!.role, await assignedBranchIds(req), branchId);
+}
+async function organizationTimezone(req: AuthRequest) {
+  const organization = await prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { timezone: true } });
+  if (!organization) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
+  return organization.timezone;
 }
 async function relations(db: Prisma.TransactionClient | typeof prisma, data: { studentId: string; branchId: string; courseId?: string | null; batchId?: string | null }) {
   const student = await db.studentProfile.findUnique({ where: { id: data.studentId }, select: { branchId: true, batchId: true, batch: { select: { courseId: true } } } });
@@ -60,18 +69,25 @@ const auditRecord = (req: AuthRequest, action: string, entity: string, entityId:
 
 router.get("/fees/dashboard", async (req: AuthRequest, res) => {
   const query = z.object({ branchId: z.string().cuid().optional() }).parse(req.query), where = await branchWhere(req, query.branchId);
-  const [fees, payments] = await Promise.all([
+  const now = new Date(), timeZone = await organizationTimezone(req), today = institutionDayRange(now, timeZone);
+  const [fees, dailyPayments, grossPayments, offsetGroups] = await Promise.all([
     prisma.fee.findMany({ where, select: { totalPaise: true, discountPaise: true, finePaise: true, amountPaidPaise: true, dueDate: true, status: true } }),
-    prisma.feePayment.aggregate({ _sum: { amountPaise: true }, where: { paymentDate: { gte: new Date(new Date().setHours(0, 0, 0, 0)) }, fee: where } }),
+    prisma.feePayment.aggregate({ _sum: { amountPaise: true }, where: { paymentDate: { gte: today.start, lt: today.endExclusive }, fee: where } }),
+    prisma.feePayment.aggregate({ _sum: { amountPaise: true }, where: { fee: where } }),
+    prisma.feePaymentOffset.groupBy({ by: ["type"], where: { feePayment: { fee: where } }, _sum: { amountPaise: true } }),
   ]);
-  let total = 0, paid = 0, pending = 0, overdue = 0;
-  for (const item of fees) { const net = item.totalPaise - item.discountPaise + item.finePaise; total += net; paid += item.amountPaidPaise; pending += Math.max(0, net - item.amountPaidPaise); if (item.amountPaidPaise < net && dateOnly(item.dueDate) < dateOnly(new Date())) overdue++; }
-  res.json({ data: { records: fees.length, totalPaise: total, paidPaise: paid, pendingPaise: pending, overdue, dailyCollectionPaise: payments._sum.amountPaise ?? 0 } });
+  const summary = financeOperationsSummary(fees, grossPayments._sum.amountPaise ?? 0, offsetGroups.map(item => ({ type: item.type, amountPaise: item._sum.amountPaise })), institutionCalendarDate(now, timeZone));
+  res.json({ data: { ...summary, totalPaise: summary.totalReceivablePaise, paidPaise: summary.effectiveCollectedPaise, pendingPaise: summary.outstandingPaise, overdue: summary.overdueFees, dailyCollectionPaise: dailyPayments._sum.amountPaise ?? 0 } });
 });
 router.get("/fees/reports", async (req: AuthRequest, res) => {
-  const query = z.object({ from: z.coerce.date(), to: z.coerce.date(), branchId: z.string().cuid().optional() }).parse(req.query), fee = await branchWhere(req, query.branchId);
-  const payments = await prisma.feePayment.findMany({ where: { paymentDate: { gte: query.from, lte: query.to }, fee }, include: { fee: { include: { student: { include: { user: true } }, branch: true } } }, orderBy: { paymentDate: "asc" } });
-  res.json({ data: { totalPaise: payments.reduce((sum, item) => sum + item.amountPaise, 0), payments } });
+  const query = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), branchId: z.string().cuid().optional() }).strict().parse(req.query), fee = await branchWhere(req, query.branchId);
+  const range = institutionDateRange(query.from, query.to, await organizationTimezone(req));
+  const [payments, offsetGroups] = await Promise.all([
+    prisma.feePayment.aggregate({ where: { paymentDate: { gte: range.start, lt: range.endExclusive }, fee }, _sum: { amountPaise: true } }),
+    prisma.feePaymentOffset.groupBy({ by: ["type"], where: { createdAt: { gte: range.start, lt: range.endExclusive }, feePayment: { fee } }, _sum: { amountPaise: true } }),
+  ]);
+  const report = financeOperationsSummary([], payments._sum.amountPaise ?? 0, offsetGroups.map(item => ({ type: item.type, amountPaise: item._sum.amountPaise })), query.to);
+  res.json({ data: { totalPaise: report.grossCollectedPaise, grossCollectedPaise: report.grossCollectedPaise, refundsPaise: report.refundsPaise, reversalsPaise: report.reversalsPaise, netEffectiveCollectionPaise: report.netEffectiveCollectionPaise } });
 });
 router.get("/fees/export", async (req: AuthRequest, res) => {
   const query = z.object({ format: z.enum(["pdf", "excel"]), from: z.coerce.date(), to: z.coerce.date() }).parse(req.query), fee = await branchWhere(req);
@@ -90,6 +106,25 @@ router.get("/fees", async (req: AuthRequest, res) => {
   const where = { ...await branchWhere(req, query.branchId), ...(query.courseId ? { courseId: query.courseId } : {}), ...(query.batchId ? { batchId: query.batchId } : {}), ...(query.studentId ? { studentId: query.studentId } : {}), ...(query.status ? { status: query.status } : {}), ...(query.search ? { OR: [{ feeHead: { contains: query.search, mode: "insensitive" as const } }, { student: { admissionNo: { contains: query.search, mode: "insensitive" as const } } }, { student: { user: { name: { contains: query.search, mode: "insensitive" as const } } } }, { payments: { some: { receiptNumber: { contains: query.search, mode: "insensitive" as const } } } }] } : {}) };
   const [total, data] = await prisma.$transaction([prisma.fee.count({ where }), prisma.fee.findMany({ where, select, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { [query.sortBy]: query.sortOrder } })]);
   res.json({ data: data.map(decorate), meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
+});
+router.get("/fees/payments", async (req: AuthRequest, res) => {
+  const query = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20), search: z.string().trim().optional(), branchId: z.string().cuid().optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).strict().refine(value => Boolean(value.from) === Boolean(value.to), { message: "From and To dates must be provided together" }).parse(req.query);
+  const feeScope = await branchWhere(req, query.branchId);
+  const range = query.from && query.to ? institutionDateRange(query.from, query.to, await organizationTimezone(req)) : null;
+  const where = {
+    ...(range ? { paymentDate: { gte: range.start, lt: range.endExclusive } } : {}),
+    fee: feeScope,
+    ...(query.search ? { OR: [
+      { receiptNumber: { contains: query.search, mode: "insensitive" as const } },
+      { transactionId: { contains: query.search, mode: "insensitive" as const } },
+      { fee: { feeHead: { contains: query.search, mode: "insensitive" as const } } },
+      { fee: { student: { admissionNo: { contains: query.search, mode: "insensitive" as const } } } },
+      { fee: { student: { user: { name: { contains: query.search, mode: "insensitive" as const } } } } },
+    ] } : {}),
+  };
+  const paymentSelect = { id: true, amountPaise: true, paymentDate: true, paymentMode: true, transactionId: true, receiptNumber: true, remarks: true, collectedById: true, createdAt: true, offsets: { orderBy: { createdAt: "desc" as const }, select: { id: true, type: true, amountPaise: true, reason: true, reference: true, createdAt: true, createdBy: { select: { id: true, name: true, email: true } } } }, fee: { select: { id: true, feeHead: true, branchId: true, student: { select: { id: true, admissionNo: true, user: { select: { id: true, name: true, email: true } } } }, branch: { select: { id: true, branchName: true, branchCode: true } } } } } as const;
+  const [total, data] = await prisma.$transaction([prisma.feePayment.count({ where }), prisma.feePayment.findMany({ where, select: paymentSelect, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { paymentDate: "desc" } })]);
+  res.json({ data, meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
 });
 router.get("/fees/:id", async (req: AuthRequest, res) => {
   const data = await prisma.fee.findUnique({ where: { id: String(req.params.id) }, select }); if (!data) throw new AppError(404, "FEE_NOT_FOUND", "Fee not found"); await access(req, data.branch.id); res.json({ data: decorate(data) });
@@ -121,7 +156,8 @@ router.patch("/fees/:id", allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN), async (req
   }
 });
 router.post("/fees/:id/collect", async (req: AuthRequest, res) => {
-  const data = z.object({ amountPaise: z.number().int().positive(), paymentDate: z.coerce.date().default(() => new Date()), paymentMode: z.nativeEnum(PaymentMode), transactionId: z.string().trim().min(2).max(120).nullable().optional(), remarks: z.string().trim().max(1000).nullable().optional() }).parse(req.body);
+  const raw = z.object({ amountPaise: z.number().int().positive().max(2_147_483_647), paymentDate: z.string().trim().optional(), paymentMode: z.nativeEnum(PaymentMode), transactionId: z.string().trim().min(2).max(120).nullable().optional(), remarks: z.string().trim().max(1000).nullable().optional() }).strict().parse(req.body);
+  const data = { ...raw, paymentDate: raw.paymentDate ? parseInstitutionDateTimeOrInstant(raw.paymentDate, await organizationTimezone(req)) : new Date() };
   const permittedBranchIds = await assignedBranchIds(req);
   try {
     const result = await prisma.$transaction(async tx => {

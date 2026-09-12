@@ -50,15 +50,20 @@ test("Accountant fee requests reach the role-aware routers before broad admin gu
 
 test("Accountant fee pages avoid admin-only initialization and suppress prohibited controls", async () => {
   const fees = await readFile(new URL("../../../web/app/admin/fees/page.tsx", import.meta.url), "utf8");
+  const feeWorkspace = await readFile(new URL("../../../web/components/finance-workspace.tsx", import.meta.url), "utf8");
   const finance = await readFile(new URL("../../../web/app/admin/finance/page.tsx", import.meta.url), "utf8");
   const auth = await readFile(new URL("../../../web/components/auth-provider.tsx", import.meta.url), "utf8");
 
   assert.match(fees, /AuthGate roles=\{\["SUPER_ADMIN","BRANCH_ADMIN","ACCOUNTANT"\]\}/);
-  assert.match(fees, /if\(!canManageFees\)return;[^]*\/admin\/students[^]*\/admin\/batches/);
-  assert.match(fees, /canManageFees&&<button onClick=\{\(\)=>void open\("form"\)\}[^]*Add Fee/);
-  assert.match(fees, /canManageFees&&<button onClick=\{\(\)=>void open\("form",f\)\}[^]*Edit<\/button>/);
-  assert.match(fees, /canManageFees&&<button onClick=\{\(\)=>void remove\(f\)\}[^]*Trash2/);
-  assert.match(fees, /\/fees\/\$\{selected!\.id\}\/collect/);
+  assert.match(feeWorkspace, /const canManage = user\?\.role === "SUPER_ADMIN" \|\| user\?\.role === "BRANCH_ADMIN"/);
+  assert.match(feeWorkspace, /if \(!canManage \|\| studentSearch\.trim\(\)\.length < 2\)[^]*\/admin\/students\?\$\{query\}/);
+  assert.match(feeWorkspace, /if \(canManage && !sessions\.length\)[^]*\/admin\/batches/);
+  assert.match(feeWorkspace, /canManage[^]*New Fee Plan/);
+  assert.match(feeWorkspace, /canManage[^]*Manual Fee/);
+  assert.match(feeWorkspace, /canManage[^]*Edit/);
+  assert.match(feeWorkspace, /canOffset=\{canManage\}/);
+  assert.match(feeWorkspace, />Collect<\/button>/);
+  assert.match(feeWorkspace, /\/admin\/fees\/\$\{collecting\.id\}\/collect/);
   assert.match(finance, /canImportAccounts && tab === "accounts" && <label/);
   assert.match(finance, /user\?\.role === "SUPER_ADMIN" \|\| user\?\.role === "BRANCH_ADMIN"/);
   assert.doesNotMatch(auth, /accountantFeeAccess/);

@@ -4,6 +4,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { assertFinanceBranchAccess, feeStatus, isSerializableConflict, safeFinanceAuditMetadata } from "../lib/finance-integrity.js";
 import { AppError } from "../lib/http.js";
+import { institutionDateRange } from "../lib/institution-time.js";
 import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
@@ -21,9 +22,11 @@ const query = z.object({
   feeId: z.string().cuid().optional(),
   type: z.nativeEnum(FeePaymentOffsetType).optional(),
   branchId: z.string().cuid().optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
-}).strict();
+}).strict().refine(value => Boolean(value.from) === Boolean(value.to), { message: "From and To dates must be provided together" });
 
 const scope = async (req: AuthRequest) => req.auth!.role === Role.SUPER_ADMIN
   ? null
@@ -44,7 +47,7 @@ const json = (value: any): any => typeof value === "bigint"
 type PaymentRow = { organizationId: string; id: string; feeId: string; amountPaise: number };
 
 const include = {
-  feePayment: { include: { fee: { select: { id: true, organizationId: true, studentId: true, branchId: true, totalPaise: true, discountPaise: true, finePaise: true, amountPaidPaise: true, dueDate: true, status: true } } } },
+  feePayment: { include: { fee: { select: { id: true, organizationId: true, studentId: true, branchId: true, feeHead: true, totalPaise: true, discountPaise: true, finePaise: true, amountPaidPaise: true, dueDate: true, status: true, student: { select: { id: true, admissionNo: true, user: { select: { id: true, name: true } } } } } } } },
   createdBy: { select: { id: true, name: true, email: true } },
 } as const;
 
@@ -81,6 +84,7 @@ async function format(offset: any) {
     remainingPaymentPaise: Math.max(0, original - totalOffset),
     effectiveAmountPaidPaise: Number(fee.amountPaidPaise),
     currentFeeStatus: fee.status,
+    fee: { id: fee.id, feeHead: fee.feeHead, student: fee.student },
   };
 }
 
@@ -169,7 +173,10 @@ router.get("/finance/payment-offsets", async (req: AuthRequest, res) => {
   if (permitted && permitted.length === 0) return res.json({ data: [], meta: { total: 0, page: filters.page, limit: filters.limit, totalPages: 1 } });
   const branchIds = filters.branchId ? [filters.branchId] : permitted;
   if (filters.branchId && permitted && !permitted.includes(filters.branchId)) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
-  const where: any = { organizationId: req.auth!.organizationId, ...(filters.feePaymentId ? { feePaymentId: filters.feePaymentId } : {}), ...(filters.feeId ? { feeId: filters.feeId } : {}), ...(filters.type ? { type: filters.type } : {}), ...(branchIds ? { feePayment: { fee: { branchId: { in: branchIds } } } } : {}) };
+  const organization = filters.from && filters.to ? await prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { timezone: true } }) : null;
+  if (filters.from && filters.to && !organization) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
+  const range = filters.from && filters.to ? institutionDateRange(filters.from, filters.to, organization!.timezone) : null;
+  const where: any = { organizationId: req.auth!.organizationId, ...(filters.feePaymentId ? { feePaymentId: filters.feePaymentId } : {}), ...(filters.feeId ? { feeId: filters.feeId } : {}), ...(filters.type ? { type: filters.type } : {}), ...(range ? { createdAt: { gte: range.start, lt: range.endExclusive } } : {}), ...(branchIds ? { feePayment: { fee: { branchId: { in: branchIds } } } } : {}) };
   const [rows, total] = await Promise.all([
     prisma.feePaymentOffset.findMany({ where, include, orderBy: { createdAt: "desc" }, skip: (filters.page - 1) * filters.limit, take: filters.limit }),
     prisma.feePaymentOffset.count({ where }),

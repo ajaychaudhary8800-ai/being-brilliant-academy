@@ -83,9 +83,9 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const accountantRoutes = new Set(["/admin/finance", "/admin/fees", "/admin/fee-defaulters"]);
   const dynamicLabels: Record<DynamicLabel, string> = { courses: terms.courses, groups: terms.plural, educators: terms.educators, assessments: terms.assessments, learning: terms.learning };
   const groupLabels: Record<string, string> = terms.mode === "SCHOOL"
-    ? { Institution: "School Setup", Academics: "Academics & Assessment", Admissions: "Admissions", "Reports & Analytics": "Reports & Analytics" }
+    ? { Institution: "School Setup", Academics: "Academics & Assessment", Admissions: "Admissions", "Fees & Finance": "School Fees & Finance", "Reports & Analytics": "Reports & Analytics" }
     : terms.mode === "COACHING"
-      ? { Institution: "Institute Setup", Academics: "Courses & Learning", Admissions: "Leads & Admissions", "Reports & Analytics": "Reports & Performance" }
+      ? { Institution: "Institute Setup", Academics: "Courses & Learning", Admissions: "Leads & Admissions", "Fees & Finance": "Course Fees & Finance", "Reports & Analytics": "Reports & Performance" }
       : {};
   const groups = menuGroups.map((group) => ({
     ...group,
@@ -105,7 +105,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
         <h2 id={headingId} className="mb-1 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{label}</h2>
         <div className="space-y-1">{group.entries.map((entry) => {
           const Icon = entry.icon;
-          const name = entry.dynamicLabel ? dynamicLabels[entry.dynamicLabel] : entry.name;
+          const name = entry.href === "/admin/fees" ? terms.mode === "SCHOOL" ? "School Fees" : terms.mode === "COACHING" ? "Course Fees" : entry.name : entry.dynamicLabel ? dynamicLabels[entry.dynamicLabel] : entry.name;
           const active = pathname === entry.href || (entry.href !== "/admin" && pathname.startsWith(`${entry.href}/`));
           return <Link key={entry.href} href={entry.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${active ? "bg-brand-700 text-white shadow-lg shadow-blue-900/15" : "text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-900"}`}><Icon aria-hidden="true" size={18}/>{name}</Link>;
         })}</div>
