@@ -576,6 +576,7 @@ model Organization {
   specializations        Specialization[]
   examinationQuestionPapers ExaminationQuestionPaper[]
   examinationAnswerSheets ExaminationAnswerSheet[]
+  feePlans               FeePlan[]
 
   @@index([subscriptionStatus, isActive])
 }
@@ -599,6 +600,7 @@ model AcademicSession {
   timetablePeriods TimetablePeriod[]
   teacherDuties TeacherDuty[]
   substitutions TeacherSubstitution[]
+  feePlans FeePlan[]
 
   @@unique([organizationId, name])
   @@index([organizationId, isCurrent])
@@ -1005,6 +1007,13 @@ enum FeeStatus {
   CANCELLED
 }
 
+enum FeePlanStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
 enum PaymentMode {
   CASH
   CARD
@@ -1271,6 +1280,7 @@ model User {
   teacherAllocationsCreated TeacherAllocation[] @relation("TeacherAllocationCreatedBy")
   teacherAllocationsUpdated TeacherAllocation[] @relation("TeacherAllocationUpdatedBy")
   substitutionsApproved TeacherSubstitution[] @relation("SubstitutionApprover")
+  createdFeePlans       FeePlan[] @relation("FeePlanCreator")
 
   @@index([organizationId])
 }
@@ -1337,6 +1347,7 @@ model Branch {
   hrHolidays            HrHoliday[]
   recruitmentCandidates RecruitmentCandidate[]
   payrollRuns           PayrollRun[]
+  feePlans              FeePlan[]
   financialYears        FinancialYear[]
   ledgerAccounts        LedgerAccount[]
   journalEntries        JournalEntry[]
@@ -1521,6 +1532,7 @@ model Course {
   lmsLessons           Lesson[]        @relation("LmsLessonCourse")
   teacherAllocations   TeacherAllocation[]
   substitutions        TeacherSubstitution[]
+  feePlans             FeePlan[]
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
@@ -1741,6 +1753,7 @@ model Batch {
   calendarEvents    CalendarEvent[]
   teacherAllocations TeacherAllocation[]
   substitutions TeacherSubstitution[]
+  feePlans          FeePlan[]
 
   @@index([branchId])
   @@index([courseId])
@@ -4159,6 +4172,74 @@ model FinanceBankTransaction {
 
   @@unique([bankAccountId, reference])
   @@index([organizationId])
+}
+
+model FeePlan {
+  organizationId    String
+  id                String               @id @default(cuid())
+  familyKey         String
+  code              String
+  name              String
+  version           Int                  @default(1)
+  status            FeePlanStatus        @default(DRAFT)
+  academicSessionId String
+  branchId          String?
+  courseId          String?
+  batchId           String?
+  supersedesId      String?
+  createdById       String
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  academicSession   AcademicSession      @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  branch            Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  course            Course?              @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  batch             Batch?               @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  supersedes        FeePlan?             @relation("FeePlanVersions", fields: [organizationId, supersedesId], references: [organizationId, id], onDelete: Restrict)
+  versions          FeePlan[]            @relation("FeePlanVersions")
+  createdBy         User                 @relation("FeePlanCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  installments      FeePlanInstallment[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, familyKey, version])
+  @@unique([organizationId, code, version])
+  @@index([organizationId, academicSessionId, status])
+  @@index([organizationId, branchId, status])
+  @@index([organizationId, courseId, status])
+  @@index([organizationId, batchId, status])
+}
+
+model FeePlanInstallment {
+  organizationId String
+  id             String             @id @default(cuid())
+  planId         String
+  sequence       Int
+  title          String
+  dueDate        DateTime           @db.Date
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  plan           FeePlan            @relation(fields: [organizationId, planId], references: [organizationId, id], onDelete: Restrict)
+  components     FeePlanComponent[]
+
+  @@unique([organizationId, id])
+  @@unique([planId, sequence])
+  @@index([organizationId, planId])
+}
+
+model FeePlanComponent {
+  organizationId    String
+  id                String             @id @default(cuid())
+  installmentId     String
+  feeHead           String
+  normalizedFeeHead String
+  amountPaise       Int
+  position          Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  installment       FeePlanInstallment @relation(fields: [organizationId, installmentId], references: [organizationId, id], onDelete: Restrict)
+
+  @@unique([installmentId, normalizedFeeHead])
+  @@index([organizationId, installmentId])
 }
 
 model FeeAdjustment {
