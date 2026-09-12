@@ -577,6 +577,7 @@ model Organization {
   examinationQuestionPapers ExaminationQuestionPaper[]
   examinationAnswerSheets ExaminationAnswerSheet[]
   feePlans               FeePlan[]
+  studentFeeAssignments  StudentFeeAssignment[]
 
   @@index([subscriptionStatus, isActive])
 }
@@ -601,6 +602,7 @@ model AcademicSession {
   teacherDuties TeacherDuty[]
   substitutions TeacherSubstitution[]
   feePlans FeePlan[]
+  studentFeeAssignments StudentFeeAssignment[]
 
   @@unique([organizationId, name])
   @@index([organizationId, isCurrent])
@@ -1232,6 +1234,7 @@ model User {
   markedAttendances        Attendance[]               @relation("AttendanceMarker")
   branchAssignments        BranchUser[]
   studentProfile           StudentProfile?
+  assignedStudentFeePlans  StudentFeeAssignment[]       @relation("StudentFeeAssignmentAssigner")
   teacherProfile           TeacherProfile?
   assignedEnquiries        Enquiry[]                  @relation("EnquiryCounsellor")
   enquiryFollowUps         EnquiryFollowUp[]          @relation("FollowUpCreator")
@@ -1348,6 +1351,7 @@ model Branch {
   recruitmentCandidates RecruitmentCandidate[]
   payrollRuns           PayrollRun[]
   feePlans              FeePlan[]
+  studentFeeAssignments StudentFeeAssignment[]
   financialYears        FinancialYear[]
   ledgerAccounts        LedgerAccount[]
   journalEntries        JournalEntry[]
@@ -1754,6 +1758,7 @@ model Batch {
   teacherAllocations TeacherAllocation[]
   substitutions TeacherSubstitution[]
   feePlans          FeePlan[]
+  studentFeeAssignments StudentFeeAssignment[]
 
   @@index([branchId])
   @@index([courseId])
@@ -1793,6 +1798,7 @@ model StudentProfile {
   batch                Batch                        @relation(fields: [batchId], references: [id])
   session              AcademicSession              @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
   fees                 Fee[]
+  feeAssignments       StudentFeeAssignment[]
   testAttempts         TestAttempt[]
   convertedEnquiry     Enquiry?
   certificates         Certificate[]
@@ -2393,6 +2399,8 @@ model Fee {
   branchId        String
   courseId        String?
   batchId         String?
+  studentFeeAssignmentId String?
+  feePlanComponentId     String?
   feeHead         String
   totalPaise      Int
   discountPaise   Int            @default(0)
@@ -2407,6 +2415,8 @@ model Fee {
   branch          Branch         @relation(fields: [branchId], references: [id])
   course          Course?        @relation(fields: [courseId], references: [id])
   batch           Batch?         @relation(fields: [batchId], references: [id])
+  studentFeeAssignment StudentFeeAssignment? @relation(fields: [organizationId, studentFeeAssignmentId], references: [organizationId, id], onDelete: Restrict)
+  feePlanComponent     FeePlanComponent?     @relation(fields: [organizationId, feePlanComponentId], references: [organizationId, id], onDelete: Restrict)
   payments        FeePayment[]
 
   @@unique([studentId, batchId, feeHead, dueDate])
@@ -4199,8 +4209,10 @@ model FeePlan {
   versions          FeePlan[]            @relation("FeePlanVersions")
   createdBy         User                 @relation("FeePlanCreator", fields: [createdById], references: [id], onDelete: Restrict)
   installments      FeePlanInstallment[]
+  studentFeeAssignments StudentFeeAssignment[]
 
   @@unique([organizationId, id])
+  @@unique([organizationId, id, familyKey, academicSessionId], map: "FeePlan_assignment_snapshot_key")
   @@unique([organizationId, familyKey, version])
   @@unique([organizationId, code, version])
   @@index([organizationId, academicSessionId, status])
@@ -4237,9 +4249,39 @@ model FeePlanComponent {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   installment       FeePlanInstallment @relation(fields: [organizationId, installmentId], references: [organizationId, id], onDelete: Restrict)
+  generatedFees     Fee[]
 
+  @@unique([organizationId, id])
   @@unique([installmentId, normalizedFeeHead])
   @@index([organizationId, installmentId])
+}
+
+model StudentFeeAssignment {
+  organizationId      String
+  id                  String          @id @default(cuid())
+  studentId           String
+  feePlanId           String
+  academicSessionId   String
+  branchId            String
+  batchId             String
+  feePlanFamilyKey    String
+  assignedById        String
+  assignedAt          DateTime        @default(now())
+  organization        Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  student             StudentProfile  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  feePlan             FeePlan         @relation(fields: [organizationId, feePlanId, feePlanFamilyKey, academicSessionId], references: [organizationId, id, familyKey, academicSessionId], onDelete: Restrict, map: "StudentFeeAssignment_feePlan_snapshot_fkey")
+  academicSession     AcademicSession @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  branch              Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  batch               Batch           @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  assignedBy          User            @relation("StudentFeeAssignmentAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
+  fees                Fee[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, studentId, academicSessionId, feePlanFamilyKey], map: "StudentFeeAssignment_student_session_family_key")
+  @@unique([organizationId, studentId, feePlanId], map: "StudentFeeAssignment_student_plan_key")
+  @@index([organizationId, branchId, assignedAt], map: "StudentFeeAssignment_branch_assignedAt_idx")
+  @@index([organizationId, academicSessionId, studentId], map: "StudentFeeAssignment_session_student_idx")
+  @@index([organizationId, feePlanId], map: "StudentFeeAssignment_feePlan_idx")
 }
 
 model FeeAdjustment {
