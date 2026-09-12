@@ -578,6 +578,7 @@ model Organization {
   examinationAnswerSheets ExaminationAnswerSheet[]
   feePlans               FeePlan[]
   studentFeeAssignments  StudentFeeAssignment[]
+  feePaymentOffsets       FeePaymentOffset[]
 
   @@index([subscriptionStatus, isActive])
 }
@@ -1026,6 +1027,11 @@ enum PaymentMode {
   OTHER
 }
 
+enum FeePaymentOffsetType {
+  REFUND
+  REVERSAL
+}
+
 enum HostelRoomStatus {
   AVAILABLE
   FULL
@@ -1255,6 +1261,7 @@ model User {
   notificationPreference   NotificationPreference?
   announcementReads        AnnouncementRead[]
   communicationThreads     MessageThreadMember[]
+  paymentOffsetsCreated   FeePaymentOffset[]      @relation("FeePaymentOffsetCreator")
   circularAcknowledgements CircularAcknowledgement[]
   circularDownloads        CircularDownload[]
   eventRsvps               CalendarEventRsvp[]
@@ -2441,7 +2448,9 @@ model FeePayment {
   collectedById  String?
   createdAt      DateTime    @default(now())
   fee            Fee         @relation(fields: [feeId], references: [id], onDelete: Restrict)
+  offsets        FeePaymentOffset[]
 
+  @@unique([organizationId, id, feeId], map: "FeePayment_organizationId_id_feeId_key")
   @@index([feeId, paymentDate])
   @@index([paymentDate])
   @@index([organizationId])
@@ -4219,6 +4228,28 @@ model FeePlan {
   @@index([organizationId, branchId, status])
   @@index([organizationId, courseId, status])
   @@index([organizationId, batchId, status])
+}
+
+model FeePaymentOffset {
+  organizationId String
+  id             String                @id @default(cuid())
+  feePaymentId   String
+  feeId          String
+  type           FeePaymentOffsetType
+  amountPaise    Int
+  reason         String                @db.Text
+  idempotencyKey String
+  reference      String?
+  createdById    String
+  createdAt      DateTime              @default(now())
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  feePayment     FeePayment            @relation(fields: [organizationId, feePaymentId, feeId], references: [organizationId, id, feeId], onDelete: Restrict)
+  createdBy      User                  @relation("FeePaymentOffsetCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey], map: "FeePaymentOffset_organizationId_idempotencyKey_key")
+  @@index([organizationId, feePaymentId, createdAt])
+  @@index([organizationId, feeId, createdAt])
+  @@index([organizationId, type, createdAt])
 }
 
 model FeePlanInstallment {

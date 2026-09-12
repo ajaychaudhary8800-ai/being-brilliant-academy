@@ -53,6 +53,7 @@ import exams from "./routes/exams.js";
 import portals from "./routes/portals.js";
 import hrPayroll from "./routes/hr-payroll.js";
 import finance from "./routes/finance.js";
+import paymentOffsets from "./routes/payment-offsets.js";
 import feePlans from "./routes/fee-plans.js";
 import feeAssignments from "./routes/fee-assignments.js";
 import transport from "./routes/transport.js";
@@ -146,6 +147,8 @@ app.use("/api/v1", onlyPaths(["/birthdays", "/admin/teachers"], birthdays));
 // reject non-admin requests.
 app.use("/api/v1", onlyPaths(["/premium"], premiumExperience));
 app.use("/api/v1", onlyPaths(["/learning"], learningEcosystem));
+
+app.use("/api/v1", onlyPaths(["/finance/payments", "/finance/payment-offsets"], paymentOffsets));
 
 app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations)); app.use("/api/v1", onlyPaths(["/analytics"], analytics)); app.use("/api/v1", onlyPaths(["/inventory"], inventory)); app.use("/api/v1", onlyPaths(["/communication"], communication)); app.use("/api/v1", onlyPaths(["/hostel"], hostel)); app.use("/api/v1", onlyPaths(["/library"], library)); app.use("/api/v1", onlyPaths(["/transport"], transport)); app.use("/api/v1", onlyPaths(["/finance/fee-plans"], feePlans)); app.use("/api/v1", onlyPaths(["/finance/fee-assignments"], feeAssignments)); app.use("/api/v1", onlyPaths(["/finance"], finance)); app.use("/api/v1", onlyPaths(["/hr", "/employee"], hrPayroll)); app.use("/api/v1/portal", portals); app.use("/api/v1/courses", courses); app.use("/api/v1/learning", learning); app.use("/api/v1/learning", lmsLearning); app.use("/api/v1/admin", adminCertificates); app.use("/api/v1/admin", adminStudents); app.use("/api/v1/admin", adminTimetables); app.use("/api/v1/admin", homeworks); app.use("/api/v1/admin", adminExaminations); app.use("/api/v1/admin", adminUsers); app.use("/api/v1/admin", admin); app.use("/api/v1/admin", adminCourses); app.use("/api/v1/admin", adminBatches); app.use("/api/v1/admin", adminTests); app.use("/api/v1/admin", adminEnquiries); app.use("/api/v1/attendance", attendanceReports); app.use("/api/v1", onlyPaths(["/attendance"], attendance)); app.use("/api/v1/payments", payments); app.use("/api/v1/exams", exams);
 app.use(notFound, errorHandler);
