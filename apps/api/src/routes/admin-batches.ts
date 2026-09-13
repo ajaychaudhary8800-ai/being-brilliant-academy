@@ -8,6 +8,28 @@ import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { resolveAcademicSession } from "../lib/academic-session.js";
 
 const router=Router();router.use(requireAuth,allow(Role.SUPER_ADMIN,Role.BRANCH_ADMIN));
+// Attendance stores its academic context through Batch. Keep that context
+// immutable even for legacy rows created before enrollment history existed.
+router.use(async (req:AuthRequest,_res,next)=>{
+  if (req.method !== "PATCH" || !/^\/batches\/[^/]+\/?$/.test(req.path)) return next();
+  const id = req.path.match(/^\/batches\/([^/]+)\/?$/)![1]!;
+  const old = await prisma.batch.findFirst({ where: { id }, select: { branchId:true, courseId:true, academicSessionId:true } });
+  if (!old) return next();
+  const body = req.body ?? {};
+  const structuralChange = body.branchId !== undefined || body.courseId !== undefined || body.academicSession !== undefined;
+  if (!structuralChange) return next();
+  const requestedBranch = body.branchId ?? old.branchId;
+  const requestedCourse = body.courseId === undefined ? old.courseId : body.courseId;
+  let requestedSession = old.academicSessionId;
+  if (body.academicSession) {
+    const session = await prisma.academicSession.findFirst({ where: { name: String(body.academicSession).trim() }, select: { id:true } });
+    requestedSession = session?.id ?? requestedSession;
+  }
+  if (requestedBranch === old.branchId && requestedCourse === old.courseId && requestedSession === old.academicSessionId) return next();
+  const attendance = await prisma.attendance.count({ where: { batchId:id } });
+  if (attendance > 0) throw new AppError(409,"BATCH_ACADEMIC_STRUCTURE_LOCKED","A batch with attendance history cannot change branch, course, or academic session");
+  return next();
+});
 function academicStructureConflict(error:any){if(error?.code==="P2003"||error?.code==="P2004")throw new AppError(409,"BATCH_ACADEMIC_STRUCTURE_LOCKED","A batch with academic enrollment history cannot change branch, course, or academic session");throw error}
 const input=z.object({name:z.string().trim().min(2).max(120),code:z.string().trim().toUpperCase().min(2).max(40).regex(/^[A-Z0-9-]+$/),branchId:z.string().cuid(),courseId:z.string().cuid().nullable().optional(),academicSession:z.string().trim().min(4).max(30),startsAt:z.coerce.date(),endsAt:z.coerce.date().nullable().optional(),capacity:z.number().int().positive().max(10000),timing:z.string().trim().min(3).max(80),days:z.array(z.enum(["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY"])).min(1),classroom:z.string().trim().max(80).nullable().optional(),teacherId:z.string().cuid().nullable().optional(),feesPaise:z.number().int().min(0),status:z.nativeEnum(BatchStatus).default(BatchStatus.ACTIVE),remarks:z.string().trim().max(2000).nullable().optional()});
 const select={id:true,name:true,code:true,academicSession:true,startsAt:true,endsAt:true,capacity:true,timing:true,days:true,classroom:true,feesPaise:true,status:true,remarks:true,createdAt:true,updatedAt:true,branch:{select:{id:true,branchName:true,branchCode:true}},course:{select:{id:true,title:true,courseCode:true}},teacher:{select:{id:true,employeeNo:true,user:{select:{id:true,name:true}}}},_count:{select:{students:true,attendances:true}}} as const;

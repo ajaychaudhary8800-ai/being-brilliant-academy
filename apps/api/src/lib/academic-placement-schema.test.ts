@@ -4,6 +4,7 @@ import test from "node:test";
 
 const schema = readFileSync(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
 const migration = readFileSync(new URL("../../prisma/migrations/20260913100000_add_student_academic_enrollment/migration.sql", import.meta.url), "utf8");
+const attendanceGuardMigration = readFileSync(new URL("../../prisma/migrations/20260913120000_protect_attendance_batch_context/migration.sql", import.meta.url), "utf8");
 
 test("StudentAcademicEnrollment schema exposes the approved authoritative history model", () => {
   assert.match(schema, /enum StudentAcademicEnrollmentStatus \{\s+ACTIVE\s+CLOSED\s+CANCELLED\s+\}/);
@@ -50,4 +51,13 @@ test("academic placement migration preflights, backfills and hardens without a p
   assert.match(migration, /protect_enrolled_batch_academic_structure/);
   assert.doesNotMatch(migration, /UPDATE\s+"StudentAcademicEnrollment"[\s\S]*StudentProfile|UPDATE\s+"StudentProfile"[\s\S]*CREATE TRIGGER/i);
   assert.doesNotMatch(migration, /FeePlan|StudentFeeAssignment|FeePayment|FeePaymentOffset|FeePlanComponent/);
+});
+
+test("attendance history extends the validation-only Batch structural guard", () => {
+  assert.match(attendanceGuardMigration, /CREATE OR REPLACE FUNCTION "protect_enrolled_batch_academic_structure"/);
+  assert.match(attendanceGuardMigration, /FROM "Attendance" attendance/);
+  assert.match(attendanceGuardMigration, /attendance\."organizationId" = OLD\."organizationId"/);
+  assert.match(attendanceGuardMigration, /attendance\."batchId" = OLD\."id"/);
+  assert.match(attendanceGuardMigration, /Batch_academic_structure_locked/);
+  assert.doesNotMatch(attendanceGuardMigration, /UPDATE\s+"Attendance"|DELETE\s+FROM\s+"Attendance"/i);
 });

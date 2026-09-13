@@ -97,23 +97,95 @@ export function getActiveAcademicEnrollment(db: AcademicPlacementDb, organizatio
   });
 }
 
+export type AcademicEnrollmentResolutionMode =
+  | "CURRENT_OR_NEW_WRITE"
+  | "HISTORICAL_READ"
+  | "HISTORICAL_CORRECTION";
+
+export type HistoricalAcademicEnrollmentInput = {
+  organizationId: string;
+  studentId: string;
+  branchId?: string;
+  academicSessionId?: string;
+  courseId?: string | null;
+  batchId?: string;
+  onDate?: Date;
+  mode: AcademicEnrollmentResolutionMode;
+};
+
+/**
+ * Resolve the enrollment which proves that a student was associated with a
+ * record's stored academic context.  The context is matched before temporal
+ * semantics so a same-day CLOSED civil-date placement can only be accepted
+ * when the persisted Batch/Session/Branch tuple identifies it uniquely.
+ */
+export function resolveHistoricalAcademicEnrollment(
+  db: AcademicPlacementDb,
+  input: HistoricalAcademicEnrollmentInput,
+): Promise<any>;
 export function resolveHistoricalAcademicEnrollment(
   db: AcademicPlacementDb,
   organizationId: string,
   studentId: string,
   at: Date,
+): Promise<any>;
+export async function resolveHistoricalAcademicEnrollment(
+  db: AcademicPlacementDb,
+  inputOrOrganization: HistoricalAcademicEnrollmentInput | string,
+  legacyStudentId?: string,
+  legacyAt?: Date,
 ) {
-  return db.studentAcademicEnrollment.findFirst({
+  const input: HistoricalAcademicEnrollmentInput = typeof inputOrOrganization === "string"
+    ? { organizationId: inputOrOrganization, studentId: legacyStudentId!, onDate: legacyAt, mode: "HISTORICAL_READ" }
+    : inputOrOrganization;
+  const rows = await db.studentAcademicEnrollment.findMany({
     where: {
-      organizationId,
-      studentId,
+      organizationId: input.organizationId,
+      studentId: input.studentId,
       status: { not: StudentAcademicEnrollmentStatus.CANCELLED },
-      effectiveFrom: { lte: at },
-      OR: [{ effectiveTo: null }, { effectiveTo: { gt: at } }],
     },
     include: academicEnrollmentInclude,
     orderBy: [{ effectiveFrom: "desc" }, { createdAt: "desc" }],
   });
+  const hasExplicitContext = Boolean(input.batchId || input.academicSessionId || input.branchId || input.courseId !== undefined);
+  const contextMatches = rows.filter(row => (
+    (!input.batchId || row.batchId === input.batchId)
+    && (!input.academicSessionId || row.academicSessionId === input.academicSessionId)
+    && (!input.branchId || row.branchId === input.branchId)
+    && (input.courseId === undefined || row.courseId === input.courseId)
+  ));
+  // A reconstructed/current enrollment must not invalidate an older stored
+  // record for which Batch 1 could not reconstruct history. Only new writes
+  // require a positively matching enrollment; historical callers may apply
+  // their strict legacy-record policy when resolution returns null.
+  if (input.mode === "CURRENT_OR_NEW_WRITE" && hasExplicitContext && contextMatches.length === 0 && rows.length > 0) {
+    throw new AppError(422, "ACADEMIC_HISTORY_CONTEXT_MISMATCH", "Student enrollment history does not match the stored academic context");
+  }
+  if (!hasExplicitContext && input.onDate && rows.some(row => row.status === StudentAcademicEnrollmentStatus.CLOSED && row.effectiveTo?.getTime() === row.effectiveFrom.getTime() && row.effectiveFrom.getTime() === input.onDate!.getTime())) {
+    throw new AppError(409, "ACADEMIC_ENROLLMENT_AMBIGUOUS", "A same-day academic placement requires explicit academic context");
+  }
+
+  const candidates = contextMatches.filter(row => {
+    if (!input.onDate) return true;
+    const at = input.onDate;
+    const inHalfOpenInterval = row.effectiveFrom <= at && (row.effectiveTo === null || at < row.effectiveTo);
+    if (inHalfOpenInterval) return true;
+    // Civil DATE data cannot express an intra-day move. A zero-length CLOSED
+    // placement is valid evidence only when explicit context disambiguates it.
+    return hasExplicitContext
+      && input.mode !== "CURRENT_OR_NEW_WRITE"
+      && row.status === StudentAcademicEnrollmentStatus.CLOSED
+      && row.effectiveFrom.getTime() === row.effectiveTo?.getTime()
+      && row.effectiveFrom.getTime() === at.getTime();
+  });
+  if (candidates.length > 1) {
+    throw new AppError(409, "ACADEMIC_ENROLLMENT_AMBIGUOUS", "More than one academic enrollment matches this context");
+  }
+  const resolved = candidates[0] ?? null;
+  if (!resolved && input.mode === "CURRENT_OR_NEW_WRITE") {
+    throw new AppError(409, "NO_ACTIVE_ACADEMIC_ENROLLMENT", "Student has no academic enrollment for this context and date");
+  }
+  return resolved;
 }
 
 export function createActiveAcademicEnrollment(

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Prisma, StudentAcademicEnrollmentSource, StudentAcademicEnrollmentStatus } from "@prisma/client";
-import { academicPlacementConflict, assertAcademicProjectionConsistent, cancelAcademicEnrollment, closeActiveAcademicEnrollment, createActiveAcademicEnrollment, normalizeAcademicRollNumber, resolveAuthoritativeBatchTuple } from "./academic-placement.js";
+import { academicPlacementConflict, assertAcademicProjectionConsistent, cancelAcademicEnrollment, closeActiveAcademicEnrollment, createActiveAcademicEnrollment, normalizeAcademicRollNumber, resolveAuthoritativeBatchTuple, resolveHistoricalAcademicEnrollment } from "./academic-placement.js";
 import { AppError } from "./http.js";
 
 const organizationId = "org-academic-placement";
@@ -53,4 +53,34 @@ test("projection consistency and uniqueness failures use stable academic codes",
   const rollConflict = new Prisma.PrismaClientKnownRequestError("duplicate", { code: "P2002", clientVersion: "test", meta: { target: ["organizationId", "batchId", "upper(btrim(rollNo))"] } });
   assert.equal(academicPlacementConflict(studentConflict)?.code, "ACADEMIC_ENROLLMENT_EXISTS");
   assert.equal(academicPlacementConflict(rollConflict)?.code, "ACADEMIC_ENROLLMENT_CONFLICT");
+});
+
+test("historical enrollment resolution keeps half-open dates and explicit context priority", async () => {
+  const rows = [
+    { id: "old", organizationId, studentId: "student-1", branchId: "branch-1", academicSessionId: "session-1", courseId: "course-1", batchId: "batch-1", status: StudentAcademicEnrollmentStatus.CLOSED, effectiveFrom: new Date("2026-04-01"), effectiveTo: new Date("2027-04-01"), createdAt: new Date("2026-04-01"), course: null, academicSession: null, branch: null, batch: null, createdBy: null },
+    { id: "current", organizationId, studentId: "student-1", branchId: "branch-1", academicSessionId: "session-1", courseId: "course-1", batchId: "batch-2", status: StudentAcademicEnrollmentStatus.ACTIVE, effectiveFrom: new Date("2027-04-01"), effectiveTo: null, createdAt: new Date("2027-04-01"), course: null, academicSession: null, branch: null, batch: null, createdBy: null },
+  ];
+  const db = { studentAcademicEnrollment: { findMany: async () => rows } } as any;
+  assert.equal((await resolveHistoricalAcademicEnrollment(db, { organizationId, studentId: "student-1", batchId: "batch-1", onDate: new Date("2027-03-31"), mode: "HISTORICAL_READ" }))?.id, "old");
+  assert.equal((await resolveHistoricalAcademicEnrollment(db, { organizationId, studentId: "student-1", batchId: "batch-2", onDate: new Date("2027-04-01"), mode: "CURRENT_OR_NEW_WRITE" }))?.id, "current");
+  assert.equal((await resolveHistoricalAcademicEnrollment(db, { organizationId, studentId: "student-1", onDate: new Date("2027-04-01"), mode: "HISTORICAL_READ" }))?.id, "current");
+});
+
+test("same-day CLOSED evidence requires explicit context and cancelled rows never qualify", async () => {
+  const sameDay = { id: "same-day", organizationId, studentId: "student-2", branchId: "branch-1", academicSessionId: "session-1", courseId: "course-1", batchId: "batch-1", status: StudentAcademicEnrollmentStatus.CLOSED, effectiveFrom: new Date("2027-04-01"), effectiveTo: new Date("2027-04-01"), createdAt: new Date("2027-04-01"), course: null, academicSession: null, branch: null, batch: null, createdBy: null };
+  const cancelled = { ...sameDay, id: "cancelled", status: StudentAcademicEnrollmentStatus.CANCELLED };
+  const db = { studentAcademicEnrollment: { findMany: async () => [sameDay, cancelled] } } as any;
+  assert.equal((await resolveHistoricalAcademicEnrollment(db, { organizationId, studentId: "student-2", batchId: "batch-1", onDate: new Date("2027-04-01"), mode: "HISTORICAL_CORRECTION" }))?.id, "same-day");
+  await assert.rejects(resolveHistoricalAcademicEnrollment(db, { organizationId, studentId: "student-2", onDate: new Date("2027-04-01"), mode: "CURRENT_OR_NEW_WRITE" }), (error: AppError) => error.code === "ACADEMIC_ENROLLMENT_AMBIGUOUS");
+});
+
+test("current backfill does not invalidate an older legacy context", async () => {
+  const currentBackfill = { id: "backfill-b", organizationId, studentId: "legacy-student", branchId: "branch-1", academicSessionId: "session-2", courseId: "course-2", batchId: "batch-b", status: StudentAcademicEnrollmentStatus.ACTIVE, effectiveFrom: new Date("2027-04-01"), effectiveTo: null, createdAt: new Date("2027-04-01"), source: StudentAcademicEnrollmentSource.BACKFILL, course: null, academicSession: null, branch: null, batch: null, createdBy: null };
+  const db = { studentAcademicEnrollment: { findMany: async () => [currentBackfill] } } as any;
+  const context = { organizationId, studentId: "legacy-student", branchId: "branch-1", academicSessionId: "session-1", courseId: "course-1", batchId: "batch-a", onDate: new Date("2026-10-01") };
+  assert.equal(await resolveHistoricalAcademicEnrollment(db, { ...context, mode: "HISTORICAL_READ" }), null);
+  assert.equal(await resolveHistoricalAcademicEnrollment(db, { ...context, mode: "HISTORICAL_CORRECTION" }), null);
+  await assert.rejects(resolveHistoricalAcademicEnrollment(db, { ...context, mode: "CURRENT_OR_NEW_WRITE" }), (error: AppError) => error.code === "ACADEMIC_HISTORY_CONTEXT_MISMATCH");
+  const crossTenant = { studentAcademicEnrollment: { findMany: async () => [{ ...currentBackfill, organizationId: "other-organization" }] } } as any;
+  assert.equal(await resolveHistoricalAcademicEnrollment(crossTenant, { ...context, mode: "HISTORICAL_READ" }), null);
 });
