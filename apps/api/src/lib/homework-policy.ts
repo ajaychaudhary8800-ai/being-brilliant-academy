@@ -17,16 +17,17 @@ export type HomeworkAttachmentAccess = {
   parentStudentStatus?: StudentStatus | null;
   teacherId?: string | null;
   branchAllowed?: boolean;
+  historicalEnrollmentVerified?: boolean;
 };
 
 export function assertHomeworkAttachmentAccess(access: HomeworkAttachmentAccess) {
   const visible = access.homeworkStatus === HomeworkStatus.PUBLISHED || access.homeworkStatus === HomeworkStatus.CLOSED;
   const studentEligible = access.studentOrganizationId === access.homeworkOrganizationId
-    && access.studentBatchId === access.homeworkBatchId
+    && (access.historicalEnrollmentVerified === true || access.studentBatchId === access.homeworkBatchId)
     && access.studentStatus === StudentStatus.ACTIVE;
   const parentStudentEligible = access.parentLinked === true
     && access.parentStudentOrganizationId === access.homeworkOrganizationId
-    && access.parentStudentBatchId === access.homeworkBatchId
+    && (access.historicalEnrollmentVerified === true || access.parentStudentBatchId === access.homeworkBatchId)
     && access.parentStudentStatus === StudentStatus.ACTIVE;
   const allowed = access.requestOrganizationId === access.homeworkOrganizationId && (
     access.role === Role.STUDENT && visible && studentEligible
@@ -79,6 +80,7 @@ export type StudentHomeworkSubmissionAccess = {
   studentBatchId: string;
   studentCourseId: string | null;
   studentStatus: StudentStatus;
+  historicalEnrollmentVerified?: boolean;
 };
 
 export function assertStudentHomeworkSubmissionAccess(access: StudentHomeworkSubmissionAccess) {
@@ -91,8 +93,8 @@ export function assertStudentHomeworkSubmissionAccess(access: StudentHomeworkSub
   const eligible = access.studentStatus === StudentStatus.ACTIVE
     && access.requestOrganizationId === access.homeworkOrganizationId
     && access.studentOrganizationId === access.homeworkOrganizationId
-    && access.studentBatchId === access.homeworkBatchId
-    && access.studentCourseId === access.homeworkCourseId;
+    && (access.historicalEnrollmentVerified === true
+      || access.studentBatchId === access.homeworkBatchId && access.studentCourseId === access.homeworkCourseId);
   if (!eligible) {
     throw new AppError(403, "STUDENT_NOT_ELIGIBLE", "Homework is not assigned to this Student");
   }

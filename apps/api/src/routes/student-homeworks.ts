@@ -11,6 +11,7 @@ import {
   replaceableHomeworkSubmissionStatuses,
 } from "../lib/homework-policy.js";
 import { AppError } from "../lib/http.js";
+import { resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { prisma } from "../lib/prisma.js";
 import {
   allowedDocumentTypes,
@@ -73,9 +74,21 @@ router.post("/homeworks/:id/submissions", async (req: AuthRequest, res) => {
 
   const homework = await prisma.homework.findFirst({
     where: { id: String(req.params.id), organizationId: req.auth!.organizationId },
-    select: { id: true, organizationId: true, batchId: true, courseId: true, dueDate: true, status: true },
+    select: { id: true, organizationId: true, branchId: true, batchId: true, courseId: true, dueDate: true, assignedDate: true, status: true, batch: { select: { academicSessionId: true } } },
   });
   if (!homework) throw new AppError(404, "HOMEWORK_NOT_FOUND", "Homework not found");
+  const historicalEnrollment = homework.batch
+    ? await resolveHistoricalAcademicEnrollment(prisma, {
+      organizationId: req.auth!.organizationId,
+      studentId: student.id,
+      branchId: homework.branchId,
+      academicSessionId: homework.batch.academicSessionId,
+      courseId: homework.courseId,
+      batchId: homework.batchId,
+      onDate: homework.assignedDate,
+      mode: "CURRENT_OR_NEW_WRITE",
+    })
+    : null;
   assertStudentHomeworkSubmissionAccess({
     role: req.auth!.role,
     requestOrganizationId: req.auth!.organizationId,
@@ -88,6 +101,7 @@ router.post("/homeworks/:id/submissions", async (req: AuthRequest, res) => {
     studentBatchId: student.batchId,
     studentCourseId: student.batch.courseId,
     studentStatus: student.status,
+    historicalEnrollmentVerified: Boolean(historicalEnrollment),
   });
   assertHomeworkSubmissionContent(input.answerText, Boolean(input.attachment));
 

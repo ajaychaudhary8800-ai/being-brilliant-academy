@@ -58,6 +58,11 @@ test("tenant, batch and course eligibility cannot be crossed", () => {
   assert.equal(errorCode(() => assertStudentHomeworkSubmissionAccess({ ...eligibleStudent, studentCourseId: "course-b" })), "STUDENT_NOT_ELIGIBLE");
 });
 
+test("historical Homework submission requires explicit verified placement when the current projection moved", () => {
+  assert.doesNotThrow(() => assertStudentHomeworkSubmissionAccess({ ...eligibleStudent, studentBatchId: "batch-b", studentCourseId: "course-b", historicalEnrollmentVerified: true }));
+  assert.equal(errorCode(() => assertStudentHomeworkSubmissionAccess({ ...eligibleStudent, studentBatchId: "batch-b", studentCourseId: "course-b" })), "STUDENT_NOT_ELIGIBLE");
+});
+
 test("only published Homework accepts submissions", () => {
   assert.doesNotThrow(() => assertStudentHomeworkSubmissionAccess(eligibleStudent));
   for (const homeworkStatus of [HomeworkStatus.DRAFT, HomeworkStatus.CLOSED, HomeworkStatus.ARCHIVED]) {

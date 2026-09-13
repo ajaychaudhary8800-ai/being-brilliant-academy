@@ -113,6 +113,11 @@ export type HistoricalAcademicEnrollmentInput = {
   mode: AcademicEnrollmentResolutionMode;
 };
 
+/** Normalize a persisted academic event to the civil DATE used by placement history. */
+export function historicalCivilDate(value: Date) {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
 /**
  * Resolve the enrollment which proves that a student was associated with a
  * record's stored academic context.  The context is matched before temporal
@@ -186,6 +191,18 @@ export async function resolveHistoricalAcademicEnrollment(
     throw new AppError(409, "NO_ACTIVE_ACADEMIC_ENROLLMENT", "Student has no academic enrollment for this context and date");
   }
   return resolved;
+}
+
+export async function resolveStudentHistoricalEnrollment(
+  db: AcademicPlacementDb,
+  input: Omit<HistoricalAcademicEnrollmentInput, "studentId"> & { userId: string },
+) {
+  const profile = await db.studentProfile.findFirst({
+    where: { organizationId: input.organizationId, userId: input.userId },
+    select: { id: true },
+  });
+  if (!profile) return null;
+  return resolveHistoricalAcademicEnrollment(db, { ...input, studentId: profile.id });
 }
 
 export function createActiveAcademicEnrollment(

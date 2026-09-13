@@ -6,11 +6,13 @@ import { AppError } from "../lib/http.js";
 import { requireRequestedBranch } from "../lib/branch-policy.js";
 import { assertExaminationHistoricalFieldsEditable, assertExaminationStatusTransition, assertSingleConditionalMutation, changesCoreExaminationField } from "../lib/examination-policy.js";
 import { prisma } from "../lib/prisma.js";
+import { historicalCivilDate, resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } as const;
+const civilDate = historicalCivilDate;
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const input = z.object({
   name: z.string().trim().min(3).max(200),
@@ -197,13 +199,21 @@ router.patch("/examinations/:id", async (req: AuthRequest, res) => {
 });
 
 router.post("/examinations/:id/marks", async (req: AuthRequest, res) => {
-  const exam = await prisma.examination.findUnique({ where: { id: String(req.params.id) }, select: { id: true, batchId: true, maximumMarks: true, status: true } });
+  const exam = await prisma.examination.findFirst({ where: { id: String(req.params.id), organizationId: req.auth!.organizationId }, select: { id: true, organizationId: true, branchId: true, courseId: true, batchId: true, academicSessionId: true, examDate: true, maximumMarks: true, status: true } });
   if (!exam) throw new AppError(404, "EXAMINATION_NOT_FOUND", "Examination not found");
   if (exam.status !== ExaminationStatus.COMPLETED) throw new AppError(409, "MARKS_ENTRY_UNAVAILABLE", "Legacy marks entry is allowed only for completed examinations");
   const rows = z.array(z.object({ studentId: z.string().cuid(), marksObtained: z.number().min(0).nullable(), status: z.nativeEnum(ExaminationResultStatus).optional(), remarks: z.string().max(1000).nullable().optional() })).min(1).max(500).parse(req.body.results);
   for (const row of rows) {
-    const student = await prisma.studentProfile.findUnique({ where: { id: row.studentId }, select: { batchId: true } });
-    if (!student || student.batchId !== exam.batchId) throw new AppError(422, "INVALID_STUDENT_BATCH", "Every student must belong to the examination Batch");
+    const student = await prisma.studentProfile.findFirst({ where: { id: row.studentId, organizationId: exam.organizationId, status: "ACTIVE", user: { isActive: true } }, select: { id: true } });
+    if (!student) throw new AppError(422, "INVALID_STUDENT_BATCH", "Every student must belong to the examination organization");
+    const [existingResult, existingSheet] = await Promise.all([
+      prisma.examinationResult.findFirst({ where: { organizationId: exam.organizationId, examinationId: exam.id, studentId: row.studentId }, select: { id: true } }),
+      prisma.examinationAnswerSheet.findFirst({ where: { organizationId: exam.organizationId, examinationId: exam.id, studentId: row.studentId }, select: { id: true } }),
+    ]);
+    if (!existingResult && !existingSheet) {
+      const enrollment = await resolveHistoricalAcademicEnrollment(prisma, { organizationId: exam.organizationId, studentId: row.studentId, branchId: exam.branchId, academicSessionId: exam.academicSessionId, courseId: exam.courseId, batchId: exam.batchId, onDate: civilDate(exam.examDate), mode: "CURRENT_OR_NEW_WRITE" });
+      if (!enrollment) throw new AppError(422, "INVALID_STUDENT_BATCH", "Every student must be historically eligible for the examination Batch");
+    }
     if (row.marksObtained !== null && row.marksObtained > exam.maximumMarks) throw new AppError(422, "MARKS_EXCEED_MAXIMUM", "Marks cannot exceed Maximum Marks");
   }
   const data = await prisma.$transaction(async tx => {
@@ -219,15 +229,23 @@ router.post("/examinations/:id/marks", async (req: AuthRequest, res) => {
 });
 
 router.post("/examinations/:id/generate-results", async (req: AuthRequest, res) => {
-  const exam = await prisma.examination.findUnique({ where: { id: String(req.params.id) }, select: { id: true, batchId: true, maximumMarks: true, passingMarks: true, status: true } });
+  const exam = await prisma.examination.findUnique({ where: { id: String(req.params.id) }, select: { id: true, organizationId: true, branchId: true, courseId: true, batchId: true, academicSessionId: true, examDate: true, maximumMarks: true, passingMarks: true, status: true } });
   if (!exam) throw new AppError(404, "EXAMINATION_NOT_FOUND", "Examination not found");
   if (exam.status !== ExaminationStatus.COMPLETED) throw new AppError(409, "RESULT_GENERATION_UNAVAILABLE", "Results can be generated only once for a completed examination");
   const data = await prisma.$transaction(async tx => {
     const locked = await tx.examination.updateMany({ where: { id: exam.id, organizationId: req.auth!.organizationId, status: ExaminationStatus.COMPLETED }, data: { updatedAt: new Date() } });
     assertSingleConditionalMutation(locked.count, "RESULT_GENERATION_UNAVAILABLE", "Examination is no longer open for result generation");
     if (await tx.examinationAnswerSheet.count({ where: { organizationId: req.auth!.organizationId, examinationId: exam.id } })) throw new AppError(409, "ANSWER_SHEET_RESULTS_AUTHORITATIVE", "Publish finalized answer-sheet results through the examination status workflow");
-    const students = await tx.studentProfile.findMany({ where: { batchId: exam.batchId }, select: { id: true } });
-    for (const student of students) await tx.examinationResult.upsert({ where: { examinationId_studentId: { examinationId: exam.id, studentId: student.id } }, update: {}, create: { organizationId: req.auth!.organizationId, examinationId: exam.id, studentId: student.id, status: ExaminationResultStatus.ABSENT } });
+    const [enrollments, existingResults, existingSheets] = await Promise.all([
+      tx.studentAcademicEnrollment.findMany({ where: { organizationId: exam.organizationId, branchId: exam.branchId, academicSessionId: exam.academicSessionId, courseId: exam.courseId, batchId: exam.batchId, status: { not: "CANCELLED" }, effectiveFrom: { lte: civilDate(exam.examDate) }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: civilDate(exam.examDate) } }, { effectiveTo: civilDate(exam.examDate), effectiveFrom: civilDate(exam.examDate), status: "CLOSED" }] }, select: { studentId: true } }),
+      tx.examinationResult.findMany({ where: { organizationId: exam.organizationId, examinationId: exam.id }, select: { studentId: true } }),
+      tx.examinationAnswerSheet.findMany({ where: { organizationId: exam.organizationId, examinationId: exam.id }, select: { studentId: true } }),
+    ]);
+    const studentIds = new Set([...enrollments, ...existingResults, ...existingSheets].map(row => row.studentId));
+    if (studentIds.size === 0) {
+      throw new AppError(409, "RESULT_GENERATION_ROSTER_UNAVAILABLE", "Historical examination roster cannot be established");
+    }
+    for (const studentId of studentIds) await tx.examinationResult.upsert({ where: { examinationId_studentId: { examinationId: exam.id, studentId } }, update: {}, create: { organizationId: req.auth!.organizationId, examinationId: exam.id, studentId, status: ExaminationResultStatus.ABSENT } });
     const results = await tx.examinationResult.findMany({ where: { examinationId: exam.id }, orderBy: { marksObtained: "desc" } });
     let rank = 0, last: number | null = null, index = 0;
     const generatedAt = new Date();
@@ -250,10 +268,12 @@ router.post("/examinations/:id/generate-results", async (req: AuthRequest, res) 
   res.json({ data: shape(data) });
 });
 
-router.get("/examinations/:id/report-card/:studentId", async (req, res) => {
-  const result = await prisma.examinationResult.findUnique({ where: { examinationId_studentId: { examinationId: String(req.params.id), studentId: String(req.params.studentId) } }, include: { student: { include: { user: true, batch: { include: { course: true } } } }, examination: { include: { subject: true, branch: true } } } });
+router.get("/examinations/:id/report-card/:studentId", async (req: AuthRequest, res) => {
+  const result = await prisma.examinationResult.findFirst({ where: { examinationId: String(req.params.id), studentId: String(req.params.studentId), organizationId: req.auth!.organizationId }, include: { student: { include: { user: true } }, examination: { include: { subject: true, branch: true, course: true, batch: true, session: true } } } });
   if (!result) throw new AppError(404, "RESULT_NOT_FOUND", "Generated result not found");
-  pdf(res, "STUDENT REPORT CARD", [`Student: ${result.student.user.name}`, `Admission: ${result.student.admissionNo} | Roll: ${result.student.rollNo}`, `Course: ${result.student.batch.course?.title} | Batch: ${result.student.batch.name}`, `Examination: ${result.examination.name} | Subject: ${result.examination.subject.name}`, `Marks: ${result.marksObtained ?? "Absent"}/${result.examination.maximumMarks}`, `Percentage: ${result.percentage ?? "-"}% | Grade: ${result.grade ?? "-"} | GPA: ${result.gpa ?? "-"}`, `Rank: ${result.rank ?? "-"} | Result: ${result.status}`]);
+  if (req.auth!.role === Role.BRANCH_ADMIN && !await prisma.branchUser.findFirst({ where: { userId: req.auth!.userId, organizationId: req.auth!.organizationId, branchId: result.examination.branchId }, select: { branchId: true } })) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
+  const enrollment = await resolveHistoricalAcademicEnrollment(prisma, { organizationId: result.organizationId, studentId: result.studentId, branchId: result.examination.branchId, academicSessionId: result.examination.academicSessionId, courseId: result.examination.courseId, batchId: result.examination.batchId, onDate: civilDate(result.examination.examDate), mode: "HISTORICAL_READ" });
+  pdf(res, "STUDENT REPORT CARD", [`Student: ${result.student.user.name}`, `Admission: ${result.student.admissionNo} | Roll: ${enrollment?.rollNo ?? "N/A"}`, `Course: ${result.examination.course.title} | Batch: ${result.examination.batch.name} | Session: ${result.examination.session.name}`, `Examination: ${result.examination.name} | Subject: ${result.examination.subject.name}`, `Marks: ${result.marksObtained ?? "Absent"}/${result.examination.maximumMarks}`, `Percentage: ${result.percentage ?? "-"}% | Grade: ${result.grade ?? "-"} | GPA: ${result.gpa ?? "-"}`, `Rank: ${result.rank ?? "-"} | Result: ${result.status}`]);
 });
 
 router.patch("/examinations/:id/status", async (req: AuthRequest, res) => {

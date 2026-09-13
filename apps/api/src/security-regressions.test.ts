@@ -13,6 +13,7 @@ import { allowedAnswerSheetTypes, assertDocumentFileExtension, assertImageFileEx
 import { allocationWhere, effectiveDateForSession } from "./lib/subject-resolution.js";
 import { createTeacherPhotoLocation, parseTeacherPhotoLocation } from "./lib/teacher-photo.js";
 import { createStoredImageLocation, parseStoredImageLocation } from "./lib/stored-image.js";
+import { historicalCivilDate } from "./lib/academic-placement.js";
 import { assertPortalMessageRecipientAuthorized } from "./routes/portals.js";
 
 test("feature router scopes preserve unrelated public APIs", () => {
@@ -250,6 +251,23 @@ test("examination type becomes immutable when historical activity exists", () =>
   assert.throws(() => assertTypeChangeAllowed({ publishedQuestionPapers: 1, answerSheets: 0, results: 0 }), /Core examination fields cannot change/);
   assert.throws(() => assertTypeChangeAllowed({ publishedQuestionPapers: 0, answerSheets: 1, results: 0 }), /Core examination fields cannot change/);
   assert.throws(() => assertTypeChangeAllowed({ publishedQuestionPapers: 0, answerSheets: 0, results: 1 }), /Core examination fields cannot change/);
+});
+
+test("historical examination workflows share civil-date and participation evidence rules", async () => {
+  const raw = new Date("2026-09-03T23:45:00.000Z");
+  assert.equal(historicalCivilDate(raw).toISOString(), "2026-09-03T00:00:00.000Z");
+  const workflow = await readFile(new URL("./routes/examination-workflow.ts", import.meta.url), "utf8");
+  const admin = await readFile(new URL("./routes/admin-examinations.ts", import.meta.url), "utf8");
+  const portals = await readFile(new URL("./routes/portals.ts", import.meta.url), "utf8");
+  assert.match(workflow, /results: \{ where: \{ studentId: student\.id \}/);
+  assert.match(workflow, /onDate: civilDate\(row\.examDate\)/);
+  assert.match(workflow, /row\.answerSheets\.length \|\| row\.results\.length/);
+  assert.match(admin, /existingResult.*existingSheet/);
+  assert.match(admin, /RESULT_GENERATION_ROSTER_UNAVAILABLE/);
+  assert.match(portals, /historicalCivilDate\(item\.examDate\)/);
+  assert.match(portals, /c\.studentId,c\.branchId/);
+  assert.match(portals, /r\.studentId,r\.examination\.branchId/);
+  assert.match(portals, /enrollment\?\.rollNo/);
 });
 
 test("examination routes use conditional writes, publication gates and atomic audit coverage", async () => {

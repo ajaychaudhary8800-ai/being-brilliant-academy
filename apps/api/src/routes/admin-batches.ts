@@ -26,8 +26,15 @@ router.use(async (req:AuthRequest,_res,next)=>{
     requestedSession = session?.id ?? requestedSession;
   }
   if (requestedBranch === old.branchId && requestedCourse === old.courseId && requestedSession === old.academicSessionId) return next();
-  const attendance = await prisma.attendance.count({ where: { batchId:id } });
-  if (attendance > 0) throw new AppError(409,"BATCH_ACADEMIC_STRUCTURE_LOCKED","A batch with attendance history cannot change branch, course, or academic session");
+  const [attendance, homework, examinations, timetable, testBatches, allocations] = await Promise.all([
+    prisma.attendance.count({ where: { batchId:id } }),
+    prisma.homework.count({ where: { batchId:id } }),
+    prisma.examination.count({ where: { batchId:id } }),
+    prisma.timetable.count({ where: { batchId:id } }),
+    prisma.testBatch.count({ where: { batchId:id } }),
+    prisma.teacherAllocation.count({ where: { batchId:id } }),
+  ]);
+  if (attendance + homework + examinations + timetable + testBatches + allocations > 0) throw new AppError(409,"BATCH_ACADEMIC_STRUCTURE_LOCKED","A batch with academic history cannot change branch, course, or academic session");
   return next();
 });
 function academicStructureConflict(error:any){if(error?.code==="P2003"||error?.code==="P2004")throw new AppError(409,"BATCH_ACADEMIC_STRUCTURE_LOCKED","A batch with academic enrollment history cannot change branch, course, or academic session");throw error}
