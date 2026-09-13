@@ -579,6 +579,7 @@ model Organization {
   feePlans               FeePlan[]
   studentFeeAssignments  StudentFeeAssignment[]
   feePaymentOffsets       FeePaymentOffset[]
+  studentAcademicEnrollments StudentAcademicEnrollment[]
 
   @@index([subscriptionStatus, isActive])
 }
@@ -604,8 +605,10 @@ model AcademicSession {
   substitutions TeacherSubstitution[]
   feePlans FeePlan[]
   studentFeeAssignments StudentFeeAssignment[]
+  studentAcademicEnrollments StudentAcademicEnrollment[]
 
   @@unique([organizationId, name])
+  @@unique([organizationId, id])
   @@index([organizationId, isCurrent])
   @@index([organizationId, isArchived, startsAt])
 }
@@ -870,6 +873,22 @@ enum StudentStatus {
   ACTIVE
   INACTIVE
   ARCHIVED
+}
+
+enum StudentAcademicEnrollmentStatus {
+  ACTIVE
+  CLOSED
+  CANCELLED
+}
+
+enum StudentAcademicEnrollmentSource {
+  ADMISSION
+  IMPORT
+  BACKFILL
+  PROMOTION
+  RETENTION
+  TRANSFER
+  ADMIN_CHANGE
 }
 
 enum TimetableDay {
@@ -1291,7 +1310,9 @@ model User {
   teacherAllocationsUpdated TeacherAllocation[] @relation("TeacherAllocationUpdatedBy")
   substitutionsApproved TeacherSubstitution[] @relation("SubstitutionApprover")
   createdFeePlans       FeePlan[] @relation("FeePlanCreator")
+  academicEnrollmentsCreated StudentAcademicEnrollment[] @relation("StudentAcademicEnrollmentCreator")
 
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -1359,6 +1380,7 @@ model Branch {
   payrollRuns           PayrollRun[]
   feePlans              FeePlan[]
   studentFeeAssignments StudentFeeAssignment[]
+  studentAcademicEnrollments StudentAcademicEnrollment[]
   financialYears        FinancialYear[]
   ledgerAccounts        LedgerAccount[]
   journalEntries        JournalEntry[]
@@ -1390,6 +1412,7 @@ model Branch {
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @updatedAt
 
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -1544,6 +1567,7 @@ model Course {
   teacherAllocations   TeacherAllocation[]
   substitutions        TeacherSubstitution[]
   feePlans             FeePlan[]
+  studentAcademicEnrollments StudentAcademicEnrollment[]
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
@@ -1556,6 +1580,7 @@ model Course {
   @@index([organizationId, categoryType, status])
   @@index([organizationId, competitiveExamId])
   @@index([organizationId, skillCategoryId])
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -1766,7 +1791,11 @@ model Batch {
   substitutions TeacherSubstitution[]
   feePlans          FeePlan[]
   studentFeeAssignments StudentFeeAssignment[]
+  studentAcademicEnrollments StudentAcademicEnrollment[] @relation("StudentAcademicEnrollmentBatchScope")
 
+  @@unique([organizationId, id])
+  @@unique([organizationId, id, branchId, academicSessionId], map: "Batch_enrollment_scope_key")
+  @@unique([organizationId, id, courseId], map: "Batch_enrollment_course_scope_key")
   @@index([branchId])
   @@index([courseId])
   @@index([teacherId])
@@ -1819,7 +1848,9 @@ model StudentProfile {
   hostelAllocations    HostelAllocation[]
   hostelAttendances    HostelAttendance[]
   hostelGatePasses     HostelGatePass[]
+  academicEnrollments  StudentAcademicEnrollment[]
 
+  @@unique([organizationId, id])
   @@unique([batchId, rollNo])
   @@index([branchId, className])
   @@index([batchId])
@@ -1827,6 +1858,37 @@ model StudentProfile {
   @@index([academicSession])
   @@index([organizationId])
   @@index([academicSessionId])
+}
+
+model StudentAcademicEnrollment {
+  organizationId    String
+  id                String                           @id @default(cuid())
+  studentId         String
+  academicSessionId String
+  branchId          String
+  courseId          String?
+  batchId           String
+  rollNo            String
+  status            StudentAcademicEnrollmentStatus @default(ACTIVE)
+  source            StudentAcademicEnrollmentSource
+  effectiveFrom     DateTime                         @db.Date
+  effectiveTo       DateTime?                        @db.Date
+  createdById       String?
+  createdAt         DateTime                         @default(now())
+  updatedAt         DateTime                         @updatedAt
+  organization      Organization                     @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  student           StudentProfile                   @relation(fields: [organizationId, studentId], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict)
+  academicSession   AcademicSession                  @relation(fields: [organizationId, academicSessionId], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict)
+  branch            Branch                           @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict)
+  course            Course?                          @relation(fields: [organizationId, courseId], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict)
+  batch             Batch                            @relation("StudentAcademicEnrollmentBatchScope", fields: [organizationId, batchId, branchId, academicSessionId], references: [organizationId, id, branchId, academicSessionId], onDelete: Restrict, onUpdate: Restrict)
+  createdBy         User?                             @relation("StudentAcademicEnrollmentCreator", fields: [organizationId, createdById], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, studentId, status])
+  @@index([organizationId, studentId, effectiveFrom, createdAt])
+  @@index([organizationId, academicSessionId, branchId, batchId, status])
+  @@index([organizationId, batchId, status])
 }
 
 model TeacherProfile {

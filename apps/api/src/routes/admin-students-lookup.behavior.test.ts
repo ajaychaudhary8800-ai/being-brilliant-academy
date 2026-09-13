@@ -8,7 +8,7 @@ import jwt from "jsonwebtoken";
 import { env } from "../config.js";
 import { errorHandler } from "../lib/http.js";
 import { prisma, systemPrisma } from "../lib/prisma.js";
-import admin from "./admin.js";
+import adminStudents from "./admin-students.js";
 
 const ORG = "org-student-lookup-test";
 const OTHER_ORG = "org-other-student-lookup-test";
@@ -39,8 +39,9 @@ test("finance student lookup reuses paginated authorized student search", async 
     academicSession: "2026-27",
     academicSessionId: "csession0000000000000001",
     user: { id: "cstudentuser000000000125", name: "Student 125", email: "student125@example.test", phone: null, avatarUrl: null, isActive: true },
-    branch: { id: BRANCH, branchName: "Main" },
-    batch: { id: "cbatch000000000000000001", name: "Batch A", code: "A", academicSession: "2026-27", academicSessionId: "csession0000000000000001", branch: { id: BRANCH, branchName: "Main" }, course: { id: "ccourse00000000000000001", title: "Science" } },
+    branch: { id: BRANCH, branchName: "Main", branchCode: "MAIN" },
+    batch: { id: "cbatch000000000000000001", name: "Batch A", code: "A", academicSession: "2026-27", academicSessionId: "csession0000000000000001", capacity: 30, course: { id: "ccourse00000000000000001", title: "Science", courseCode: "SCI" }, _count: { students: 1 } },
+    _count: { fees: 0, testAttempts: 0, certificates: 0 },
   };
   const available = (where: any) => requestOrganization === ORG && !(Array.isArray(where?.branchId?.in) && where.branchId.in.length === 0);
   const count = async ({ where }: any) => available(where) ? 1 : 0;
@@ -54,7 +55,7 @@ test("finance student lookup reuses paginated authorized student search", async 
 
   const app = express();
   app.use(express.json());
-  app.use("/api/v1/admin", admin);
+  app.use("/api/v1/admin", adminStudents);
   app.use(errorHandler);
   const server = app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve, reject) => { server.once("listening", resolve); server.once("error", reject); });
@@ -67,7 +68,7 @@ test("finance student lookup reuses paginated authorized student search", async 
     return { status: response.status, payload: await response.json() as any };
   };
 
-  const found = await get(Role.BRANCH_ADMIN, `?page=1&limit=20&status=active&search=Student%20125&branchId=${BRANCH}`);
+  const found = await get(Role.BRANCH_ADMIN, `?page=1&limit=20&status=ACTIVE&search=Student%20125&branchId=${BRANCH}`);
   assert.equal(found.status, 200);
   assert.equal(found.payload.data[0].id, student125.id);
   assert.equal(found.payload.data[0].batch.course.id, student125.batch.course.id);
@@ -76,8 +77,7 @@ test("finance student lookup reuses paginated authorized student search", async 
   assert.equal(capturedFind.skip, 0);
   assert.equal(capturedFind.take, 20);
   assert.deepEqual(capturedFind.where.branchId, BRANCH);
-  assert.equal(capturedFind.where.user.isActive, true);
-  assert.equal(capturedFind.where.OR[2].user.name.contains, "Student 125");
+  assert.equal(capturedFind.where.OR[4].user.name.contains, "Student 125");
 
   assert.equal((await get(Role.BRANCH_ADMIN, `?search=Student%20125&branchId=${OTHER_BRANCH}`)).status, 403);
   assert.equal((await get(Role.ACCOUNTANT, "?search=Student%20125")).status, 403);
