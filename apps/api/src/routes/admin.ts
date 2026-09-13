@@ -19,9 +19,11 @@ const studentSelect = {
   admissionNo: true,
   fatherName: true,
   className: true,
+  academicSession: true,
+  academicSessionId: true,
   user: { select: { id: true, name: true, email: true, phone: true, avatarUrl: true, isActive: true } },
   branch: { select: { id: true, branchName: true } },
-  batch: { select: { id: true, name: true } },
+  batch: { select: { id: true, name: true, code: true, academicSession: true, academicSessionId: true, branch: { select: { id: true, branchName: true } }, course: { select: { id: true, title: true } } } },
 } as const;
 
 const studentInput = z.object({

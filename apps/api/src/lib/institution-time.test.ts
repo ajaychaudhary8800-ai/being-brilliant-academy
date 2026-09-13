@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { homeworkCreateDateTimes, homeworkUpdateDateTimes, isIanaTimeZone, parseDateOnly, parseInstitutionDateTime, parseInstitutionDateTimeOrInstant } from "./institution-time.js";
+import { homeworkCreateDateTimes, homeworkUpdateDateTimes, institutionDateRange, institutionDayRange, isIanaTimeZone, parseDateOnly, parseInstitutionDateTime, parseInstitutionDateTimeOrInstant } from "./institution-time.js";
 
 test("institution-local Homework time is converted exactly once to UTC", () => {
   const dueDate = parseInstitutionDateTime("2026-09-08T10:00", "Asia/Calcutta");
@@ -65,6 +65,25 @@ test("shared scheduling input accepts institution wall time and explicit instant
   assert.equal(parseInstitutionDateTimeOrInstant("2026-09-08T04:30:00.000Z", "America/New_York").toISOString(), "2026-09-08T04:30:00.000Z");
   assert.equal(parseInstitutionDateTimeOrInstant("2026-09-08T10:00:00+05:30", "UTC").toISOString(), "2026-09-08T04:30:00.000Z");
   assert.throws(() => parseInstitutionDateTimeOrInstant("2026-09-08T10:00:00", "Asia/Calcutta"), (error: any) => error.code === "INVALID_INSTITUTION_DATETIME");
+});
+
+test("institution calendar ranges produce UTC boundaries for Kolkata, UTC and New York", () => {
+  assert.deepEqual(Object.values(institutionDateRange("2026-09-13", "2026-09-13", "Asia/Kolkata")).map(value => value.toISOString()), ["2026-09-12T18:30:00.000Z", "2026-09-13T18:30:00.000Z"]);
+  assert.deepEqual(Object.values(institutionDateRange("2026-09-13", "2026-09-14", "UTC")).map(value => value.toISOString()), ["2026-09-13T00:00:00.000Z", "2026-09-15T00:00:00.000Z"]);
+  assert.deepEqual(Object.values(institutionDateRange("2026-09-13", "2026-09-13", "America/New_York")).map(value => value.toISOString()), ["2026-09-13T04:00:00.000Z", "2026-09-14T04:00:00.000Z"]);
+});
+
+test("institution today follows its calendar near UTC midnight", () => {
+  const instant = new Date("2026-09-12T20:00:00.000Z");
+  assert.equal(institutionDayRange(instant, "Asia/Kolkata").start.toISOString(), "2026-09-12T18:30:00.000Z");
+  assert.equal(institutionDayRange(instant, "UTC").start.toISOString(), "2026-09-12T00:00:00.000Z");
+  assert.equal(institutionDayRange(instant, "America/New_York").start.toISOString(), "2026-09-12T04:00:00.000Z");
+});
+
+test("institution date ranges accept one or many days and reject reverse ranges", () => {
+  assert.equal(institutionDateRange("2026-09-13", "2026-09-13", "UTC").endExclusive.toISOString(), "2026-09-14T00:00:00.000Z");
+  assert.equal(institutionDateRange("2026-09-13", "2026-09-15", "UTC").endExclusive.toISOString(), "2026-09-16T00:00:00.000Z");
+  assert.throws(() => institutionDateRange("2026-09-15", "2026-09-13", "UTC"), (error: any) => error.status === 422 && error.code === "INVALID_DATE_RANGE");
 });
 
 const zone = "Asia/Calcutta";

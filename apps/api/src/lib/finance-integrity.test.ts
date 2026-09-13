@@ -125,6 +125,19 @@ test("authoritative payment totals reject sequential or concurrent over-collecti
   );
 });
 
+test("collection after a payment offset uses the remaining authoritative balance", () => {
+  const feePayable = 10_000;
+  const paidBeforeRefund = 10_000;
+  const refund = 3_000;
+  const effectivePaid = paidBeforeRefund - refund;
+  assert.equal(effectivePaid, 7_000);
+  assert.equal(assertPaymentWithinAuthoritativeBalance(feePayable, 0, 0, effectivePaid, 3_000), 3_000);
+  assert.throws(
+    () => assertPaymentWithinAuthoritativeBalance(feePayable, 0, 0, effectivePaid, 3_001),
+    (error: unknown) => (error as { code?: string }).code === "PAYMENT_EXCEEDS_BALANCE",
+  );
+});
+
 test("audited fee adjustments derive operational totals without rewriting the original amount", () => {
   const current = { totalPaise: 10_000, discountPaise: 500, finePaise: 100, amountPaidPaise: 4_000 };
   assert.deepEqual(adjustedFeeAmounts(current, "DISCOUNT", 500), { discountPaise: 1_000, finePaise: 100 });
