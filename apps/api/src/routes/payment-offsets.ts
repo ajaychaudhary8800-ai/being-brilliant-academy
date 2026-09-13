@@ -11,6 +11,8 @@ import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.ACCOUNTANT));
 
+const maxSerializableAttempts = 3;
+
 const input = z.object({
   amountPaise: z.number().int().positive().max(2_147_483_647),
   reason: z.string().trim().min(1).max(2000),
@@ -103,59 +105,58 @@ async function readAuthorizedExisting(req: AuthRequest, idempotencyKey: string, 
 }
 
 async function createOffset(req: AuthRequest, paymentId: string, type: FeePaymentOffsetType, data: z.infer<typeof input>) {
-  const permitted = await scope(req);
-  try {
-    const result = await prisma.$transaction(async tx => {
-      const locked = await tx.$queryRaw<PaymentRow[]>(Prisma.sql`SELECT "organizationId", "id", "feeId", "amountPaise" FROM "FeePayment" WHERE "organizationId" = ${req.auth!.organizationId} AND "id" = ${paymentId} FOR UPDATE`);
-      const payment = locked[0];
-      if (!payment) throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
-      const fee = await tx.fee.findUnique({ where: { id: payment.feeId }, select: { id: true, organizationId: true, studentId: true, branchId: true, totalPaise: true, discountPaise: true, finePaise: true, amountPaidPaise: true, dueDate: true, status: true } });
-      if (!fee || fee.organizationId !== req.auth!.organizationId) throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
-      access(req, permitted, fee.branchId);
-      const existing = await tx.feePaymentOffset.findUnique({ where: { organizationId_idempotencyKey: { organizationId: req.auth!.organizationId, idempotencyKey: data.idempotencyKey } }, include });
-      if (existing) {
-        if (!sameIntent(existing, data, paymentId, type)) throw new AppError(409, "PAYMENT_OFFSET_IDEMPOTENCY_CONFLICT", "Idempotency key was already used for a different payment offset");
-        const total = await tx.feePaymentOffset.aggregate({ where: { organizationId: req.auth!.organizationId, feePaymentId: paymentId }, _sum: { amountPaise: true } });
-        return { offset: { ...existing, __totalOffsetPaise: Number(total._sum.amountPaise ?? 0) }, created: false };
-      }
-      const paymentTotals = await tx.feePaymentOffset.aggregate({ where: { organizationId: payment.organizationId, feePaymentId: payment.id }, _sum: { amountPaise: true } });
-      const existingForPayment = Number(paymentTotals._sum.amountPaise ?? 0);
-      if (existingForPayment + data.amountPaise > payment.amountPaise) throw new AppError(422, "PAYMENT_OFFSET_EXCEEDS_ORIGINAL", "Refunds and reversals cannot exceed the original payment amount");
-      const originalTotals = await tx.feePayment.aggregate({ where: { organizationId: payment.organizationId, feeId: fee.id }, _sum: { amountPaise: true } });
-      const offsetTotals = await tx.feePaymentOffset.aggregate({ where: { organizationId: payment.organizationId, feeId: fee.id }, _sum: { amountPaise: true } });
-      const expectedPaid = Math.max(0, Number(originalTotals._sum.amountPaise ?? 0) - Number(offsetTotals._sum.amountPaise ?? 0));
-      if (Number(fee.amountPaidPaise) !== expectedPaid) throw new AppError(409, "PAYMENT_LEDGER_INCONSISTENT", "Fee payment ledger is inconsistent; no offset was created");
-      const nextPaid = expectedPaid - data.amountPaise;
-      if (nextPaid < 0) throw new AppError(409, "PAYMENT_LEDGER_INCONSISTENT", "Fee payment ledger would become negative");
-      const offset = await tx.feePaymentOffset.create({ data: { organizationId: payment.organizationId, feePaymentId: payment.id, feeId: fee.id, type, amountPaise: data.amountPaise, reason: data.reason, idempotencyKey: data.idempotencyKey, reference: data.reference ?? null, createdById: req.auth!.userId }, include });
-      const status = feeStatus(fee.totalPaise, fee.discountPaise, fee.finePaise, nextPaid, fee.dueDate);
-      const updatedFee = await tx.fee.update({ where: { id: fee.id }, data: { amountPaidPaise: nextPaid, status } });
-      await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: type === FeePaymentOffsetType.REFUND ? "FEE_PAYMENT_REFUNDED" : "FEE_PAYMENT_REVERSED", entity: "FeePaymentOffset", entityId: offset.id, metadata: safeFinanceAuditMetadata({ feeId: fee.id, feePaymentId: payment.id, branchId: fee.branchId, amountPaise: data.amountPaise, type, idempotencyKey: data.idempotencyKey, originalPaymentPaise: payment.amountPaise, remainingPaymentPaise: payment.amountPaise - existingForPayment - data.amountPaise }) } });
-      return {
-        offset: {
-          ...offset,
-          feePayment: {
-            ...offset.feePayment,
-            fee: { ...offset.feePayment.fee, amountPaidPaise: updatedFee.amountPaidPaise, status: updatedFee.status },
+  for (let attempt = 1; attempt <= maxSerializableAttempts; attempt += 1) {
+    try {
+      const permitted = await scope(req);
+      const result = await prisma.$transaction(async tx => {
+        const locked = await tx.$queryRaw<PaymentRow[]>(Prisma.sql`SELECT "organizationId", "id", "feeId", "amountPaise" FROM "FeePayment" WHERE "organizationId" = ${req.auth!.organizationId} AND "id" = ${paymentId} FOR UPDATE`);
+        const payment = locked[0];
+        if (!payment) throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+        const fee = await tx.fee.findUnique({ where: { id: payment.feeId }, select: { id: true, organizationId: true, studentId: true, branchId: true, totalPaise: true, discountPaise: true, finePaise: true, amountPaidPaise: true, dueDate: true, status: true } });
+        if (!fee || fee.organizationId !== req.auth!.organizationId) throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+        access(req, permitted, fee.branchId);
+        const existing = await tx.feePaymentOffset.findUnique({ where: { organizationId_idempotencyKey: { organizationId: req.auth!.organizationId, idempotencyKey: data.idempotencyKey } }, include });
+        if (existing) {
+          if (!sameIntent(existing, data, paymentId, type)) throw new AppError(409, "PAYMENT_OFFSET_IDEMPOTENCY_CONFLICT", "Idempotency key was already used for a different payment offset");
+          const total = await tx.feePaymentOffset.aggregate({ where: { organizationId: req.auth!.organizationId, feePaymentId: paymentId }, _sum: { amountPaise: true } });
+          return { offset: { ...existing, __totalOffsetPaise: Number(total._sum.amountPaise ?? 0) }, created: false };
+        }
+        const paymentTotals = await tx.feePaymentOffset.aggregate({ where: { organizationId: payment.organizationId, feePaymentId: payment.id }, _sum: { amountPaise: true } });
+        const existingForPayment = Number(paymentTotals._sum.amountPaise ?? 0);
+        if (existingForPayment + data.amountPaise > payment.amountPaise) throw new AppError(422, "PAYMENT_OFFSET_EXCEEDS_ORIGINAL", "Refunds and reversals cannot exceed the original payment amount");
+        const originalTotals = await tx.feePayment.aggregate({ where: { organizationId: payment.organizationId, feeId: fee.id }, _sum: { amountPaise: true } });
+        const offsetTotals = await tx.feePaymentOffset.aggregate({ where: { organizationId: payment.organizationId, feeId: fee.id }, _sum: { amountPaise: true } });
+        const expectedPaid = Math.max(0, Number(originalTotals._sum.amountPaise ?? 0) - Number(offsetTotals._sum.amountPaise ?? 0));
+        if (Number(fee.amountPaidPaise) !== expectedPaid) throw new AppError(409, "PAYMENT_LEDGER_INCONSISTENT", "Fee payment ledger is inconsistent; no offset was created");
+        const nextPaid = expectedPaid - data.amountPaise;
+        if (nextPaid < 0) throw new AppError(409, "PAYMENT_LEDGER_INCONSISTENT", "Fee payment ledger would become negative");
+        const offset = await tx.feePaymentOffset.create({ data: { organizationId: payment.organizationId, feePaymentId: payment.id, feeId: fee.id, type, amountPaise: data.amountPaise, reason: data.reason, idempotencyKey: data.idempotencyKey, reference: data.reference ?? null, createdById: req.auth!.userId }, include });
+        const status = feeStatus(fee.totalPaise, fee.discountPaise, fee.finePaise, nextPaid, fee.dueDate);
+        const updatedFee = await tx.fee.update({ where: { id: fee.id }, data: { amountPaidPaise: nextPaid, status } });
+        await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: type === FeePaymentOffsetType.REFUND ? "FEE_PAYMENT_REFUNDED" : "FEE_PAYMENT_REVERSED", entity: "FeePaymentOffset", entityId: offset.id, metadata: safeFinanceAuditMetadata({ feeId: fee.id, feePaymentId: payment.id, branchId: fee.branchId, amountPaise: data.amountPaise, type, idempotencyKey: data.idempotencyKey, originalPaymentPaise: payment.amountPaise, remainingPaymentPaise: payment.amountPaise - existingForPayment - data.amountPaise }) } });
+        return {
+          offset: {
+            ...offset,
+            feePayment: {
+              ...offset.feePayment,
+              fee: { ...offset.feePayment.fee, amountPaidPaise: updatedFee.amountPaidPaise, status: updatedFee.status },
+            },
+            __totalOffsetPaise: existingForPayment + data.amountPaise,
           },
-          __totalOffsetPaise: existingForPayment + data.amountPaise,
-        },
-        created: true,
-      };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    return { data: await format(result.offset), created: result.created };
-  } catch (error) {
-    if (isSerializableConflict(error)) {
+          created: true,
+        };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      return { data: await format(result.offset), created: result.created };
+    } catch (error) {
+      const retryable = isSerializableConflict(error)
+        || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002");
+      if (!retryable) throw error;
       const existing = await readAuthorizedExisting(req, data.idempotencyKey, paymentId, type, data);
       if (existing) return { data: await format(existing), created: false };
-      throw new AppError(409, "PAYMENT_OFFSET_CONFLICT", "The payment changed; reload and try again");
+      if (attempt === maxSerializableAttempts) throw new AppError(409, "PAYMENT_OFFSET_CONFLICT", "The payment changed; reload and try again");
     }
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const existing = await readAuthorizedExisting(req, data.idempotencyKey, paymentId, type, data);
-      if (existing) return { data: await format(existing), created: false };
-    }
-    throw error;
   }
+  throw new AppError(409, "PAYMENT_OFFSET_CONFLICT", "The payment changed; reload and try again");
 }
 
 for (const [suffix, type] of [["refunds", FeePaymentOffsetType.REFUND], ["reversals", FeePaymentOffsetType.REVERSAL]] as const) {

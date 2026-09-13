@@ -25,6 +25,11 @@ test("payment offset routes enforce immutable, idempotent ledger behavior", asyn
   let failUpdate = false;
   let failAudit = false;
   let forceP2002 = false;
+  let serializableFailures = 0;
+  let commitWinnerOnSerializableFailure = false;
+  let revokeBranchOnSerializableFailure = false;
+  let hiddenRecoveryReads = 0;
+  let transactionAttempts = 0;
   let requestedPaymentId = PAYMENT;
   const reset = () => {
     state = {
@@ -33,7 +38,7 @@ test("payment offset routes enforce immutable, idempotent ledger behavior", asyn
       fee: { id: FEE, organizationId: ORG, studentId: "student-1", branchId: BRANCH, totalPaise: 15_000, discountPaise: 0, finePaise: 0, amountPaidPaise: 10_000, dueDate: new Date("2099-01-01"), status: FeeStatus.PAID },
       offsets: [], audits: [],
     };
-    assignedBranches = [BRANCH]; failCreate = false; failUpdate = false; failAudit = false; forceP2002 = false; requestedPaymentId = PAYMENT;
+    assignedBranches = [BRANCH]; failCreate = false; failUpdate = false; failAudit = false; forceP2002 = false; serializableFailures = 0; commitWinnerOnSerializableFailure = false; revokeBranchOnSerializableFailure = false; hiddenRecoveryReads = 0; transactionAttempts = 0; requestedPaymentId = PAYMENT;
   };
   reset();
   const clone = (value: State): State => ({ payment: { ...value.payment }, payment2: { ...value.payment2 }, fee: { ...value.fee }, offsets: value.offsets.map(row => ({ ...row })), audits: value.audits.map(row => ({ ...row })) });
@@ -50,7 +55,7 @@ test("payment offset routes enforce immutable, idempotent ledger behavior", asyn
   patch((prisma as any).branchUser, "findMany", async () => assignedBranches.map(branchId => ({ branchId })));
   patch((systemPrisma as any).branchUser, "findMany", async () => assignedBranches.map(branchId => ({ branchId })));
   const offsetAggregate = async ({ where }: any) => ({ _sum: { amountPaise: state.offsets.filter(row => row.organizationId === where.organizationId && row.feePaymentId === where.feePaymentId).reduce((sum, row) => sum + row.amountPaise, 0) || null } });
-  const offsetFindUnique = async ({ where, include }: any) => { const row = state.offsets.find(item => item.organizationId === where.organizationId_idempotencyKey.organizationId && item.idempotencyKey === where.organizationId_idempotencyKey.idempotencyKey); return row && include ? relations(state, row) : row ?? null; };
+  const offsetFindUnique = async ({ where, include }: any) => { if (hiddenRecoveryReads > 0) { hiddenRecoveryReads -= 1; return null; } const row = state.offsets.find(item => item.organizationId === where.organizationId_idempotencyKey.organizationId && item.idempotencyKey === where.organizationId_idempotencyKey.idempotencyKey); return row && include ? relations(state, row) : row ?? null; };
   patch((systemPrisma as any).feePaymentOffset, "aggregate", offsetAggregate);
   patch((systemPrisma as any).feePaymentOffset, "findUnique", offsetFindUnique);
   patch((systemPrisma as any).feePaymentOffset, "findMany", async () => state.offsets.map(row => relations(state, row)));
@@ -61,8 +66,28 @@ test("payment offset routes enforce immutable, idempotent ledger behavior", asyn
   patch((prisma as any).feePaymentOffset, "findMany", async () => state.offsets.map(row => relations(state, row)));
   patch((prisma as any).feePaymentOffset, "count", async () => state.offsets.length);
   patch((prisma as any).feePaymentOffset, "findFirst", async ({ where }: any) => { const row = state.offsets.find(item => item.id === where.id && item.organizationId === where.organizationId); return row ? relations(state, row) : null; });
-    const transaction = async (work: any) => {
+  const transaction = async (work: any) => {
+    transactionAttempts += 1;
     if (forceP2002) throw new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" });
+    if (serializableFailures > 0) {
+      serializableFailures -= 1;
+      if (commitWinnerOnSerializableFailure) {
+        const amountPaise = 2_000;
+        const row = { id: "offset-concurrent-winner", organizationId: ORG, feePaymentId: PAYMENT, feeId: FEE, type: FeePaymentOffsetType.REFUND, amountPaise, reason: "Concurrent winner", idempotencyKey: "serialization-race", reference: "SERIAL", createdById: USER, createdAt: new Date() };
+        state.offsets.push(row);
+        state.fee.amountPaidPaise -= amountPaise;
+        state.fee.status = FeeStatus.PARTIAL;
+        state.audits.push({ entityId: row.id });
+        commitWinnerOnSerializableFailure = false;
+        hiddenRecoveryReads = 1;
+      }
+      if (revokeBranchOnSerializableFailure) {
+        assignedBranches = [];
+        revokeBranchOnSerializableFailure = false;
+        hiddenRecoveryReads = 1;
+      }
+      throw new Prisma.PrismaClientKnownRequestError("Transaction write conflict", { code: "P2034", clientVersion: "test" });
+    }
     const local = clone(state);
     const tx: any = {
       $queryRaw: async () => [requestedPaymentId === PAYMENT_2 ? local.payment2 : local.payment],
@@ -224,6 +249,25 @@ test("payment offset routes enforce immutable, idempotent ledger behavior", asyn
       assert.equal(same.status, 200); assert.equal(same.payload.created, false);
       const conflict = await request(Role.SUPER_ADMIN, `/api/v1/finance/payments/${PAYMENT}/refunds`, { amountPaise: 1_000, reason: "Different", idempotencyKey: "race-key", reference: "RACE" });
       assert.equal(conflict.status, 409); assert.equal(conflict.payload.error.code, "PAYMENT_OFFSET_IDEMPOTENCY_CONFLICT");
+    });
+    await t.test("serialization recovery retries until the concurrent exact intent is visible", async () => {
+      reset(); serializableFailures = 1; commitWinnerOnSerializableFailure = true;
+      const response = await request(Role.SUPER_ADMIN, `/api/v1/finance/payments/${PAYMENT}/refunds`, { amountPaise: 2_000, reason: "Concurrent winner", idempotencyKey: "serialization-race", reference: "SERIAL" });
+      assert.equal(response.status, 200); assert.equal(response.payload.created, false);
+      assert.equal(transactionAttempts, 2); assert.equal(state.offsets.length, 1); assert.equal(state.audits.length, 1); assert.equal(state.fee.amountPaidPaise, 8_000); assert.equal(state.payment.amountPaise, 10_000);
+    });
+    await t.test("Branch Admin authorization is refreshed before a serializable retry", async () => {
+      reset(); serializableFailures = 1; revokeBranchOnSerializableFailure = true;
+      const originalPayment = { ...state.payment };
+      const response = await request(Role.BRANCH_ADMIN, `/api/v1/finance/payments/${PAYMENT}/refunds`, { amountPaise: 2_000, reason: "Revoked during retry", idempotencyKey: "revoked-during-retry" });
+      assert.equal(response.status, 403); assert.equal(response.payload.error.code, "BRANCH_FORBIDDEN");
+      assert.equal(transactionAttempts, 2); assert.equal(state.offsets.length, 0); assert.equal(state.audits.length, 0); assert.equal(state.fee.amountPaidPaise, 10_000); assert.equal(state.fee.status, FeeStatus.PAID); assert.deepEqual(state.payment, originalPayment);
+    });
+    await t.test("unrelated serialization conflicts remain bounded and explicit", async () => {
+      reset(); serializableFailures = 10;
+      const response = await request(Role.SUPER_ADMIN, `/api/v1/finance/payments/${PAYMENT}/refunds`, { amountPaise: 1_000, reason: "Persistent conflict", idempotencyKey: "persistent-conflict" });
+      assert.equal(response.status, 409); assert.equal(response.payload.error.code, "PAYMENT_OFFSET_CONFLICT");
+      assert.equal(transactionAttempts, 3); assert.equal(state.offsets.length, 0); assert.equal(state.audits.length, 0); assert.equal(state.fee.amountPaidPaise, 10_000);
     });
     await t.test("legacy and Batch 2 generated-source Fees both support offsets", async () => {
       reset();

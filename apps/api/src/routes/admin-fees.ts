@@ -161,14 +161,21 @@ router.post("/fees/:id/collect", async (req: AuthRequest, res) => {
   const permittedBranchIds = await assignedBranchIds(req);
   try {
     const result = await prisma.$transaction(async tx => {
-      const fee = await tx.fee.findUnique({ where: { id: String(req.params.id) }, select: { id: true, branchId: true, totalPaise: true, discountPaise: true, finePaise: true, dueDate: true } }); if (!fee) throw new AppError(404, "FEE_NOT_FOUND", "Fee not found"); assertFinanceBranchAccess(req.auth!.role, permittedBranchIds, fee.branchId);
+      const fee = await tx.fee.findUnique({ where: { id: String(req.params.id) }, select: { id: true, branchId: true, totalPaise: true, discountPaise: true, finePaise: true, amountPaidPaise: true, dueDate: true } }); if (!fee) throw new AppError(404, "FEE_NOT_FOUND", "Fee not found"); assertFinanceBranchAccess(req.auth!.role, permittedBranchIds, fee.branchId);
       if (data.transactionId && await tx.feePayment.findUnique({ where: { transactionId: data.transactionId }, select: { id: true } })) throw new AppError(409, "TRANSACTION_EXISTS", "Transaction ID already exists");
-      const before = await tx.feePayment.aggregate({ where: { feeId: fee.id }, _sum: { amountPaise: true } }), paidBefore = before._sum.amountPaise ?? 0;
-      assertPaymentWithinAuthoritativeBalance(fee.totalPaise, fee.discountPaise, fee.finePaise, paidBefore, data.amountPaise);
+      const [payments, offsets] = await Promise.all([
+        tx.feePayment.aggregate({ where: { organizationId: req.auth!.organizationId, feeId: fee.id }, _sum: { amountPaise: true } }),
+        tx.feePaymentOffset.aggregate({ where: { organizationId: req.auth!.organizationId, feeId: fee.id }, _sum: { amountPaise: true } }),
+      ]);
+      const grossPaymentsPaise = payments._sum.amountPaise ?? 0;
+      const offsetsPaise = offsets._sum.amountPaise ?? 0;
+      const effectivePaidBefore = grossPaymentsPaise - offsetsPaise;
+      if (effectivePaidBefore < 0 || fee.amountPaidPaise !== effectivePaidBefore) throw new AppError(409, "PAYMENT_LEDGER_INCONSISTENT", "Fee payment ledger is inconsistent; no payment was created");
+      assertPaymentWithinAuthoritativeBalance(fee.totalPaise, fee.discountPaise, fee.finePaise, effectivePaidBefore, data.amountPaise);
       const receiptNumber = `BBA-FEE-${crypto.randomUUID().toUpperCase()}`, payment = await tx.feePayment.create({ data: { feeId: fee.id, ...data, receiptNumber, collectedById: req.auth!.userId } });
-      const authoritative = await tx.feePayment.aggregate({ where: { feeId: fee.id }, _sum: { amountPaise: true } }), amountPaidPaise = authoritative._sum.amountPaise ?? 0;
+      const amountPaidPaise = effectivePaidBefore + payment.amountPaise;
       const updated = await tx.fee.update({ where: { id: fee.id }, data: { amountPaidPaise, status: feeStatus(fee.totalPaise, fee.discountPaise, fee.finePaise, amountPaidPaise, fee.dueDate) }, select });
-      await tx.auditLog.create({ data: auditRecord(req, "PAYMENT_CREATED", "FeePayment", payment.id, { feeId: fee.id, branchId: fee.branchId, amountPaise: data.amountPaise, paymentMode: data.paymentMode, receiptNumber, previousPaidPaise: paidBefore, amountPaidPaise }) });
+      await tx.auditLog.create({ data: auditRecord(req, "PAYMENT_CREATED", "FeePayment", payment.id, { feeId: fee.id, branchId: fee.branchId, amountPaise: data.amountPaise, paymentMode: data.paymentMode, receiptNumber, previousPaidPaise: effectivePaidBefore, amountPaidPaise }) });
       await tx.auditLog.create({ data: auditRecord(req, "RECEIPT_ISSUED", "FeePayment", payment.id, { feeId: fee.id, receiptNumber, amountPaise: data.amountPaise }) });
       return { payment, fee: decorate(updated) };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

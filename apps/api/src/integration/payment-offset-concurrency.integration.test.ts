@@ -63,7 +63,10 @@ test("real PostgreSQL serializes and caps payment refunds/reversals", { skip: !e
     const bearer = jwt.sign({ userId: user.id, role: Role.SUPER_ADMIN, organizationId }, env.JWT_ACCESS_SECRET, { expiresIn: "5m" });
     const request = () => fetch(`http://127.0.0.1:${port}/api/v1/finance/payments/${applicationPayment.id}/refunds`, { method: "POST", headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" }, body: JSON.stringify({ amountPaise: 2_000, reason: "Application idempotency", idempotencyKey: "application-same-key" }) });
     const responses = await Promise.all([request(), request()]);
-    assert.ok(responses.every(response => response.status === 201 || response.status === 200));
+    const results = await Promise.all(responses.map(async response => ({ status: response.status, body: await response.json() as any })));
+    assert.deepEqual(results.map(result => result.status).sort((left, right) => left - right), [200, 201], `same-key HTTP results: ${JSON.stringify(results)}`);
+    assert.equal(results.find(result => result.status === 201)?.body.created, true);
+    assert.equal(results.find(result => result.status === 200)?.body.created, false);
     assert.equal(await systemPrisma.feePaymentOffset.count({ where: { organizationId, feePaymentId: applicationPayment.id, idempotencyKey: "application-same-key" } }), 1);
     assert.equal((await systemPrisma.fee.findUnique({ where: { id: applicationFee.id }, select: { amountPaidPaise: true } }))?.amountPaidPaise, 6_000);
     const applicationOffset = await systemPrisma.feePaymentOffset.findFirstOrThrow({ where: { organizationId, feePaymentId: applicationPayment.id, idempotencyKey: "application-same-key" } });
