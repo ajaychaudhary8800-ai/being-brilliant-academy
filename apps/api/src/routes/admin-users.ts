@@ -5,8 +5,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
-import { sendEmail } from "../lib/notifications.js";
-import { env } from "../config.js";
+import { issueAccountSetup } from "../lib/account-setup.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { assertCanAdministerUserTarget, assertCanChangeUserRole, managedUserBranchIds } from "../lib/user-administration-policy.js";
 import { assertEligibleParentStudent, assertParentBranchScope, parentRelationships } from "../lib/parent-administration-policy.js";
@@ -81,7 +80,7 @@ router.post("/users/accountants", allow(Role.SUPER_ADMIN), async (req: AuthReque
       return user;
     });
     let setup: unknown = null;
-    try { setup = await issueSetup(result.id, result.organizationId, result.email, result.name); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: result.id, metadata: { role: Role.ACCOUNTANT, delivery: (setup as any)?.skipped ? "SKIPPED" : "SENT" } } }); } catch { setup = { skipped: true, reason: "EMAIL_DELIVERY_FAILED" }; }
+    try { setup = await issueAccountSetup(result); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: result.id, metadata: { role: Role.ACCOUNTANT, delivery: (setup as any)?.skipped ? "SKIPPED" : "SENT" } } }); } catch { setup = { skipped: true, reason: "EMAIL_DELIVERY_FAILED" }; }
     res.status(201).json({ data: { ...result, setup } });
   } catch (error) { const mapped = mapUnique(error); if (mapped) throw mapped; throw error; }
 });
@@ -96,14 +95,6 @@ async function validateStudents(req: AuthRequest, students: Array<{ studentId: s
   return records;
 }
 
-async function issueSetup(userId: string, organizationId: string, email: string, name: string) {
-  const raw = crypto.randomBytes(32).toString("base64url");
-  await prisma.passwordResetToken.deleteMany({ where: { userId, usedAt: null } });
-  await prisma.passwordResetToken.create({ data: { userId, tokenHash: crypto.createHash("sha256").update(raw).digest("hex"), expiresAt: new Date(Date.now() + 3600000) } });
-  const result = await sendEmail(email, "Set up your Being Brilliant Academy account", `Hello ${name},\n\nUse this secure link within one hour to set your password:\n\n${env.WEB_URL}/reset-password?token=${encodeURIComponent(raw)}`);
-  return result;
-}
-
 router.post("/users/parents", async (req: AuthRequest, res) => {
   const input = parentInput.parse(req.body); const students = await validateStudents(req, input.students);
   try {
@@ -114,7 +105,7 @@ router.post("/users/parents", async (req: AuthRequest, res) => {
       for (const item of input.students) await tx.auditLog.create({ data: { actorId: req.auth!.userId, action: "PARENT_STUDENT_LINKED", entity: "ParentStudent", entityId: user.id, metadata: { studentId: item.studentId, relationship: item.relationship } } });
       return user;
     });
-    let setup: unknown = null; try { setup = await issueSetup(result.id, result.organizationId, result.email, result.name); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: result.id, metadata: { role: Role.PARENT, delivery: (setup as any)?.skipped ? "SKIPPED" : "SENT" } } }); } catch { setup = { skipped: true, reason: "EMAIL_DELIVERY_FAILED" }; }
+    let setup: unknown = null; try { setup = await issueAccountSetup(result); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: result.id, metadata: { role: Role.PARENT, delivery: (setup as any)?.skipped ? "SKIPPED" : "SENT" } } }); } catch { setup = { skipped: true, reason: "EMAIL_DELIVERY_FAILED" }; }
     res.status(201).json({ data: { ...result, setup } });
   } catch (error) { const mapped = mapUnique(error); if (mapped) throw mapped; throw error; }
 });
@@ -142,7 +133,7 @@ router.patch("/users/:id", async (req: AuthRequest, res) => {
   try { const data = await prisma.$transaction(async tx => { const updated = await tx.user.update({ where: { id: target.id }, data: { ...(input.name !== undefined ? { name: input.name } : {}), ...(input.email !== undefined ? { email: input.email } : {}), ...(input.phone !== undefined ? { phone: input.phone } : {}), ...(input.isActive !== undefined ? { isActive: input.isActive } : {}), ...(input.role !== undefined ? { role: input.role } : {}) }, select: { id: true, name: true, email: true, phone: true, role: true, isActive: true } }); if (input.isActive !== undefined && input.isActive !== target.isActive) { await tx.session.deleteMany({ where: { userId: target.id } }); await tx.auditLog.create({ data: { actorId: req.auth!.userId, action: "USER_STATUS_CHANGED", entity: "User", entityId: target.id, metadata: { previousStatus: target.isActive, nextStatus: input.isActive } } }); } if (input.role !== undefined && input.role !== target.role) { await tx.session.deleteMany({ where: { userId: target.id } }); await tx.auditLog.create({ data: { actorId: req.auth!.userId, action: "USER_ROLE_CHANGED", entity: "User", entityId: target.id, metadata: { previousRole: target.role, nextRole: input.role } } }); } if (input.name !== undefined || input.email !== undefined || input.phone !== undefined) await tx.auditLog.create({ data: { actorId: req.auth!.userId, action: "USER_UPDATED", entity: "User", entityId: target.id, metadata: { fields: Object.keys(input).filter(key => ["name", "email", "phone"].includes(key)) } } }); return updated; }); res.json({ data }); } catch (error) { const mapped = mapUnique(error); if (mapped) throw mapped; throw error; }
 });
 
-router.post("/users/:id/setup-email", async (req: AuthRequest, res) => { const target = await loadTarget(req, String(req.params.id)); try { const result = await issueSetup(target.id, req.auth!.organizationId, target.email, target.name); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: target.id, metadata: { delivery: result.skipped ? "SKIPPED" : "SENT" } } }); res.status(202).json({ data: { sent: !result.skipped, skipped: result.skipped } }); } catch { throw new AppError(502, "RESET_EMAIL_FAILED", "Unable to send the setup email"); } });
+router.post("/users/:id/setup-email", async (req: AuthRequest, res) => { const target = await loadTarget(req, String(req.params.id)); try { const result = await issueAccountSetup({ id: target.id, organizationId: req.auth!.organizationId, email: target.email, name: target.name }); await prisma.auditLog.create({ data: { actorId: req.auth!.userId, action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: target.id, metadata: { delivery: result.skipped ? "SKIPPED" : "SENT" } } }); res.status(202).json({ data: { sent: !result.skipped, skipped: result.skipped } }); } catch { throw new AppError(502, "RESET_EMAIL_FAILED", "Unable to send the setup email"); } });
 
 router.put("/users/:id/accountant-branches", allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
   const branchIds = z.array(z.string().cuid()).max(100).refine(ids => new Set(ids).size === ids.length, "Duplicate branches are not allowed").parse(req.body.branchIds);
