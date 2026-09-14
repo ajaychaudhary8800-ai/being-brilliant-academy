@@ -1,4 +1,4 @@
-name: bba-production
+name: ${BBA_COMPOSE_PROJECT_NAME:-bba-production}
 x-logging: &default-logging
   driver: json-file
   options: { max-size: "10m", max-file: "5" }
