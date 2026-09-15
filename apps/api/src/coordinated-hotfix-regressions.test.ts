@@ -23,3 +23,12 @@ test("refresh rotation preserves remembered-session duration", async () => {
   assert.match(auth, /rememberMe = session\.expiresAt/);
   assert.match(auth, /issueSession\(session\.user, rememberMe\)/);
 });
+
+test("student CSV import uses the shared parser and resolves branch and batch references", async () => {
+  const students = await readFile(new URL("./routes/admin-students.ts", import.meta.url), "utf8");
+  assert.match(students, /parseSpreadsheetUpload/);
+  assert.match(students, /normalizedSpreadsheetRow/);
+  assert.match(students, /branchCode/);
+  assert.match(students, /batchReference/);
+  assert.match(students, /optionalStudentImportText/);
+});
