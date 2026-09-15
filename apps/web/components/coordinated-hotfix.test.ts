@@ -27,3 +27,10 @@ test("student CSV import sends the file through the shared upload pipeline", () 
   assert.match(students, /importFilePayload/);
   assert.doesNotMatch(students, /line\.split\(","\)/);
 });
+
+test("finance exposes account-group setup required by account imports", () => {
+  const finance = readFileSync(new URL("../app/admin/finance/page.tsx", import.meta.url), "utf8");
+  assert.match(finance, /New account group/);
+  assert.match(finance, /\/finance\/account-groups/);
+  assert.match(finance, /Add account group/);
+});
