@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BookOpen, Download, Landmark, ReceiptIndianRupee, Search, Scale, Upload } from "lucide-react";
 import { ProtectedAdminWorkspace } from "../../../components/admin-workspace";
 import { errorMessage, getAccessToken, useAuth } from "../../../components/auth-provider";
+import { importFilePayload } from "../../../components/import-file";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 type O = Record<string, any>;
@@ -33,6 +34,7 @@ function Table({ rows }: { rows: O[] }) {
 function Finance() {
   const { user } = useAuth();
   const canImportAccounts = user?.role === "SUPER_ADMIN" || user?.role === "BRANCH_ADMIN";
+  const canManageGroups = user?.role === "SUPER_ADMIN";
   const [tab, setTab] = useState("accounts");
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<O[]>([]);
@@ -42,6 +44,7 @@ function Finance() {
   const [report, setReport] = useState("trial-balance");
   const [from, setFrom] = useState("2026-04-01");
   const [to, setTo] = useState("2027-03-31");
+  const [group, setGroup] = useState({ name: "", code: "", type: "ASSET" });
 
   const load = useCallback(async () => {
     try {
@@ -83,10 +86,21 @@ function Finance() {
 
   const importAccounts = async (file: File) => {
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      await api("/finance/import/accounts", { method: "POST", body: JSON.stringify({ rows: Array.isArray(parsed) ? parsed : parsed.rows }) });
-      setNotice("Accounts imported");
+      setError("");
+      const result = await api("/finance/import/accounts", { method: "POST", body: JSON.stringify({ file: await importFilePayload(file) }) });
+      setNotice(`${result.meta.imported} account${result.meta.imported === 1 ? "" : "s"} imported`);
+      await load();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  };
+
+  const addGroup = async () => {
+    try {
+      setError("");
+      await api("/finance/account-groups", { method: "POST", body: JSON.stringify(group) });
+      setGroup({ name: "", code: "", type: "ASSET" });
+      setNotice("Account group created");
       await load();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -95,7 +109,7 @@ function Finance() {
 
   const filtered = useMemo(() => rows.filter(row => JSON.stringify(row).toLowerCase().includes(query.toLowerCase())), [rows, query]);
 
-  return <ProtectedAdminWorkspace title="Finance & Accounting ERP" description="Double-entry accounting, fee finance, expenses, banking, GST and statutory reports."><div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">{[[BookOpen, "Accounts", dashboard.accounts], [Scale, "Posted vouchers", dashboard.postedEntries], [Landmark, "Bank accounts", dashboard.bankAccounts], [ReceiptIndianRupee, "Fees collected", cash(dashboard.feesCollectedPaise)], [ReceiptIndianRupee, "Expenses", cash(dashboard.expensesPaise)]].map(([ItemIcon, label, value]) => { const Icon = ItemIcon as typeof BookOpen; return <article className="card p-4" key={String(label)}><Icon className="text-brand-700"/><p className="mt-3 text-xs uppercase text-slate-400">{String(label)}</p><p className="font-bold">{String(value ?? 0)}</p></article>; })}</div><div className="mt-6 flex gap-2 overflow-x-auto">{["accounts", "groups", "vouchers", "ledger", "expenses", "vendors", "banks", "years", "gst", "reports"].map(item => <button onClick={() => setTab(item)} className={`rounded-full px-4 py-2 text-sm font-semibold ${tab === item ? "bg-brand-700 text-white" : "border bg-white dark:bg-slate-900"}`} key={item}>{item}</button>)}</div>{error && <p className="mt-4 rounded-lg bg-red-50 p-3 text-red-700">{error}</p>}{notice && <p className="mt-4 rounded-lg bg-green-50 p-3 text-green-700">{notice}</p>}<div className="my-5 flex flex-wrap gap-3"><div className="relative min-w-64 flex-1"><Search className="absolute left-3 top-3" size={17}/><input className="w-full rounded-lg border py-2.5 pl-9 dark:bg-slate-900" placeholder="Search, filter and sort records" value={query} onChange={event => setQuery(event.target.value)}/></div><button onClick={() => void download(`/finance/export/${tab === "accounts" ? "accounts" : "entries"}?format=excel`, `${tab}.xls`)} className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 font-semibold dark:bg-slate-900"><Download size={17}/>Excel</button><button onClick={() => void download(`/finance/export/${tab === "accounts" ? "accounts" : "entries"}?format=pdf`, `${tab}.pdf`)} className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 font-semibold dark:bg-slate-900"><Download size={17}/>PDF</button>{canImportAccounts && tab === "accounts" && <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-brand-700 px-4 py-2 font-semibold text-white"><Upload size={17}/>Import<input className="hidden" type="file" accept=".json" onChange={event => event.target.files?.[0] && void importAccounts(event.target.files[0])}/></label>}</div>{tab === "reports" && <section className="card mb-5 grid gap-3 p-5 md:grid-cols-5"><select className="rounded-lg border p-2 dark:bg-slate-950" value={report} onChange={event => setReport(event.target.value)}>{["trial-balance", "profit-loss", "balance-sheet", "cash-flow", "cash-book", "bank-book", "day-book", "outstanding", "income-statement"].map(item => <option key={item}>{item}</option>)}</select><input type="date" className="rounded-lg border p-2 dark:bg-slate-950" value={from} onChange={event => setFrom(event.target.value)}/><input type="date" className="rounded-lg border p-2 dark:bg-slate-950" value={to} onChange={event => setTo(event.target.value)}/><button onClick={() => void runReport()} className="rounded-lg bg-brand-700 px-4 py-2 font-semibold text-white">Generate</button><button onClick={() => void download(`/finance/reports/${report}?from=${from}&to=${to}&format=pdf`, `${report}.pdf`)} className="rounded-lg border font-semibold">Export report</button></section>}<Table rows={filtered}/><p className="mt-4 text-xs text-slate-500">Secured finance APIs cover vouchers, approvals, account archiving, reconciliation, discounts, scholarships, fines and accounting-only refund adjustments. Payment refunds and settlement reversals require a separate future workflow.</p></ProtectedAdminWorkspace>;
+  return <ProtectedAdminWorkspace title="Finance & Accounting ERP" description="Double-entry accounting, fee finance, expenses, banking, GST and statutory reports."><div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">{[[BookOpen, "Accounts", dashboard.accounts], [Scale, "Posted vouchers", dashboard.postedEntries], [Landmark, "Bank accounts", dashboard.bankAccounts], [ReceiptIndianRupee, "Fees collected", cash(dashboard.feesCollectedPaise)], [ReceiptIndianRupee, "Expenses", cash(dashboard.expensesPaise)]].map(([ItemIcon, label, value]) => { const Icon = ItemIcon as typeof BookOpen; return <article className="card p-4" key={String(label)}><Icon className="text-brand-700"/><p className="mt-3 text-xs uppercase text-slate-400">{String(label)}</p><p className="font-bold">{String(value ?? 0)}</p></article>; })}</div><div className="mt-6 flex gap-2 overflow-x-auto">{["accounts", "groups", "vouchers", "ledger", "expenses", "vendors", "banks", "years", "gst", "reports"].map(item => <button onClick={() => setTab(item)} className={`rounded-full px-4 py-2 text-sm font-semibold ${tab === item ? "bg-brand-700 text-white" : "border bg-white dark:bg-slate-900"}`} key={item}>{item}</button>)}</div>{error && <p className="mt-4 rounded-lg bg-red-50 p-3 text-red-700">{error}</p>}{notice && <p className="mt-4 rounded-lg bg-green-50 p-3 text-green-700">{notice}</p>}<div className="my-5 flex flex-wrap gap-3"><div className="relative min-w-64 flex-1"><Search className="absolute left-3 top-3" size={17}/><input className="w-full rounded-lg border py-2.5 pl-9 dark:bg-slate-900" placeholder="Search, filter and sort records" value={query} onChange={event => setQuery(event.target.value)}/></div><button onClick={() => void download(`/finance/export/${tab === "accounts" ? "accounts" : "entries"}?format=excel`, `${tab}.xls`)} className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 font-semibold dark:bg-slate-900"><Download size={17}/>Excel</button><button onClick={() => void download(`/finance/export/${tab === "accounts" ? "accounts" : "entries"}?format=pdf`, `${tab}.pdf`)} className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 font-semibold dark:bg-slate-900"><Download size={17}/>PDF</button>{canImportAccounts && tab === "accounts" && <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-brand-700 px-4 py-2 font-semibold text-white"><Upload size={17}/>Import<input className="hidden" type="file" accept=".csv,.json,.xls,.xlsx" onChange={event => event.target.files?.[0] && void importAccounts(event.target.files[0])}/></label>}</div>{canManageGroups && tab === "groups" && <section className="card mb-5 grid gap-3 p-5 md:grid-cols-4"><h3 className="font-semibold md:col-span-4">New account group</h3><input className="rounded-lg border p-2 dark:bg-slate-950" placeholder="Group name" value={group.name} onChange={event => setGroup({ ...group, name: event.target.value })}/><input className="rounded-lg border p-2 dark:bg-slate-950" placeholder="Group code" value={group.code} onChange={event => setGroup({ ...group, code: event.target.value })}/><select aria-label="Account group type" className="rounded-lg border p-2 dark:bg-slate-950" value={group.type} onChange={event => setGroup({ ...group, type: event.target.value })}>{["ASSET", "LIABILITY", "INCOME", "EXPENSE", "EQUITY"].map(type => <option key={type} value={type}>{type}</option>)}</select><button onClick={() => void addGroup()} className="rounded-lg bg-brand-700 px-4 py-2 font-semibold text-white">Add account group</button></section>}{tab === "reports" && <section className="card mb-5 grid gap-3 p-5 md:grid-cols-5"><select className="rounded-lg border p-2 dark:bg-slate-950" value={report} onChange={event => setReport(event.target.value)}>{["trial-balance", "profit-loss", "balance-sheet", "cash-flow", "cash-book", "bank-book", "day-book", "outstanding", "income-statement"].map(item => <option key={item}>{item}</option>)}</select><input type="date" className="rounded-lg border p-2 dark:bg-slate-950" value={from} onChange={event => setFrom(event.target.value)}/><input type="date" className="rounded-lg border p-2 dark:bg-slate-950" value={to} onChange={event => setTo(event.target.value)}/><button onClick={() => void runReport()} className="rounded-lg bg-brand-700 px-4 py-2 font-semibold text-white">Generate</button><button onClick={() => void download(`/finance/reports/${report}?from=${from}&to=${to}&format=pdf`, `${report}.pdf`)} className="rounded-lg border font-semibold">Export report</button></section>}<Table rows={filtered}/><p className="mt-4 text-xs text-slate-500">Secured finance APIs cover vouchers, approvals, account archiving, reconciliation, discounts, scholarships, fines and accounting-only refund adjustments. Payment refunds and settlement reversals require a separate future workflow.</p></ProtectedAdminWorkspace>;
 }
 
 export default Finance;
