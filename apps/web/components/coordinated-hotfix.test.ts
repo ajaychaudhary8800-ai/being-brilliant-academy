@@ -14,3 +14,16 @@ test("HR and finance upload controls accept supported spreadsheet formats", () =
   const finance = readFileSync(new URL("../app/admin/finance/page.tsx", import.meta.url), "utf8");
   for (const source of [hr, finance]) assert.match(source, /accept="\.csv,\.json,\.xls,\.xlsx"/);
 });
+
+test("HR exposes designation setup required by employee imports", () => {
+  const hr = readFileSync(new URL("../app/admin/hr/page.tsx", import.meta.url), "utf8");
+  assert.match(hr, /New designation/);
+  assert.match(hr, /\/hr\/designations/);
+  assert.match(hr, /Select department/);
+});
+
+test("student CSV import sends the file through the shared upload pipeline", () => {
+  const students = readFileSync(new URL("../app/admin/students/page.tsx", import.meta.url), "utf8");
+  assert.match(students, /importFilePayload/);
+  assert.doesNotMatch(students, /line\.split\(","\)/);
+});
