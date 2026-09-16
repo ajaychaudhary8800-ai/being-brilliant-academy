@@ -18,5 +18,5 @@
     "db:migrate": "pnpm --filter @bba/api prisma:migrate",
     "db:seed": "pnpm --filter @bba/api prisma:seed"
   },
-  "devDependencies": { "typescript": "^5.7.3" }
+  "devDependencies": { "typescript": "^7.0.2" }
 }
