@@ -1,4 +1,5 @@
-import { TeacherAllocationStatus, type Prisma } from "@prisma/client";
+import { CertificateStatus, StudentStatus, TeacherAllocationStatus, type Prisma } from "@prisma/client";
+import { AppError } from "./http.js";
 
 export type CertificateTeacherAccessContext = {
   branchId: string;
@@ -32,4 +33,20 @@ export function selectEligibleParentHomeworkChild<T extends { student: { batchId
   homeworkBatchId: string,
 ) {
   return candidates.find(candidate => candidate.student.batchId === homeworkBatchId || Boolean(candidate.enrollment)) ?? null;
+}
+
+export function assertActiveStudentPortalProfile(status: StudentStatus) {
+  if (status !== StudentStatus.ACTIVE) {
+    throw new AppError(403, "STUDENT_PROFILE_INACTIVE", "An active Student profile is required");
+  }
+}
+
+export function portalCertificateVisible(status: CertificateStatus) {
+  return status === CertificateStatus.ISSUED || status === CertificateStatus.ARCHIVED;
+}
+
+export function assertPortalCertificateDownloadable(status: CertificateStatus) {
+  if (!portalCertificateVisible(status)) {
+    throw new AppError(404, "CERTIFICATE_NOT_AVAILABLE", "Certificate is not available");
+  }
 }
