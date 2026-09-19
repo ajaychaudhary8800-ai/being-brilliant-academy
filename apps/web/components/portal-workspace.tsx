@@ -11,6 +11,7 @@ import { openAuthenticatedDocument } from "./authenticated-download";
 import { documentAsBase64, validateDocumentFile } from "./document-upload";
 import { formatInstitutionDate, formatInstitutionDateTime, institutionWeekday, type InstitutionRegionalSettings } from "./institution-time";
 import { parentLeaveAcademicLabel, parentLeaveChildSummary, parentLeaveSelection, type ParentLeaveChild } from "./parent-leave";
+import { useGroupTerminology, type GroupTerminology } from "./use-group-terminology";
 import { StudentLmsWorkspace, TeacherLmsWorkspace } from "./portal-lms-workspace";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
@@ -75,6 +76,14 @@ const money = (paise: number) => new Intl.NumberFormat("en-IN", { style: "curren
 const includes = (query: string, ...values: unknown[]) => !query || values.some(value => String(value ?? "").toLowerCase().includes(query.toLowerCase()));
 const todayName = (timeZone?: string | null) => institutionWeekday(new Date(), timeZone);
 export const portalCourseTitle = (course: { title: string | null } | null | undefined) => course?.title?.trim() || "Course not assigned";
+export const portalSectionLabel = (tab: string, terms: GroupTerminology) => {
+  if (tab === "classes") return terms.courses;
+  if (tab === "examinations") return terms.assessments;
+  if (tab === "learning") return terms.learning;
+  return readable(tab);
+};
+export const portalAcademicPairLabel = (terms: GroupTerminology) => `${terms.course} / ${terms.singular}`;
+
 
 function Badge({ value }: { value: string }) {
   const positive = ["ACTIVE", "PRESENT", "PUBLISHED", "PAID", "EVALUATED", "RESULTS_PUBLISHED", "APPROVED"].includes(value);
