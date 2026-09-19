@@ -31,6 +31,7 @@ test("legacy ERP routers enforce BranchUser isolation and preserve Super Admin s
   patch((systemPrisma as any).user, "findFirst", async () => ({ isActive: true }));
   patch((systemPrisma as any).tenantAccessAudit, "create", async () => ({}));
   patch((prisma as any).branchUser, "findMany", async ({ where }: any) => { branchScopeWhere = where; return assignedBranches.map(branchId => ({ branchId })); });
+  patch((prisma as any).branch, "findMany", async ({ where }: any) => where.organizationId === ORGANIZATION ? [{ id: BRANCH_A }, { id: BRANCH_B }] : []);
   patch((prisma as any).branch, "findFirst", async ({ where }: any) => [BRANCH_A, BRANCH_B].includes(where.id) ? { id: where.id } : null);
 
   patch((prisma as any).transportVehicle, "findMany", async ({ where }: any) => { transportVehicleWhere = where; return []; });
@@ -193,13 +194,13 @@ test("legacy ERP routers enforce BranchUser isolation and preserve Super Admin s
 
     await t.test("Super Admin remains organization-wide and other roles remain unauthorized", async () => {
       assert.equal((await request("/api/v1/transport/vehicles", Role.SUPER_ADMIN)).status, 200);
-      assert.equal(transportVehicleWhere.branchId, undefined);
+      assert.deepEqual(transportVehicleWhere.branchId, { in: [BRANCH_A, BRANCH_B] });
       assert.equal((await request("/api/v1/hostel/hostels", Role.SUPER_ADMIN)).status, 200);
-      assert.equal(hostelWhere.branchId, undefined);
+      assert.deepEqual(hostelWhere.branchId, { in: [BRANCH_A, BRANCH_B] });
       assert.equal((await request("/api/v1/library/books", Role.SUPER_ADMIN)).status, 200);
-      assert.equal(libraryWhere.branchId, undefined);
+      assert.deepEqual(libraryWhere.branchId, { in: [BRANCH_A, BRANCH_B] });
       assert.equal((await request("/api/v1/inventory/maintenance", Role.SUPER_ADMIN)).status, 200);
-      assert.equal(inventoryWhere.branchId, undefined);
+      assert.deepEqual(inventoryWhere.branchId, { in: [BRANCH_A, BRANCH_B] });
       assert.equal((await request("/api/v1/transport/vehicles", Role.SUPER_ADMIN, { method: "POST", body: { branchId: BRANCH_B, typeId: id("12"), vehicleNumber: "SEC-S01", seatCapacity: 20 } })).status, 201);
       for (const role of [Role.TEACHER, Role.STUDENT, Role.PARENT, Role.ACCOUNTANT]) {
         assert.equal((await request("/api/v1/hostel/hostels", role)).status, 403);
