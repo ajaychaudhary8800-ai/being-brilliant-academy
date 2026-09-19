@@ -52,7 +52,7 @@ export function main() {
     console.error("No PostgreSQL integration tests were found; refusing to report a green run");
     return 2;
   }
-  return runPnpm(["--filter", "@bba/api", "exec", "tsx", "--test", ...integrationFiles], env);
+  return runPnpm(["--filter", "@bba/api", "exec", "tsx", "--test", "--test-concurrency=1", ...integrationFiles], env);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) process.exitCode = main();
