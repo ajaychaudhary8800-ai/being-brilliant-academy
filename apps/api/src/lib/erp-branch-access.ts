@@ -8,13 +8,20 @@ export type ErpBranchScope = string[] | null;
 const denied = () => new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
 
 export async function erpBranchScope(req: AuthRequest): Promise<ErpBranchScope> {
-  if (req.auth!.role === Role.SUPER_ADMIN) return null;
+  const organizationId = req.auth!.organizationId;
+  if (req.auth!.role === Role.SUPER_ADMIN) {
+    const branches = await prisma.branch.findMany({
+      where: { organizationId, isActive: true },
+      select: { id: true },
+    });
+    return branches.map(branch => branch.id);
+  }
   if (req.auth!.role !== Role.BRANCH_ADMIN) throw denied();
   const assignments = await prisma.branchUser.findMany({
     where: {
-      organizationId: req.auth!.organizationId,
+      organizationId,
       userId: req.auth!.userId,
-      branch: { isActive: true },
+      branch: { organizationId, isActive: true },
     },
     select: { branchId: true },
   });
