@@ -47,7 +47,9 @@ test("HR document downloads enforce employee ownership and administrative branch
   patch((systemPrisma as any).tenantAccessAudit, "create", async () => ({}));
   patch((prisma as any).branchUser, "findMany", async () => { branchQueries += 1; return assignedBranches.map(branchId => ({ branchId })); });
   patch((prisma as any).employeeDocument, "findUnique", async ({ where }: any) => employeeDocuments.get(where.id) ?? null);
+  patch((prisma as any).employeeDocument, "findFirst", async ({ where }: any) => where.organizationId === ORGANIZATION_ID ? employeeDocuments.get(where.id) ?? null : null);
   patch((prisma as any).taxDocument, "findUnique", async ({ where }: any) => taxDocuments.get(where.id) ?? null);
+  patch((prisma as any).taxDocument, "findFirst", async ({ where }: any) => where.organizationId === ORGANIZATION_ID ? taxDocuments.get(where.id) ?? null : null);
 
   const application = express();
   application.use(hr);
