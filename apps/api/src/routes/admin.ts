@@ -12,6 +12,7 @@ import { parseTeacherPhotoLocation } from "../lib/teacher-photo.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { assertCanChangeUserRole, managedUserBranchIds } from "../lib/user-administration-policy.js";
 import { issueAccountSetup } from "../lib/account-setup.js";
+import { branchCodeConflict, isBranchCodeConflict } from "../lib/branch-uniqueness.js";
 
 const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
@@ -228,11 +229,24 @@ router.post("/branches", async (req: AuthRequest, res) => {
     if (!data) throw new AppError(500, "BRANCH_PROVISIONING_FAILED", "Branch was created but could not be reloaded");
     res.status(201).json({ data: { ...branchWithLegacyLabels(data), setup } });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new AppError(409, "BRANCH_OR_MANAGER_EXISTS", "Branch code or manager account already exists");
+    if (isBranchCodeConflict(error)) throw branchCodeConflict();
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new AppError(409, "BRANCH_OR_MANAGER_EXISTS", "Manager account already exists");
     throw error;
   }
 });
-router.put("/branches/:id", async (req: AuthRequest, res) => { const input = branchInput.partial().parse(req.body); const existing = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: { id: true } }); if (!existing) throw new AppError(404, "BRANCH_NOT_FOUND", "Branch not found"); await requireBranchAccess(req, existing.id); const data = await prisma.branch.update({ where: { id: existing.id }, data: input, select: branchSelect }); res.json({ data: branchWithLegacyLabels(data) }); });
+router.put("/branches/:id", async (req: AuthRequest, res) => {
+  const input = branchInput.partial().parse(req.body);
+  const existing = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: { id: true } });
+  if (!existing) throw new AppError(404, "BRANCH_NOT_FOUND", "Branch not found");
+  await requireBranchAccess(req, existing.id);
+  try {
+    const data = await prisma.branch.update({ where: { id: existing.id }, data: input, select: branchSelect });
+    res.json({ data: branchWithLegacyLabels(data) });
+  } catch (error) {
+    if (isBranchCodeConflict(error)) throw branchCodeConflict();
+    throw error;
+  }
+});
 router.patch("/branches/:id/status", async (req: AuthRequest, res) => { const { isActive } = z.object({ isActive: z.boolean() }).parse(req.body); const existing = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: { id: true } }); if (!existing) throw new AppError(404, "BRANCH_NOT_FOUND", "Branch not found"); await requireBranchAccess(req, existing.id); const data = await prisma.branch.update({ where: { id: existing.id }, data: { isActive }, select: branchSelect }); res.json({ data: branchWithLegacyLabels(data) }); });
 router.delete("/branches/:id", async (req: AuthRequest, res) => { const existing = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: { id: true, _count: { select: { students: true, teachers: true, batches: true, teacherAllocations: true } } } }); if (!existing) throw new AppError(404, "BRANCH_NOT_FOUND", "Branch not found"); await requireBranchAccess(req, existing.id); if (existing._count.students || existing._count.teachers || existing._count.batches || existing._count.teacherAllocations) throw new AppError(409, "BRANCH_IN_USE", "Move students, teachers, batches and teacher allocations before deleting this branch"); await prisma.branch.delete({ where: { id: existing.id } }); res.status(204).send(); });
 
