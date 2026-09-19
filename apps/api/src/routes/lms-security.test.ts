@@ -54,7 +54,8 @@ test("Core LMS HTTP routes enforce allocations, learner scope, branch scope and 
   patch((prisma as any).lesson, "findUnique", async ({ select }: any) => select?.videoData ? target() : select?.branchId && !select?.title ? target() : { ...fullLesson(), branchId: targetBranch, courseId: targetCourse, batchId: targetBatch, subjectId: targetSubject, teacherId: targetTeacher });
   patch((prisma as any).lesson, "create", async ({ data }: any) => { capturedLessonCreate = data; if (lessonCreateError) throw lessonCreateError; createdLesson = true; return { ...fullLesson(), ...data }; });
   patch((prisma as any).lesson, "update", async ({ data }: any) => { if (lessonUpdateError) throw lessonUpdateError; successfulLessonUpdates += 1; return { ...fullLesson(), ...data }; });
-  patch((prisma as any).lessonProgress, "findUnique", async () => null);\n  patch((prisma as any).lessonProgress, "upsert", async ({ create }: any) => { progressWrites += 1; return { id: id("21"), ...create, watchPercentage: Math.round(create.watchedSeconds / 6) }; });
+  patch((prisma as any).lessonProgress, "findUnique", async () => null);
+  patch((prisma as any).lessonProgress, "upsert", async ({ create }: any) => { progressWrites += 1; return { id: id("21"), ...create, watchPercentage: Math.round(create.watchedSeconds / 6) }; });
   patch((prisma as any).lessonAttachment, "findUnique", async () => ({ id: ATTACHMENT, name: "notes.pdf", mimeType: "application/pdf", data: Buffer.from("file"), lesson: target() }));
   patch((prisma as any).videoTimestampBookmark, "findMany", async () => []);
   patch((prisma as any).videoTimestampBookmark, "upsert", async ({ create }: any) => ({ id: id("22"), ...create }));
