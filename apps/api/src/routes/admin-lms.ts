@@ -166,7 +166,13 @@ admin.patch("/lms/lessons/:id", async (req: AuthRequest, res) => {
   if (!old) throw new AppError(404, "LESSON_NOT_FOUND", "Lesson not found");
   const current = await lmsActorForRequest(req), patch = input.partial().omit({ status: true }).parse(req.body), data = { ...old, ...patch } as z.infer<typeof input>;
   await assertLmsRequestContentAccess(req, old); assertLmsLessonEditable(old.status); assertLmsManagementAccess(current, data);
-  const structuralChanged = ["moduleId","branchId","courseId","batchId","subjectId","teacherId","durationSeconds"].some(key => patch[key as keyof typeof patch] !== undefined && patch[key as keyof typeof patch] !== old[key as keyof typeof old]);
+  const structuralChanged = (patch.moduleId !== undefined && patch.moduleId !== old.moduleId)
+    || (patch.branchId !== undefined && patch.branchId !== old.branchId)
+    || (patch.courseId !== undefined && patch.courseId !== old.courseId)
+    || (patch.batchId !== undefined && patch.batchId !== old.batchId)
+    || (patch.subjectId !== undefined && patch.subjectId !== old.subjectId)
+    || (patch.teacherId !== undefined && patch.teacherId !== old.teacherId)
+    || (patch.durationSeconds !== undefined && patch.durationSeconds !== old.durationSeconds);
   assertLmsLessonStructuralEditAllowed(old._count.progress > 0, structuralChanged); await relations(data, current);
   const { video, attachments, ...rest } = patch, videoData = video ? bytes(video, 25 * 1048576, ["video/mp4", "video/webm"]) : null;
   try {
