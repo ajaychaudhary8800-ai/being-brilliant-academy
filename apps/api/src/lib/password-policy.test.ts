@@ -9,7 +9,9 @@ test("password setup and account changes share the strong password policy", () =
   assert.equal(securePasswordSchema.safeParse(`${"A".repeat(128)}a1`).success, false);
 });
 
-test("public registration uses the same strong password policy", () => {
+test("public self-registration is disabled for release readiness", () => {
   const source = readFileSync(new URL("../routes/auth.ts", import.meta.url), "utf8");
-  assert.match(source, /credentials\.extend\(\{ password: securePasswordSchema,/);
+  assert.match(source, /SELF_REGISTRATION_DISABLED/);
+  assert.match(source, /Accounts are created by your institution/);
+  assert.doesNotMatch(source, /router\.post\("\/register"[\s\S]*?user\.create/);
 });
