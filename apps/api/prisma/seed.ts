@@ -17,10 +17,10 @@ async function main() {
   ] as const;
   const seededBranches = [];
   for (const [branchCode, branchName, address, city, state, pincode, phone, email, managerName, openingDate] of branchRecords) {
-    seededBranches.push(await prisma.branch.upsert({ where: { branchCode }, update: { branchName, address, city, state, pincode, phone, email, managerName, openingDate: new Date(openingDate), isActive: true }, create: { branchCode, branchName, address, city, state, pincode, phone, email, managerName, openingDate: new Date(openingDate) } }));
+    seededBranches.push(await prisma.branch.upsert({ where: { organizationId_branchCode: { organizationId: "org_default", branchCode } }, update: { branchName, address, city, state, pincode, phone, email, managerName, openingDate: new Date(openingDate), isActive: true }, create: { branchCode, branchName, address, city, state, pincode, phone, email, managerName, openingDate: new Date(openingDate) } }));
   }
   const branch = seededBranches[0];
-  const duplicateBranch = await prisma.branch.findUnique({ where: { branchCode: "BBA-NDG" }, select: { id: true } });
+  const duplicateBranch = await prisma.branch.findUnique({ where: { organizationId_branchCode: { organizationId: "org_default", branchCode: "BBA-NDG" } }, select: { id: true } });
   if (duplicateBranch) {
     await prisma.teacherProfile.updateMany({ where: { branchId: duplicateBranch.id }, data: { branchId: branch.id } });
     await prisma.studentProfile.updateMany({ where: { branchId: duplicateBranch.id }, data: { branchId: branch.id } });
