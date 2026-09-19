@@ -7,7 +7,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1
 const ACCESS_KEY = "bba.accessToken";
 const REFRESH_KEY = "bba.refreshToken";
 export type AppRole = "SUPER_ADMIN" | "BRANCH_ADMIN" | "ACCOUNTANT" | "TEACHER" | "STUDENT" | "PARENT" | "EMPLOYEE";
-export type AuthPortal = "student" | "parent" | "teacher" | "admin";
+export type AuthPortal = "student" | "parent" | "teacher" | "employee" | "admin";
 export type AuthUser = { id: string; name: string; email: string; role: AppRole; organizationId: string };
 type AuthResponse = { user: AuthUser; accessToken: string; refreshToken: string };
 type AuthContextValue = { user: AuthUser | null; loading: boolean; login: (email: string, password: string, rememberMe: boolean, organization?: string, portal?: AuthPortal) => Promise<AuthUser>; logout: () => Promise<void>; requestPasswordReset: (email: string, organization?: string) => Promise<void> };
