@@ -34,3 +34,15 @@ export function institutionPresentation(type?: string, custom?: string | null): 
     select: `Select ${singular}`, add: `Add ${singular}`,
   };
 }
+
+
+export function portalSectionLabel(tab: string, terms: InstitutionPresentation) {
+  if (tab === "classes") return terms.courses;
+  if (tab === "examinations") return terms.assessments;
+  if (tab === "learning") return terms.learning;
+  return tab.replaceAll("_", " ").replace(/\b\w/g, letter => letter.toUpperCase());
+}
+
+export function portalAcademicPairLabel(terms: InstitutionPresentation) {
+  return `${terms.course} / ${terms.singular}`;
+}
