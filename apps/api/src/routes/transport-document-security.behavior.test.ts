@@ -27,6 +27,7 @@ test("transport vehicle documents validate uploads and authorize safe downloads"
   patch((systemPrisma as any).organization, "findUnique", async ({ where }: any) => where.id === authOrganizationId ? ({ id: ORG, isActive: true, deletedAt: null, subscriptionStatus: "ACTIVE", trialEndsAt: null, subscriptionEndsAt: null }) : null);
   patch((systemPrisma as any).tenantAccessAudit, "create", async () => ({}));
   patch((prisma as any).branchUser, "findMany", async () => assigned.map(branchId => ({ branchId })));
+  patch((prisma as any).branch, "findMany", async ({ where }: any) => where.organizationId === ORG ? [{ id: BRANCH }] : []);
   patch((prisma as any).transportVehicle, "findUnique", async ({ where }: any) => where.id === VEHICLE ? { id: VEHICLE, branchId: BRANCH, seatCapacity: 40, status: "ACTIVE" } : null);
   let stored: any = { id: DOCUMENT, vehicleId: VEHICLE, type: "REGISTRATION", number: "REG-1", name: "..\\internal\r\nvehicle.pdf", mimeType: "application/pdf", data: bytes, vehicle: { id: VEHICLE, branchId: BRANCH } };
   patch((prisma as any).transportVehicleDocument, "create", async ({ data, select }: any) => { stored = { ...stored, ...data, id: DOCUMENT, vehicle: { id: VEHICLE, branchId: BRANCH } }; return select ? Object.fromEntries(Object.keys(select).filter(key => select[key]).map(key => [key, stored[key]])) : stored; });
