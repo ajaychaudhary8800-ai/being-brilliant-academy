@@ -10,7 +10,9 @@ import {
   validateCommunicationTarget,
 } from "../lib/communication-authorization.js";
 import { AppError } from "../lib/http.js";
-import { assertMessageRecipientAuthorized, assertMessageRecipientsAuthorized, assertThreadMember } from "../lib/message-policy.js";
+import { assertMessageRecipientAuthorized, assertMessageRecipientsAuthorized, assertThreadMember, participantMessageUpdate } from "../lib/message-policy.js";
+import { announcementListFields, circularVersionListFields, messageListFields } from "../lib/communication-projections.js";
+import { activeNotificationConstraints, notificationLifecycleConstraints } from "../lib/notification-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
 import { allowedCommunicationAttachmentTypes, assertCommunicationFileExtension, decodeVerifiedCommunicationUpload, type AllowedCommunicationAttachmentType } from "../lib/secure-upload.js";
@@ -140,7 +142,7 @@ router.get("/communication/dashboard", async (req: AuthRequest, res) => {
   const own = userId(req);
   const [announcements, unread, messages, circulars, events, queued] = await Promise.all([
     prisma.announcement.count({ where: { deletedAt: null, isArchived: false, ...announcementWhere } }),
-    prisma.notification.count({ where: { userId: own, readAt: null, deletedAt: null } }),
+    prisma.notification.count({ where: { userId: own, readAt: null, ...activeNotificationConstraints() } }),
     prisma.portalMessage.count({ where: { recipientId: own, readAt: null, deletedAt: null } }),
     prisma.circular.count({ where: { deletedAt: null, isArchived: false, ...circularWhere } }),
     prisma.calendarEvent.count({ where: { startsAt: { gte: new Date() }, deletedAt: null, isArchived: false, ...eventWhere } }),
@@ -166,7 +168,7 @@ router.get("/communication/announcements", async (req: AuthRequest, res) => {
     ...(query.search ? { OR: [{ title: { contains: query.search, mode: "insensitive" } }, { body: { contains: query.search, mode: "insensitive" } }] } : {}),
   };
   const [data, total] = await Promise.all([
-    prisma.announcement.findMany({ where, include: { author: { select: { name: true } }, branch: true, batch: true, _count: { select: { reads: true } } }, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: [{ priority: "desc" }, { publishedAt: "desc" }] }),
+    prisma.announcement.findMany({ where, select: { ...announcementListFields, author: { select: { name: true } }, branch: true, batch: true, _count: { select: { reads: true } } }, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: [{ priority: "desc" }, { publishedAt: "desc" }] }),
     prisma.announcement.count({ where }),
   ]);
   res.json({ data, meta: { total, page: query.page, totalPages: Math.ceil(total / query.limit) } });
@@ -229,11 +231,11 @@ const notificationInput = z.object({
 
 router.get("/communication/notifications", async (req: AuthRequest, res) => {
   const query = page.extend({ unread: z.enum(["true", "false"]).optional(), category: z.string().optional() }).parse(req.query);
-  const where: Prisma.NotificationWhereInput = { userId: userId(req), deletedAt: null, isArchived: query.archived === "true", ...(query.unread === "true" ? { readAt: null } : {}), ...(query.category ? { category: query.category } : {}), ...(query.search ? { OR: [{ title: { contains: query.search, mode: "insensitive" } }, { body: { contains: query.search, mode: "insensitive" } }] } : {}) };
+  const where: Prisma.NotificationWhereInput = { userId: userId(req), ...notificationLifecycleConstraints(new Date(), query.archived === "true"), ...(query.unread === "true" ? { readAt: null } : {}), ...(query.category ? { category: query.category } : {}), ...(query.search ? { OR: [{ title: { contains: query.search, mode: "insensitive" } }, { body: { contains: query.search, mode: "insensitive" } }] } : {}) };
   const [data, total, unread] = await Promise.all([
     prisma.notification.findMany({ where, include: { deliveries: true }, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { createdAt: "desc" } }),
     prisma.notification.count({ where }),
-    prisma.notification.count({ where: { userId: userId(req), readAt: null, deletedAt: null } }),
+    prisma.notification.count({ where: { userId: userId(req), readAt: null, ...activeNotificationConstraints() } }),
   ]);
   res.json({ data, meta: { total, unread, page: query.page, totalPages: Math.ceil(total / query.limit) } });
 });
@@ -248,10 +250,16 @@ router.post("/communication/notifications", async (req: AuthRequest, res) => {
 });
 
 router.patch("/communication/notifications/:id", async (req: AuthRequest, res) => {
-  const input = z.object({ read: z.boolean().optional(), archived: z.boolean().optional(), deleted: z.boolean().optional() }).parse(req.body);
-  const existing = await prisma.notification.findFirst({ where: { id: String(req.params.id), userId: userId(req) } });
+  const input = z.object({ read: z.boolean().optional(), archived: z.boolean().optional(), deleted: z.boolean().optional() }).refine(value => value.read === true || value.archived !== undefined || value.deleted === true, "A notification action is required").parse(req.body);
+  const now = new Date();
+  const lifecycle = input.read
+    ? activeNotificationConstraints(now)
+    : input.archived !== undefined
+      ? notificationLifecycleConstraints(now, !input.archived)
+      : { deletedAt: null };
+  const existing = await prisma.notification.findFirst({ where: { id: String(req.params.id), userId: userId(req), ...lifecycle } });
   if (!existing) throw new AppError(404, "NOT_FOUND", "Notification not found");
-  const data = await prisma.notification.update({ where: { id: existing.id }, data: { ...(input.read ? { readAt: new Date() } : {}), ...(input.archived !== undefined ? { isArchived: input.archived } : {}), ...(input.deleted ? { deletedAt: new Date() } : {}) } });
+  const data = await prisma.notification.update({ where: { id: existing.id }, data: { ...(input.read ? { readAt: now } : {}), ...(input.archived !== undefined ? { isArchived: input.archived } : {}), ...(input.deleted ? { deletedAt: now } : {}) } });
   res.json({ data });
 });
 
@@ -262,7 +270,7 @@ router.put("/communication/preferences", async (req: AuthRequest, res) => {
 });
 router.post("/communication/deliveries/process", async (req: AuthRequest, res) => {
   allow(req, [Role.SUPER_ADMIN]);
-  const queued = await prisma.notificationDelivery.findMany({ where: { status: "QUEUED" }, take: 100 });
+  const queued = await prisma.notificationDelivery.findMany({ where: { status: "QUEUED", notification: activeNotificationConstraints() }, take: 100 });
   await prisma.notificationDelivery.updateMany({ where: { id: { in: queued.map(item => item.id) } }, data: { status: "READY", attempts: { increment: 1 } } });
   res.json({ data: { processed: queued.length, note: "READY records are consumed by configured email/SMS/WhatsApp/push providers" } });
 });
@@ -272,7 +280,7 @@ router.get("/communication/messages", async (req: AuthRequest, res) => {
   const query = page.parse(req.query);
   const where: Prisma.PortalMessageWhereInput = { deletedAt: null, OR: [{ senderId: userId(req), senderArchived: query.archived === "true" }, { recipientId: userId(req), recipientArchived: query.archived === "true" }], ...(query.search ? { AND: { OR: [{ subject: { contains: query.search, mode: "insensitive" } }, { body: { contains: query.search, mode: "insensitive" } }] } } : {}) };
   const [data, total, unread] = await Promise.all([
-    prisma.portalMessage.findMany({ where, include: { sender: { select: { id: true, name: true, role: true } }, recipient: { select: { id: true, name: true, role: true } }, thread: true }, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { createdAt: "desc" } }),
+    prisma.portalMessage.findMany({ where, select: { ...messageListFields, sender: { select: { id: true, name: true, role: true } }, recipient: { select: { id: true, name: true, role: true } }, thread: true }, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { createdAt: "desc" } }),
     prisma.portalMessage.count({ where }),
     prisma.portalMessage.count({ where: { recipientId: userId(req), readAt: null, deletedAt: null, recipientArchived: false } }),
   ]);
@@ -287,10 +295,10 @@ router.post("/communication/messages", async (req: AuthRequest, res) => {
 });
 
 router.patch("/communication/messages/:id", async (req: AuthRequest, res) => {
-  const input = z.object({ read: z.boolean().optional(), archive: z.boolean().optional(), deleted: z.boolean().optional() }).parse(req.body);
+  const input = z.object({ read: z.boolean().optional(), archive: z.boolean().optional() }).strict().parse(req.body);
   const message = await prisma.portalMessage.findUnique({ where: { id: String(req.params.id) } });
-  if (!message || message.senderId !== userId(req) && message.recipientId !== userId(req)) throw new AppError(404, "NOT_FOUND", "Message not found");
-  const data = await prisma.portalMessage.update({ where: { id: message.id }, data: { ...(input.read && message.recipientId === userId(req) ? { readAt: new Date() } : {}), ...(input.archive !== undefined ? message.senderId === userId(req) ? { senderArchived: input.archive } : { recipientArchived: input.archive } : {}), ...(input.deleted ? { deletedAt: new Date() } : {}) } });
+  if (!message) throw new AppError(404, "NOT_FOUND", "Message not found");
+  const data = await prisma.portalMessage.update({ where: { id: message.id }, data: participantMessageUpdate(message, userId(req), { read: input.read, archived: input.archive }) });
   res.json({ data });
 });
 
@@ -323,7 +331,7 @@ router.get("/communication/circulars", async (req: AuthRequest, res) => {
   const access = await circularAccess(req);
   const where: Prisma.CircularWhereInput = { deletedAt: null, isArchived: admins.includes(req.auth!.role) ? query.archived === "true" : false, ...access, ...(query.search ? { OR: [{ number: { contains: query.search, mode: "insensitive" } }, { title: { contains: query.search, mode: "insensitive" } }] } : {}) };
   const [data, total] = await Promise.all([
-    prisma.circular.findMany({ where, include: { branch: { select: { branchName: true, branchCode: true } }, versions: { orderBy: { version: "desc" }, take: 1 }, _count: { select: { acknowledgements: true, downloads: true } } }, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { createdAt: "desc" } }),
+    prisma.circular.findMany({ where, include: { branch: { select: { branchName: true, branchCode: true } }, versions: { select: circularVersionListFields, orderBy: { version: "desc" }, take: 1 }, _count: { select: { acknowledgements: true, downloads: true } } }, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { createdAt: "desc" } }),
     prisma.circular.count({ where }),
   ]);
   res.json({ data, meta: { total, page: query.page, totalPages: Math.ceil(total / query.limit) } });

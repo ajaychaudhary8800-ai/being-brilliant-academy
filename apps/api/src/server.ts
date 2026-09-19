@@ -14,6 +14,7 @@ import { metricsMiddleware, metricsRegistry } from "./lib/metrics.js";
 import { systemPrisma } from "./lib/prisma.js";
 import { ensureRedis, redis } from "./lib/redis.js";
 import { deliverNotification, providerStatus, verifySmtp } from "./lib/notifications.js";
+import { activeNotificationConstraints } from "./lib/notification-policy.js";
 import { onlyPaths } from "./lib/scoped-router.js";
 import auth from "./routes/auth.js";
 import courses from "./routes/courses.js";
@@ -156,8 +157,9 @@ app.use(notFound, errorHandler);
 export const server = app.listen(env.PORT, () => logger.info({ port: env.PORT }, "API listening"));
 const notificationWorker = setInterval(async () => {
   try {
-    const queued = await systemPrisma.notificationDelivery.findMany({ where: { status: { in: ["QUEUED", "FAILED"] }, attempts: { lt: 3 } }, select: { id: true }, take: 50, orderBy: { createdAt: "asc" } });
-    await Promise.all(queued.map(({ id }) => deliverNotification(id)));
+    const now = new Date();
+    const queued = await systemPrisma.notificationDelivery.findMany({ where: { status: { in: ["QUEUED", "FAILED"] }, attempts: { lt: 3 }, notification: activeNotificationConstraints(now) }, select: { id: true }, take: 50, orderBy: { createdAt: "asc" } });
+    await Promise.all(queued.map(({ id }) => deliverNotification(id, now)));
   } catch (error) { logger.error({ err: error }, "Notification worker failed"); }
 }, 30_000);
 notificationWorker.unref();

@@ -7,7 +7,9 @@ import { AppError } from "../lib/http.js";
 import { rejectUnverifiedParentPayment } from "../lib/finance-integrity.js";
 import { assertHomeworkAttachmentAccess } from "../lib/homework-policy.js";
 import { announcementRecipientConstraints, communicationScope } from "../lib/communication-authorization.js";
-import { assertMessageRecipientAuthorized } from "../lib/message-policy.js";
+import { assertMessageRecipientAuthorized, participantMessageUpdate } from "../lib/message-policy.js";
+import { announcementListFields, messageListFields } from "../lib/communication-projections.js";
+import { activeNotificationConstraints } from "../lib/notification-policy.js";
 import { historicalCivilDate, resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { loadAuthorizedDocument, storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -70,19 +72,19 @@ router.get("/sessions", async (req: AuthRequest, res) => res.json({ data: await 
 router.delete("/sessions/:sessionId", async (req: AuthRequest, res) => { await prisma.session.deleteMany({ where: { id: String(req.params.sessionId), userId: id(req) } }); res.status(204).end(); });
 
 router.get("/notifications", async (req: AuthRequest, res) => {
-  const q = pageSchema.extend({ unread: z.enum(["true", "false"]).optional() }).parse(req.query); const where = { userId: id(req), ...(q.unread === "true" ? { readAt: null } : {}), ...(q.search ? { OR: [{ title: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] } : {}) };
+  const q = pageSchema.extend({ unread: z.enum(["true", "false"]).optional() }).parse(req.query); const where = { userId: id(req), ...activeNotificationConstraints(), ...(q.unread === "true" ? { readAt: null } : {}), ...(q.search ? { OR: [{ title: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] } : {}) };
   const [data, total] = await Promise.all([prisma.notification.findMany({ where, orderBy: { createdAt: "desc" }, skip: (q.page - 1) * q.limit, take: q.limit }), prisma.notification.count({ where })]); res.json({ data, meta: { ...q, total, pages: Math.ceil(total / q.limit) } });
 });
-router.patch("/notifications/:notificationId/read", async (req: AuthRequest, res) => { const found = await prisma.notification.findFirst({ where: { id: String(req.params.notificationId), userId: id(req) } }); if (!found) throw new AppError(404, "NOT_FOUND", "Notification not found"); res.json({ data: await prisma.notification.update({ where: { id: found.id }, data: { readAt: new Date() } }) }); });
-router.delete("/notifications/:notificationId", async (req: AuthRequest, res) => { await prisma.notification.deleteMany({ where: { id: String(req.params.notificationId), userId: id(req) } }); res.status(204).end(); });
+router.patch("/notifications/:notificationId/read", async (req: AuthRequest, res) => { const now = new Date(); const found = await prisma.notification.findFirst({ where: { id: String(req.params.notificationId), userId: id(req), ...activeNotificationConstraints(now) } }); if (!found) throw new AppError(404, "NOT_FOUND", "Notification not found"); res.json({ data: await prisma.notification.update({ where: { id: found.id }, data: { readAt: now } }) }); });
+router.delete("/notifications/:notificationId", async (req: AuthRequest, res) => { await prisma.notification.updateMany({ where: { id: String(req.params.notificationId), userId: id(req), deletedAt: null }, data: { deletedAt: new Date() } }); res.status(204).end(); });
 
-router.get("/messages", async (req: AuthRequest, res) => { const q = pageSchema.parse(req.query); const where = { OR: [{ senderId: id(req), senderArchived: false }, { recipientId: id(req), recipientArchived: false }], ...(q.search ? { AND: { OR: [{ subject: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] } } : {}) }; const [data,total]=await Promise.all([prisma.portalMessage.findMany({where,include:{sender:{select:{id:true,name:true,role:true}},recipient:{select:{id:true,name:true,role:true}}},orderBy:{createdAt:"desc"},skip:(q.page-1)*q.limit,take:q.limit}),prisma.portalMessage.count({where})]); res.json({data,meta:{...q,total,pages:Math.ceil(total/q.limit)}}); });
+router.get("/messages", async (req: AuthRequest, res) => { const q = pageSchema.parse(req.query); const where = { deletedAt: null, OR: [{ senderId: id(req), senderArchived: false }, { recipientId: id(req), recipientArchived: false }], ...(q.search ? { AND: { OR: [{ subject: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] } } : {}) }; const [data,total]=await Promise.all([prisma.portalMessage.findMany({where,select:{...messageListFields,sender:{select:{id:true,name:true,role:true}},recipient:{select:{id:true,name:true,role:true}}},orderBy:{createdAt:"desc"},skip:(q.page-1)*q.limit,take:q.limit}),prisma.portalMessage.count({where})]); res.json({data,meta:{...q,total,pages:Math.ceil(total/q.limit)}}); });
 router.post("/messages", async (req: AuthRequest, res) => {
   const input = z.object({ recipientId: z.string().cuid(), subject: z.string().trim().min(2).max(160), body: z.string().trim().min(1).max(5000) }).parse(req.body);
   await assertPortalMessageRecipientAuthorized({ userId: id(req), role: req.auth!.role, organizationId: req.auth!.organizationId }, input.recipientId);
   res.status(201).json({ data: await prisma.portalMessage.create({ data: { senderId: id(req), ...input } }) });
 });
-router.patch("/messages/:messageId", async (req: AuthRequest,res)=>{const input=z.object({read:z.boolean().optional(),archived:z.boolean().optional()}).parse(req.body);const message=await prisma.portalMessage.findUnique({where:{id:String(req.params.messageId)}});if(!message||(message.senderId!==id(req)&&message.recipientId!==id(req)))throw new AppError(404,"NOT_FOUND","Message not found");const data=message.senderId===id(req)?{senderArchived:input.archived}:{recipientArchived:input.archived,...(input.read?{readAt:new Date()}: {})};res.json({data:await prisma.portalMessage.update({where:{id:message.id},data})});});
+router.patch("/messages/:messageId", async (req: AuthRequest,res)=>{const input=z.object({read:z.boolean().optional(),archived:z.boolean().optional()}).strict().parse(req.body);const message=await prisma.portalMessage.findUnique({where:{id:String(req.params.messageId)}});if(!message)throw new AppError(404,"NOT_FOUND","Message not found");res.json({data:await prisma.portalMessage.update({where:{id:message.id},data:participantMessageUpdate(message,id(req),input)})});});
 router.get("/contacts", async (req: AuthRequest, res) => {
   let data: { id: string; name: string; role: Role }[] = [];
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
@@ -109,7 +111,7 @@ router.get("/announcements", async (req: AuthRequest, res) => {
   const [data, total] = await Promise.all([
     prisma.announcement.findMany({
       where,
-      include: { author: { select: { name: true, role: true } }, reads: { where: { userId: req.auth!.userId }, select: { readAt: true }, take: 1 } },
+      select: { ...announcementListFields, author: { select: { name: true, role: true } }, reads: { where: { userId: req.auth!.userId }, select: { readAt: true }, take: 1 } },
       orderBy: { publishedAt: "desc" },
       skip: (q.page - 1) * q.limit,
       take: q.limit,

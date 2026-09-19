@@ -188,6 +188,11 @@ test("communication recipient constraints include audience, branch, batch and pu
     { OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }] },
     { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
   ]);
-  assert.equal((circularRecipientConstraints({ role: Role.TEACHER, branchIds: ["branch-a"], batchIds: [] }, now).AND as unknown[]).length, 4);
+  assert.deepEqual(circularRecipientConstraints({ role: Role.TEACHER, branchIds: ["branch-a"], batchIds: [] }, now).AND, [
+    { OR: [{ audience: null }, { audience: Role.TEACHER }] },
+    { OR: [{ branchId: null }, { branchId: { in: ["branch-a"] } }] },
+    { publishedAt: { not: null, lte: now } },
+    { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
+  ]);
   assert.equal((eventRecipientConstraints({ role: Role.PARENT, branchIds: ["branch-a"], batchIds: ["batch-a"] }).AND as unknown[]).length, 4);
 });

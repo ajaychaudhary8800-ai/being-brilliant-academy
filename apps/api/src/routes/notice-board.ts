@@ -4,7 +4,8 @@ import { z } from "zod";
 import { AppError } from "../lib/http.js";
 import { parseInstitutionDateTimeOrInstant } from "../lib/institution-time.js";
 import { assignedBranchIds, communicationScope } from "../lib/communication-authorization.js";
-import { noticeRecipientConstraints } from "../lib/notice-policy.js";
+import { announcementListFields } from "../lib/communication-projections.js";
+import { noticeArchivedState, noticeRecipientConstraints } from "../lib/notice-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
 import { assertCommunicationFileExtension, decodeVerifiedCommunicationUpload, type AllowedCommunicationAttachmentType } from "../lib/secure-upload.js";
@@ -55,9 +56,9 @@ async function recipientConstraints(req: AuthRequest) {
 }
 
 router.get("/notices", async (req: AuthRequest, res) => {
-  const q = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20), search: z.string().trim().optional(), category: z.string().optional(), archived: z.enum(["true", "false"]).optional() }).parse(req.query), eligibility = admins.includes(req.auth!.role) ? { AND: req.auth!.role === Role.BRANCH_ADMIN ? [{ OR: [{ branchId: null }, { branchId: { in: await assignedBranches(req) } }] }] : [] } : await recipientConstraints(req);
-  const where = { kind: "NOTICE", isArchived: q.archived === "true", deletedAt: null, ...eligibility, ...(q.category ? { category: q.category } : {}), ...(q.search ? { AND: [...eligibility.AND, { OR: [{ title: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] }] } : {}) };
-  const [data, total] = await prisma.$transaction([prisma.announcement.findMany({ where, select: { id: true, title: true, body: true, category: true, priority: true, audience: true, isPinned: true, requiresAcknowledgement: true, publishedAt: true, expiresAt: true, isArchived: true, attachmentName: true, branch: { select: { id: true, branchName: true } }, batch: { select: { id: true, name: true } }, author: { select: { name: true } }, reads: { where: { userId: req.auth!.userId }, select: { readAt: true } }, _count: { select: { reads: true } } }, skip: (q.page - 1) * q.limit, take: q.limit, orderBy: [{ isPinned: "desc" }, { publishedAt: "desc" }] }), prisma.announcement.count({ where })]);
+  const q = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20), search: z.string().trim().optional(), category: z.string().optional(), archived: z.enum(["true", "false"]).optional() }).parse(req.query), manager = admins.includes(req.auth!.role), eligibility = manager ? { AND: req.auth!.role === Role.BRANCH_ADMIN ? [{ OR: [{ branchId: null }, { branchId: { in: await assignedBranches(req) } }] }] : [] } : await recipientConstraints(req);
+  const where = { kind: "NOTICE", isArchived: noticeArchivedState(req.auth!.role, q.archived), deletedAt: null, ...eligibility, ...(q.category ? { category: q.category } : {}), ...(q.search ? { AND: [...eligibility.AND, { OR: [{ title: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] }] } : {}) };
+  const [data, total] = await prisma.$transaction([prisma.announcement.findMany({ where, select: { ...announcementListFields, branch: { select: { id: true, branchName: true } }, batch: { select: { id: true, name: true } }, author: { select: { name: true } }, reads: { where: { userId: req.auth!.userId }, select: { readAt: true } }, _count: { select: { reads: true } } }, skip: (q.page - 1) * q.limit, take: q.limit, orderBy: [{ isPinned: "desc" }, { publishedAt: "desc" }] }), prisma.announcement.count({ where })]);
   res.json({ data, meta: { total, page: q.page, limit: q.limit, totalPages: Math.max(1, Math.ceil(total / q.limit)) } });
 });
 
