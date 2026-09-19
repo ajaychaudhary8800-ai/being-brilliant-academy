@@ -12,7 +12,7 @@ import { announcementListFields, messageListFields } from "../lib/communication-
 import { activeNotificationConstraints } from "../lib/notification-policy.js";
 import { historicalCivilDate, resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { loadAuthorizedDocument, storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
-import { certificateTeacherAllocationWhere, teacherOwnsExamination } from "../lib/portal-student-resource-policy.js";
+import { certificateTeacherAllocationWhere, selectEligibleParentHomeworkChild, teacherOwnsExamination } from "../lib/portal-student-resource-policy.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -264,7 +264,7 @@ router.get("/downloads/homework/:homeworkId", async (req: AuthRequest, res) => {
     student: linkedStudent,
     enrollment: await resolveHistoricalAcademicEnrollment(prisma, { organizationId: req.auth!.organizationId, studentId: linkedStudent.id, branchId: homework.branchId, academicSessionId: homework.batch.academicSessionId, courseId: homework.courseId, batchId: homework.batchId, onDate: homework.assignedDate, mode: "HISTORICAL_READ" }),
   })));
-  const parentCandidate = parentCandidates.find(candidate => candidate.student.batchId === homework.batchId || Boolean(candidate.enrollment)) ?? null;
+  const parentCandidate = selectEligibleParentHomeworkChild(parentCandidates, homework.batchId);
   const download = await loadAuthorizedDocument(() => assertHomeworkAttachmentAccess({
       role: req.auth!.role,
       requestOrganizationId: req.auth!.organizationId,
