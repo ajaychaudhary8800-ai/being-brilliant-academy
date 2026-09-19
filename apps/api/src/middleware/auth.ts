@@ -23,11 +23,15 @@ export async function requireAuth(req: AuthRequest, _res: Response, next: NextFu
     }).catch(() => {});
     const user = await systemPrisma.user.findFirst({
       where: { id: claim.userId, organizationId: claim.organizationId },
-      select: { isActive: true },
+      select: { isActive: true, role: true },
     });
     if (!user?.isActive) {
       void log(false, "USER_INACTIVE");
       throw new AppError(401, "INVALID_TOKEN", "Your session has expired");
+    }
+    if (user.role && user.role !== claim.role) {
+      void log(false, "ROLE_CHANGED");
+      throw new AppError(401, "STALE_ROLE_TOKEN", "Your access has changed. Sign in again.");
     }
     if (requested && !platform && requested !== claim.organizationId) {
       void log(false, "TENANT_MISMATCH");
