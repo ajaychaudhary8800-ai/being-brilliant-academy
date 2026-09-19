@@ -40,6 +40,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @bba/api prisma:generate
       - run: pnpm --filter @bba/api exec prisma migrate deploy
+      - name: Prepare dedicated integration database
+        run: |
+          echo 'CREATE DATABASE bba_integration;' | pnpm --filter @bba/api exec prisma db execute --schema prisma/schema.prisma --stdin
+          DATABASE_URL='postgresql://postgres:postgres@localhost:5432/bba_integration?schema=public' pnpm --filter @bba/api exec prisma migrate deploy --schema prisma/schema.prisma
+      - name: API regression and PostgreSQL integration tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/bba_integration?schema=public
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/bba_integration?schema=public
+          RUN_POSTGRES_INTEGRATION: "1"
+        run: pnpm --filter @bba/api test
       - run: pnpm typecheck
       - run: pnpm build
       - name: Runtime health smoke test

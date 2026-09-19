@@ -4,7 +4,6 @@ import { z } from "zod";
 import { AppError } from "../lib/http.js";
 import {
   answerSubmissionState,
-  assertActiveStudentExaminationEligible,
   assertAnswerSheetReplaceable,
   assertEvaluationOpen,
   assertExaminationManager,
@@ -12,10 +11,12 @@ import {
   assertSingleConditionalMutation,
   evaluationStatus,
   examinationResultFor,
+  examinationStart,
   publishedEvaluation,
   replaceableAnswerSheetStatuses,
 } from "../lib/examination-policy.js";
 import { prisma } from "../lib/prisma.js";
+import { historicalCivilDate, resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { loadAuthorizedDocument, storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
 import { allowedAnswerSheetTypes, allowedDocumentTypes, assertDocumentFileExtension, decodeVerifiedUpload, type AllowedDocumentType } from "../lib/secure-upload.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -29,6 +30,7 @@ const answerSheetUpload = z.object({ ...uploadFields, mimeType: z.enum(allowedAn
 const adminRoles: Role[] = [Role.SUPER_ADMIN, Role.BRANCH_ADMIN];
 const managementRoles: Role[] = [...adminRoles, Role.TEACHER];
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } as const;
+const civilDate = historicalCivilDate;
 
 function bytes(data: { fileName: string; mimeType: AllowedDocumentType; base64: string }) {
   assertDocumentFileExtension(data.fileName, data.mimeType);
@@ -42,7 +44,7 @@ function auditData(req: AuthRequest, action: string, entity: string, entityId: s
 
 async function branchAccess(req: AuthRequest, branchId: string) {
   if (req.auth!.role !== Role.BRANCH_ADMIN) return;
-  const found = await prisma.branchUser.findFirst({ where: { userId: req.auth!.userId, branchId }, select: { branchId: true } });
+  const found = await prisma.branchUser.findFirst({ where: { userId: req.auth!.userId, organizationId: req.auth!.organizationId, branchId }, select: { branchId: true } });
   if (!found) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
 }
 
@@ -54,6 +56,13 @@ async function examination(req: AuthRequest, examinationId: string) {
   if (!exam) throw new AppError(404, "EXAMINATION_NOT_FOUND", "Examination not found");
   await branchAccess(req, exam.branchId);
   return exam;
+}
+
+async function assertHistoricalStudentEligibility(req: AuthRequest, student: { id?: string; organizationId: string; status: string; user: { isActive: boolean } } | null, exam: { organizationId: string; branchId: string; courseId: string; batchId: string; academicSessionId: string; examDate: Date }, mode: "CURRENT_OR_NEW_WRITE" | "HISTORICAL_READ" = "CURRENT_OR_NEW_WRITE", allowLegacy = false) {
+  // Replaces the former assertActiveStudentExaminationEligible current-profile check (assertActiveStudentExaminationEligible(student, exam)).
+  if (!student || student.organizationId !== req.auth!.organizationId || !student.user.isActive || student.status !== "ACTIVE") throw new AppError(403, "EXAMINATION_ACCESS_DENIED", "An active student profile is required");
+  const enrollment = await resolveHistoricalAcademicEnrollment(prisma, { organizationId: exam.organizationId, studentId: student.id!, branchId: exam.branchId, academicSessionId: exam.academicSessionId, courseId: exam.courseId, batchId: exam.batchId, onDate: civilDate(exam.examDate), mode });
+  if (!enrollment && !allowLegacy) throw new AppError(403, "EXAMINATION_ACCESS_DENIED", "Student is not historically eligible for this examination");
 }
 
 async function mayManage(req: AuthRequest, exam: { branchId: string; academicSessionId: string; courseId: string; batchId: string; subjectId: string; teacherId: string; examDate: Date; teacher: { userId: string } }) {
@@ -110,9 +119,9 @@ router.get("/examinations/:examinationId/question-paper", async (req: AuthReques
   const exam = await examination(req, id.parse(req.params.examinationId));
   const paper = await loadAuthorizedDocument(async () => {
     if (req.auth!.role === Role.STUDENT) {
-      const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { organizationId: true, branchId: true, batchId: true, academicSessionId: true, status: true, user: { select: { isActive: true } } } });
-      assertActiveStudentExaminationEligible(student, exam);
-      assertQuestionPaperAvailable(exam.status, exam.questionPaper?.publishedAt ?? null);
+      const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { id: true, organizationId: true, branchId: true, batchId: true, academicSessionId: true, status: true, user: { select: { isActive: true } } } });
+      await assertHistoricalStudentEligibility(req, student, exam, "HISTORICAL_READ");
+      assertQuestionPaperAvailable(exam.status, exam.questionPaper?.publishedAt ?? null, new Date(), examinationStart(exam));
     } else await mayManage(req, exam);
   }, () => prisma.examinationQuestionPaper.findFirst({
       where: { examinationId: exam.id, organizationId: req.auth!.organizationId },
@@ -145,7 +154,9 @@ router.put("/examinations/:examinationId/answer-sheet", async (req: AuthRequest,
   if (req.auth!.role !== Role.STUDENT) throw new AppError(403, "STUDENT_REQUIRED", "Student access is required");
   const exam = await examination(req, id.parse(req.params.examinationId));
   const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { id: true, organizationId: true, branchId: true, batchId: true, academicSessionId: true, status: true, user: { select: { isActive: true } } } });
-  assertActiveStudentExaminationEligible(student, exam);
+  await assertHistoricalStudentEligibility(req, student, exam, "CURRENT_OR_NEW_WRITE");
+  const studentId = student!.id;
+  // Existing identity remains examinationId_studentId: { examinationId: exam.id, studentId: student.id }.
   const now = new Date();
   const submission = answerSubmissionState(exam, now);
   if (!exam.questionPaper?.publishedAt || exam.questionPaper.publishedAt > now) throw new AppError(409, "SUBMISSION_UNAVAILABLE", "Answer submission is not available for this examination");
@@ -158,18 +169,18 @@ router.put("/examinations/:examinationId/answer-sheet", async (req: AuthRequest,
     assertSingleConditionalMutation(locked.count, "SUBMISSION_UNAVAILABLE", "Answer submission is closed for the current examination lifecycle");
     const currentPaper = await tx.examinationQuestionPaper.findUnique({ where: { examinationId: exam.id }, select: { id: true, publishedAt: true } });
     if (!currentPaper?.publishedAt || currentPaper.publishedAt > now) throw new AppError(409, "SUBMISSION_UNAVAILABLE", "Answer submission is not available for this examination");
-    const old = await tx.examinationAnswerSheet.findUnique({ where: { examinationId_studentId: { examinationId: exam.id, studentId: student.id } } });
+    const old = await tx.examinationAnswerSheet.findUnique({ where: { examinationId_studentId: { examinationId: exam.id, studentId } } });
     let sheet;
     if (old) {
       assertAnswerSheetReplaceable(old.status, old.finalizedAt);
       const updated = await tx.examinationAnswerSheet.updateMany({
-        where: { id: old.id, organizationId: req.auth!.organizationId, examinationId: exam.id, studentId: student.id, status: { in: replaceableAnswerSheetStatuses }, finalizedAt: null },
+        where: { id: old.id, organizationId: req.auth!.organizationId, examinationId: exam.id, studentId, status: { in: replaceableAnswerSheetStatuses }, finalizedAt: null },
         data: { ...file, questionPaperId: currentPaper.id, studentRemarks: data.remarks, status: submission.status, isLate: submission.status === AnswerSheetStatus.LATE_SUBMITTED, submittedAt: now, marksObtained: null, teacherRemarks: null, internalNotes: null, evaluatedById: null, evaluatedAt: null, finalizedAt: null },
       });
       assertSingleConditionalMutation(updated.count, "SUBMISSION_FINALIZED", "An answer sheet cannot be replaced after review has started");
       sheet = await tx.examinationAnswerSheet.findUniqueOrThrow({ where: { id: old.id } });
     } else {
-      sheet = await tx.examinationAnswerSheet.create({ data: { organizationId: req.auth!.organizationId, examinationId: exam.id, questionPaperId: currentPaper.id, studentId: student.id, ...file, studentRemarks: data.remarks, status: submission.status, isLate: submission.status === AnswerSheetStatus.LATE_SUBMITTED, submittedAt: now } });
+      sheet = await tx.examinationAnswerSheet.create({ data: { organizationId: req.auth!.organizationId, examinationId: exam.id, questionPaperId: currentPaper.id, studentId, ...file, studentRemarks: data.remarks, status: submission.status, isLate: submission.status === AnswerSheetStatus.LATE_SUBMITTED, submittedAt: now } });
     }
     await tx.auditLog.create({ data: auditData(req, old ? "REPLACE" : "SUBMIT", "ExaminationAnswerSheet", sheet.id) });
     return { sheet, replacing: Boolean(old) };
@@ -197,8 +208,8 @@ router.get("/answer-sheets/:answerSheetId/file", async (req: AuthRequest, res) =
   const authorized = await prisma.examinationAnswerSheet.findFirst({ where: { id: answerSheetId, organizationId: req.auth!.organizationId, ...authorization }, select: { id: true, examination: { select: { organizationId: true, branchId: true, academicSessionId: true, courseId: true, batchId: true, subjectId: true, teacherId: true, examDate: true, teacher: { select: { userId: true } } } } } });
   if (!authorized) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
   if (req.auth!.role === Role.STUDENT) {
-    const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { organizationId: true, branchId: true, batchId: true, academicSessionId: true, status: true, user: { select: { isActive: true } } } });
-    assertActiveStudentExaminationEligible(student, authorized.examination);
+    const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { id: true, organizationId: true, branchId: true, batchId: true, academicSessionId: true, status: true, user: { select: { isActive: true } } } });
+    await assertHistoricalStudentEligibility(req, student, authorized.examination, "HISTORICAL_READ", true);
   } else {
     await branchAccess(req, authorized.examination.branchId);
     await mayManage(req, authorized.examination);
@@ -238,8 +249,12 @@ router.get("/examinations", async (req: AuthRequest, res) => {
   if (req.auth!.role === Role.STUDENT) {
     const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { id: true, organizationId: true, branchId: true, batchId: true, academicSessionId: true, status: true, user: { select: { isActive: true } } } });
     if (!student || !student.user.isActive || student.status !== "ACTIVE") throw new AppError(403, "INACTIVE_STUDENT", "An active student profile is required");
-    const data = await prisma.examination.findMany({ where: { branchId: student.branchId, batchId: student.batchId, academicSessionId: student.academicSessionId, status: { in: [ExaminationStatus.SCHEDULED, ExaminationStatus.COMPLETED, ExaminationStatus.RESULTS_PUBLISHED] } }, select: { id: true, name: true, status: true, examDate: true, startMinute: true, endMinute: true, maximumMarks: true, subject: { select: { name: true } }, questionPaper: { select: { id: true, fileName: true, publishedAt: true } }, answerSheets: { where: { studentId: student.id }, select: { id: true, fileName: true, status: true, isLate: true, marksObtained: true, teacherRemarks: true, submittedAt: true, finalizedAt: true } } }, orderBy: { examDate: "desc" } });
-    return res.json({ data: data.map(row => ({ ...row, questionPaper: row.questionPaper?.publishedAt && row.questionPaper.publishedAt <= new Date() ? row.questionPaper : null, answerSheet: row.answerSheets[0] ? publishedEvaluation(row.status, row.answerSheets[0]) : null, answerSheets: undefined })) });
+    const data = await prisma.examination.findMany({ where: { organizationId: student.organizationId, status: { in: [ExaminationStatus.SCHEDULED, ExaminationStatus.COMPLETED, ExaminationStatus.RESULTS_PUBLISHED] } }, select: { id: true, branchId: true, courseId: true, batchId: true, academicSessionId: true, name: true, status: true, examDate: true, startMinute: true, endMinute: true, maximumMarks: true, subject: { select: { name: true } }, questionPaper: { select: { id: true, fileName: true, publishedAt: true } }, answerSheets: { where: { studentId: student.id }, select: { id: true, fileName: true, status: true, isLate: true, marksObtained: true, teacherRemarks: true, submittedAt: true, finalizedAt: true } }, results: { where: { studentId: student.id }, select: { id: true, marksObtained: true, status: true } } }, orderBy: { examDate: "desc" } });
+    const eligible = (await Promise.all(data.map(async row => {
+      const enrollment = await resolveHistoricalAcademicEnrollment(prisma, { organizationId: student.organizationId, studentId: student.id, branchId: row.branchId, academicSessionId: row.academicSessionId, courseId: row.courseId, batchId: row.batchId, onDate: civilDate(row.examDate), mode: "HISTORICAL_READ" });
+      return enrollment || row.answerSheets.length || row.results.length ? row : null;
+    }))).filter((row): row is NonNullable<typeof row> => Boolean(row));
+    return res.json({ data: eligible.map(row => ({ ...row, questionPaper: row.questionPaper?.publishedAt && row.questionPaper.publishedAt <= new Date() ? row.questionPaper : null, answerSheet: row.answerSheets[0] ? publishedEvaluation(row.status, row.answerSheets[0]) : null, answerSheets: undefined, results: undefined })) });
   }
   if (!managementRoles.includes(req.auth!.role)) throw new AppError(403, "FORBIDDEN", "Examination access denied");
   const teacher = req.auth!.role === Role.TEACHER ? await prisma.teacherProfile.findUnique({ where: { userId: req.auth!.userId }, select: { id: true } }) : null;

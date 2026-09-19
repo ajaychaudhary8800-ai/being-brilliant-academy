@@ -1,6 +1,7 @@
 import { AttendanceStatus, HalfDaySession, LeaveRequestStatus, LeaveType, Prisma, Role, StudentStatus } from "@prisma/client";
 import { Router, type Response } from "express";
 import { z } from "zod";
+import { resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { AppError } from "../lib/http.js";
 import { assertLeaveAttendanceCompatible, attendanceStatusForLeave, validateLeaveDates } from "../lib/leave-attendance-policy.js";
 import { assertParentLeaveStudentAuthorized, isLegacyParentLeave, leaveDecisionRecipient } from "../lib/parent-leave-policy.js";
@@ -234,10 +235,26 @@ router.patch("/admin/leaves/:leaveId/decision", async (req: AuthRequest, res) =>
     let attendanceChanges = 0;
     if (decision.status === LeaveRequestStatus.APPROVED) {
       const attendanceStatus = attendanceStatusForLeave(leave.leaveType);
+      let skippedHolidays = 0;
       for (let date = day(leave.fromDate); date <= day(leave.toDate); date = new Date(date.getTime() + 86_400_000)) {
+        const holiday = await tx.holiday.findFirst({
+          where: { organizationId: req.auth!.organizationId, date, OR: [{ branchId: leave.branchId }, { branchId: null }] },
+          select: { id: true },
+        });
+        if (holiday) {
+          skippedHolidays++;
+          continue;
+        }
         const remarks = `Approved ${leave.leaveType.toLowerCase().replaceAll("_", " ")}${leave.halfDaySession ? ` (${leave.halfDaySession.toLowerCase().replaceAll("_", " ")})` : ""}: ${leave.reason}`;
         if (leave.user.studentProfile) {
-          const key = { studentId: leave.userId, batchId: leave.user.studentProfile.batchId, date }, existing = await tx.attendance.findUnique({ where: { studentId_batchId_date: key } });
+          const enrollment = await resolveHistoricalAcademicEnrollment(tx, {
+            organizationId: req.auth!.organizationId,
+            studentId: leave.user.studentProfile.id,
+            onDate: date,
+            mode: "HISTORICAL_READ",
+          });
+          if (!enrollment) throw new AppError(409, "LEAVE_ACADEMIC_CONTEXT_UNRESOLVED", "Student academic enrollment could not be resolved for a leave date");
+          const key = { studentId: leave.userId, batchId: enrollment.batchId, date }, existing = await tx.attendance.findUnique({ where: { studentId_batchId_date: key } });
           assertLeaveAttendanceCompatible(existing?.status ?? null, attendanceStatus, "Student", date);
           if (!existing) await tx.attendance.create({ data: { ...key, status: attendanceStatus, remarks, markedById: req.auth!.userId } }); else if (existing.status !== attendanceStatus) await tx.attendance.update({ where: { id: existing.id }, data: { status: attendanceStatus, remarks, markedById: req.auth!.userId } });
           if (!existing || existing.status !== attendanceStatus) attendanceChanges++;
@@ -249,7 +266,7 @@ router.patch("/admin/leaves/:leaveId/decision", async (req: AuthRequest, res) =>
           if (!existing || existing.status !== attendanceStatus) attendanceChanges++;
         }
       }
-      await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "ATTENDANCE_SYNCHRONIZED_FROM_LEAVE", entity: "LeaveRequest", entityId: leave.id, metadata: { attendanceStatus, attendanceChanges } } });
+      await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "ATTENDANCE_SYNCHRONIZED_FROM_LEAVE", entity: "LeaveRequest", entityId: leave.id, metadata: { attendanceStatus, attendanceChanges, skippedHolidays } } });
     }
     await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: decision.status === LeaveRequestStatus.APPROVED ? "APPROVE" : "REJECT", entity: "LeaveRequest", entityId: leave.id, metadata: { remarks: decision.remarks } } });
     await tx.notification.create({ data: { organizationId: req.auth!.organizationId, userId: leaveDecisionRecipient(leave.userId, leave.submittedById), title: `Leave ${decision.status.toLowerCase()}`, body: decision.remarks || `Your leave request has been ${decision.status.toLowerCase()}.`, category: "LEAVE", sourceModule: "LEAVE_MANAGEMENT", sourceEntityId: leave.id, actionUrl: "/portal/leaves" } });

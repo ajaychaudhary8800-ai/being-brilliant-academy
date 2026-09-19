@@ -5,6 +5,7 @@ import {
   formatInstitutionDate,
   formatInstitutionDateTime,
   formatInstitutionTime,
+  institutionCalendarDate,
   institutionDateTimeInput,
   institutionWeekday,
   invalidInstitutionDateDisplay,
@@ -28,6 +29,44 @@ test("the stored UTC Homework deadline renders at the intended institution-local
 
 test("Teacher and Admin edit inputs receive institution-local wall-clock values", () => {
   assert.equal(institutionDateTimeInput("2026-09-08T04:30:00.000Z", settings.timeZone), "2026-09-08T10:00");
+});
+
+test("finance datetime-local defaults use institution wall time, independent of browser timezone", () => {
+  const instant = "2026-09-12T20:00:00.000Z";
+  const original = process.env.TZ;
+  try {
+    for (const browserZone of ["UTC", "America/Los_Angeles", "Asia/Kolkata"]) {
+      process.env.TZ = browserZone;
+      assert.equal(institutionDateTimeInput(instant, "Asia/Kolkata"), "2026-09-13T01:30");
+      assert.equal(institutionDateTimeInput(instant, "UTC"), "2026-09-12T20:00");
+      assert.equal(institutionDateTimeInput(instant, "America/New_York"), "2026-09-12T16:00");
+    }
+  } finally {
+    if (original === undefined) delete process.env.TZ; else process.env.TZ = original;
+  }
+});
+
+test("finance event dates follow the institution calendar near UTC midnight", () => {
+  const instant = "2026-09-12T20:00:00.000Z";
+  assert.equal(institutionCalendarDate(instant, "Asia/Kolkata"), "2026-09-13");
+  assert.equal(institutionCalendarDate(instant, "UTC"), "2026-09-12");
+  assert.equal(institutionCalendarDate(instant, "America/New_York"), "2026-09-12");
+});
+
+test("finance assignment instants and date-only installments ignore browser timezone", () => {
+  const instant = "2026-09-12T20:00:00.000Z";
+  const original = process.env.TZ;
+  try {
+    const expectedAssignment = formatInstitutionDateTime(instant, { timeZone: "Asia/Kolkata", locale: "en-IN" });
+    for (const browserZone of ["UTC", "America/Los_Angeles", "Asia/Kolkata"]) {
+      process.env.TZ = browserZone;
+      assert.equal(formatInstitutionDateTime(instant, { timeZone: "Asia/Kolkata", locale: "en-IN" }), expectedAssignment);
+      assert.equal(formatInstitutionDate("2026-09-13T00:00:00.000Z", "en-US"), "Sep 13, 2026");
+    }
+    assert.match(expectedAssignment, /13/);
+  } finally {
+    if (original === undefined) delete process.env.TZ; else process.env.TZ = original;
+  }
 });
 
 test("formatting is explicit and independent of the browser or process timezone", () => {

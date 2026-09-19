@@ -3,6 +3,7 @@ import webPush from "web-push";
 import { env } from "../config.js";
 import { logger } from "./logger.js";
 import { systemPrisma } from "./prisma.js";
+import { notificationIsActive } from "./notification-policy.js";
 
 export const providerStatus = () => ({
   email: Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASSWORD && env.EMAIL_FROM),
@@ -57,10 +58,11 @@ async function sendPush(userId: string, title: string, body: string, actionUrl?:
   return { skipped: false, provider: "WEB_PUSH", messageId: `${sent}/${subscriptions.length}` } as const;
 }
 
-export async function deliverNotification(deliveryId: string) {
+export async function deliverNotification(deliveryId: string, now = new Date()) {
   const delivery = await systemPrisma.notificationDelivery.findUnique({ where: { id: deliveryId }, include: { notification: { include: { user: true } } } });
   if (!delivery || !["QUEUED", "FAILED"].includes(delivery.status)) return;
   const { notification } = delivery;
+  if (!notificationIsActive(notification, now)) return;
   await systemPrisma.notificationDelivery.update({ where: { id: delivery.id }, data: { status: "PROCESSING", attempts: { increment: 1 }, lastError: null } });
   try {
     const result = delivery.channel === "EMAIL" ? await sendEmail(notification.user.email, notification.title, notification.body) : delivery.channel === "SMS" ? notification.user.phone ? await sendSms(notification.user.phone, notification.body) : { skipped: true, reason: "USER_PHONE_MISSING" } as const : delivery.channel === "WHATSAPP" ? notification.user.phone ? await sendWhatsapp(notification.user.phone, notification.body) : { skipped: true, reason: "USER_PHONE_MISSING" } as const : delivery.channel === "PUSH" ? await sendPush(notification.userId, notification.title, notification.body, notification.actionUrl) : { skipped: true, reason: "UNSUPPORTED_CHANNEL" } as const;

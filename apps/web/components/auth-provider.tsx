@@ -1,80 +1,75 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 const ACCESS_KEY = "bba.accessToken";
 const REFRESH_KEY = "bba.refreshToken";
 export type AppRole = "SUPER_ADMIN" | "BRANCH_ADMIN" | "ACCOUNTANT" | "TEACHER" | "STUDENT" | "PARENT" | "EMPLOYEE";
-export type AuthPortal = "student" | "parent" | "teacher" | "admin";
+export type AuthPortal = "student" | "parent" | "teacher" | "employee" | "admin";
 export type AuthUser = { id: string; name: string; email: string; role: AppRole; organizationId: string };
 type AuthResponse = { user: AuthUser; accessToken: string; refreshToken: string };
-type AuthContextValue = { user: AuthUser | null; loading: boolean; login: (email: string, password: string, rememberMe: boolean, organization?: string, portal?: AuthPortal) => Promise<AuthUser>; register: (name: string, email: string, password: string, rememberMe: boolean) => Promise<AuthUser>; logout: () => Promise<void>; requestPasswordReset: (email: string, organization?: string) => Promise<void> };
+type AuthContextValue = { user: AuthUser | null; loading: boolean; login: (email: string, password: string, rememberMe: boolean, organization?: string, portal?: AuthPortal) => Promise<AuthUser>; logout: () => Promise<void>; requestPasswordReset: (email: string, organization?: string) => Promise<void> };
 const AuthContext = createContext<AuthContextValue | null>(null);
 const targetStorage = (rememberMe: boolean) => rememberMe ? localStorage : sessionStorage;
 const readRefreshToken = () => localStorage.getItem(REFRESH_KEY) ?? sessionStorage.getItem(REFRESH_KEY);
 const clearTokens = () => [localStorage, sessionStorage].forEach((store) => { store.removeItem(ACCESS_KEY); store.removeItem(REFRESH_KEY); });
 export const getAccessToken = () => localStorage.getItem(ACCESS_KEY) ?? sessionStorage.getItem(ACCESS_KEY);
-export const errorMessage = (value: unknown) => value instanceof Error ? value.message : "Something went wrong. Please try again.";
-let refreshInFlight: Promise<{ accessToken: string; refreshToken: string } | null> | null = null;
-async function rotateTokens() {
-  if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = (async () => {
-    const refreshToken = readRefreshToken();
-    if (!refreshToken) return null;
-    const rememberMe = Boolean(localStorage.getItem(REFRESH_KEY));
-    try {
-      const response = await fetch(`${API_URL}/auth/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken }) });
-      const json = await response.json().catch(() => null);
-      if (!response.ok) { clearTokens(); return null; }
-      const data = json.data as { accessToken: string; refreshToken: string };
-      const store = targetStorage(rememberMe);
-      clearTokens();
-      store.setItem(ACCESS_KEY, data.accessToken);
-      store.setItem(REFRESH_KEY, data.refreshToken);
-      return data;
-    } catch { clearTokens(); return null; }
-  })().finally(() => { refreshInFlight = null; });
-  return refreshInFlight;
-}
-
-function accessTokenExpiresAt() {
-  const token = getAccessToken();
-  if (!token) return 0;
+function accessTokenExpiry(token: string | null) {
+  if (!token) return null;
   try {
-    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-    const paddedPayload = payload.padEnd(Math.ceil(payload.length / 4) * 4, "=");
-    return Number(JSON.parse(atob(paddedPayload)).exp ?? 0) * 1000;
-  }
-  catch { return 0; }
+    const encoded = token.split(".")[1];
+    if (!encoded) return null;
+    const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(encoded.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(base64)) as { exp?: number };
+    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
+  } catch { return null; }
 }
+export const errorMessage = (value: unknown) => value instanceof Error ? value.message : "Something went wrong. Please try again.";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const refreshInFlight = useRef<Promise<AuthUser | null> | null>(null);
   const persist = useCallback((data: AuthResponse, rememberMe: boolean) => { clearTokens(); const store = targetStorage(rememberMe); store.setItem(ACCESS_KEY, data.accessToken); store.setItem(REFRESH_KEY, data.refreshToken); setUser(data.user); }, []);
-  const authenticate = useCallback(async (path: "login" | "register", body: Record<string, unknown>) => { const response = await fetch(`${API_URL}/auth/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const json = await response.json().catch(() => null); if (!response.ok) throw new Error(json?.error?.message ?? "Unable to sign in"); const data = json.data as AuthResponse; persist(data, Boolean(body.rememberMe)); return data.user; }, [persist]);
-  const refresh = useCallback(async () => { const data = await rotateTokens(); if (!data) { setUser(null); return null; } try { const me = await fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${data.accessToken}` } }); const meJson = await me.json().catch(() => null); if (!me.ok) { clearTokens(); setUser(null); return null; } setUser(meJson.data as AuthUser); return meJson.data as AuthUser; } catch { clearTokens(); setUser(null); return null; } }, []);
+  const authenticate = useCallback(async (path: "login", body: Record<string, unknown>) => { const response = await fetch(`${API_URL}/auth/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const json = await response.json().catch(() => null); if (!response.ok) throw new Error(json?.error?.message ?? "Unable to sign in"); const data = json.data as AuthResponse; persist(data, Boolean(body.rememberMe)); return data.user; }, [persist]);
+  const refresh = useCallback(() => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+    const task = (async () => {
+      const refreshToken = readRefreshToken(); if (!refreshToken) return null;
+      try {
+        const response = await fetch(`${API_URL}/auth/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken }) });
+        const json = await response.json().catch(() => null);
+        if (!response.ok) { clearTokens(); setUser(null); return null; }
+        const data = json.data as { accessToken: string; refreshToken: string };
+        const store = targetStorage(Boolean(localStorage.getItem(REFRESH_KEY)));
+        clearTokens(); store.setItem(ACCESS_KEY, data.accessToken); store.setItem(REFRESH_KEY, data.refreshToken);
+        const me = await fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${data.accessToken}` } });
+        const meJson = await me.json().catch(() => null);
+        if (!me.ok) { clearTokens(); setUser(null); return null; }
+        setUser(meJson.data as AuthUser);
+        return meJson.data as AuthUser;
+      } catch { clearTokens(); setUser(null); return null; }
+    })();
+    refreshInFlight.current = task;
+    void task.finally(() => { if (refreshInFlight.current === task) refreshInFlight.current = null; });
+    return task;
+  }, []);
   useEffect(() => { void refresh().finally(() => setLoading(false)); }, [refresh]);
   useEffect(() => {
-    if (!user) return;
-    let timer = 0;
-    const schedule = () => {
-      window.clearTimeout(timer);
-      const expiresAt = accessTokenExpiresAt();
-      if (!expiresAt) return;
-      timer = window.setTimeout(() => { void refresh(); }, Math.max(1_000, expiresAt - Date.now() - 60_000));
+    const renewIfNeeded = () => {
+      const expiry = accessTokenExpiry(getAccessToken());
+      if (expiry !== null && expiry <= Date.now() + 120_000) void refresh();
     };
-    const resume = () => { if (document.visibilityState === "visible" && accessTokenExpiresAt() <= Date.now() + 120_000) void refresh(); };
-    schedule();
-    window.addEventListener("focus", resume);
-    document.addEventListener("visibilitychange", resume);
-    return () => { window.clearTimeout(timer); window.removeEventListener("focus", resume); document.removeEventListener("visibilitychange", resume); };
-  }, [user, refresh]);
+    const interval = window.setInterval(renewIfNeeded, 60_000);
+    const visible = () => { if (document.visibilityState === "visible") renewIfNeeded(); };
+    document.addEventListener("visibilitychange", visible);
+    return () => { window.clearInterval(interval); document.removeEventListener("visibilitychange", visible); };
+  }, [refresh]);
   const logout = useCallback(async () => { const refreshToken = readRefreshToken(); try { if (refreshToken) await fetch(`${API_URL}/auth/logout`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken }) }); } finally { clearTokens(); setUser(null); } }, []);
   const requestPasswordReset = useCallback(async (email: string, organization = "being-brilliant-academy") => { const response = await fetch(`${API_URL}/auth/forgot-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, organization }) }); if (!response.ok) { const json = await response.json().catch(() => null); throw new Error(json?.error?.message ?? "Unable to request a password reset"); } }, []);
-  const value = useMemo(() => ({ user, loading, login: (email: string, password: string, rememberMe: boolean, organization = "being-brilliant-academy", portal?: AuthPortal) => authenticate("login", { email, password, rememberMe, organization, portal }), register: (name: string, email: string, password: string, rememberMe: boolean) => authenticate("register", { name, email, password, rememberMe, organization: "being-brilliant-academy" }), logout, requestPasswordReset }), [user, loading, authenticate, logout, requestPasswordReset]);
+  const value = useMemo(() => ({ user, loading, login: (email: string, password: string, rememberMe: boolean, organization = "being-brilliant-academy", portal?: AuthPortal) => authenticate("login", { email, password, rememberMe, organization, portal }), logout, requestPasswordReset }), [user, loading, authenticate, logout, requestPasswordReset]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 export function useAuth() { const context = useContext(AuthContext); if (!context) throw new Error("useAuth must be used inside AuthProvider"); return context; }

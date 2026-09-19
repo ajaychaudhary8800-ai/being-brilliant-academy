@@ -3,7 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { activeTeacherLmsAllocations, assertLmsRequestContentAccess, lmsActorForRequest, requireTeacherLmsAllocation, type TeacherLmsAllocation } from "../lib/lms-access.js";
 import { AppError } from "../lib/http.js";
-import { assertLmsManagementAccess, assertLmsModuleManagementAccess, lmsLessonBranchFilter, lmsModuleCourseWhere, type LmsActor } from "../lib/lms-policy.js";
+import { assertLmsLessonEditable, assertLmsLessonStructuralEditAllowed, assertLmsLessonTransition, assertLmsManagementAccess, assertLmsModuleManagementAccess, lmsLessonBranchFilter, lmsLessonCreateStatus, lmsModuleCourseWhere, nextLmsProgress, type LmsActor } from "../lib/lms-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
@@ -152,7 +152,7 @@ admin.get("/lms/lessons/:id", async (req: AuthRequest, res) => {
 });
 
 admin.post("/lms/lessons", async (req: AuthRequest, res) => {
-  const data = input.parse(req.body), current = await lmsActorForRequest(req);
+  const parsed = input.parse(req.body), data = { ...parsed, status: lmsLessonCreateStatus(parsed.status) }, current = await lmsActorForRequest(req);
   assertLmsManagementAccess(current, data); await relations(data, current);
   const { video, attachments = [], ...rest } = data, videoData = video ? bytes(video, 25 * 1048576, ["video/mp4", "video/webm"]) : null;
   try {
@@ -162,10 +162,18 @@ admin.post("/lms/lessons", async (req: AuthRequest, res) => {
 });
 
 admin.patch("/lms/lessons/:id", async (req: AuthRequest, res) => {
-  const old = await prisma.lesson.findUnique({ where: { id: String(req.params.id) }, select: { id: true, moduleId: true, branchId: true, courseId: true, batchId: true, subjectId: true, teacherId: true, chapter: true, durationSeconds: true, position: true, status: true } });
+  const old = await prisma.lesson.findUnique({ where: { id: String(req.params.id) }, select: { id: true, moduleId: true, branchId: true, courseId: true, batchId: true, subjectId: true, teacherId: true, chapter: true, durationSeconds: true, position: true, status: true, _count: { select: { progress: true } } } });
   if (!old) throw new AppError(404, "LESSON_NOT_FOUND", "Lesson not found");
-  const current = await lmsActorForRequest(req), patch = input.partial().parse(req.body), data = { ...old, ...patch } as z.infer<typeof input>;
-  await assertLmsRequestContentAccess(req, old); assertLmsManagementAccess(current, data); await relations(data, current);
+  const current = await lmsActorForRequest(req), patch = input.partial().omit({ status: true }).parse(req.body), data = { ...old, ...patch } as z.infer<typeof input>;
+  await assertLmsRequestContentAccess(req, old); assertLmsLessonEditable(old.status); assertLmsManagementAccess(current, data);
+  const structuralChanged = (patch.moduleId !== undefined && patch.moduleId !== old.moduleId)
+    || (patch.branchId !== undefined && patch.branchId !== old.branchId)
+    || (patch.courseId !== undefined && patch.courseId !== old.courseId)
+    || (patch.batchId !== undefined && patch.batchId !== old.batchId)
+    || (patch.subjectId !== undefined && patch.subjectId !== old.subjectId)
+    || (patch.teacherId !== undefined && patch.teacherId !== old.teacherId)
+    || (patch.durationSeconds !== undefined && patch.durationSeconds !== old.durationSeconds);
+  assertLmsLessonStructuralEditAllowed(old._count.progress > 0, structuralChanged); await relations(data, current);
   const { video, attachments, ...rest } = patch, videoData = video ? bytes(video, 25 * 1048576, ["video/mp4", "video/webm"]) : null;
   try {
     const lesson = await prisma.lesson.update({ where: { id: old.id }, data: { ...rest, ...(videoData ? { videoName: video!.name, videoMime: video!.mimeType, videoSize: videoData.length, videoData } : {}), ...(attachments ? { attachments: { create: attachments.map(attachment => { const data = bytes(attachment, 5 * 1048576, ["application/pdf", "image/jpeg", "image/png", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]); return { name: attachment.name, mimeType: attachment.mimeType, size: data.length, data }; }) } } : {}) }, select });
@@ -178,6 +186,7 @@ admin.patch("/lms/lessons/:id/status", async (req: AuthRequest, res) => {
   if (!old) throw new AppError(404, "LESSON_NOT_FOUND", "Lesson not found");
   await assertLmsRequestContentAccess(req, old);
   const { status } = z.object({ status: z.nativeEnum(LmsContentStatus) }).parse(req.body);
+  assertLmsLessonTransition(old.status, status);
   res.json({ data: shape(await prisma.lesson.update({ where: { id: old.id }, data: { status }, select })) });
 });
 
@@ -215,9 +224,14 @@ router.patch("/lms/lessons/:id/progress", allow(Role.STUDENT), async (req: AuthR
   const lesson = await prisma.lesson.findUnique({ where: { id: String(req.params.id) }, select: { id: true, branchId: true, courseId: true, batchId: true, subjectId: true, teacherId: true, status: true, durationSeconds: true } });
   if (!lesson) throw new AppError(404, "LESSON_NOT_FOUND", "Lesson not found");
   await assertLmsRequestContentAccess(req, lesson);
-  const data = z.object({ lastPositionSeconds: z.number().int().min(0), timeSpentSeconds: z.number().int().min(0).max(86400), quizScore: z.number().min(0).max(100).nullable().optional(), assignmentStatus: z.string().max(50).nullable().optional(), completed: z.boolean().optional() }).parse(req.body);
-  const watchedSeconds = Math.min(data.lastPositionSeconds, lesson.durationSeconds), watchPercentage = lesson.durationSeconds ? Math.min(100, Math.round(watchedSeconds / lesson.durationSeconds * 100)) : 0, completed = data.completed ?? watchPercentage >= 90;
-  const progress = await prisma.lessonProgress.upsert({ where: { userId_lessonId: { userId: req.auth!.userId, lessonId: lesson.id } }, update: { watchedSeconds, watchPercentage, lastPositionSeconds: watchedSeconds, timeSpentSeconds: { increment: data.timeSpentSeconds }, quizScore: data.quizScore, assignmentStatus: data.assignmentStatus, completed, ...(completed ? { completedAt: new Date() } : {}) }, create: { userId: req.auth!.userId, lessonId: lesson.id, watchedSeconds, watchPercentage, lastPositionSeconds: watchedSeconds, timeSpentSeconds: data.timeSpentSeconds, quizScore: data.quizScore, assignmentStatus: data.assignmentStatus, completed, ...(completed ? { completedAt: new Date() } : {}) } });
+  const data = z.object({ lastPositionSeconds: z.number().int().min(0), timeSpentSeconds: z.number().int().min(0).max(86400) }).strict().parse(req.body);
+  const current = await prisma.lessonProgress.findUnique({ where: { userId_lessonId: { userId: req.auth!.userId, lessonId: lesson.id } }, select: { watchedSeconds: true, lastPositionSeconds: true, completed: true, completedAt: true } });
+  const next = nextLmsProgress(current, data, lesson.durationSeconds);
+  const progress = await prisma.lessonProgress.upsert({
+    where: { userId_lessonId: { userId: req.auth!.userId, lessonId: lesson.id } },
+    update: { watchedSeconds: next.watchedSeconds, watchPercentage: next.watchPercentage, lastPositionSeconds: next.lastPositionSeconds, timeSpentSeconds: { increment: next.creditedTimeSeconds }, completed: next.completed, completedAt: next.completedAt },
+    create: { userId: req.auth!.userId, lessonId: lesson.id, watchedSeconds: next.watchedSeconds, watchPercentage: next.watchPercentage, lastPositionSeconds: next.lastPositionSeconds, timeSpentSeconds: next.creditedTimeSeconds, completed: next.completed, completedAt: next.completedAt },
+  });
   res.json({ data: progress });
 });
 

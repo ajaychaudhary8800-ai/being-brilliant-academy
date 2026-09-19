@@ -47,6 +47,6 @@ test("branch create and edit map only branch-code races to the stable API confli
   const route = await readFile(new URL("../routes/admin.ts", import.meta.url), "utf8");
 
   assert.equal((route.match(/isBranchCodeConflict\(error\)/g) ?? []).length, 2);
-  assert.match(route, /router\.post\("\/branches"[^]*BRANCH_CODE_EXISTS|router\.post\("\/branches"[^]*branchCodeConflict/s);
-  assert.doesNotMatch(route, /router\.post\("\/branches"[^]*An unexpected error occurred/);
+  assert.match(route, /router\.post\("\/branches"[^]*branchCodeConflict/s);
+  assert.match(route, /router\.put\("\/branches\/:id"[^]*branchCodeConflict/s);
 });

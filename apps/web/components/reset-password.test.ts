@@ -36,9 +36,10 @@ test("the page keeps the raw token out of browser persistence and removes it fro
   assert.match(source, /history\.replaceState/);
 });
 
-test("public registration presents the established strong password policy", () => {
+test("public registration directs users to institution-provisioned account setup", () => {
   const source = readFileSync(new URL("../app/register/page.tsx", import.meta.url), "utf8");
-  assert.match(source, /minLength=\{10\}/);
-  assert.match(source, /maxLength=\{128\}/);
-  assert.match(source, /uppercase and lowercase letters and at least one number/);
+  assert.match(source, /Your institution creates your account/);
+  assert.match(source, /Self-registration is not enabled for V2/);
+  assert.match(source, /href="\/login"/);
+  assert.match(source, /href="\/forgot-password\/student"/);
 });

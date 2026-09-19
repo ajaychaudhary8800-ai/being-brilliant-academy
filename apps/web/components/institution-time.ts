@@ -77,6 +77,18 @@ export function institutionDateTimeInput(value: string | Date, timeZone?: string
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
+export function institutionCalendarDate(value: string | Date, timeZone?: string | null) {
+  const instant = validInstant(value);
+  if (!instant) return "";
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: resolvedTimeZone(timeZone),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(instant).filter(part => part.type !== "literal").map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 const dateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.000)?Z)?$/;
 
 export function formatInstitutionDate(value: string, locale?: string | null) {

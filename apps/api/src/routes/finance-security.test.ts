@@ -66,10 +66,14 @@ test("collection uses authoritative sums in a serializable transaction with dupl
   const schema = await readFile(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
   const endpoint = between(fees, 'router.post("/fees/:id/collect"', 'router.get("/fees/payments/:paymentId/receipt"');
   assert.match(endpoint, /TransactionIsolationLevel\.Serializable/);
-  assert.equal([...endpoint.matchAll(/feePayment\.aggregate/g)].length, 2);
+  assert.equal([...endpoint.matchAll(/feePayment\.aggregate/g)].length, 1);
+  assert.equal([...endpoint.matchAll(/feePaymentOffset\.aggregate/g)].length, 1);
+  assert.match(endpoint, /organizationId: req\.auth!\.organizationId, feeId: fee\.id/);
   assert.match(endpoint, /feePayment\.findUnique/);
   assert.match(endpoint, /assertPaymentWithinAuthoritativeBalance/);
-  assert.match(endpoint, /amountPaidPaise = authoritative\._sum\.amountPaise/);
+  assert.match(endpoint, /effectivePaidBefore = grossPaymentsPaise - offsetsPaise/);
+  assert.match(endpoint, /PAYMENT_LEDGER_INCONSISTENT/);
+  assert.match(endpoint, /amountPaidPaise = effectivePaidBefore \+ payment\.amountPaise/);
   assert.match(endpoint, /PAYMENT_CREATED/);
   assert.match(endpoint, /RECEIPT_ISSUED/);
   assert.doesNotMatch(endpoint, /Math\.random/);
@@ -154,7 +158,7 @@ test("Accountant finance access is branch-scoped and read-only except collection
   const fees = await readFile(new URL("./admin-fees.ts", import.meta.url), "utf8");
   assert.match(finance, /allow\(Role\.SUPER_ADMIN, Role\.BRANCH_ADMIN, Role\.ACCOUNTANT\)/);
   assert.match(finance, /req\.auth\?\.role === Role\.ACCOUNTANT && req\.method !== "GET"/);
-  assert.match(finance, /Role\.ACCOUNTANT \? \(await prisma\.branchUser\.findMany/);
+  assert.match(finance, /prisma\.branchUser\.findMany\(\{[\s\S]*organizationId: org\(req\)[\s\S]*userId: id\(req\)/);
   assert.match(fees, /allow\(Role\.SUPER_ADMIN, Role\.BRANCH_ADMIN, Role\.ACCOUNTANT\)/);
   assert.match(fees, /req\.auth\?\.role === Role\.ACCOUNTANT/);
   assert.match(fees, /req\.method === "POST" && \/\^\\\/fees/);

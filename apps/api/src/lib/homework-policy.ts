@@ -17,16 +17,17 @@ export type HomeworkAttachmentAccess = {
   parentStudentStatus?: StudentStatus | null;
   teacherId?: string | null;
   branchAllowed?: boolean;
+  historicalEnrollmentVerified?: boolean;
 };
 
 export function assertHomeworkAttachmentAccess(access: HomeworkAttachmentAccess) {
   const visible = access.homeworkStatus === HomeworkStatus.PUBLISHED || access.homeworkStatus === HomeworkStatus.CLOSED;
   const studentEligible = access.studentOrganizationId === access.homeworkOrganizationId
-    && access.studentBatchId === access.homeworkBatchId
+    && (access.historicalEnrollmentVerified === true || access.studentBatchId === access.homeworkBatchId)
     && access.studentStatus === StudentStatus.ACTIVE;
   const parentStudentEligible = access.parentLinked === true
     && access.parentStudentOrganizationId === access.homeworkOrganizationId
-    && access.parentStudentBatchId === access.homeworkBatchId
+    && (access.historicalEnrollmentVerified === true || access.parentStudentBatchId === access.homeworkBatchId)
     && access.parentStudentStatus === StudentStatus.ACTIVE;
   const allowed = access.requestOrganizationId === access.homeworkOrganizationId && (
     access.role === Role.STUDENT && visible && studentEligible
@@ -79,6 +80,7 @@ export type StudentHomeworkSubmissionAccess = {
   studentBatchId: string;
   studentCourseId: string | null;
   studentStatus: StudentStatus;
+  historicalEnrollmentVerified?: boolean;
 };
 
 export function assertStudentHomeworkSubmissionAccess(access: StudentHomeworkSubmissionAccess) {
@@ -91,8 +93,8 @@ export function assertStudentHomeworkSubmissionAccess(access: StudentHomeworkSub
   const eligible = access.studentStatus === StudentStatus.ACTIVE
     && access.requestOrganizationId === access.homeworkOrganizationId
     && access.studentOrganizationId === access.homeworkOrganizationId
-    && access.studentBatchId === access.homeworkBatchId
-    && access.studentCourseId === access.homeworkCourseId;
+    && (access.historicalEnrollmentVerified === true
+      || access.studentBatchId === access.homeworkBatchId && access.studentCourseId === access.homeworkCourseId);
   if (!eligible) {
     throw new AppError(403, "STUDENT_NOT_ELIGIBLE", "Homework is not assigned to this Student");
   }
@@ -186,5 +188,21 @@ export function assertHomeworkSubmissionReplaceable(status: HomeworkSubmissionSt
 export function assertHomeworkSubmissionReplaced(count: number) {
   if (count !== 1) {
     throw new AppError(409, "SUBMISSION_REVIEW_STARTED", "A reviewed submission cannot be replaced");
+  }
+}
+
+
+export function assertHomeworkLifecycleTransition(currentStatus: HomeworkStatus, nextStatus: HomeworkStatus) {
+  const allowed = currentStatus === HomeworkStatus.DRAFT && (nextStatus === HomeworkStatus.PUBLISHED || nextStatus === HomeworkStatus.ARCHIVED)
+    || currentStatus === HomeworkStatus.PUBLISHED && (nextStatus === HomeworkStatus.CLOSED || nextStatus === HomeworkStatus.ARCHIVED)
+    || currentStatus === HomeworkStatus.CLOSED && nextStatus === HomeworkStatus.ARCHIVED;
+  if (!allowed) {
+    throw new AppError(409, "INVALID_HOMEWORK_STATUS_TRANSITION", `Homework status cannot change from ${currentStatus} to ${nextStatus}`);
+  }
+}
+
+export function assertHomeworkHistoricalContextEditable(hasSubmissions: boolean, changed: boolean) {
+  if (hasSubmissions && changed) {
+    throw new AppError(409, "HOMEWORK_SUBMISSION_CONTEXT_LOCKED", "Homework academic context and dates cannot change after submissions exist");
   }
 }

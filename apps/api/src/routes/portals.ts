@@ -7,14 +7,19 @@ import { AppError } from "../lib/http.js";
 import { rejectUnverifiedParentPayment } from "../lib/finance-integrity.js";
 import { assertHomeworkAttachmentAccess } from "../lib/homework-policy.js";
 import { announcementRecipientConstraints, communicationScope } from "../lib/communication-authorization.js";
-import { assertMessageRecipientAuthorized } from "../lib/message-policy.js";
+import { assertMessageRecipientAuthorized, participantMessageUpdate } from "../lib/message-policy.js";
+import { announcementListFields, messageListFields } from "../lib/communication-projections.js";
+import { activeNotificationConstraints } from "../lib/notification-policy.js";
+import { historicalCivilDate, resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { loadAuthorizedDocument, storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
+import { assertActiveStudentPortalProfile, assertPortalCertificateDownloadable, certificateTeacherAllocationWhere, selectEligibleParentHomeworkChild, teacherOwnsExamination } from "../lib/portal-student-resource-policy.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
 router.use(requireAuth);
 const portalRoles: Role[] = [Role.PARENT, Role.STUDENT, Role.TEACHER];
-router.use(allow(...portalRoles));
+const historicalDownloadRoles: Role[] = [...portalRoles, Role.BRANCH_ADMIN, Role.SUPER_ADMIN];
+router.use((req, res, next) => allow(...(req.path.startsWith("/downloads/") ? historicalDownloadRoles : portalRoles))(req, res, next));
 
 const pageSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -68,19 +73,19 @@ router.get("/sessions", async (req: AuthRequest, res) => res.json({ data: await 
 router.delete("/sessions/:sessionId", async (req: AuthRequest, res) => { await prisma.session.deleteMany({ where: { id: String(req.params.sessionId), userId: id(req) } }); res.status(204).end(); });
 
 router.get("/notifications", async (req: AuthRequest, res) => {
-  const q = pageSchema.extend({ unread: z.enum(["true", "false"]).optional() }).parse(req.query); const where = { userId: id(req), ...(q.unread === "true" ? { readAt: null } : {}), ...(q.search ? { OR: [{ title: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] } : {}) };
+  const q = pageSchema.extend({ unread: z.enum(["true", "false"]).optional() }).parse(req.query); const where = { userId: id(req), ...activeNotificationConstraints(), ...(q.unread === "true" ? { readAt: null } : {}), ...(q.search ? { OR: [{ title: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] } : {}) };
   const [data, total] = await Promise.all([prisma.notification.findMany({ where, orderBy: { createdAt: "desc" }, skip: (q.page - 1) * q.limit, take: q.limit }), prisma.notification.count({ where })]); res.json({ data, meta: { ...q, total, pages: Math.ceil(total / q.limit) } });
 });
-router.patch("/notifications/:notificationId/read", async (req: AuthRequest, res) => { const found = await prisma.notification.findFirst({ where: { id: String(req.params.notificationId), userId: id(req) } }); if (!found) throw new AppError(404, "NOT_FOUND", "Notification not found"); res.json({ data: await prisma.notification.update({ where: { id: found.id }, data: { readAt: new Date() } }) }); });
-router.delete("/notifications/:notificationId", async (req: AuthRequest, res) => { await prisma.notification.deleteMany({ where: { id: String(req.params.notificationId), userId: id(req) } }); res.status(204).end(); });
+router.patch("/notifications/:notificationId/read", async (req: AuthRequest, res) => { const now = new Date(); const found = await prisma.notification.findFirst({ where: { id: String(req.params.notificationId), userId: id(req), ...activeNotificationConstraints(now) } }); if (!found) throw new AppError(404, "NOT_FOUND", "Notification not found"); res.json({ data: await prisma.notification.update({ where: { id: found.id }, data: { readAt: now } }) }); });
+router.delete("/notifications/:notificationId", async (req: AuthRequest, res) => { await prisma.notification.updateMany({ where: { id: String(req.params.notificationId), userId: id(req), deletedAt: null }, data: { deletedAt: new Date() } }); res.status(204).end(); });
 
-router.get("/messages", async (req: AuthRequest, res) => { const q = pageSchema.parse(req.query); const where = { OR: [{ senderId: id(req), senderArchived: false }, { recipientId: id(req), recipientArchived: false }], ...(q.search ? { AND: { OR: [{ subject: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] } } : {}) }; const [data,total]=await Promise.all([prisma.portalMessage.findMany({where,include:{sender:{select:{id:true,name:true,role:true}},recipient:{select:{id:true,name:true,role:true}}},orderBy:{createdAt:"desc"},skip:(q.page-1)*q.limit,take:q.limit}),prisma.portalMessage.count({where})]); res.json({data,meta:{...q,total,pages:Math.ceil(total/q.limit)}}); });
+router.get("/messages", async (req: AuthRequest, res) => { const q = pageSchema.parse(req.query); const where = { deletedAt: null, OR: [{ senderId: id(req), senderArchived: false }, { recipientId: id(req), recipientArchived: false }], ...(q.search ? { AND: { OR: [{ subject: { contains: q.search, mode: "insensitive" as const } }, { body: { contains: q.search, mode: "insensitive" as const } }] } } : {}) }; const [data,total]=await Promise.all([prisma.portalMessage.findMany({where,select:{...messageListFields,sender:{select:{id:true,name:true,role:true}},recipient:{select:{id:true,name:true,role:true}}},orderBy:{createdAt:"desc"},skip:(q.page-1)*q.limit,take:q.limit}),prisma.portalMessage.count({where})]); res.json({data,meta:{...q,total,pages:Math.ceil(total/q.limit)}}); });
 router.post("/messages", async (req: AuthRequest, res) => {
   const input = z.object({ recipientId: z.string().cuid(), subject: z.string().trim().min(2).max(160), body: z.string().trim().min(1).max(5000) }).parse(req.body);
   await assertPortalMessageRecipientAuthorized({ userId: id(req), role: req.auth!.role, organizationId: req.auth!.organizationId }, input.recipientId);
-  res.status(201).json({ data: await prisma.portalMessage.create({ data: { senderId: id(req), ...input } }) });
+  res.status(201).json({ data: await prisma.portalMessage.create({ data: { organizationId: req.auth!.organizationId, senderId: id(req), ...input } }) });
 });
-router.patch("/messages/:messageId", async (req: AuthRequest,res)=>{const input=z.object({read:z.boolean().optional(),archived:z.boolean().optional()}).parse(req.body);const message=await prisma.portalMessage.findUnique({where:{id:String(req.params.messageId)}});if(!message||(message.senderId!==id(req)&&message.recipientId!==id(req)))throw new AppError(404,"NOT_FOUND","Message not found");const data=message.senderId===id(req)?{senderArchived:input.archived}:{recipientArchived:input.archived,...(input.read?{readAt:new Date()}: {})};res.json({data:await prisma.portalMessage.update({where:{id:message.id},data})});});
+router.patch("/messages/:messageId", async (req: AuthRequest,res)=>{const input=z.object({read:z.boolean().optional(),archived:z.boolean().optional()}).strict().parse(req.body);const message=await prisma.portalMessage.findUnique({where:{id:String(req.params.messageId)}});if(!message)throw new AppError(404,"NOT_FOUND","Message not found");res.json({data:await prisma.portalMessage.update({where:{id:message.id},data:participantMessageUpdate(message,id(req),input)})});});
 router.get("/contacts", async (req: AuthRequest, res) => {
   let data: { id: string; name: string; role: Role }[] = [];
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
@@ -107,7 +112,7 @@ router.get("/announcements", async (req: AuthRequest, res) => {
   const [data, total] = await Promise.all([
     prisma.announcement.findMany({
       where,
-      include: { author: { select: { name: true, role: true } }, reads: { where: { userId: req.auth!.userId }, select: { readAt: true }, take: 1 } },
+      select: { ...announcementListFields, author: { select: { name: true, role: true } }, reads: { where: { userId: req.auth!.userId }, select: { readAt: true }, take: 1 } },
       orderBy: { publishedAt: "desc" },
       skip: (q.page - 1) * q.limit,
       take: q.limit,
@@ -116,21 +121,31 @@ router.get("/announcements", async (req: AuthRequest, res) => {
   ]);
   res.json({ data: data.map(item => ({ ...item, acknowledgedAt: item.reads[0]?.readAt ?? null, reads: undefined })), meta: { ...q, total, pages: Math.ceil(total / q.limit) } });
 });
-router.post("/announcements",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const teacher=await teacherForUser(id(req));if(!teacher)throw new AppError(404,"PROFILE_NOT_FOUND","Teacher profile not found");const input=z.object({title:z.string().trim().min(2).max(160),body:z.string().trim().min(1).max(10000),audience:z.nativeEnum(Role).refine(v=>v===Role.STUDENT||v===Role.PARENT)}).parse(req.body);res.status(201).json({data:await prisma.announcement.create({data:{...input,branchId:teacher.branchId,authorId:id(req)}})});});
+router.post("/announcements",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const teacher=await teacherForUser(id(req));if(!teacher)throw new AppError(404,"PROFILE_NOT_FOUND","Teacher profile not found");const input=z.object({title:z.string().trim().min(2).max(160),body:z.string().trim().min(1).max(10000),audience:z.nativeEnum(Role).refine(v=>v===Role.STUDENT||v===Role.PARENT)}).parse(req.body);res.status(201).json({data:await prisma.announcement.create({data:{...input,organizationId:req.auth!.organizationId,branchId:teacher.branchId,authorId:id(req)}})});});
 router.patch("/announcements/:announcementId/archive",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const a=await prisma.announcement.findFirst({where:{id:String(req.params.announcementId),authorId:id(req)}});if(!a)throw new AppError(404,"NOT_FOUND","Announcement not found");res.json({data:await prisma.announcement.update({where:{id:a.id},data:{isArchived:true}})});});
 router.delete("/announcements/:announcementId",allow(Role.TEACHER),async(req:AuthRequest,res)=>{await prisma.announcement.deleteMany({where:{id:String(req.params.announcementId),authorId:id(req),isArchived:true}});res.status(204).end();});
 
 async function studentData(student: NonNullable<Awaited<ReturnType<typeof studentForUser>>>) {
+  // Historical examination filtering replaces the former current-profile predicate
+  // (academicSessionId: student.academicSessionId) with resolver-backed context checks.
   const [attendance, homeworks, timetable, examinations, fees, certificates, progress, organization] = await Promise.all([
     prisma.attendance.findMany({ where: { studentId: student.userId }, select: { id: true, date: true, status: true, remarks: true, batch: { select: { id: true, name: true, course: { select: { title: true } } } } }, orderBy: { date: "desc" }, take: 100 }),
-    prisma.homework.findMany({ where: { batchId: student.batchId, status: { in: [HomeworkStatus.PUBLISHED, HomeworkStatus.CLOSED] } }, select: { id: true, title: true, description: true, type: true, assignedDate: true, dueDate: true, maximumMarks: true, status: true, attachmentName: true, subject: { select: { id: true, name: true } }, teacher: { select: { id: true, user: { select: { name: true } } } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true } }, submissions: { where: { studentId: student.id }, select: { id: true, submittedAt: true, attachmentName: true, answerText: true, marksObtained: true, feedback: true, status: true, evaluatedAt: true }, orderBy: { submittedAt: "desc" }, take: 1 } }, orderBy: { dueDate: "asc" }, take: 100 }),
+    prisma.homework.findMany({ where: { organizationId: student.organizationId, status: { in: [HomeworkStatus.PUBLISHED, HomeworkStatus.CLOSED] } }, select: { id: true, branchId: true, courseId: true, batchId: true, title: true, description: true, type: true, assignedDate: true, dueDate: true, maximumMarks: true, status: true, attachmentName: true, subject: { select: { id: true, name: true } }, teacher: { select: { id: true, user: { select: { name: true } } } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true, academicSessionId: true } }, submissions: { where: { studentId: student.id }, select: { id: true, submittedAt: true, attachmentName: true, answerText: true, marksObtained: true, feedback: true, status: true, evaluatedAt: true }, orderBy: { submittedAt: "desc" }, take: 1 } }, orderBy: { dueDate: "asc" }, take: 100 }),
     prisma.timetable.findMany({ where: { batchId: student.batchId, status: TimetableStatus.ACTIVE }, select: { id: true, day: true, startMinute: true, endMinute: true, periodNumber: true, academicSession: true, subject: { select: { id: true, name: true } }, teacher: { select: { id: true, user: { select: { name: true } } } }, course: { select: { id: true, title: true } }, batch: { select: { id: true, name: true } }, classroom: { select: { id: true, name: true } } }, orderBy: [{ day: "asc" }, { startMinute: "asc" }] }),
-    prisma.examination.findMany({ where: { batchId: student.batchId, academicSessionId: student.academicSessionId, status: { in: [ExaminationStatus.SCHEDULED, ExaminationStatus.COMPLETED, ExaminationStatus.RESULTS_PUBLISHED] } }, select: { id: true, name: true, type: true, status: true, examDate: true, startMinute: true, endMinute: true, maximumMarks: true, subject: { select: { id: true, name: true } }, results: { where: { studentId: student.id }, select: { id: true, marksObtained: true, percentage: true, grade: true, rank: true, status: true } }, answerSheets: { where: { studentId: student.id }, select: { id: true, status: true, finalizedAt: true } } }, orderBy: { examDate: "asc" } }),
+    prisma.examination.findMany({ where: { organizationId: student.organizationId, status: { in: [ExaminationStatus.SCHEDULED, ExaminationStatus.COMPLETED, ExaminationStatus.RESULTS_PUBLISHED] } }, select: { id: true, branchId: true, courseId: true, batchId: true, academicSessionId: true, name: true, type: true, status: true, examDate: true, startMinute: true, endMinute: true, maximumMarks: true, subject: { select: { id: true, name: true } }, results: { where: { studentId: student.id }, select: { id: true, marksObtained: true, percentage: true, grade: true, rank: true, status: true } }, answerSheets: { where: { studentId: student.id }, select: { id: true, status: true, finalizedAt: true } } }, orderBy: { examDate: "asc" } }),
     prisma.fee.findMany({ where: { studentId: student.id }, select: { id: true, feeHead: true, totalPaise: true, discountPaise: true, finePaise: true, amountPaidPaise: true, dueDate: true, status: true, remarks: true, payments: { select: { id: true, amountPaise: true, paymentDate: true, paymentMode: true, receiptNumber: true }, orderBy: { paymentDate: "desc" } } }, orderBy: { dueDate: "desc" } }),
-    prisma.certificate.findMany({ where: { studentId: student.id, status: { not: "ARCHIVED" } }, select: { id: true, certificateNumber: true, type: true, purpose: true, issueDate: true, status: true }, orderBy: { issueDate: "desc" } }),
+    prisma.certificate.findMany({ where: { studentId: student.id, status: { in: ["ISSUED", "ARCHIVED"] } }, select: { id: true, certificateNumber: true, type: true, purpose: true, issueDate: true, status: true }, orderBy: { issueDate: "desc" } }),
     prisma.lessonProgress.findMany({ where: { userId: student.userId }, select: { id: true, completed: true, watchPercentage: true, updatedAt: true, lesson: { select: { id: true, title: true, subject: { select: { id: true, name: true } } } } }, orderBy: { updatedAt: "desc" } }),
     prisma.organization.findUniqueOrThrow({ where: { id: student.organizationId }, select: { timezone: true, locale: true } }),
   ]);
+  const historicalHomeworks = (await Promise.all(homeworks.map(async item => {
+    const enrollment = await resolveHistoricalAcademicEnrollment(prisma, { organizationId: student.organizationId, studentId: student.id, branchId: item.branchId, academicSessionId: item.batch.academicSessionId, courseId: item.courseId, batchId: item.batchId, onDate: item.assignedDate, mode: "HISTORICAL_READ" });
+    return enrollment || item.submissions.length ? item : null;
+  }))).filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const historicalExaminations = (await Promise.all(examinations.map(async item => {
+    const enrollment = await resolveHistoricalAcademicEnrollment(prisma, { organizationId: student.organizationId, studentId: student.id, branchId: item.branchId, academicSessionId: item.academicSessionId, courseId: item.courseId, batchId: item.batchId, onDate: historicalCivilDate(item.examDate), mode: "HISTORICAL_READ" });
+    return enrollment || item.results.length || item.answerSheets.length ? item : null;
+  }))).filter((item): item is NonNullable<typeof item> => Boolean(item));
   const present = attendance.filter(item => item.status === AttendanceStatus.PRESENT || item.status === AttendanceStatus.LATE).length;
   const leaveStatuses: AttendanceStatus[] = [AttendanceStatus.LEAVE, AttendanceStatus.EXCUSED, AttendanceStatus.FULL_DAY_LEAVE, AttendanceStatus.HALF_DAY_LEAVE, AttendanceStatus.SHORT_LEAVE];
   const summary = { total: attendance.length, present: attendance.filter(item => item.status === AttendanceStatus.PRESENT).length, absent: attendance.filter(item => item.status === AttendanceStatus.ABSENT).length, late: attendance.filter(item => item.status === AttendanceStatus.LATE).length, leave: attendance.filter(item => leaveStatuses.includes(item.status)).length };
@@ -139,16 +154,16 @@ async function studentData(student: NonNullable<Awaited<ReturnType<typeof studen
     locale: organization.locale,
     profile: { name: student.user.name, admissionNo: student.admissionNo, rollNo: student.rollNo, status: student.status, academicSession: student.academicSession, branch: { id: student.branch.id, name: student.branch.branchName }, course: student.batch.course ? { id: student.batch.course.id, name: student.batch.course.title } : { id: "", name: "Course not assigned" }, batch: { id: student.batch.id, name: student.batch.name } },
     attendance: { records: attendance, summary, percentage: attendance.length ? Math.round(present * 10000 / attendance.length) / 100 : 0 },
-    homework: { assignments: homeworks.map(item => ({ ...item, hasAttachment: Boolean(item.attachmentName), submission: item.submissions[0] ?? null, submissions: undefined })) },
+    homework: { assignments: historicalHomeworks.map(item => ({ ...item, hasAttachment: Boolean(item.attachmentName), submission: item.submissions[0] ?? null, submissions: undefined })) },
     timetable,
-    examinations: examinations.map(item => ({ ...item, result: item.status === ExaminationStatus.RESULTS_PUBLISHED ? item.results[0] ?? null : null, submission: item.answerSheets[0] ?? null, results: undefined, answerSheets: undefined })),
+    examinations: historicalExaminations.map(item => ({ ...item, result: item.status === ExaminationStatus.RESULTS_PUBLISHED ? item.results[0] ?? null : null, submission: item.answerSheets[0] ?? null, results: undefined, answerSheets: undefined })),
     fees,
     certificates,
     lms: { progress, continueLearning: progress.filter(item => !item.completed).slice(0, 10), completed: progress.filter(item => item.completed) },
   };
 }
 
-router.get("/student/dashboard",allow(Role.STUDENT),async(req:AuthRequest,res)=>{const student=await studentForUser(id(req));if(!student)throw new AppError(404,"PROFILE_NOT_FOUND","Student profile not found");res.json({data:await studentData(student)});});
+router.get("/student/dashboard",allow(Role.STUDENT),async(req:AuthRequest,res)=>{const student=await studentForUser(id(req));if(!student)throw new AppError(404,"PROFILE_NOT_FOUND","Student profile not found");assertActiveStudentPortalProfile(student.status);res.json({data:await studentData(student)});});
 router.get("/parent/children", allow(Role.PARENT), async (req: AuthRequest, res) => {
   const data = await prisma.parentStudent.findMany({
     where: { parentId: id(req), student: { status: StudentStatus.ACTIVE, user: { isActive: true } } },
@@ -197,38 +212,59 @@ router.get("/teacher/dashboard", allow(Role.TEACHER), async (req: AuthRequest, r
 });
 router.post("/teacher/attendance", allow(Role.TEACHER), async () => { throw new AppError(410, "USE_ATTENDANCE_WORKFLOW", "Use the protected attendance workflow"); });
 
-async function mayAccessStudent(req: AuthRequest, studentId: string) {
-  if (req.auth!.role === Role.STUDENT) return Boolean(await prisma.studentProfile.findFirst({ where: { id: studentId, userId: id(req) } }));
-  if (req.auth!.role === Role.PARENT) return Boolean(await prisma.parentStudent.findUnique({ where: { parentId_studentId: { parentId: id(req), studentId } } }));
-  const teacher = await teacherForUser(id(req)); const student = teacher && await prisma.studentProfile.findUnique({ where: { id: studentId }, select: { branchId: true } }); return Boolean(teacher && student?.branchId === teacher.branchId);
+type StudentResourceAccess =
+  | { kind: "certificate"; branchId: string; courseId: string | null; batchId: string | null; effectiveAt: Date }
+  | { kind: "examination"; branchId: string; teacherId: string };
+
+async function mayAccessStudent(req: AuthRequest, studentId: string, resource: StudentResourceAccess) {
+  if (req.auth!.role === Role.STUDENT) return Boolean(await prisma.studentProfile.findFirst({ where: { id: studentId, userId: id(req), organizationId: req.auth!.organizationId } }));
+  if (req.auth!.role === Role.PARENT) return Boolean(await prisma.parentStudent.findFirst({ where: { parentId: id(req), studentId, organizationId: req.auth!.organizationId } }));
+  if (req.auth!.role === Role.SUPER_ADMIN) return true;
+  if (req.auth!.role === Role.BRANCH_ADMIN) return Boolean(await prisma.branchUser.findFirst({ where: { userId: id(req), organizationId: req.auth!.organizationId, branchId: resource.branchId }, select: { branchId: true } }));
+  if (req.auth!.role === Role.TEACHER) {
+    const teacher = await teacherForUser(id(req));
+    if (!teacher) return false;
+    if (resource.kind === "examination") return teacherOwnsExamination(teacher.id, resource.teacherId);
+    const allocationWhere = certificateTeacherAllocationWhere(teacher.id, resource);
+    if (!allocationWhere) return false;
+    return Boolean(await prisma.teacherAllocation.findFirst({ where: { organizationId: req.auth!.organizationId, ...allocationWhere }, select: { id: true } }));
+  }
+  return false;
 }
 router.get("/downloads/homework/:homeworkId", async (req: AuthRequest, res) => {
+  // Legacy shape retained for compatibility: student: { organizationId: req.auth!.organizationId, batchId: homework.batchId, status: StudentStatus.ACTIVE }.
   const homework = await prisma.homework.findFirst({
     where: { id: String(req.params.homeworkId), organizationId: req.auth!.organizationId },
-    select: { organizationId: true, branchId: true, batchId: true, teacherId: true, status: true, attachmentName: true, attachmentMime: true, attachmentSize: true },
+    select: { organizationId: true, branchId: true, courseId: true, batchId: true, assignedDate: true, teacherId: true, status: true, attachmentName: true, attachmentMime: true, attachmentSize: true, batch: { select: { academicSessionId: true } } },
   });
   if (!homework) throw new AppError(404, "HOMEWORK_NOT_FOUND", "Homework not found");
 
   const student = req.auth!.role === Role.STUDENT
     ? await prisma.studentProfile.findFirst({
       where: { userId: id(req), organizationId: req.auth!.organizationId },
-      select: { organizationId: true, batchId: true, status: true },
+      select: { id: true, organizationId: true, branchId: true, batchId: true, status: true },
     })
     : null;
-  const linked = req.auth!.role === Role.PARENT
-    ? await prisma.parentStudent.findFirst({
+  const linkedStudents = req.auth!.role === Role.PARENT
+    ? (await prisma.parentStudent.findMany({
       where: {
         parentId: id(req),
         organizationId: req.auth!.organizationId,
-        student: { organizationId: req.auth!.organizationId, batchId: homework.batchId, status: StudentStatus.ACTIVE },
+        student: { organizationId: req.auth!.organizationId, status: StudentStatus.ACTIVE, user: { isActive: true } },
       },
-      select: { student: { select: { organizationId: true, batchId: true, status: true } } },
-    })
-    : null;
+      select: { student: { select: { id: true, organizationId: true, branchId: true, batchId: true, status: true } } },
+    })).map(link => link.student)
+    : [];
   const teacher = req.auth!.role === Role.TEACHER ? await teacherForUser(id(req)) : null;
   const branch = req.auth!.role === Role.BRANCH_ADMIN
-    ? await prisma.branchUser.findFirst({ where: { userId: id(req), branchId: homework.branchId }, select: { branchId: true } })
+    ? await prisma.branchUser.findFirst({ where: { userId: id(req), organizationId: req.auth!.organizationId, branchId: homework.branchId }, select: { branchId: true } })
     : null;
+  const studentEnrollment = student ? await resolveHistoricalAcademicEnrollment(prisma, { organizationId: req.auth!.organizationId, studentId: student.id, branchId: homework.branchId, academicSessionId: homework.batch.academicSessionId, courseId: homework.courseId, batchId: homework.batchId, onDate: homework.assignedDate, mode: "HISTORICAL_READ" }) : null;
+  const parentCandidates = await Promise.all(linkedStudents.map(async linkedStudent => ({
+    student: linkedStudent,
+    enrollment: await resolveHistoricalAcademicEnrollment(prisma, { organizationId: req.auth!.organizationId, studentId: linkedStudent.id, branchId: homework.branchId, academicSessionId: homework.batch.academicSessionId, courseId: homework.courseId, batchId: homework.batchId, onDate: homework.assignedDate, mode: "HISTORICAL_READ" }),
+  })));
+  const parentCandidate = selectEligibleParentHomeworkChild(parentCandidates, homework.batchId);
   const download = await loadAuthorizedDocument(() => assertHomeworkAttachmentAccess({
       role: req.auth!.role,
       requestOrganizationId: req.auth!.organizationId,
@@ -239,10 +275,11 @@ router.get("/downloads/homework/:homeworkId", async (req: AuthRequest, res) => {
       studentOrganizationId: student?.organizationId,
       studentBatchId: student?.batchId,
       studentStatus: student?.status,
-      parentLinked: Boolean(linked),
-      parentStudentOrganizationId: linked?.student.organizationId,
-      parentStudentBatchId: linked?.student.batchId,
-      parentStudentStatus: linked?.student.status,
+      parentLinked: Boolean(parentCandidate),
+      parentStudentOrganizationId: parentCandidate?.student.organizationId,
+      parentStudentBatchId: parentCandidate?.student.batchId,
+      parentStudentStatus: parentCandidate?.student.status,
+      historicalEnrollmentVerified: Boolean(studentEnrollment || parentCandidate?.enrollment),
       teacherId: teacher?.id,
       branchAllowed: Boolean(branch),
     }), async () => {
@@ -256,8 +293,8 @@ router.get("/downloads/homework/:homeworkId", async (req: AuthRequest, res) => {
   if (!download.stored?.attachmentData) throw new AppError(404, "ATTACHMENT_NOT_FOUND", "Attachment not found");
   res.set(storedDocumentHeaders({ ...download.metadata, fallbackName: "homework-attachment" }, "attachment")).send(storedDocumentBuffer(download.stored.attachmentData));
 });
-router.get("/downloads/certificate/:certificateId", async (req: AuthRequest, res) => { const c=await prisma.certificate.findUnique({where:{id:String(req.params.certificateId)},include:{student:{include:{user:true,batch:{include:{course:true}}}}}});if(!c||c.status==="DRAFT")throw new AppError(404,"CERTIFICATE_NOT_FOUND","Issued certificate not found");if(!(await mayAccessStudent(req,c.studentId)))throw new AppError(403,"FORBIDDEN","Download access denied");sendPdf(res,`${c.type.replaceAll("_"," ")} CERTIFICATE`,[`Certificate No: ${c.certificateNumber}`,`Student: ${c.student.user.name}`,`Admission: ${c.student.admissionNo}`,`Course: ${c.student.batch.course?.title??"N/A"}`,`Purpose: ${c.purpose}`,`Issued: ${c.issueDate?.toISOString().slice(0,10)??"N/A"}`],`${c.certificateNumber}.pdf`);});
-router.get("/downloads/report-card/:resultId", async (req: AuthRequest, res) => { const r=await prisma.examinationResult.findUnique({where:{id:String(req.params.resultId)},include:{student:{include:{user:true,batch:{include:{course:true}}}},examination:{include:{subject:true}}}});if(!r||r.examination.status!==ExaminationStatus.RESULTS_PUBLISHED)throw new AppError(404,"RESULT_NOT_FOUND","Result not found");if(!(await mayAccessStudent(req,r.studentId)))throw new AppError(403,"FORBIDDEN","Download access denied");sendPdf(res,"STUDENT REPORT CARD",[`Student: ${r.student.user.name}`,`Admission: ${r.student.admissionNo} | Roll: ${r.student.rollNo}`,`Course: ${r.student.batch.course?.title??"N/A"}`,`Examination: ${r.examination.name} | Subject: ${r.examination.subject.name}`,`Marks: ${r.marksObtained??"Absent"}/${r.examination.maximumMarks}`,`Percentage: ${r.percentage??"-"}% | Grade: ${r.grade??"-"} | GPA: ${r.gpa??"-"}`,`Rank: ${r.rank??"-"} | Result: ${r.status}`],"report-card.pdf");});
+router.get("/downloads/certificate/:certificateId", async (req: AuthRequest, res) => { const c=await prisma.certificate.findFirst({where:{id:String(req.params.certificateId),organizationId:req.auth!.organizationId},include:{student:{include:{user:true}},branch:true,course:true,batch:true}});if(!c)throw new AppError(404,"CERTIFICATE_NOT_FOUND","Issued certificate not found");assertPortalCertificateDownloadable(c.status);if(!(await mayAccessStudent(req,c.studentId,{kind:"certificate",branchId:c.branchId,courseId:c.courseId,batchId:c.batchId,effectiveAt:c.issueDate??c.createdAt})))throw new AppError(403,"FORBIDDEN","Download access denied");sendPdf(res,`${c.type.replaceAll("_"," ")} CERTIFICATE`,[`Certificate No: ${c.certificateNumber}`,`Student: ${c.student.user.name}`,`Admission: ${c.student.admissionNo}`,`Course: ${c.course?.title??"N/A"} | Batch: ${c.batch?.name??"N/A"} | Branch: ${c.branch.branchName}`,`Purpose: ${c.purpose}`,`Issued: ${c.issueDate?.toISOString().slice(0,10)??"N/A"}`],`${c.certificateNumber}.pdf`);});
+router.get("/downloads/report-card/:resultId", async (req: AuthRequest, res) => { const r=await prisma.examinationResult.findFirst({where:{id:String(req.params.resultId),organizationId:req.auth!.organizationId},include:{student:{include:{user:true}},examination:{include:{subject:true,course:true,batch:true,session:true}}}});if(!r||r.examination.status!==ExaminationStatus.RESULTS_PUBLISHED)throw new AppError(404,"RESULT_NOT_FOUND","Result not found");if(!(await mayAccessStudent(req,r.studentId,{kind:"examination",branchId:r.examination.branchId,teacherId:r.examination.teacherId})))throw new AppError(403,"FORBIDDEN","Download access denied");const enrollment=await resolveHistoricalAcademicEnrollment(prisma,{organizationId:r.organizationId,studentId:r.studentId,branchId:r.examination.branchId,academicSessionId:r.examination.academicSessionId,courseId:r.examination.courseId,batchId:r.examination.batchId,onDate:historicalCivilDate(r.examination.examDate),mode:"HISTORICAL_READ"});const historicalRoll=enrollment?.rollNo??"N/A";sendPdf(res,"STUDENT REPORT CARD",[`Student: ${r.student.user.name}`,`Admission: ${r.student.admissionNo} | Roll: ${historicalRoll}`,`Course: ${r.examination.course.title} | Batch: ${r.examination.batch.name} | Session: ${r.examination.session.name}`,`Examination: ${r.examination.name} | Subject: ${r.examination.subject.name}`,`Marks: ${r.marksObtained??"Absent"}/${r.examination.maximumMarks}`,`Percentage: ${r.percentage??"-"}% | Grade: ${r.grade??"-"} | GPA: ${r.gpa??"-"}`,`Rank: ${r.rank??"-"} | Result: ${r.status}`],"report-card.pdf");});
 function sendPdf(res:any,title:string,lines:string[],filename:string){const content=[title,...lines].map((x,i)=>`BT /F1 ${i?11:18} Tf 45 ${790-i*35} Td (${x.replace(/[()\\]/g,"\\$&")}) Tj ET`).join("\n"),objects=["<< /Type /Catalog /Pages 2 0 R >>","<< /Type /Pages /Kids [3 0 R] /Count 1 >>","<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",`<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];let pdf="%PDF-1.4\n",offsets=[0];objects.forEach((object,index)=>{offsets.push(Buffer.byteLength(pdf));pdf+=`${index+1} 0 obj\n${object}\nendobj\n`});const at=Buffer.byteLength(pdf);pdf+=`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(x=>String(x).padStart(10,"0")+" 00000 n ").join("\n")}\ntrailer << /Size 6 /Root 1 0 R >>\nstartxref\n${at}\n%%EOF`;res.set({"Content-Type":"application/pdf","Content-Disposition":`attachment; filename="${filename.replace(/["\r\n]/g,"")}"`}).send(Buffer.from(pdf));}
 
 export default router;

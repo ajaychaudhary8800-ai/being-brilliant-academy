@@ -13,6 +13,7 @@ import { allowedAnswerSheetTypes, assertDocumentFileExtension, assertImageFileEx
 import { allocationWhere, effectiveDateForSession } from "./lib/subject-resolution.js";
 import { createTeacherPhotoLocation, parseTeacherPhotoLocation } from "./lib/teacher-photo.js";
 import { createStoredImageLocation, parseStoredImageLocation } from "./lib/stored-image.js";
+import { historicalCivilDate } from "./lib/academic-placement.js";
 import { assertPortalMessageRecipientAuthorized } from "./routes/portals.js";
 
 test("feature router scopes preserve unrelated public APIs", () => {
@@ -250,6 +251,43 @@ test("examination type becomes immutable when historical activity exists", () =>
   assert.throws(() => assertTypeChangeAllowed({ publishedQuestionPapers: 1, answerSheets: 0, results: 0 }), /Core examination fields cannot change/);
   assert.throws(() => assertTypeChangeAllowed({ publishedQuestionPapers: 0, answerSheets: 1, results: 0 }), /Core examination fields cannot change/);
   assert.throws(() => assertTypeChangeAllowed({ publishedQuestionPapers: 0, answerSheets: 0, results: 1 }), /Core examination fields cannot change/);
+});
+
+test("historical examination workflows share civil-date and participation evidence rules", async () => {
+  const raw = new Date("2026-09-03T23:45:00.000Z");
+  assert.equal(historicalCivilDate(raw).toISOString(), "2026-09-03T00:00:00.000Z");
+  const workflow = await readFile(new URL("./routes/examination-workflow.ts", import.meta.url), "utf8");
+  const admin = await readFile(new URL("./routes/admin-examinations.ts", import.meta.url), "utf8");
+  const portals = await readFile(new URL("./routes/portals.ts", import.meta.url), "utf8");
+  assert.match(workflow, /results: \{ where: \{ studentId: student\.id \}/);
+  assert.match(workflow, /onDate: civilDate\(row\.examDate\)/);
+  assert.match(workflow, /row\.answerSheets\.length \|\| row\.results\.length/);
+  assert.match(admin, /existingResult.*existingSheet/);
+  assert.match(admin, /RESULT_GENERATION_ROSTER_UNAVAILABLE/);
+  assert.match(portals, /historicalCivilDate\(item\.examDate\)/);
+  assert.match(portals, /c\.studentId,c\.branchId/);
+  assert.match(portals, /r\.studentId,r\.examination\.branchId/);
+  assert.match(portals, /enrollment\?\.rollNo/);
+});
+
+test("student academic transitions are immutable, tenant-scoped and batch-derived", async () => {
+  const schema = await readFile(new URL("../prisma/schema.prisma", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../prisma/migrations/20260914100000_add_student_academic_transitions/migration.sql", import.meta.url), "utf8");
+  const route = await readFile(new URL("./routes/admin-students.ts", import.meta.url), "utf8");
+  assert.match(schema, /enum StudentAcademicTransitionType[\s\S]*PROMOTED[\s\S]*RETAINED[\s\S]*TRANSFERRED[\s\S]*LEFT[\s\S]*GRADUATED/);
+  assert.match(schema, /fromEnrollmentId String[\s\S]*toEnrollmentId  String\?/);
+  assert.match(migration, /FOREIGN KEY \("organizationId", "studentId", "fromEnrollmentId"\)/);
+  assert.match(migration, /FOREIGN KEY \("organizationId", "studentId", "toEnrollmentId"\)/);
+  assert.match(migration, /StudentAcademicTransition_source_key/);
+  assert.match(migration, /StudentAcademicTransition_destination_type_check/);
+  assert.match(migration, /StudentAcademicTransition_distinct_enrollments_check/);
+  assert.match(migration, /"toEnrollmentId" <> "fromEnrollmentId"/);
+  assert.match(migration, /StudentAcademicTransition_immutable/);
+  assert.match(migration, /StudentAcademicEnrollment_organizationId_studentId_id_key/);
+  assert.match(route, /router\.post\("\/students\/:id\/academic-transitions"/);
+  assert.match(route, /transitionStudentAcademicPlacement/);
+  assert.match(route, /router\.get\("\/students\/:id\/academic-transitions"/);
+  assert.match(route, /fromEnrollment: \{ branchId: \{ in: branchIds \} \}[^]*toEnrollment: \{ branchId: \{ in: branchIds \} \}/);
 });
 
 test("examination routes use conditional writes, publication gates and atomic audit coverage", async () => {

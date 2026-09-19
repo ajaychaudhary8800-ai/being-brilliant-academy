@@ -565,6 +565,8 @@ model Organization {
   updatedAt              DateTime                       @updatedAt
   users                  User[]
   branches               Branch[]
+  communicationCirculars Circular[]
+  communicationCalendarEvents CalendarEvent[]
   tenantAuditLogs        TenantAccessAudit[]
   academicSessions       AcademicSession[]
   teacherAllocations     TeacherAllocation[]
@@ -576,6 +578,11 @@ model Organization {
   specializations        Specialization[]
   examinationQuestionPapers ExaminationQuestionPaper[]
   examinationAnswerSheets ExaminationAnswerSheet[]
+  feePlans               FeePlan[]
+  studentFeeAssignments  StudentFeeAssignment[]
+  feePaymentOffsets       FeePaymentOffset[]
+  studentAcademicEnrollments StudentAcademicEnrollment[]
+  studentAcademicTransitions StudentAcademicTransition[]
 
   @@index([subscriptionStatus, isActive])
 }
@@ -599,8 +606,12 @@ model AcademicSession {
   timetablePeriods TimetablePeriod[]
   teacherDuties TeacherDuty[]
   substitutions TeacherSubstitution[]
+  feePlans FeePlan[]
+  studentFeeAssignments StudentFeeAssignment[]
+  studentAcademicEnrollments StudentAcademicEnrollment[]
 
   @@unique([organizationId, name])
+  @@unique([organizationId, id])
   @@index([organizationId, isCurrent])
   @@index([organizationId, isArchived, startsAt])
 }
@@ -867,6 +878,30 @@ enum StudentStatus {
   ARCHIVED
 }
 
+enum StudentAcademicEnrollmentStatus {
+  ACTIVE
+  CLOSED
+  CANCELLED
+}
+
+enum StudentAcademicEnrollmentSource {
+  ADMISSION
+  IMPORT
+  BACKFILL
+  PROMOTION
+  RETENTION
+  TRANSFER
+  ADMIN_CHANGE
+}
+
+enum StudentAcademicTransitionType {
+  PROMOTED
+  RETAINED
+  TRANSFERRED
+  LEFT
+  GRADUATED
+}
+
 enum TimetableDay {
   MONDAY
   TUESDAY
@@ -1005,6 +1040,13 @@ enum FeeStatus {
   CANCELLED
 }
 
+enum FeePlanStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
 enum PaymentMode {
   CASH
   CARD
@@ -1013,6 +1055,11 @@ enum PaymentMode {
   CHEQUE
   ONLINE
   OTHER
+}
+
+enum FeePaymentOffsetType {
+  REFUND
+  REVERSAL
 }
 
 enum HostelRoomStatus {
@@ -1223,6 +1270,7 @@ model User {
   markedAttendances        Attendance[]               @relation("AttendanceMarker")
   branchAssignments        BranchUser[]
   studentProfile           StudentProfile?
+  assignedStudentFeePlans  StudentFeeAssignment[]       @relation("StudentFeeAssignmentAssigner")
   teacherProfile           TeacherProfile?
   assignedEnquiries        Enquiry[]                  @relation("EnquiryCounsellor")
   enquiryFollowUps         EnquiryFollowUp[]          @relation("FollowUpCreator")
@@ -1243,6 +1291,8 @@ model User {
   notificationPreference   NotificationPreference?
   announcementReads        AnnouncementRead[]
   communicationThreads     MessageThreadMember[]
+  createdMessageThreads    MessageThread[]             @relation("MessageThreadCreator")
+  paymentOffsetsCreated   FeePaymentOffset[]      @relation("FeePaymentOffsetCreator")
   circularAcknowledgements CircularAcknowledgement[]
   circularDownloads        CircularDownload[]
   eventRsvps               CalendarEventRsvp[]
@@ -1271,7 +1321,11 @@ model User {
   teacherAllocationsCreated TeacherAllocation[] @relation("TeacherAllocationCreatedBy")
   teacherAllocationsUpdated TeacherAllocation[] @relation("TeacherAllocationUpdatedBy")
   substitutionsApproved TeacherSubstitution[] @relation("SubstitutionApprover")
+  createdFeePlans       FeePlan[] @relation("FeePlanCreator")
+  academicEnrollmentsCreated StudentAcademicEnrollment[] @relation("StudentAcademicEnrollmentCreator")
+  academicTransitionsCreated StudentAcademicTransition[] @relation("StudentAcademicTransitionCreator")
 
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -1337,6 +1391,9 @@ model Branch {
   hrHolidays            HrHoliday[]
   recruitmentCandidates RecruitmentCandidate[]
   payrollRuns           PayrollRun[]
+  feePlans              FeePlan[]
+  studentFeeAssignments StudentFeeAssignment[]
+  studentAcademicEnrollments StudentAcademicEnrollment[]
   financialYears        FinancialYear[]
   ledgerAccounts        LedgerAccount[]
   journalEntries        JournalEntry[]
@@ -1368,6 +1425,7 @@ model Branch {
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @updatedAt
 
+  @@unique([organizationId, id])
   @@unique([organizationId, branchCode], map: "Branch_organizationId_code_key")
   @@index([organizationId])
 }
@@ -1522,6 +1580,8 @@ model Course {
   lmsLessons           Lesson[]        @relation("LmsLessonCourse")
   teacherAllocations   TeacherAllocation[]
   substitutions        TeacherSubstitution[]
+  feePlans             FeePlan[]
+  studentAcademicEnrollments StudentAcademicEnrollment[]
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
@@ -1534,6 +1594,7 @@ model Course {
   @@index([organizationId, categoryType, status])
   @@index([organizationId, competitiveExamId])
   @@index([organizationId, skillCategoryId])
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -1742,7 +1803,13 @@ model Batch {
   calendarEvents    CalendarEvent[]
   teacherAllocations TeacherAllocation[]
   substitutions TeacherSubstitution[]
+  feePlans          FeePlan[]
+  studentFeeAssignments StudentFeeAssignment[]
+  studentAcademicEnrollments StudentAcademicEnrollment[] @relation("StudentAcademicEnrollmentBatchScope")
 
+  @@unique([organizationId, id])
+  @@unique([organizationId, id, branchId, academicSessionId], map: "Batch_enrollment_scope_key")
+  @@unique([organizationId, id, courseId], map: "Batch_enrollment_course_scope_key")
   @@index([branchId])
   @@index([courseId])
   @@index([teacherId])
@@ -1781,6 +1848,7 @@ model StudentProfile {
   batch                Batch                        @relation(fields: [batchId], references: [id])
   session              AcademicSession              @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
   fees                 Fee[]
+  feeAssignments       StudentFeeAssignment[]
   testAttempts         TestAttempt[]
   convertedEnquiry     Enquiry?
   certificates         Certificate[]
@@ -1794,7 +1862,10 @@ model StudentProfile {
   hostelAllocations    HostelAllocation[]
   hostelAttendances    HostelAttendance[]
   hostelGatePasses     HostelGatePass[]
+  academicEnrollments  StudentAcademicEnrollment[]
+  academicTransitions  StudentAcademicTransition[]
 
+  @@unique([organizationId, id])
   @@unique([batchId, rollNo])
   @@index([branchId, className])
   @@index([batchId])
@@ -1802,6 +1873,63 @@ model StudentProfile {
   @@index([academicSession])
   @@index([organizationId])
   @@index([academicSessionId])
+}
+
+model StudentAcademicEnrollment {
+  organizationId    String
+  id                String                           @id @default(cuid())
+  studentId         String
+  academicSessionId String
+  branchId          String
+  courseId          String?
+  batchId           String
+  rollNo            String
+  status            StudentAcademicEnrollmentStatus @default(ACTIVE)
+  source            StudentAcademicEnrollmentSource
+  effectiveFrom     DateTime                         @db.Date
+  effectiveTo       DateTime?                        @db.Date
+  createdById       String?
+  createdAt         DateTime                         @default(now())
+  updatedAt         DateTime                         @updatedAt
+  organization      Organization                     @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  student           StudentProfile                   @relation(fields: [organizationId, studentId], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict)
+  academicSession   AcademicSession                  @relation(fields: [organizationId, academicSessionId], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict)
+  branch            Branch                           @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict)
+  course            Course?                          @relation(fields: [organizationId, courseId], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict)
+  batch             Batch                            @relation("StudentAcademicEnrollmentBatchScope", fields: [organizationId, batchId, branchId, academicSessionId], references: [organizationId, id, branchId, academicSessionId], onDelete: Restrict, onUpdate: Restrict)
+  createdBy         User?                             @relation("StudentAcademicEnrollmentCreator", fields: [organizationId, createdById], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict)
+  transitionsFrom   StudentAcademicTransition[]       @relation("StudentAcademicTransitionFrom")
+  transitionsTo     StudentAcademicTransition[]       @relation("StudentAcademicTransitionTo")
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, studentId, id])
+  @@index([organizationId, studentId, status])
+  @@index([organizationId, studentId, effectiveFrom, createdAt])
+  @@index([organizationId, academicSessionId, branchId, batchId, status])
+  @@index([organizationId, batchId, status])
+}
+
+model StudentAcademicTransition {
+  organizationId  String
+  id              String                          @id @default(cuid())
+  studentId       String
+  type            StudentAcademicTransitionType
+  fromEnrollmentId String
+  toEnrollmentId  String?
+  effectiveDate   DateTime                        @db.Date
+  reason          String?                         @db.Text
+  createdById     String
+  createdAt       DateTime                        @default(now())
+  organization    Organization                    @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "StudentAcademicTransition_organization_fkey")
+  student         StudentProfile                  @relation(fields: [organizationId, studentId], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict, map: "StudentAcademicTransition_student_fkey")
+  fromEnrollment  StudentAcademicEnrollment       @relation("StudentAcademicTransitionFrom", fields: [organizationId, studentId, fromEnrollmentId], references: [organizationId, studentId, id], onDelete: Restrict, onUpdate: Restrict, map: "StudentAcademicTransition_fromEnrollment_fkey")
+  toEnrollment    StudentAcademicEnrollment?     @relation("StudentAcademicTransitionTo", fields: [organizationId, studentId, toEnrollmentId], references: [organizationId, studentId, id], onDelete: Restrict, onUpdate: Restrict, map: "StudentAcademicTransition_toEnrollment_fkey")
+  createdBy       User                            @relation("StudentAcademicTransitionCreator", fields: [organizationId, createdById], references: [organizationId, id], onDelete: Restrict, onUpdate: Restrict, map: "StudentAcademicTransition_createdBy_fkey")
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, fromEnrollmentId], map: "StudentAcademicTransition_source_key")
+  @@unique([organizationId, toEnrollmentId], map: "StudentAcademicTransition_destination_key")
+  @@index([organizationId, studentId, effectiveDate, createdAt], map: "StudentAcademicTransition_history_idx")
 }
 
 model TeacherProfile {
@@ -2381,6 +2509,8 @@ model Fee {
   branchId        String
   courseId        String?
   batchId         String?
+  studentFeeAssignmentId String?
+  feePlanComponentId     String?
   feeHead         String
   totalPaise      Int
   discountPaise   Int            @default(0)
@@ -2395,6 +2525,8 @@ model Fee {
   branch          Branch         @relation(fields: [branchId], references: [id])
   course          Course?        @relation(fields: [courseId], references: [id])
   batch           Batch?         @relation(fields: [batchId], references: [id])
+  studentFeeAssignment StudentFeeAssignment? @relation(fields: [organizationId, studentFeeAssignmentId], references: [organizationId, id], onDelete: Restrict)
+  feePlanComponent     FeePlanComponent?     @relation(fields: [organizationId, feePlanComponentId], references: [organizationId, id], onDelete: Restrict)
   payments        FeePayment[]
 
   @@unique([studentId, batchId, feeHead, dueDate])
@@ -2419,7 +2551,9 @@ model FeePayment {
   collectedById  String?
   createdAt      DateTime    @default(now())
   fee            Fee         @relation(fields: [feeId], references: [id], onDelete: Restrict)
+  offsets        FeePaymentOffset[]
 
+  @@unique([organizationId, id, feeId], map: "FeePayment_organizationId_id_feeId_key")
   @@index([feeId, paymentDate])
   @@index([paymentDate])
   @@index([organizationId])
@@ -2608,7 +2742,7 @@ model Notification {
   body           String
   readAt         DateTime?
   createdAt      DateTime               @default(now())
-  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User                   @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
   category       String                 @default("GENERAL")
   sourceModule   String?
   sourceEntityId String?
@@ -2623,6 +2757,7 @@ model Notification {
 
   @@index([userId, readAt, createdAt])
   @@index([sourceModule, sourceEntityId])
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -2651,8 +2786,8 @@ model Announcement {
   isArchived     Boolean            @default(false)
   publishedAt    DateTime           @default(now())
   createdAt      DateTime           @default(now())
-  branch         Branch?            @relation(fields: [branchId], references: [id])
-  author         User               @relation(fields: [authorId], references: [id])
+  branch         Branch?            @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: SetNull)
+  author         User               @relation(fields: [organizationId, authorId], references: [organizationId, id])
   batchId        String?
   className      String?
   priority       String             @default("NORMAL")
@@ -2666,10 +2801,11 @@ model Announcement {
   category       String?
   isPinned       Boolean            @default(false)
   requiresAcknowledgement Boolean   @default(false)
-  batch          Batch?             @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  batch          Batch?             @relation(fields: [organizationId, batchId], references: [organizationId, id], onDelete: Restrict)
   reads          AnnouncementRead[]
 
   @@index([branchId, audience, publishedAt])
+  @@unique([organizationId, id])
   @@index([organizationId])
   @@index([kind, isArchived, publishedAt])
 }
@@ -2685,14 +2821,14 @@ model PortalMessage {
   senderArchived    Boolean        @default(false)
   recipientArchived Boolean        @default(false)
   createdAt         DateTime       @default(now())
-  sender            User           @relation("MessageSender", fields: [senderId], references: [id])
-  recipient         User           @relation("MessageRecipient", fields: [recipientId], references: [id])
+  sender            User           @relation("MessageSender", fields: [organizationId, senderId], references: [organizationId, id])
+  recipient         User           @relation("MessageRecipient", fields: [organizationId, recipientId], references: [organizationId, id])
   threadId          String?
   attachmentName    String?
   attachmentMime    String?
   attachmentData    Bytes?
   deletedAt         DateTime?
-  thread            MessageThread? @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  thread            MessageThread? @relation(fields: [organizationId, threadId], references: [organizationId, id], onDelete: Restrict)
 
   @@index([senderId, createdAt])
   @@index([recipientId, createdAt])
@@ -2711,9 +2847,10 @@ model NotificationPreference {
   quietStart     String?
   quietEnd       String?
   categories     Json?
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
   updatedAt      DateTime @updatedAt
 
+  @@unique([organizationId, userId])
   @@index([organizationId])
 }
 
@@ -2729,7 +2866,7 @@ model NotificationDelivery {
   lastError         String?
   deliveredAt       DateTime?
   createdAt         DateTime     @default(now())
-  notification      Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  notification      Notification @relation(fields: [organizationId, notificationId], references: [organizationId, id], onDelete: Cascade)
 
   @@unique([notificationId, channel])
   @@index([status, createdAt])
@@ -2741,8 +2878,8 @@ model AnnouncementRead {
   announcementId String
   userId         String
   readAt         DateTime     @default(now())
-  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  announcement   Announcement @relation(fields: [organizationId, announcementId], references: [organizationId, id], onDelete: Cascade)
+  user           User         @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
 
   @@id([announcementId, userId])
   @@index([organizationId])
@@ -2754,12 +2891,14 @@ model MessageThread {
   name           String?
   isGroup        Boolean               @default(false)
   createdById    String
+  creator        User                  @relation("MessageThreadCreator", fields: [organizationId, createdById], references: [organizationId, id], onDelete: Restrict)
   isArchived     Boolean               @default(false)
   deletedAt      DateTime?
   createdAt      DateTime              @default(now())
   members        MessageThreadMember[]
   messages       PortalMessage[]
 
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -2770,8 +2909,8 @@ model MessageThreadMember {
   role           String        @default("MEMBER")
   archivedAt     DateTime?
   lastReadAt     DateTime?
-  thread         MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread         MessageThread @relation(fields: [organizationId, threadId], references: [organizationId, id], onDelete: Cascade)
+  user           User          @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
 
   @@id([threadId, userId])
   @@index([organizationId])
@@ -2779,9 +2918,10 @@ model MessageThreadMember {
 
 model Circular {
   organizationId          String                    @default("org_default")
+  organization            Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   id                      String                    @id @default(cuid())
   branchId                String?
-  number                  String                    @unique
+  number                  String
   title                   String
   audience                Role?
   currentVersion          Int                       @default(1)
@@ -2790,12 +2930,14 @@ model Circular {
   expiresAt               DateTime?
   isArchived              Boolean                   @default(false)
   deletedAt               DateTime?
-  branch                  Branch?                   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  branch                  Branch?                   @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict)
   versions                CircularVersion[]
   acknowledgements        CircularAcknowledgement[]
   downloads               CircularDownload[]
   createdAt               DateTime                  @default(now())
 
+  @@unique([organizationId, id])
+  @@unique([organizationId, number])
   @@index([organizationId])
 }
 
@@ -2810,7 +2952,7 @@ model CircularVersion {
   attachmentMime String?
   attachmentData Bytes?
   createdAt      DateTime @default(now())
-  circular       Circular @relation(fields: [circularId], references: [id], onDelete: Cascade)
+  circular       Circular @relation(fields: [organizationId, circularId], references: [organizationId, id], onDelete: Cascade)
 
   @@unique([circularId, version])
   @@index([organizationId])
@@ -2821,8 +2963,8 @@ model CircularAcknowledgement {
   circularId     String
   userId         String
   acknowledgedAt DateTime @default(now())
-  circular       Circular @relation(fields: [circularId], references: [id], onDelete: Cascade)
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  circular       Circular @relation(fields: [organizationId, circularId], references: [organizationId, id], onDelete: Cascade)
+  user           User     @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
 
   @@id([circularId, userId])
   @@index([organizationId])
@@ -2835,8 +2977,8 @@ model CircularDownload {
   userId         String
   downloadedAt   DateTime @default(now())
   ipAddress      String?
-  circular       Circular @relation(fields: [circularId], references: [id], onDelete: Cascade)
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  circular       Circular @relation(fields: [organizationId, circularId], references: [organizationId, id], onDelete: Cascade)
+  user           User     @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
 
   @@index([circularId, downloadedAt])
   @@index([organizationId])
@@ -2844,6 +2986,7 @@ model CircularDownload {
 
 model CalendarEvent {
   organizationId String              @default("org_default")
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   id             String              @id @default(cuid())
   branchId       String?
   title          String
@@ -2858,13 +3001,14 @@ model CalendarEvent {
   status         String              @default("SCHEDULED")
   isArchived     Boolean             @default(false)
   deletedAt      DateTime?
-  branch         Branch?             @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  batch          Batch?              @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  branch         Branch?             @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict)
+  batch          Batch?              @relation(fields: [organizationId, batchId], references: [organizationId, id], onDelete: Restrict)
   rsvps          CalendarEventRsvp[]
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
   @@index([startsAt, type])
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -2874,8 +3018,8 @@ model CalendarEventRsvp {
   userId         String
   response       String
   respondedAt    DateTime      @default(now())
-  event          CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event          CalendarEvent @relation(fields: [organizationId, eventId], references: [organizationId, id], onDelete: Cascade)
+  user           User          @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
 
   @@id([eventId, userId])
   @@index([organizationId])
@@ -4160,6 +4304,128 @@ model FinanceBankTransaction {
 
   @@unique([bankAccountId, reference])
   @@index([organizationId])
+}
+
+model FeePlan {
+  organizationId    String
+  id                String               @id @default(cuid())
+  familyKey         String
+  code              String
+  name              String
+  version           Int                  @default(1)
+  status            FeePlanStatus        @default(DRAFT)
+  academicSessionId String
+  branchId          String?
+  courseId          String?
+  batchId           String?
+  supersedesId      String?
+  createdById       String
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  academicSession   AcademicSession      @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  branch            Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  course            Course?              @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  batch             Batch?               @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  supersedes        FeePlan?             @relation("FeePlanVersions", fields: [organizationId, supersedesId], references: [organizationId, id], onDelete: Restrict)
+  versions          FeePlan[]            @relation("FeePlanVersions")
+  createdBy         User                 @relation("FeePlanCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  installments      FeePlanInstallment[]
+  studentFeeAssignments StudentFeeAssignment[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, id, familyKey, academicSessionId], map: "FeePlan_assignment_snapshot_key")
+  @@unique([organizationId, familyKey, version])
+  @@unique([organizationId, code, version])
+  @@index([organizationId, academicSessionId, status])
+  @@index([organizationId, branchId, status])
+  @@index([organizationId, courseId, status])
+  @@index([organizationId, batchId, status])
+}
+
+model FeePaymentOffset {
+  organizationId String
+  id             String                @id @default(cuid())
+  feePaymentId   String
+  feeId          String
+  type           FeePaymentOffsetType
+  amountPaise    Int
+  reason         String                @db.Text
+  idempotencyKey String
+  reference      String?
+  createdById    String
+  createdAt      DateTime              @default(now())
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  feePayment     FeePayment            @relation(fields: [organizationId, feePaymentId, feeId], references: [organizationId, id, feeId], onDelete: Restrict)
+  createdBy      User                  @relation("FeePaymentOffsetCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey], map: "FeePaymentOffset_organizationId_idempotencyKey_key")
+  @@index([organizationId, feePaymentId, createdAt])
+  @@index([organizationId, feeId, createdAt])
+  @@index([organizationId, type, createdAt])
+}
+
+model FeePlanInstallment {
+  organizationId String
+  id             String             @id @default(cuid())
+  planId         String
+  sequence       Int
+  title          String
+  dueDate        DateTime           @db.Date
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  plan           FeePlan            @relation(fields: [organizationId, planId], references: [organizationId, id], onDelete: Restrict)
+  components     FeePlanComponent[]
+
+  @@unique([organizationId, id])
+  @@unique([planId, sequence])
+  @@index([organizationId, planId])
+}
+
+model FeePlanComponent {
+  organizationId    String
+  id                String             @id @default(cuid())
+  installmentId     String
+  feeHead           String
+  normalizedFeeHead String
+  amountPaise       Int
+  position          Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  installment       FeePlanInstallment @relation(fields: [organizationId, installmentId], references: [organizationId, id], onDelete: Restrict)
+  generatedFees     Fee[]
+
+  @@unique([organizationId, id])
+  @@unique([installmentId, normalizedFeeHead])
+  @@index([organizationId, installmentId])
+}
+
+model StudentFeeAssignment {
+  organizationId      String
+  id                  String          @id @default(cuid())
+  studentId           String
+  feePlanId           String
+  academicSessionId   String
+  branchId            String
+  batchId             String
+  feePlanFamilyKey    String
+  assignedById        String
+  assignedAt          DateTime        @default(now())
+  organization        Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  student             StudentProfile  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  feePlan             FeePlan         @relation(fields: [organizationId, feePlanId, feePlanFamilyKey, academicSessionId], references: [organizationId, id, familyKey, academicSessionId], onDelete: Restrict, map: "StudentFeeAssignment_feePlan_snapshot_fkey")
+  academicSession     AcademicSession @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  branch              Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  batch               Batch           @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  assignedBy          User            @relation("StudentFeeAssignmentAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
+  fees                Fee[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, studentId, academicSessionId, feePlanFamilyKey], map: "StudentFeeAssignment_student_session_family_key")
+  @@unique([organizationId, studentId, feePlanId], map: "StudentFeeAssignment_student_plan_key")
+  @@index([organizationId, branchId, assignedAt], map: "StudentFeeAssignment_branch_assignedAt_idx")
+  @@index([organizationId, academicSessionId, studentId], map: "StudentFeeAssignment_session_student_idx")
+  @@index([organizationId, feePlanId], map: "StudentFeeAssignment_feePlan_idx")
 }
 
 model FeeAdjustment {

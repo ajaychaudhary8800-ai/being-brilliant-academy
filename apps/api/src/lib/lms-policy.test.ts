@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { Role } from "@prisma/client";
-import { assertLmsContentAccess, assertLmsManagementAccess, assertLmsModuleManagementAccess, lmsLessonBranchFilter, lmsModuleCourseWhere, type LmsActor } from "./lms-policy.js";
+import { LmsContentStatus, Role } from "@prisma/client";
+import { assertLmsContentAccess, assertLmsLessonEditable, assertLmsLessonStructuralEditAllowed, assertLmsLessonTransition, assertLmsManagementAccess, assertLmsModuleManagementAccess, lmsLessonBranchFilter, lmsLessonCreateStatus, lmsModuleCourseWhere, nextLmsProgress, type LmsActor } from "./lms-policy.js";
 
 const target = { branchId: "branch-a", teacherId: "teacher-a", batchId: "batch-a", status: "PUBLISHED" };
 const actor = (role: Role, overrides: Partial<LmsActor> = {}): LmsActor => ({ role, branchIds: [], ...overrides });
@@ -78,4 +78,52 @@ test("production server mounts only the LMS path before broad admin guards", () 
   assert.ok(server.indexOf(scopedLms) < server.indexOf(broadAcademicSessions));
   assert.doesNotMatch(server, /app\.use\("\/api\/v1\/admin", adminLms\)/);
   assert.match(server, /adminAcademicSessions/);
+});
+
+
+test("LMS lessons follow a one-way draft-publish-archive lifecycle", () => {
+  assert.equal(lmsLessonCreateStatus(), LmsContentStatus.DRAFT);
+  assert.equal(lmsLessonCreateStatus(LmsContentStatus.DRAFT), LmsContentStatus.DRAFT);
+  for (const status of [LmsContentStatus.PUBLISHED, LmsContentStatus.ARCHIVED]) {
+    assert.throws(() => lmsLessonCreateStatus(status), /created as draft/);
+  }
+  assert.doesNotThrow(() => assertLmsLessonTransition(LmsContentStatus.DRAFT, LmsContentStatus.PUBLISHED));
+  assert.doesNotThrow(() => assertLmsLessonTransition(LmsContentStatus.DRAFT, LmsContentStatus.ARCHIVED));
+  assert.doesNotThrow(() => assertLmsLessonTransition(LmsContentStatus.PUBLISHED, LmsContentStatus.ARCHIVED));
+  for (const [from, to] of [
+    [LmsContentStatus.PUBLISHED, LmsContentStatus.DRAFT],
+    [LmsContentStatus.ARCHIVED, LmsContentStatus.DRAFT],
+    [LmsContentStatus.ARCHIVED, LmsContentStatus.PUBLISHED],
+    [LmsContentStatus.DRAFT, LmsContentStatus.DRAFT],
+    [LmsContentStatus.PUBLISHED, LmsContentStatus.PUBLISHED],
+  ] as const) assert.throws(() => assertLmsLessonTransition(from, to), /cannot change/);
+  assert.doesNotThrow(() => assertLmsLessonEditable(LmsContentStatus.DRAFT));
+  assert.doesNotThrow(() => assertLmsLessonEditable(LmsContentStatus.PUBLISHED));
+  assert.throws(() => assertLmsLessonEditable(LmsContentStatus.ARCHIVED), /cannot be edited/);
+});
+
+test("lesson academic context and duration lock after progress exists", () => {
+  assert.doesNotThrow(() => assertLmsLessonStructuralEditAllowed(false, true));
+  assert.doesNotThrow(() => assertLmsLessonStructuralEditAllowed(true, false));
+  assert.throws(() => assertLmsLessonStructuralEditAllowed(true, true), /cannot change after student progress/);
+});
+
+test("student LMS progress is monotonic and server-derived", () => {
+  const first = nextLmsProgress(null, { lastPositionSeconds: 120, timeSpentSeconds: 9999 }, 600, new Date("2026-09-20T00:00:00.000Z"));
+  assert.deepEqual(first, {
+    watchedSeconds: 120,
+    watchPercentage: 20,
+    lastPositionSeconds: 120,
+    completed: false,
+    completedAt: null,
+    creditedTimeSeconds: 120,
+  });
+  const completedAt = new Date("2026-09-20T01:00:00.000Z");
+  const existing = { watchedSeconds: 570, lastPositionSeconds: 570, completed: true, completedAt };
+  const rewind = nextLmsProgress(existing, { lastPositionSeconds: 100, timeSpentSeconds: 1000 }, 600, new Date("2026-09-20T02:00:00.000Z"));
+  assert.equal(rewind.watchedSeconds, 570);
+  assert.equal(rewind.lastPositionSeconds, 570);
+  assert.equal(rewind.completed, true);
+  assert.equal(rewind.completedAt, completedAt);
+  assert.equal(rewind.creditedTimeSeconds, 0);
 });

@@ -11,8 +11,8 @@ import { planTeacherSubjectSync, type TeacherSubjectSyncPlan } from "../lib/teac
 import { parseTeacherPhotoLocation } from "../lib/teacher-photo.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { assertCanChangeUserRole, managedUserBranchIds } from "../lib/user-administration-policy.js";
-import { branchCodeConflict, isBranchCodeConflict } from "../lib/branch-uniqueness.js";
 import { issueAccountSetup } from "../lib/account-setup.js";
+import { branchCodeConflict, isBranchCodeConflict } from "../lib/branch-uniqueness.js";
 
 const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
@@ -22,9 +22,11 @@ const studentSelect = {
   admissionNo: true,
   fatherName: true,
   className: true,
+  academicSession: true,
+  academicSessionId: true,
   user: { select: { id: true, name: true, email: true, phone: true, avatarUrl: true, isActive: true } },
   branch: { select: { id: true, branchName: true } },
-  batch: { select: { id: true, name: true } },
+  batch: { select: { id: true, name: true, code: true, academicSession: true, academicSessionId: true, branch: { select: { id: true, branchName: true } }, course: { select: { id: true, title: true } } } },
 } as const;
 
 const studentInput = z.object({
@@ -54,7 +56,7 @@ const studentQuery = z.object({
 
 async function branchScope(req: AuthRequest) {
   if (req.auth!.role !== Role.BRANCH_ADMIN) return null;
-  const assignments = await prisma.branchUser.findMany({ where: { userId: req.auth!.userId }, select: { branchId: true } });
+  const assignments = await prisma.branchUser.findMany({ where: { organizationId: req.auth!.organizationId, userId: req.auth!.userId }, select: { branchId: true } });
   return assignments.map((item) => item.branchId);
 }
 
@@ -65,12 +67,19 @@ async function requireBranchAccess(req: AuthRequest, branchId: string) {
 
 async function requireValidTeacherBranch(req: AuthRequest, branchId: string) {
   await requireBranchAccess(req, branchId);
-  const branch = await prisma.branch.findFirst({ where: { id: branchId, isActive: true }, select: { id: true } });
+  const branch = await prisma.branch.findFirst({ where: { organizationId: req.auth!.organizationId, id: branchId, isActive: true }, select: { id: true } });
   if (!branch) throw new AppError(422, "INVALID_TEACHER_BRANCH", "Select an active branch in this organization");
 }
 
-function branchWithLegacyLabels<T extends { id: string; branchName: string; branchCode?: string }>(branch: T) {
-  return { ...branch, name: branch.branchName, ...(branch.branchCode ? { code: branch.branchCode } : {}) };
+function branchWithLegacyLabels<T extends { id: string; branchName: string; branchCode?: string; users?: Array<{ user: { id: string; email: string } }> }>(branch: T) {
+  const { users, ...rest } = branch;
+  return {
+    ...rest,
+    name: branch.branchName,
+    ...(branch.branchCode ? { code: branch.branchCode } : {}),
+    managerEmail: users?.[0]?.user.email ?? null,
+    managerUserId: users?.[0]?.user.id ?? null,
+  };
 }
 function studentWithLegacyBranch<T extends { branch: { id: string; branchName: string } }>(student: T) {
   return { ...student, branch: branchWithLegacyLabels(student.branch) };
@@ -157,95 +166,88 @@ router.patch("/users/:id/role", async (req: AuthRequest, res) => {
   res.json({ data });
 });
 
-const branchSelect = { id: true, branchCode: true, branchName: true, address: true, city: true, state: true, pincode: true, phone: true, email: true, managerName: true, openingDate: true, isActive: true, createdAt: true, updatedAt: true, users: { where: { user: { role: Role.BRANCH_ADMIN } }, select: { user: { select: { id: true, email: true, isActive: true } } }, orderBy: { userId: "asc" as const } }, _count: { select: { students: true, teachers: true, batches: true } } } as const;
-const managerEmail = z.preprocess(value => value === "" || value === null ? undefined : value, z.string().trim().toLowerCase().email().optional());
-const branchInput = z.object({ branchCode: z.string().trim().min(2).max(30).regex(/^[A-Z0-9-]+$/i, "Use letters, numbers and hyphens only"), branchName: z.string().trim().min(2).max(120), address: z.string().trim().min(5).max(500), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().trim().regex(/^\d{6}$/, "Enter a valid 6-digit pincode"), phone: z.string().trim().regex(/^\+?[0-9 -]{7,20}$/, "Enter a valid phone number"), email: z.string().trim().toLowerCase().email(), managerName: z.string().trim().min(2).max(100), managerEmail, openingDate: z.coerce.date(), isActive: z.boolean().optional() });
+const branchSelect = { id: true, branchCode: true, branchName: true, address: true, city: true, state: true, pincode: true, phone: true, email: true, managerName: true, openingDate: true, isActive: true, createdAt: true, updatedAt: true, users: { where: { user: { role: Role.BRANCH_ADMIN, isActive: true } }, select: { user: { select: { id: true, email: true } } }, take: 1 }, _count: { select: { students: true, teachers: true, batches: true } } } as const;
+const branchInput = z.object({ branchCode: z.string().trim().min(2).max(30).regex(/^[A-Z0-9-]+$/i, "Use letters, numbers and hyphens only"), branchName: z.string().trim().min(2).max(120), address: z.string().trim().min(5).max(500), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().trim().regex(/^\d{6}$/, "Enter a valid 6-digit pincode"), phone: z.string().trim().regex(/^\+?[0-9 -]{7,20}$/, "Enter a valid phone number"), email: z.string().trim().toLowerCase().email(), managerName: z.string().trim().min(2).max(100), openingDate: z.coerce.date(), isActive: z.boolean().optional() });
+const branchCreateInput = branchInput.extend({ managerEmail: z.string().trim().toLowerCase().email() });
 const branchQuery = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(10), search: z.string().trim().optional(), status: z.enum(["active", "inactive"]).optional(), sortBy: z.enum(["branchCode", "branchName", "city", "createdAt", "openingDate"]).default("createdAt"), sortOrder: z.enum(["asc", "desc"]).default("desc") });
-
-function branchResponse(branch: any) {
-  const { users, ...data } = branch;
-  return { ...branchWithLegacyLabels(data), managerEmail: users?.[0]?.user?.email ?? null };
-}
-
-async function managerAccount(tx: Prisma.TransactionClient, organizationId: string, name: string, email: string, passwordHash: string) {
-  const existing = await tx.user.findFirst({ where: { organizationId, email }, select: { id: true, organizationId: true, name: true, email: true, role: true, isActive: true } });
-  if (existing) {
-    if (existing.role !== Role.BRANCH_ADMIN) throw new AppError(409, "MANAGER_EMAIL_IN_USE", "This email belongs to a non-manager account");
-    if (!existing.isActive) throw new AppError(409, "MANAGER_INACTIVE", "Activate the existing Branch Admin account before assigning it");
-    if (existing.name !== name) await tx.user.update({ where: { id: existing.id }, data: { name } });
-    return { ...existing, name, created: false };
-  }
-  const created = await tx.user.create({ data: { organizationId, name, email, role: Role.BRANCH_ADMIN, passwordHash }, select: { id: true, organizationId: true, name: true, email: true, role: true, isActive: true } });
-  return { ...created, created: true };
-}
 
 router.get("/branches", async (req: AuthRequest, res) => {
   const query = branchQuery.parse(req.query); const allowed = await branchScope(req);
   const where = { ...(allowed ? { id: { in: allowed } } : {}), ...(query.status ? { isActive: query.status === "active" } : {}), ...(query.search ? { OR: [{ branchName: { contains: query.search, mode: "insensitive" as const } }, { branchCode: { contains: query.search, mode: "insensitive" as const } }, { city: { contains: query.search, mode: "insensitive" as const } }] } : {}) };
   const [total, data] = await prisma.$transaction([prisma.branch.count({ where }), prisma.branch.findMany({ where, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { [query.sortBy]: query.sortOrder }, select: branchSelect })]);
-  res.json({ data: data.map(branchResponse), meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
+  res.json({ data: data.map(branchWithLegacyLabels), meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
 });
-router.get("/branches/:id", async (req: AuthRequest, res) => { const data = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: branchSelect }); if (!data) throw new AppError(404, "BRANCH_NOT_FOUND", "Branch not found"); await requireBranchAccess(req, data.id); res.json({ data: branchResponse(data) }); });
+router.get("/branches/:id", async (req: AuthRequest, res) => { const data = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: branchSelect }); if (!data) throw new AppError(404, "BRANCH_NOT_FOUND", "Branch not found"); await requireBranchAccess(req, data.id); res.json({ data: branchWithLegacyLabels(data) }); });
 router.post("/branches", async (req: AuthRequest, res) => {
-  const input = branchInput.parse(req.body);
-  if (req.auth!.role !== Role.SUPER_ADMIN) throw new AppError(403, "SUPER_ADMIN_REQUIRED", "Only a Super Admin can create a branch and its manager account");
-  const { managerEmail: loginEmail, ...branchData } = input;
-  const passwordHash = loginEmail ? await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12) : "";
+  if (req.auth!.role !== Role.SUPER_ADMIN) throw new AppError(403, "SUPER_ADMIN_REQUIRED", "Only a Super Admin can create a branch");
+  const input = branchCreateInput.parse(req.body), { managerEmail, ...branchData } = input;
+  const existingManager = await prisma.user.findFirst({ where: { email: managerEmail }, select: { id: true, organizationId: true, name: true, email: true, role: true, isActive: true } });
+  if (existingManager && (existingManager.organizationId !== req.auth!.organizationId || existingManager.role !== Role.BRANCH_ADMIN)) {
+    throw new AppError(409, "MANAGER_EMAIL_EXISTS", "Manager email already belongs to another account");
+  }
+  const passwordHash = existingManager ? null : await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12);
   try {
-    const result = await prisma.$transaction(async tx => {
-      const manager = loginEmail ? await managerAccount(tx, req.auth!.organizationId, input.managerName, loginEmail, passwordHash) : null;
-      const branch = await tx.branch.create({ data: { ...branchData, isActive: input.isActive ?? true }, select: branchSelect });
-      if (manager) await tx.branchUser.create({ data: { organizationId: req.auth!.organizationId, branchId: branch.id, userId: manager.id } });
-      if (manager?.created) await tx.auditLog.create({ data: { actorId: req.auth!.userId, action: "USER_CREATED", entity: "User", entityId: manager.id, metadata: { role: Role.BRANCH_ADMIN, branchId: branch.id } } });
-      return { branch, manager };
-    });
-    let setup: unknown = null;
-    if (result.manager?.created) {
-      try { setup = await issueAccountSetup(result.manager); } catch { setup = { skipped: true, reason: "EMAIL_DELIVERY_FAILED" }; }
+    const provisioned = await prisma.$transaction(async tx => {
+      const created = await tx.branch.create({
+        data: { ...branchData, organizationId: req.auth!.organizationId, isActive: branchData.isActive ?? true },
+        select: { id: true },
+      });
+      const manager = existingManager ?? await tx.user.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          name: branchData.managerName,
+          email: managerEmail,
+          passwordHash: passwordHash!,
+          role: Role.BRANCH_ADMIN,
+          isActive: true,
+        },
+        select: { id: true, organizationId: true, name: true, email: true, role: true, isActive: true },
+      });
+      await tx.branchUser.upsert({
+        where: { branchId_userId: { branchId: created.id, userId: manager.id } },
+        create: { organizationId: req.auth!.organizationId, branchId: created.id, userId: manager.id },
+        update: { organizationId: req.auth!.organizationId },
+      });
+      if (!existingManager) await tx.auditLog.create({
+        data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "USER_CREATED", entity: "User", entityId: manager.id, metadata: { role: Role.BRANCH_ADMIN, branchId: created.id } },
+      });
+      await tx.auditLog.create({
+        data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "BRANCH_CREATED", entity: "Branch", entityId: created.id, metadata: { managerUserId: manager.id, managerEmail } },
+      });
+      return { branchId: created.id, manager };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    let setup: unknown = existingManager ? { skipped: true, reason: "EXISTING_MANAGER_ACCOUNT" } : null;
+    if (!existingManager) {
+      try {
+        setup = await issueAccountSetup(provisioned.manager);
+        await prisma.auditLog.create({
+          data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: provisioned.manager.id, metadata: { role: Role.BRANCH_ADMIN, branchId: provisioned.branchId, delivery: (setup as any)?.skipped ? "SKIPPED" : "SENT" } },
+        });
+      } catch { setup = { skipped: true, reason: "EMAIL_DELIVERY_FAILED" }; }
     }
-    const data = await prisma.branch.findUniqueOrThrow({ where: { id: result.branch.id }, select: branchSelect });
-    res.status(201).json({ data: { ...branchResponse(data), setup } });
+    const data = await prisma.branch.findFirst({ where: { organizationId: req.auth!.organizationId, id: provisioned.branchId }, select: branchSelect });
+    if (!data) throw new AppError(500, "BRANCH_PROVISIONING_FAILED", "Branch was created but could not be reloaded");
+    res.status(201).json({ data: { ...branchWithLegacyLabels(data), setup } });
   } catch (error) {
     if (isBranchCodeConflict(error)) throw branchCodeConflict();
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new AppError(409, "BRANCH_OR_MANAGER_EXISTS", "Manager account already exists");
     throw error;
   }
 });
 router.put("/branches/:id", async (req: AuthRequest, res) => {
   const input = branchInput.partial().parse(req.body);
-  const existing = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: { id: true, managerName: true, users: { where: { user: { role: Role.BRANCH_ADMIN } }, select: { userId: true, user: { select: { email: true } } } } } });
+  const existing = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: { id: true } });
   if (!existing) throw new AppError(404, "BRANCH_NOT_FOUND", "Branch not found");
   await requireBranchAccess(req, existing.id);
-  const { managerEmail: loginEmail, ...branchData } = input;
-  const currentManagerEmail = existing.users[0]?.user.email;
-  const managerChange = Boolean(loginEmail && loginEmail !== currentManagerEmail);
-  if (managerChange && req.auth!.role !== Role.SUPER_ADMIN) throw new AppError(403, "SUPER_ADMIN_REQUIRED", "Only a Super Admin can change a branch manager account");
-  const passwordHash = managerChange ? await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12) : "";
   try {
-    const result = await prisma.$transaction(async tx => {
-      let manager: Awaited<ReturnType<typeof managerAccount>> | null = null;
-      if (managerChange) {
-        manager = await managerAccount(tx, req.auth!.organizationId, input.managerName ?? existing.managerName ?? "Branch Manager", loginEmail!, passwordHash);
-        await tx.branchUser.deleteMany({ where: { branchId: existing.id, user: { role: Role.BRANCH_ADMIN } } });
-        await tx.branchUser.create({ data: { organizationId: req.auth!.organizationId, branchId: existing.id, userId: manager.id } });
-        if (manager.created) await tx.auditLog.create({ data: { actorId: req.auth!.userId, action: "USER_CREATED", entity: "User", entityId: manager.id, metadata: { role: Role.BRANCH_ADMIN, branchId: existing.id } } });
-      } else if (input.managerName && existing.users[0]?.userId) {
-        await tx.user.update({ where: { id: existing.users[0].userId }, data: { name: input.managerName } });
-      }
-      const branch = await tx.branch.update({ where: { id: existing.id }, data: branchData, select: branchSelect });
-      return { branch, manager };
-    });
-    let setup: unknown = null;
-    if (result.manager?.created) {
-      try { setup = await issueAccountSetup(result.manager); } catch { setup = { skipped: true, reason: "EMAIL_DELIVERY_FAILED" }; }
-    }
-    const data = await prisma.branch.findUniqueOrThrow({ where: { id: existing.id }, select: branchSelect });
-    res.json({ data: { ...branchResponse(data), setup } });
+    const data = await prisma.branch.update({ where: { id: existing.id }, data: input, select: branchSelect });
+    res.json({ data: branchWithLegacyLabels(data) });
   } catch (error) {
     if (isBranchCodeConflict(error)) throw branchCodeConflict();
     throw error;
   }
 });
-router.patch("/branches/:id/status", async (req: AuthRequest, res) => { const { isActive } = z.object({ isActive: z.boolean() }).parse(req.body); const existing = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: { id: true } }); if (!existing) throw new AppError(404, "BRANCH_NOT_FOUND", "Branch not found"); await requireBranchAccess(req, existing.id); const data = await prisma.branch.update({ where: { id: existing.id }, data: { isActive }, select: branchSelect }); res.json({ data: branchResponse(data) }); });
+router.patch("/branches/:id/status", async (req: AuthRequest, res) => { const { isActive } = z.object({ isActive: z.boolean() }).parse(req.body); const existing = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: { id: true } }); if (!existing) throw new AppError(404, "BRANCH_NOT_FOUND", "Branch not found"); await requireBranchAccess(req, existing.id); const data = await prisma.branch.update({ where: { id: existing.id }, data: { isActive }, select: branchSelect }); res.json({ data: branchWithLegacyLabels(data) }); });
 router.delete("/branches/:id", async (req: AuthRequest, res) => { const existing = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: { id: true, _count: { select: { students: true, teachers: true, batches: true, teacherAllocations: true } } } }); if (!existing) throw new AppError(404, "BRANCH_NOT_FOUND", "Branch not found"); await requireBranchAccess(req, existing.id); if (existing._count.students || existing._count.teachers || existing._count.batches || existing._count.teacherAllocations) throw new AppError(409, "BRANCH_IN_USE", "Move students, teachers, batches and teacher allocations before deleting this branch"); await prisma.branch.delete({ where: { id: existing.id } }); res.status(204).send(); });
 
 router.get("/students", async (req: AuthRequest, res) => {
