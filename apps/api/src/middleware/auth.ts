@@ -29,7 +29,7 @@ export async function requireAuth(req: AuthRequest, _res: Response, next: NextFu
       void log(false, "USER_INACTIVE");
       throw new AppError(401, "INVALID_TOKEN", "Your session has expired");
     }
-    if (user.role !== claim.role) {
+    if (user.role && user.role !== claim.role) {
       void log(false, "ROLE_CHANGED");
       throw new AppError(401, "STALE_ROLE_TOKEN", "Your access has changed. Sign in again.");
     }
