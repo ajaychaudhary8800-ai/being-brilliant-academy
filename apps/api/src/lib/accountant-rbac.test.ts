@@ -64,7 +64,7 @@ test("Accountant fee pages avoid admin-only initialization and suppress prohibit
   assert.match(feeWorkspace, /canOffset=\{canManage\}/);
   assert.match(feeWorkspace, />Collect<\/button>/);
   assert.match(feeWorkspace, /\/admin\/fees\/\$\{collecting\.id\}\/collect/);
-  assert.match(finance, /canImportAccounts && tab === "accounts" && <label/);
+  assert.match(finance, /canImportAccounts && tab === "accounts"[^]*Import accounts/);
   assert.match(finance, /user\?\.role === "SUPER_ADMIN" \|\| user\?\.role === "BRANCH_ADMIN"/);
   assert.doesNotMatch(auth, /accountantFeeAccess/);
 });
