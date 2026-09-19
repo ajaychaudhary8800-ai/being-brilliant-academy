@@ -245,22 +245,26 @@ router.get("/downloads/homework/:homeworkId", async (req: AuthRequest, res) => {
       select: { id: true, organizationId: true, branchId: true, batchId: true, status: true },
     })
     : null;
-  const linked = req.auth!.role === Role.PARENT
-    ? await prisma.parentStudent.findFirst({
+  const linkedStudents = req.auth!.role === Role.PARENT
+    ? (await prisma.parentStudent.findMany({
       where: {
         parentId: id(req),
         organizationId: req.auth!.organizationId,
-        student: { organizationId: req.auth!.organizationId, status: StudentStatus.ACTIVE },
+        student: { organizationId: req.auth!.organizationId, status: StudentStatus.ACTIVE, user: { isActive: true } },
       },
       select: { student: { select: { id: true, organizationId: true, branchId: true, batchId: true, status: true } } },
-    })
-    : null;
+    })).map(link => link.student)
+    : [];
   const teacher = req.auth!.role === Role.TEACHER ? await teacherForUser(id(req)) : null;
   const branch = req.auth!.role === Role.BRANCH_ADMIN
     ? await prisma.branchUser.findFirst({ where: { userId: id(req), organizationId: req.auth!.organizationId, branchId: homework.branchId }, select: { branchId: true } })
     : null;
   const studentEnrollment = student ? await resolveHistoricalAcademicEnrollment(prisma, { organizationId: req.auth!.organizationId, studentId: student.id, branchId: homework.branchId, academicSessionId: homework.batch.academicSessionId, courseId: homework.courseId, batchId: homework.batchId, onDate: homework.assignedDate, mode: "HISTORICAL_READ" }) : null;
-  const parentEnrollment = linked ? await resolveHistoricalAcademicEnrollment(prisma, { organizationId: req.auth!.organizationId, studentId: linked.student.id, branchId: homework.branchId, academicSessionId: homework.batch.academicSessionId, courseId: homework.courseId, batchId: homework.batchId, onDate: homework.assignedDate, mode: "HISTORICAL_READ" }) : null;
+  const parentCandidates = await Promise.all(linkedStudents.map(async linkedStudent => ({
+    student: linkedStudent,
+    enrollment: await resolveHistoricalAcademicEnrollment(prisma, { organizationId: req.auth!.organizationId, studentId: linkedStudent.id, branchId: homework.branchId, academicSessionId: homework.batch.academicSessionId, courseId: homework.courseId, batchId: homework.batchId, onDate: homework.assignedDate, mode: "HISTORICAL_READ" }),
+  })));
+  const parentCandidate = parentCandidates.find(candidate => candidate.student.batchId === homework.batchId || Boolean(candidate.enrollment)) ?? null;
   const download = await loadAuthorizedDocument(() => assertHomeworkAttachmentAccess({
       role: req.auth!.role,
       requestOrganizationId: req.auth!.organizationId,
@@ -271,11 +275,11 @@ router.get("/downloads/homework/:homeworkId", async (req: AuthRequest, res) => {
       studentOrganizationId: student?.organizationId,
       studentBatchId: student?.batchId,
       studentStatus: student?.status,
-      parentLinked: Boolean(linked),
-      parentStudentOrganizationId: linked?.student.organizationId,
-      parentStudentBatchId: linked?.student.batchId,
-      parentStudentStatus: linked?.student.status,
-      historicalEnrollmentVerified: Boolean(studentEnrollment || parentEnrollment),
+      parentLinked: Boolean(parentCandidate),
+      parentStudentOrganizationId: parentCandidate?.student.organizationId,
+      parentStudentBatchId: parentCandidate?.student.batchId,
+      parentStudentStatus: parentCandidate?.student.status,
+      historicalEnrollmentVerified: Boolean(studentEnrollment || parentCandidate?.enrollment),
       teacherId: teacher?.id,
       branchAllowed: Boolean(branch),
     }), async () => {
