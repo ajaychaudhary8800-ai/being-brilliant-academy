@@ -90,7 +90,7 @@ test("substitution finalization is conditional and audit-atomic", async t => {
   const port = (server.address() as AddressInfo).port;
   const token = jwt.sign({ userId: USER_ID, role: Role.SUPER_ADMIN, organizationId: ORGANIZATION_ID }, env.JWT_ACCESS_SECRET, { expiresIn: "5m" });
 
-  async function finalize(next: SubstitutionStatus.COMPLETED | SubstitutionStatus.CANCELLED) {
+  async function finalize(next: SubstitutionStatus) {
     const response = await fetch(`http://127.0.0.1:${port}/api/v1/admin/substitutions/${SUBSTITUTION_ID}/status`, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
