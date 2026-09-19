@@ -26,3 +26,10 @@ export function certificateTeacherAllocationWhere(
     OR: [{ effectiveTo: null }, { effectiveTo: { gte: context.effectiveAt } }],
   };
 }
+
+export function selectEligibleParentHomeworkChild<T extends { student: { batchId: string }; enrollment: unknown | null }>(
+  candidates: readonly T[],
+  homeworkBatchId: string,
+) {
+  return candidates.find(candidate => candidate.student.batchId === homeworkBatchId || Boolean(candidate.enrollment)) ?? null;
+}
