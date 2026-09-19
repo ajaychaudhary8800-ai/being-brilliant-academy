@@ -47,6 +47,7 @@ test("legacy ERP routers enforce BranchUser isolation and preserve Super Admin s
   patch((prisma as any).transportStop, "findMany", async () => [{ id: id("16"), branchId: BRANCH_A }, { id: id("17"), branchId: BRANCH_A }]);
   patch((prisma as any).transportRouteStop, "count", async () => 2);
   patch((prisma as any).studentProfile, "findUnique", async () => ({ branchId: BRANCH_B, status: "ACTIVE" }));
+  patch((prisma as any).studentProfile, "findFirst", async ({ where }: any) => where.organizationId === ORGANIZATION ? ({ branchId: BRANCH_B, status: "ACTIVE" }) : null);
   patch((prisma as any).studentTransportAssignment, "findMany", async ({ where }: any) => { transportAssignmentWhere = where; return []; });
   patch((prisma as any).studentTransportAssignment, "findUnique", async () => ({ id: id("19"), studentId: id("18"), route: { branchId: BRANCH_A }, student: { branchId: BRANCH_B } }));
   patch((prisma as any).studentTransportAssignment, "create", async () => { financialWrites += 1; return {}; });
