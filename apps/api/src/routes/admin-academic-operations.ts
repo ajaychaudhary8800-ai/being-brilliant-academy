@@ -65,7 +65,38 @@ router.patch("/substitutions/:id/status", async (req: AuthRequest, res) => {
 });
 
 router.get("/teacher-duties", async (req: AuthRequest, res) => { const query = z.object({ branchId: id, teacherId: id.optional(), date: z.coerce.date().optional() }).parse(req.query); await access(req, query.branchId); const data = await prisma.teacherDuty.findMany({ where: { branchId: query.branchId, ...(query.teacherId ? { teacherId: query.teacherId } : {}), ...(query.date ? { date: utcDay(query.date) } : {}) }, include: { teacher: { select: { employeeNo: true, user: { select: { name: true } } } } }, orderBy: [{ date: "desc" }, { periodNumber: "asc" }] }); res.json({ data }); });
-router.post("/teacher-duties", async (req: AuthRequest, res) => { const input = z.object({ branchId: id, academicSessionId: id, teacherId: id, date: z.coerce.date(), periodNumber: z.number().int().min(1).max(50), type: z.nativeEnum(TeacherDutyType), remarks: z.string().trim().max(2000).nullable().optional() }).parse(req.body); await access(req, input.branchId); const date = utcDay(input.date), day = timetableDay(date), [teacher, period] = await Promise.all([prisma.teacherProfile.findUnique({ where: { id: input.teacherId }, select: { branchId: true } }), prisma.timetablePeriod.findUnique({ where: { branchId_academicSessionId_day_periodNumber: { branchId: input.branchId, academicSessionId: input.academicSessionId, day, periodNumber: input.periodNumber } } })]); if (!teacher || teacher.branchId !== input.branchId || !period || !period.isActive || period.type !== TimetablePeriodType.TEACHING) throw new AppError(422, "INVALID_DUTY_CONTEXT", "Teacher and teaching period must match the selected branch and session"); if (await teacherOnApprovedLeave(input.teacherId, date)) throw new AppError(409, "TEACHER_ON_LEAVE", "Teacher is on approved leave"); const overlap = { startMinute: { lt: period.endMinute }, endMinute: { gt: period.startMinute } }, conflict = await Promise.all([prisma.timetable.findFirst({ where: { teacherId: input.teacherId, day, status: TimetableStatus.ACTIVE, ...overlap }, select: { id: true } }), prisma.teacherDuty.findFirst({ where: { teacherId: input.teacherId, date, ...overlap }, select: { id: true } }), prisma.teacherSubstitution.findFirst({ where: { substituteTeacherId: input.teacherId, date, status: { in: [SubstitutionStatus.ASSIGNED, SubstitutionStatus.COMPLETED] }, timetable: overlap }, select: { id: true } })]); if (conflict.some(Boolean)) throw new AppError(409, "TEACHER_SCHEDULE_CONFLICT", "Teacher already has an occupied timetable slot"); const data = await prisma.teacherDuty.create({ data: { ...input, date, startMinute: period.startMinute, endMinute: period.endMinute, remarks: input.remarks ?? null } }); await audit(req, "CREATE", "TeacherDuty", data.id, { teacherId: input.teacherId, type: input.type }); res.status(201).json({ data }); });
+router.post("/teacher-duties", async (req: AuthRequest, res) => {
+  const input = z.object({ branchId: id, academicSessionId: id, teacherId: id, date: z.coerce.date(), periodNumber: z.number().int().min(1).max(50), type: z.nativeEnum(TeacherDutyType), remarks: z.string().trim().max(2000).nullable().optional() }).parse(req.body);
+  await access(req, input.branchId);
+  const date = utcDay(input.date), day = timetableDay(date);
+  const [teacher, period] = await Promise.all([
+    prisma.teacherProfile.findUnique({ where: { id: input.teacherId }, select: { branchId: true, user: { select: { isActive: true } } } }),
+    prisma.timetablePeriod.findUnique({ where: { branchId_academicSessionId_day_periodNumber: { branchId: input.branchId, academicSessionId: input.academicSessionId, day, periodNumber: input.periodNumber } } }),
+  ]);
+  if (!teacher || teacher.branchId !== input.branchId || !teacher.user.isActive || !period || !period.isActive || period.type !== TimetablePeriodType.TEACHING) {
+    throw new AppError(422, "INVALID_DUTY_CONTEXT", "Active teacher and teaching period must match the selected branch and session");
+  }
+  const overlap = { startMinute: { lt: period.endMinute }, endMinute: { gt: period.startMinute } };
+  let data;
+  try {
+    data = await prisma.$transaction(async tx => {
+      if (await teacherOnApprovedLeave(input.teacherId, date, tx)) throw new AppError(409, "TEACHER_ON_LEAVE", "Teacher is on approved leave");
+      const conflict = await Promise.all([
+        tx.timetable.findFirst({ where: { teacherId: input.teacherId, day, status: TimetableStatus.ACTIVE, ...overlap }, select: { id: true } }),
+        tx.teacherDuty.findFirst({ where: { teacherId: input.teacherId, date, ...overlap }, select: { id: true } }),
+        tx.teacherSubstitution.findFirst({ where: { substituteTeacherId: input.teacherId, date, status: { in: [SubstitutionStatus.ASSIGNED, SubstitutionStatus.COMPLETED] }, timetable: overlap }, select: { id: true } }),
+      ]);
+      if (conflict.some(Boolean)) throw new AppError(409, "TEACHER_SCHEDULE_CONFLICT", "Teacher already has an occupied timetable slot");
+      const created = await tx.teacherDuty.create({ data: { ...input, date, startMinute: period.startMinute, endMinute: period.endMinute, remarks: input.remarks ?? null } });
+      await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "CREATE", entity: "TeacherDuty", entityId: created.id, metadata: { teacherId: input.teacherId, type: input.type } } });
+      return created;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") throw new AppError(409, "TEACHER_SCHEDULE_CONFLICT", "Teacher availability changed; reload and try again");
+    throw error;
+  }
+  res.status(201).json({ data });
+});
 router.delete("/teacher-duties/:id", async (req: AuthRequest, res) => { const duty = await prisma.teacherDuty.findUnique({ where: { id: id.parse(req.params.id) }, select: { id: true, branchId: true } }); if (!duty) throw new AppError(404, "DUTY_NOT_FOUND", "Teacher duty not found"); await access(req, duty.branchId); await prisma.teacherDuty.delete({ where: { id: duty.id } }); await audit(req, "DELETE", "TeacherDuty", duty.id); res.status(204).send(); });
 
 router.get("/academic-reports/workload", async (req: AuthRequest, res) => { const query = z.object({ branchId: id, academicSessionId: id, date: z.coerce.date() }).parse(req.query); await access(req, query.branchId); const teachers = await prisma.teacherProfile.findMany({ where: { branchId: query.branchId, user: { isActive: true } }, select: { id: true, employeeNo: true, user: { select: { name: true } }, maxPeriodsPerWeek: true } }), data = await Promise.all(teachers.map(async teacher => { const workload = await weeklyWorkload(teacher.id, query.branchId, query.academicSessionId, query.date); return { ...teacher, ...workload.totals, utilizationPercent: workload.totals.availablePeriods ? Math.round(workload.totals.totalOccupied * 100 / workload.totals.availablePeriods) : 0, overloaded: Boolean(teacher.maxPeriodsPerWeek && workload.totals.totalOccupied > teacher.maxPeriodsPerWeek) }; })); res.json({ data }); });
