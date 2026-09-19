@@ -2,10 +2,10 @@ import { notFound } from "next/navigation";
 import { PortalForgotPassword } from "../../../components/portal-auth";
 import type { AuthPortal } from "../../../components/auth-provider";
 
-const portalNames = ["student", "parent", "teacher", "admin"] as const;
+const portalNames = ["student", "parent", "teacher", "employee", "admin"] as const;
 
 export function generateStaticParams() {
-  return ["student", "parent", "teacher", "admin"].map((portal) => ({ portal }));
+  return ["student", "parent", "teacher", "employee", "admin"].map((portal) => ({ portal }));
 }
 
 export default async function PortalForgotPasswordPage({ params }: { params: Promise<{ portal: string }> }) {
