@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { displayLabel } from "./display-label";
-import { institutionPresentation } from "./institution-presentation";
+import { institutionPresentation, portalAcademicPairLabel, portalSectionLabel } from "./institution-presentation";
 
 test("school presentation uses class, section and teacher terminology", () => {
   const labels = institutionPresentation("SECTION");
@@ -32,4 +32,27 @@ test("known enums have explicit readable labels while business codes remain unch
   assert.equal(displayLabel("RESULTS_PUBLISHED"), "Results Published");
   assert.equal(displayLabel("HALF_DAY"), "Half Day");
   assert.equal(displayLabel("PHY-UT1"), "PHY-UT1");
+});
+
+
+test("portal labels follow School terminology", () => {
+  const terms = institutionPresentation("SECTION");
+  assert.equal(portalSectionLabel("classes", terms), "Classes");
+  assert.equal(portalSectionLabel("examinations", terms), "Examinations");
+  assert.equal(portalSectionLabel("learning", terms), "Digital Learning");
+  assert.equal(portalAcademicPairLabel(terms), "Class / Section");
+});
+
+test("portal labels follow Coaching terminology", () => {
+  const terms = institutionPresentation("BATCH");
+  assert.equal(portalSectionLabel("classes", terms), "Courses & Programs");
+  assert.equal(portalSectionLabel("examinations", terms), "Tests & Assessments");
+  assert.equal(portalSectionLabel("learning", terms), "Learning Resources");
+  assert.equal(portalAcademicPairLabel(terms), "Course / Batch");
+});
+
+test("portal labels preserve readable generic tabs", () => {
+  const terms = institutionPresentation();
+  assert.equal(portalSectionLabel("attendance", terms), "Attendance");
+  assert.equal(portalSectionLabel("leave_requests", terms), "Leave Requests");
 });
