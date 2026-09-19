@@ -11,6 +11,7 @@ import {
   assertSingleConditionalMutation,
   evaluationStatus,
   examinationResultFor,
+  examinationStart,
   publishedEvaluation,
   replaceableAnswerSheetStatuses,
 } from "../lib/examination-policy.js";
@@ -120,7 +121,7 @@ router.get("/examinations/:examinationId/question-paper", async (req: AuthReques
     if (req.auth!.role === Role.STUDENT) {
       const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { id: true, organizationId: true, branchId: true, batchId: true, academicSessionId: true, status: true, user: { select: { isActive: true } } } });
       await assertHistoricalStudentEligibility(req, student, exam, "HISTORICAL_READ");
-      assertQuestionPaperAvailable(exam.status, exam.questionPaper?.publishedAt ?? null);
+      assertQuestionPaperAvailable(exam.status, exam.questionPaper?.publishedAt ?? null, new Date(), examinationStart(exam));
     } else await mayManage(req, exam);
   }, () => prisma.examinationQuestionPaper.findFirst({
       where: { examinationId: exam.id, organizationId: req.auth!.organizationId },

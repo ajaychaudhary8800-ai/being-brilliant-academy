@@ -4,6 +4,8 @@ import { HomeworkStatus, HomeworkSubmissionStatus, Role, TeacherAllocationStatus
 import {
   assertActiveTeacherHomeworkUser,
   assertHomeworkManagerAccess,
+  assertHomeworkHistoricalContextEditable,
+  assertHomeworkLifecycleTransition,
   assertHomeworkSubmissionEvaluable,
   assertHomeworkSubmissionEvaluated,
   assertTeacherHomeworkEditable,
@@ -122,4 +124,26 @@ test("Super Admin and Branch Admin Homework authority remains unchanged and scop
   assert.doesNotThrow(() => assertHomeworkManagerAccess({ ...ownHomework, role: Role.BRANCH_ADMIN }));
   assert.throws(() => assertHomeworkManagerAccess({ ...ownHomework, role: Role.BRANCH_ADMIN, branchAllowed: false }), /Homework access denied/);
   assert.throws(() => assertHomeworkManagerAccess({ ...ownHomework, requestOrganizationId: "org-b", role: Role.BRANCH_ADMIN }), /Homework access denied/);
+});
+
+
+test("global Homework lifecycle is one-way and archived work cannot be resurrected", () => {
+  assert.doesNotThrow(() => assertHomeworkLifecycleTransition(HomeworkStatus.DRAFT, HomeworkStatus.PUBLISHED));
+  assert.doesNotThrow(() => assertHomeworkLifecycleTransition(HomeworkStatus.DRAFT, HomeworkStatus.ARCHIVED));
+  assert.doesNotThrow(() => assertHomeworkLifecycleTransition(HomeworkStatus.PUBLISHED, HomeworkStatus.CLOSED));
+  assert.doesNotThrow(() => assertHomeworkLifecycleTransition(HomeworkStatus.PUBLISHED, HomeworkStatus.ARCHIVED));
+  assert.doesNotThrow(() => assertHomeworkLifecycleTransition(HomeworkStatus.CLOSED, HomeworkStatus.ARCHIVED));
+  for (const [from, to] of [
+    [HomeworkStatus.PUBLISHED, HomeworkStatus.DRAFT],
+    [HomeworkStatus.CLOSED, HomeworkStatus.PUBLISHED],
+    [HomeworkStatus.ARCHIVED, HomeworkStatus.DRAFT],
+    [HomeworkStatus.ARCHIVED, HomeworkStatus.PUBLISHED],
+    [HomeworkStatus.ARCHIVED, HomeworkStatus.CLOSED],
+  ] as const) assert.throws(() => assertHomeworkLifecycleTransition(from, to), /cannot change/);
+});
+
+test("Homework academic context and dates lock after the first submission", () => {
+  assert.doesNotThrow(() => assertHomeworkHistoricalContextEditable(false, true));
+  assert.doesNotThrow(() => assertHomeworkHistoricalContextEditable(true, false));
+  assert.throws(() => assertHomeworkHistoricalContextEditable(true, true), /cannot change after submissions/);
 });

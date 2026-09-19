@@ -4,7 +4,7 @@ import { z } from "zod";
 import { examinationCodeConflict, isExaminationCodeConflict } from "../lib/examination-uniqueness.js";
 import { AppError } from "../lib/http.js";
 import { requireRequestedBranch } from "../lib/branch-policy.js";
-import { assertExaminationHistoricalFieldsEditable, assertExaminationStatusTransition, assertSingleConditionalMutation, changesCoreExaminationField } from "../lib/examination-policy.js";
+import { assertExaminationHistoricalFieldsEditable, assertExaminationPublicationReady, assertExaminationStatusTransition, assertSingleConditionalMutation, changesCoreExaminationField } from "../lib/examination-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { historicalCivilDate, resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -95,12 +95,12 @@ async function activity(client: Prisma.TransactionClient, examinationId: string,
 }
 
 async function assertPublishable(client: Prisma.TransactionClient, examinationId: string, organizationId: string) {
-  const [results, unfinished] = await Promise.all([
+  const [results, unfinishedAnswerSheets, ungeneratedResults] = await Promise.all([
     client.examinationResult.count({ where: { organizationId, examinationId } }),
     client.examinationAnswerSheet.count({ where: { organizationId, examinationId, finalizedAt: null } }),
+    client.examinationResult.count({ where: { organizationId, examinationId, generatedAt: null } }),
   ]);
-  if (!results) throw new AppError(409, "RESULTS_REQUIRED", "Generate or finalize examination results before publication");
-  if (unfinished) throw new AppError(409, "EVALUATIONS_INCOMPLETE", "All submitted answer sheets must be finalized before result publication");
+  assertExaminationPublicationReady({ results, unfinishedAnswerSheets, ungeneratedResults });
 }
 
 router.get("/examinations/options", async (req: AuthRequest, res) => {

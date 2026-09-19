@@ -190,3 +190,19 @@ export function assertHomeworkSubmissionReplaced(count: number) {
     throw new AppError(409, "SUBMISSION_REVIEW_STARTED", "A reviewed submission cannot be replaced");
   }
 }
+
+
+export function assertHomeworkLifecycleTransition(currentStatus: HomeworkStatus, nextStatus: HomeworkStatus) {
+  const allowed = currentStatus === HomeworkStatus.DRAFT && (nextStatus === HomeworkStatus.PUBLISHED || nextStatus === HomeworkStatus.ARCHIVED)
+    || currentStatus === HomeworkStatus.PUBLISHED && (nextStatus === HomeworkStatus.CLOSED || nextStatus === HomeworkStatus.ARCHIVED)
+    || currentStatus === HomeworkStatus.CLOSED && nextStatus === HomeworkStatus.ARCHIVED;
+  if (!allowed) {
+    throw new AppError(409, "INVALID_HOMEWORK_STATUS_TRANSITION", `Homework status cannot change from ${currentStatus} to ${nextStatus}`);
+  }
+}
+
+export function assertHomeworkHistoricalContextEditable(hasSubmissions: boolean, changed: boolean) {
+  if (hasSubmissions && changed) {
+    throw new AppError(409, "HOMEWORK_SUBMISSION_CONTEXT_LOCKED", "Homework academic context and dates cannot change after submissions exist");
+  }
+}
