@@ -21,8 +21,11 @@ test("Teacher workspace uses authorized Lesson management without Module creatio
   assert.match(teacher, /\/admin\/lms\/options/);
   assert.match(teacher, /method: editing \? "PATCH" : "POST"/);
   assert.match(teacher, /Publish/);
+  assert.match(teacher, /lesson\.status === "DRAFT"[^]*Publish/);
+  assert.match(teacher, /lesson\.status !== "ARCHIVED"[^]*Edit/);
   assert.match(teacher, /Archive/);
   assert.match(teacher, /Permanently delete archived Lesson/);
+  assert.match(teacher, /aria-readonly="true"/);
   assert.match(teacher, /canManage=\{false\}/);
   assert.match(teacher, /options\.allocations\.some\(allocation => allocation\.branchId === form\.branchId && allocation\.courseId === form\.courseId && allocation\.batchId === form\.batchId && allocation\.subjectId === item\.subject\.id\)/);
   assert.match(teacher, /update\("moduleId", ""\)/);
@@ -61,7 +64,7 @@ test("Student workspace has controlled loading, error and empty states", () => {
   assert.match(student, /aria-label="Loading Learning"/);
   assert.match(student, /Unable to load Learning/);
   assert.match(student, /aria-label="Empty Learning"/);
-  assert.match(student, /No published Lessons are assigned to your active Batch/);
+  assert.match(student, /No published lessons are assigned to your active/);
 });
 
 test("Student workspace groups Course, Module and Lesson without management actions", () => {
@@ -77,6 +80,8 @@ test("Student media, attachment and progress use secured Core LMS endpoints", ()
   assert.match(student, /request\("\/learning\/lms\/me"\)/);
   assert.match(student, /`\/learning\/lms\/lessons\/\$\{lesson\.id\}\/progress`/);
   assert.match(student, /lastPositionSeconds: position/);
+  assert.match(student, /timeSpentSeconds: Math\.max\(0, position - previous\)/);
+  assert.doesNotMatch(student, /JSON\.stringify\(\{[^}]*completed/);
   assert.match(student, /Math\.max\(previous, Math\.round\(positions\[lesson\.id\]/);
   assert.match(student, /Save progress/);
   assert.match(student, /Mark complete/);
