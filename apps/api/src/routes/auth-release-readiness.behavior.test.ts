@@ -80,6 +80,7 @@ test("auth routes enforce provisioned accounts, portal eligibility and bounded r
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   let userRole: Role = Role.BRANCH_ADMIN;
   let studentProfile: unknown = { id: "student-profile" };
+  let employeeProfile: unknown = { id: "employee-profile" };
   let sessionCreated: any = null;
   const originalExpiry = new Date(Date.now() + 3 * 864e5);
 
@@ -96,6 +97,7 @@ test("auth routes enforce provisioned accounts, portal eligibility and bounded r
   patch((systemPrisma as any).studentProfile, "findFirst", async () => studentProfile);
   patch((systemPrisma as any).teacherProfile, "findFirst", async () => ({ id: "teacher-profile" }));
   patch((systemPrisma as any).parentStudent, "findFirst", async () => ({ id: "parent-link" }));
+  patch((systemPrisma as any).employee, "findFirst", async () => employeeProfile);
   patch((systemPrisma as any).session, "create", async ({ data }: any) => { sessionCreated = data; return { id: "session-created", ...data }; });
   patch((systemPrisma as any).session, "delete", async () => ({}));
   patch((systemPrisma as any).session, "findUnique", async () => ({
@@ -146,6 +148,25 @@ test("auth routes enforce provisioned accounts, portal eligibility and bounded r
   });
   assert.equal(response.status, 403);
   assert.equal(((await response.json()) as any).error.code, "STUDENT_INACTIVE");
+
+  userRole = Role.EMPLOYEE;
+  employeeProfile = null;
+  response = await fetch(`${origin}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD, organization: activeOrg.slug, portal: "employee" }),
+  });
+  assert.equal(response.status, 403);
+  assert.equal(((await response.json()) as any).error.code, "EMPLOYEE_PROFILE_REQUIRED");
+
+  employeeProfile = { id: "employee-profile" };
+  response = await fetch(`${origin}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD, organization: activeOrg.slug, portal: "employee" }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(((await response.json()) as any).data.user.role, Role.EMPLOYEE);
 
   userRole = Role.BRANCH_ADMIN;
   sessionCreated = null;
