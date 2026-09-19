@@ -82,7 +82,7 @@ router.get("/messages", async (req: AuthRequest, res) => { const q = pageSchema.
 router.post("/messages", async (req: AuthRequest, res) => {
   const input = z.object({ recipientId: z.string().cuid(), subject: z.string().trim().min(2).max(160), body: z.string().trim().min(1).max(5000) }).parse(req.body);
   await assertPortalMessageRecipientAuthorized({ userId: id(req), role: req.auth!.role, organizationId: req.auth!.organizationId }, input.recipientId);
-  res.status(201).json({ data: await prisma.portalMessage.create({ data: { senderId: id(req), ...input } }) });
+  res.status(201).json({ data: await prisma.portalMessage.create({ data: { organizationId: req.auth!.organizationId, senderId: id(req), ...input } }) });
 });
 router.patch("/messages/:messageId", async (req: AuthRequest,res)=>{const input=z.object({read:z.boolean().optional(),archived:z.boolean().optional()}).strict().parse(req.body);const message=await prisma.portalMessage.findUnique({where:{id:String(req.params.messageId)}});if(!message)throw new AppError(404,"NOT_FOUND","Message not found");res.json({data:await prisma.portalMessage.update({where:{id:message.id},data:participantMessageUpdate(message,id(req),input)})});});
 router.get("/contacts", async (req: AuthRequest, res) => {
@@ -120,7 +120,7 @@ router.get("/announcements", async (req: AuthRequest, res) => {
   ]);
   res.json({ data: data.map(item => ({ ...item, acknowledgedAt: item.reads[0]?.readAt ?? null, reads: undefined })), meta: { ...q, total, pages: Math.ceil(total / q.limit) } });
 });
-router.post("/announcements",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const teacher=await teacherForUser(id(req));if(!teacher)throw new AppError(404,"PROFILE_NOT_FOUND","Teacher profile not found");const input=z.object({title:z.string().trim().min(2).max(160),body:z.string().trim().min(1).max(10000),audience:z.nativeEnum(Role).refine(v=>v===Role.STUDENT||v===Role.PARENT)}).parse(req.body);res.status(201).json({data:await prisma.announcement.create({data:{...input,branchId:teacher.branchId,authorId:id(req)}})});});
+router.post("/announcements",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const teacher=await teacherForUser(id(req));if(!teacher)throw new AppError(404,"PROFILE_NOT_FOUND","Teacher profile not found");const input=z.object({title:z.string().trim().min(2).max(160),body:z.string().trim().min(1).max(10000),audience:z.nativeEnum(Role).refine(v=>v===Role.STUDENT||v===Role.PARENT)}).parse(req.body);res.status(201).json({data:await prisma.announcement.create({data:{...input,organizationId:req.auth!.organizationId,branchId:teacher.branchId,authorId:id(req)}})});});
 router.patch("/announcements/:announcementId/archive",allow(Role.TEACHER),async(req:AuthRequest,res)=>{const a=await prisma.announcement.findFirst({where:{id:String(req.params.announcementId),authorId:id(req)}});if(!a)throw new AppError(404,"NOT_FOUND","Announcement not found");res.json({data:await prisma.announcement.update({where:{id:a.id},data:{isArchived:true}})});});
 router.delete("/announcements/:announcementId",allow(Role.TEACHER),async(req:AuthRequest,res)=>{await prisma.announcement.deleteMany({where:{id:String(req.params.announcementId),authorId:id(req),isArchived:true}});res.status(204).end();});
 

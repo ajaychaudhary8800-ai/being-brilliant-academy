@@ -188,7 +188,7 @@ router.post("/communication/announcements", async (req: AuthRequest, res) => {
   const publishedAt = input.scheduledAt ?? new Date();
   if (input.expiresAt && input.expiresAt <= publishedAt) throw new AppError(422, "INVALID_SCHEDULE", "Expiry must be after publication");
   const { name, mimeType, base64, ...data } = input;
-  const created = await prisma.announcement.create({ data: { ...data, ...attachment({ name, mimeType, base64 }), authorId: userId(req), publishedAt } });
+  const created = await prisma.announcement.create({ data: { ...data, ...attachment({ name, mimeType, base64 }), organizationId: req.auth!.organizationId, authorId: userId(req), publishedAt } });
   await audit(req, "CREATE", "Announcement", created.id);
   res.status(201).json({ data: { ...created, attachmentData: undefined } });
 });
@@ -212,7 +212,7 @@ router.post("/communication/announcements/:id/read", async (req: AuthRequest, re
   const access = await announcementAccess(req);
   const announcement = await prisma.announcement.findFirst({ where: { id: id.parse(req.params.id), deletedAt: null, isArchived: false, ...access }, select: { id: true } });
   if (!announcement) throw new AppError(404, "NOT_FOUND", "Announcement not found");
-  const record = await prisma.announcementRead.upsert({ where: { announcementId_userId: { announcementId: announcement.id, userId: userId(req) } }, update: {}, create: { announcementId: announcement.id, userId: userId(req) } });
+  const record = await prisma.announcementRead.upsert({ where: { announcementId_userId: { announcementId: announcement.id, userId: userId(req) } }, update: {}, create: { organizationId: req.auth!.organizationId, announcementId: announcement.id, userId: userId(req) } });
   res.status(201).json({ data: record });
 });
 
@@ -244,7 +244,15 @@ router.post("/communication/notifications", async (req: AuthRequest, res) => {
   const input = notificationInput.parse(req.body);
   const recipients = await assertAdministrativeRecipients(req, input.userIds);
   if (input.expiresAt && input.scheduledAt && input.expiresAt <= input.scheduledAt) throw new AppError(422, "INVALID_SCHEDULE", "Expiry must be after schedule");
-  const created = await prisma.$transaction(recipients.map(recipientId => prisma.notification.create({ data: { userId: recipientId, title: input.title, body: input.body, category: input.category, sourceModule: input.sourceModule, sourceEntityId: input.sourceEntityId, actionUrl: input.actionUrl, priority: input.priority, channels: input.channels, scheduledAt: input.scheduledAt, expiresAt: input.expiresAt, deliveries: { create: input.channels.filter(value => value !== "IN_APP").map(value => ({ channel: value, status: "QUEUED" })) } } })));
+  const created = await prisma.$transaction(async tx => {
+    const notifications = [];
+    for (const recipientId of recipients) {
+      const notification = await tx.notification.create({ data: { organizationId: req.auth!.organizationId, userId: recipientId, title: input.title, body: input.body, category: input.category, sourceModule: input.sourceModule, sourceEntityId: input.sourceEntityId, actionUrl: input.actionUrl, priority: input.priority, channels: input.channels, scheduledAt: input.scheduledAt, expiresAt: input.expiresAt } });
+      await tx.notificationDelivery.createMany({ data: input.channels.filter(value => value !== "IN_APP").map(value => ({ organizationId: req.auth!.organizationId, notificationId: notification.id, channel: value, status: "QUEUED" })) });
+      notifications.push(notification);
+    }
+    return notifications;
+  });
   await audit(req, "SEND", "Notification", undefined, { count: created.length, category: input.category });
   res.status(201).json({ data: created });
 });
@@ -266,7 +274,7 @@ router.patch("/communication/notifications/:id", async (req: AuthRequest, res) =
 router.get("/communication/preferences", async (req: AuthRequest, res) => res.json({ data: await prisma.notificationPreference.findUnique({ where: { userId: userId(req) } }) }));
 router.put("/communication/preferences", async (req: AuthRequest, res) => {
   const input = z.object({ inApp: z.boolean(), email: z.boolean(), sms: z.boolean(), whatsapp: z.boolean(), push: z.boolean(), quietStart: z.string().regex(/^\d\d:\d\d$/).nullable().optional(), quietEnd: z.string().regex(/^\d\d:\d\d$/).nullable().optional(), categories: z.record(z.boolean()).optional() }).parse(req.body);
-  res.json({ data: await prisma.notificationPreference.upsert({ where: { userId: userId(req) }, update: input, create: { userId: userId(req), ...input } }) });
+  res.json({ data: await prisma.notificationPreference.upsert({ where: { userId: userId(req) }, update: input, create: { organizationId: req.auth!.organizationId, userId: userId(req), ...input } }) });
 });
 router.post("/communication/deliveries/process", async (req: AuthRequest, res) => {
   allow(req, [Role.SUPER_ADMIN]);
@@ -291,7 +299,7 @@ router.post("/communication/messages", async (req: AuthRequest, res) => {
   const input = messageInput.parse(req.body);
   await assertMessageRecipientAuthorized(sender(req), input.recipientId);
   const { name, mimeType, base64, ...data } = input;
-  res.status(201).json({ data: await prisma.portalMessage.create({ data: { ...data, ...attachment({ name, mimeType, base64 }), senderId: userId(req) } }) });
+  res.status(201).json({ data: await prisma.portalMessage.create({ data: { ...data, ...attachment({ name, mimeType, base64 }), organizationId: req.auth!.organizationId, senderId: userId(req) } }) });
 });
 
 router.patch("/communication/messages/:id", async (req: AuthRequest, res) => {
@@ -308,7 +316,11 @@ router.post("/communication/threads", async (req: AuthRequest, res) => {
   if (!recipients.length) throw new AppError(422, "THREAD_MEMBERS_REQUIRED", "Select at least one other member");
   await assertMessageRecipientsAuthorized(sender(req), recipients);
   const members = [userId(req), ...recipients];
-  const thread = await prisma.messageThread.create({ data: { name: input.name, isGroup: members.length > 2, createdById: userId(req), members: { create: members.map(memberId => ({ userId: memberId, role: memberId === userId(req) ? "OWNER" : "MEMBER" })) } } });
+  const thread = await prisma.$transaction(async tx => {
+    const created = await tx.messageThread.create({ data: { organizationId: req.auth!.organizationId, name: input.name, isGroup: members.length > 2, createdById: userId(req) } });
+    await tx.messageThreadMember.createMany({ data: members.map(memberId => ({ organizationId: req.auth!.organizationId, threadId: created.id, userId: memberId, role: memberId === userId(req) ? "OWNER" : "MEMBER" })) });
+    return created;
+  });
   res.status(201).json({ data: thread });
 });
 
@@ -321,7 +333,7 @@ router.post("/communication/threads/:id/messages", async (req: AuthRequest, res)
   await assertMessageRecipientsAuthorized(sender(req), others.map(item => item.userId));
   const { name, mimeType, base64, ...data } = input;
   const file = attachment({ name, mimeType, base64 });
-  const created = await prisma.$transaction(others.map(other => prisma.portalMessage.create({ data: { ...data, ...file, threadId, senderId: userId(req), recipientId: other.userId, subject: "Group message" } })));
+  const created = await prisma.$transaction(others.map(other => prisma.portalMessage.create({ data: { ...data, ...file, organizationId: req.auth!.organizationId, threadId, senderId: userId(req), recipientId: other.userId, subject: "Group message" } })));
   res.status(201).json({ data: created });
 });
 
@@ -343,7 +355,11 @@ router.post("/communication/circulars", async (req: AuthRequest, res) => {
   await validateCommunicationTarget(req, input);
   if (input.expiresAt && input.publishedAt && input.expiresAt <= input.publishedAt) throw new AppError(422, "INVALID_SCHEDULE", "Expiry must be after publication");
   const { body, name, mimeType, base64, ...head } = input;
-  const created = await prisma.circular.create({ data: { ...head, versions: { create: { version: 1, body, ...attachment({ name, mimeType, base64 }) } } } });
+  const created = await prisma.$transaction(async tx => {
+    const circular = await tx.circular.create({ data: { ...head, organizationId: req.auth!.organizationId } });
+    await tx.circularVersion.create({ data: { organizationId: req.auth!.organizationId, circularId: circular.id, version: 1, body, ...attachment({ name, mimeType, base64 }) } });
+    return circular;
+  });
   await audit(req, "CREATE", "Circular", created.id);
   res.status(201).json({ data: created });
 });
@@ -353,7 +369,7 @@ router.post("/communication/circulars/:id/versions", async (req: AuthRequest, re
   const input = z.object({ body: z.string().min(1).max(100000), name: z.string().optional(), mimeType: z.string().optional(), base64: z.string().optional() }).parse(req.body);
   const { name, mimeType, base64, ...data } = input;
   const result = await prisma.$transaction([
-    prisma.circularVersion.create({ data: { circularId: circular.id, version: circular.currentVersion + 1, ...data, ...attachment({ name, mimeType, base64 }) } }),
+    prisma.circularVersion.create({ data: { organizationId: req.auth!.organizationId, circularId: circular.id, version: circular.currentVersion + 1, ...data, ...attachment({ name, mimeType, base64 }) } }),
     prisma.circular.update({ where: { id: circular.id }, data: { currentVersion: { increment: 1 } } }),
   ]);
   await audit(req, "CREATE_VERSION", "Circular", circular.id, { version: result[0].version });
@@ -364,7 +380,7 @@ router.post("/communication/circulars/:id/acknowledge", async (req: AuthRequest,
   const access = await circularAccess(req);
   const circular = await prisma.circular.findFirst({ where: { id: id.parse(req.params.id), deletedAt: null, isArchived: false, requiresAcknowledgement: true, ...access }, select: { id: true } });
   if (!circular) throw new AppError(404, "NOT_FOUND", "Circular not found");
-  const record = await prisma.circularAcknowledgement.upsert({ where: { circularId_userId: { circularId: circular.id, userId: userId(req) } }, update: {}, create: { circularId: circular.id, userId: userId(req) } });
+  const record = await prisma.circularAcknowledgement.upsert({ where: { circularId_userId: { circularId: circular.id, userId: userId(req) } }, update: {}, create: { organizationId: req.auth!.organizationId, circularId: circular.id, userId: userId(req) } });
   res.status(201).json({ data: record });
 });
 
@@ -372,7 +388,7 @@ router.get("/communication/circulars/:id/pdf", async (req: AuthRequest, res) => 
   const access = await circularAccess(req);
   const circular = await prisma.circular.findFirst({ where: { id: id.parse(req.params.id), deletedAt: null, isArchived: false, ...access }, include: { versions: { orderBy: { version: "desc" }, take: 1 } } });
   if (!circular) throw new AppError(404, "NOT_FOUND", "Circular not found");
-  await prisma.circularDownload.create({ data: { circularId: circular.id, userId: userId(req), ipAddress: req.ip } });
+  await prisma.circularDownload.create({ data: { organizationId: req.auth!.organizationId, circularId: circular.id, userId: userId(req), ipAddress: req.ip } });
   const filename = circular.number.replace(/[^A-Za-z0-9_-]/g, "_");
   res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${filename}.pdf"` }).send(circular.versions[0]?.pdfData ?? Buffer.from(`%PDF-1.4\n${circular.title}\n${circular.versions[0]?.body ?? ""}\n%%EOF`));
 });
@@ -400,7 +416,7 @@ router.post("/communication/events", async (req: AuthRequest, res) => {
   const input = eventInput.parse(req.body);
   await validateCommunicationTarget(req, input, { teacherMayTarget: true });
   if (input.endsAt <= input.startsAt) throw new AppError(422, "INVALID_TIME", "Event end must follow start");
-  const created = await prisma.calendarEvent.create({ data: input });
+  const created = await prisma.calendarEvent.create({ data: { ...input, organizationId: req.auth!.organizationId } });
   await audit(req, "CREATE", "CalendarEvent", created.id);
   res.status(201).json({ data: created });
 });
@@ -423,7 +439,7 @@ router.post("/communication/events/:id/rsvp", async (req: AuthRequest, res) => {
   const access = await eventAccess(req);
   const eventRecord = await prisma.calendarEvent.findFirst({ where: { id: id.parse(req.params.id), deletedAt: null, isArchived: false, status: "SCHEDULED", endsAt: { gte: new Date() }, ...access }, select: { id: true } });
   if (!eventRecord) throw new AppError(404, "NOT_FOUND", "Event not found");
-  const record = await prisma.calendarEventRsvp.upsert({ where: { eventId_userId: { eventId: eventRecord.id, userId: userId(req) } }, update: input, create: { eventId: eventRecord.id, userId: userId(req), ...input } });
+  const record = await prisma.calendarEventRsvp.upsert({ where: { eventId_userId: { eventId: eventRecord.id, userId: userId(req) } }, update: input, create: { organizationId: req.auth!.organizationId, eventId: eventRecord.id, userId: userId(req), ...input } });
   res.json({ data: record });
 });
 
@@ -439,7 +455,15 @@ const automaticType = z.enum(["HOMEWORK_ASSIGNED", "FEES_DUE", "FEE_RECEIVED", "
 router.post("/communication/automatic", async (req: AuthRequest, res) => {
   const input = z.object({ type: automaticType, userIds: z.array(id).min(1).max(1000), entityId: z.string(), title: z.string().min(2), body: z.string().min(1), actionUrl: z.string().optional() }).parse(req.body);
   const recipients = await assertAdministrativeRecipients(req, input.userIds);
-  const created = await prisma.$transaction(recipients.map(recipientId => prisma.notification.create({ data: { userId: recipientId, title: input.title, body: input.body, category: input.type, sourceModule: input.type.split("_")[0], sourceEntityId: input.entityId, actionUrl: input.actionUrl, priority: input.type === "ATTENDANCE_ALERT" || input.type === "FEES_DUE" ? "HIGH" : "NORMAL", channels: ["IN_APP", "EMAIL"], deliveries: { create: { channel: "EMAIL", status: "QUEUED" } } } })));
+  const created = await prisma.$transaction(async tx => {
+    const notifications = [];
+    for (const recipientId of recipients) {
+      const notification = await tx.notification.create({ data: { organizationId: req.auth!.organizationId, userId: recipientId, title: input.title, body: input.body, category: input.type, sourceModule: input.type.split("_")[0], sourceEntityId: input.entityId, actionUrl: input.actionUrl, priority: input.type === "ATTENDANCE_ALERT" || input.type === "FEES_DUE" ? "HIGH" : "NORMAL", channels: ["IN_APP", "EMAIL"] } });
+      await tx.notificationDelivery.create({ data: { organizationId: req.auth!.organizationId, notificationId: notification.id, channel: "EMAIL", status: "QUEUED" } });
+      notifications.push(notification);
+    }
+    return notifications;
+  });
   await audit(req, "AUTOMATIC_NOTIFICATION", input.type, input.entityId, { recipients: created.length });
   res.status(201).json({ data: { created: created.length } });
 });

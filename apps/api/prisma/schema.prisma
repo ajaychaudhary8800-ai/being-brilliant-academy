@@ -565,6 +565,8 @@ model Organization {
   updatedAt              DateTime                       @updatedAt
   users                  User[]
   branches               Branch[]
+  communicationCirculars Circular[]
+  communicationCalendarEvents CalendarEvent[]
   tenantAuditLogs        TenantAccessAudit[]
   academicSessions       AcademicSession[]
   teacherAllocations     TeacherAllocation[]
@@ -1289,6 +1291,7 @@ model User {
   notificationPreference   NotificationPreference?
   announcementReads        AnnouncementRead[]
   communicationThreads     MessageThreadMember[]
+  createdMessageThreads    MessageThread[]             @relation("MessageThreadCreator")
   paymentOffsetsCreated   FeePaymentOffset[]      @relation("FeePaymentOffsetCreator")
   circularAcknowledgements CircularAcknowledgement[]
   circularDownloads        CircularDownload[]
@@ -2738,7 +2741,7 @@ model Notification {
   body           String
   readAt         DateTime?
   createdAt      DateTime               @default(now())
-  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User                   @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
   category       String                 @default("GENERAL")
   sourceModule   String?
   sourceEntityId String?
@@ -2753,6 +2756,7 @@ model Notification {
 
   @@index([userId, readAt, createdAt])
   @@index([sourceModule, sourceEntityId])
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -2781,8 +2785,8 @@ model Announcement {
   isArchived     Boolean            @default(false)
   publishedAt    DateTime           @default(now())
   createdAt      DateTime           @default(now())
-  branch         Branch?            @relation(fields: [branchId], references: [id])
-  author         User               @relation(fields: [authorId], references: [id])
+  branch         Branch?            @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: SetNull)
+  author         User               @relation(fields: [organizationId, authorId], references: [organizationId, id])
   batchId        String?
   className      String?
   priority       String             @default("NORMAL")
@@ -2796,10 +2800,11 @@ model Announcement {
   category       String?
   isPinned       Boolean            @default(false)
   requiresAcknowledgement Boolean   @default(false)
-  batch          Batch?             @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  batch          Batch?             @relation(fields: [organizationId, batchId], references: [organizationId, id], onDelete: Restrict)
   reads          AnnouncementRead[]
 
   @@index([branchId, audience, publishedAt])
+  @@unique([organizationId, id])
   @@index([organizationId])
   @@index([kind, isArchived, publishedAt])
 }
@@ -2815,14 +2820,14 @@ model PortalMessage {
   senderArchived    Boolean        @default(false)
   recipientArchived Boolean        @default(false)
   createdAt         DateTime       @default(now())
-  sender            User           @relation("MessageSender", fields: [senderId], references: [id])
-  recipient         User           @relation("MessageRecipient", fields: [recipientId], references: [id])
+  sender            User           @relation("MessageSender", fields: [organizationId, senderId], references: [organizationId, id])
+  recipient         User           @relation("MessageRecipient", fields: [organizationId, recipientId], references: [organizationId, id])
   threadId          String?
   attachmentName    String?
   attachmentMime    String?
   attachmentData    Bytes?
   deletedAt         DateTime?
-  thread            MessageThread? @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  thread            MessageThread? @relation(fields: [organizationId, threadId], references: [organizationId, id], onDelete: Restrict)
 
   @@index([senderId, createdAt])
   @@index([recipientId, createdAt])
@@ -2841,9 +2846,10 @@ model NotificationPreference {
   quietStart     String?
   quietEnd       String?
   categories     Json?
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
   updatedAt      DateTime @updatedAt
 
+  @@unique([organizationId, userId])
   @@index([organizationId])
 }
 
@@ -2859,7 +2865,7 @@ model NotificationDelivery {
   lastError         String?
   deliveredAt       DateTime?
   createdAt         DateTime     @default(now())
-  notification      Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  notification      Notification @relation(fields: [organizationId, notificationId], references: [organizationId, id], onDelete: Cascade)
 
   @@unique([notificationId, channel])
   @@index([status, createdAt])
@@ -2871,8 +2877,8 @@ model AnnouncementRead {
   announcementId String
   userId         String
   readAt         DateTime     @default(now())
-  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  announcement   Announcement @relation(fields: [organizationId, announcementId], references: [organizationId, id], onDelete: Cascade)
+  user           User         @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
 
   @@id([announcementId, userId])
   @@index([organizationId])
@@ -2884,12 +2890,14 @@ model MessageThread {
   name           String?
   isGroup        Boolean               @default(false)
   createdById    String
+  creator        User                  @relation("MessageThreadCreator", fields: [organizationId, createdById], references: [organizationId, id], onDelete: Restrict)
   isArchived     Boolean               @default(false)
   deletedAt      DateTime?
   createdAt      DateTime              @default(now())
   members        MessageThreadMember[]
   messages       PortalMessage[]
 
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -2900,8 +2908,8 @@ model MessageThreadMember {
   role           String        @default("MEMBER")
   archivedAt     DateTime?
   lastReadAt     DateTime?
-  thread         MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread         MessageThread @relation(fields: [organizationId, threadId], references: [organizationId, id], onDelete: Cascade)
+  user           User          @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
 
   @@id([threadId, userId])
   @@index([organizationId])
@@ -2909,9 +2917,10 @@ model MessageThreadMember {
 
 model Circular {
   organizationId          String                    @default("org_default")
+  organization            Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   id                      String                    @id @default(cuid())
   branchId                String?
-  number                  String                    @unique
+  number                  String
   title                   String
   audience                Role?
   currentVersion          Int                       @default(1)
@@ -2920,12 +2929,14 @@ model Circular {
   expiresAt               DateTime?
   isArchived              Boolean                   @default(false)
   deletedAt               DateTime?
-  branch                  Branch?                   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  branch                  Branch?                   @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict)
   versions                CircularVersion[]
   acknowledgements        CircularAcknowledgement[]
   downloads               CircularDownload[]
   createdAt               DateTime                  @default(now())
 
+  @@unique([organizationId, id])
+  @@unique([organizationId, number])
   @@index([organizationId])
 }
 
@@ -2940,7 +2951,7 @@ model CircularVersion {
   attachmentMime String?
   attachmentData Bytes?
   createdAt      DateTime @default(now())
-  circular       Circular @relation(fields: [circularId], references: [id], onDelete: Cascade)
+  circular       Circular @relation(fields: [organizationId, circularId], references: [organizationId, id], onDelete: Cascade)
 
   @@unique([circularId, version])
   @@index([organizationId])
@@ -2951,8 +2962,8 @@ model CircularAcknowledgement {
   circularId     String
   userId         String
   acknowledgedAt DateTime @default(now())
-  circular       Circular @relation(fields: [circularId], references: [id], onDelete: Cascade)
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  circular       Circular @relation(fields: [organizationId, circularId], references: [organizationId, id], onDelete: Cascade)
+  user           User     @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
 
   @@id([circularId, userId])
   @@index([organizationId])
@@ -2965,8 +2976,8 @@ model CircularDownload {
   userId         String
   downloadedAt   DateTime @default(now())
   ipAddress      String?
-  circular       Circular @relation(fields: [circularId], references: [id], onDelete: Cascade)
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  circular       Circular @relation(fields: [organizationId, circularId], references: [organizationId, id], onDelete: Cascade)
+  user           User     @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
 
   @@index([circularId, downloadedAt])
   @@index([organizationId])
@@ -2974,6 +2985,7 @@ model CircularDownload {
 
 model CalendarEvent {
   organizationId String              @default("org_default")
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   id             String              @id @default(cuid())
   branchId       String?
   title          String
@@ -2988,13 +3000,14 @@ model CalendarEvent {
   status         String              @default("SCHEDULED")
   isArchived     Boolean             @default(false)
   deletedAt      DateTime?
-  branch         Branch?             @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  batch          Batch?              @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  branch         Branch?             @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict)
+  batch          Batch?              @relation(fields: [organizationId, batchId], references: [organizationId, id], onDelete: Restrict)
   rsvps          CalendarEventRsvp[]
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
   @@index([startsAt, type])
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -3004,8 +3017,8 @@ model CalendarEventRsvp {
   userId         String
   response       String
   respondedAt    DateTime      @default(now())
-  event          CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event          CalendarEvent @relation(fields: [organizationId, eventId], references: [organizationId, id], onDelete: Cascade)
+  user           User          @relation(fields: [organizationId, userId], references: [organizationId, id], onDelete: Cascade)
 
   @@id([eventId, userId])
   @@index([organizationId])
