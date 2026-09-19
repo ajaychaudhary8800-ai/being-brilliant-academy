@@ -3,7 +3,7 @@ import type { AuthRequest } from "../middleware/auth.js";
 import { AppError } from "./http.js";
 import { prisma } from "./prisma.js";
 
-export type ErpBranchScope = string[] | null;
+export type ErpBranchScope = string[];
 
 const denied = () => new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
 
