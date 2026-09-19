@@ -74,7 +74,7 @@ export function circularRecipientConstraints(scope: CommunicationScope, now = ne
     AND: [
       audience(scope),
       ...branches(scope),
-      { OR: [{ publishedAt: null }, { publishedAt: { lte: now } }] },
+      { publishedAt: { not: null, lte: now } },
       { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
     ],
   };

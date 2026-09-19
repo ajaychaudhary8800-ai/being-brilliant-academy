@@ -123,4 +123,18 @@ export function assertThreadMember(member: { userId: string } | null, thread: { 
   if (!member || !thread || thread.isArchived || thread.deletedAt) throw new AppError(404, "THREAD_NOT_FOUND", "Thread not found");
 }
 
+export function participantMessageUpdate(
+  message: { senderId: string; recipientId: string },
+  participantId: string,
+  input: { read?: boolean; archived?: boolean },
+  now = new Date(),
+) {
+  if (message.senderId === participantId) return input.archived === undefined ? {} : { senderArchived: input.archived };
+  if (message.recipientId === participantId) return {
+    ...(input.archived === undefined ? {} : { recipientArchived: input.archived }),
+    ...(input.read ? { readAt: now } : {}),
+  };
+  throw new AppError(404, "NOT_FOUND", "Message not found");
+}
+
 export { administratorRoles, portalRoles };
