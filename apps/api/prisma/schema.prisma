@@ -1359,7 +1359,7 @@ model Branch {
   organizationId        String                   @default("org_default")
   organization          Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   id                    String                   @id @default(cuid())
-  branchCode            String                   @unique @map("code")
+  branchCode            String                   @map("code")
   branchName            String                   @map("name")
   address               String?
   city                  String?
@@ -1426,6 +1426,7 @@ model Branch {
   updatedAt             DateTime                 @updatedAt
 
   @@unique([organizationId, id])
+  @@unique([organizationId, branchCode], map: "Branch_organizationId_code_key")
   @@index([organizationId])
 }
 
