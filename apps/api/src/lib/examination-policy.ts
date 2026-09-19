@@ -52,9 +52,10 @@ export function assertStudentExaminationPublished(status: ExaminationStatus) {
   if (!publishedStatuses.includes(status)) throw new AppError(403, "EXAMINATION_UNPUBLISHED", "This examination is not published for student access");
 }
 
-export function assertQuestionPaperAvailable(status: ExaminationStatus, publishedAt: Date | null, now = new Date()) {
+export function assertQuestionPaperAvailable(status: ExaminationStatus, publishedAt: Date | null, now = new Date(), examinationStartsAt?: Date) {
   assertStudentExaminationPublished(status);
-  if (!publishedAt || publishedAt > now) throw new AppError(403, "QUESTION_PAPER_UNPUBLISHED", "Question paper is not available yet");
+  const availableAt = examinationStartsAt && examinationStartsAt > (publishedAt ?? examinationStartsAt) ? examinationStartsAt : publishedAt;
+  if (!availableAt || availableAt > now) throw new AppError(403, "QUESTION_PAPER_UNPUBLISHED", "Question paper is not available yet");
 }
 
 export function examinationStart(exam: { examDate: Date; startMinute: number }) {
