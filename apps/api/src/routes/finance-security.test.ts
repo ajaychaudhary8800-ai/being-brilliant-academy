@@ -158,7 +158,7 @@ test("Accountant finance access is branch-scoped and read-only except collection
   const fees = await readFile(new URL("./admin-fees.ts", import.meta.url), "utf8");
   assert.match(finance, /allow\(Role\.SUPER_ADMIN, Role\.BRANCH_ADMIN, Role\.ACCOUNTANT\)/);
   assert.match(finance, /req\.auth\?\.role === Role\.ACCOUNTANT && req\.method !== "GET"/);
-  assert.match(finance, /Role\.ACCOUNTANT \? \(await prisma\.branchUser\.findMany/);
+  assert.match(finance, /prisma\.branchUser\.findMany\(\{[\s\S]*organizationId: org\(req\)[\s\S]*userId: id\(req\)/);
   assert.match(fees, /allow\(Role\.SUPER_ADMIN, Role\.BRANCH_ADMIN, Role\.ACCOUNTANT\)/);
   assert.match(fees, /req\.auth\?\.role === Role\.ACCOUNTANT/);
   assert.match(fees, /req\.method === "POST" && \/\^\\\/fees/);
