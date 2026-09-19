@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TeacherAllocationStatus } from "@prisma/client";
-import { certificateTeacherAllocationWhere, teacherOwnsExamination } from "./portal-student-resource-policy.js";
+import { certificateTeacherAllocationWhere, selectEligibleParentHomeworkChild, teacherOwnsExamination } from "./portal-student-resource-policy.js";
 
 test("report-card teacher access is limited to the examination owner", () => {
   assert.equal(teacherOwnsExamination("teacher-a", "teacher-a"), true);
@@ -64,4 +64,22 @@ test("unscoped certificates do not become teacher-visible by branch alone", () =
     batchId: null,
     effectiveAt,
   }), null);
+});
+
+
+test("parent homework authorization accepts any eligible active linked child instead of the first link only", () => {
+  const candidates = [
+    { student: { batchId: "batch-unrelated" }, enrollment: null },
+    { student: { batchId: "batch-target" }, enrollment: null },
+  ];
+  assert.equal(selectEligibleParentHomeworkChild(candidates, "batch-target"), candidates[1]);
+});
+
+test("parent homework authorization preserves historical eligibility after a child moves batches", () => {
+  const historical = { id: "enrollment-history" };
+  const candidates = [
+    { student: { batchId: "batch-current" }, enrollment: historical },
+  ];
+  assert.equal(selectEligibleParentHomeworkChild(candidates, "batch-old"), candidates[0]);
+  assert.equal(selectEligibleParentHomeworkChild([{ student: { batchId: "batch-other" }, enrollment: null }], "batch-old"), null);
 });
