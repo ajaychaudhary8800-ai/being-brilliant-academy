@@ -114,3 +114,10 @@ export function assertExaminationHistoricalFieldsEditable(activity: ExaminationH
     throw new AppError(409, "EXAMINATION_ACTIVITY_LOCKED", "Core examination fields cannot change after a paper is published or student activity exists");
   }
 }
+
+
+export function assertExaminationPublicationReady(input: { results: number; unfinishedAnswerSheets: number; ungeneratedResults: number }) {
+  if (!input.results) throw new AppError(409, "RESULTS_REQUIRED", "Generate or finalize examination results before publication");
+  if (input.unfinishedAnswerSheets) throw new AppError(409, "EVALUATIONS_INCOMPLETE", "All submitted answer sheets must be finalized before result publication");
+  if (input.ungeneratedResults) throw new AppError(409, "RESULTS_NOT_GENERATED", "Generate examination results for the complete roster before publication");
+}
