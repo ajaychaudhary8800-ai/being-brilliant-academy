@@ -1,9 +1,9 @@
 import "express-async-errors";
-import { Gender, Prisma, Role, StudentAcademicEnrollmentSource, StudentAcademicEnrollmentStatus, StudentStatus } from "@prisma/client";
+import { Gender, Prisma, Role, StudentAcademicEnrollmentSource, StudentAcademicEnrollmentStatus, StudentAcademicTransitionType, StudentStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { Router } from "express";
 import { z } from "zod";
-import { academicEnrollmentInclude, academicPlacementConflict, assertAcademicProjectionConsistent, changeActiveEnrollmentRollNo, closeActiveAcademicEnrollment, createActiveAcademicEnrollment, getActiveAcademicEnrollment, normalizeAcademicRollNumber, resolveAuthoritativeBatchTuple, runSerializableAcademicPlacement, synchronizeStudentAcademicProjection, type AcademicPlacementDb } from "../lib/academic-placement.js";
+import { academicEnrollmentInclude, academicPlacementConflict, assertAcademicProjectionConsistent, changeActiveEnrollmentRollNo, closeActiveAcademicEnrollment, createActiveAcademicEnrollment, getActiveAcademicEnrollment, normalizeAcademicRollNumber, resolveAuthoritativeBatchTuple, runSerializableAcademicPlacement, synchronizeStudentAcademicProjection, transitionStudentAcademicPlacement, type AcademicPlacementDb } from "../lib/academic-placement.js";
 import { AppError } from "../lib/http.js";
 import { institutionCalendarDate, parseDateOnly } from "../lib/institution-time.js";
 import { logger } from "../lib/logger.js";
@@ -156,11 +156,38 @@ router.post("/students/import", async (req: AuthRequest, res) => {
 router.get("/students/:id/academic-history", async (req: AuthRequest, res) => {
   const query = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20), academicSessionId: z.string().cuid().optional(), status: z.nativeEnum(StudentAcademicEnrollmentStatus).optional() }).parse(req.query);
   const studentId = String(req.params.id);
-  if (!await prisma.studentProfile.findFirst({ where: { id: studentId }, select: { id: true } })) throw new AppError(404, "STUDENT_NOT_FOUND", "Student not found");
+  if (!await prisma.studentProfile.findFirst({ where: { organizationId: req.auth!.organizationId, id: studentId }, select: { id: true } })) throw new AppError(404, "STUDENT_NOT_FOUND", "Student not found");
   const branchIds = await assignedBranches(req);
-  const where = { studentId, ...(branchIds ? { branchId: { in: branchIds } } : {}), ...(query.academicSessionId ? { academicSessionId: query.academicSessionId } : {}), ...(query.status ? { status: query.status } : {}) };
+  const where = { organizationId: req.auth!.organizationId, studentId, ...(branchIds ? { branchId: { in: branchIds } } : {}), ...(query.academicSessionId ? { academicSessionId: query.academicSessionId } : {}), ...(query.status ? { status: query.status } : {}) };
   const [total, history] = await prisma.$transaction([prisma.studentAcademicEnrollment.count({ where }), prisma.studentAcademicEnrollment.findMany({ where, include: academicEnrollmentInclude, orderBy: [{ effectiveFrom: "desc" }, { createdAt: "desc" }], skip: (query.page - 1) * query.limit, take: query.limit })]);
   res.json({ data: history, meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
+});
+
+const transitionInput = z.object({ type: z.enum(["PROMOTED", "RETAINED", "TRANSFERRED", "LEFT", "GRADUATED"]), effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), targetBatchId: z.string().cuid().optional(), rollNo: z.string().trim().toUpperCase().min(1).max(30).optional(), reason: z.string().trim().max(2000).nullable().optional() });
+
+router.post("/students/:id/academic-transitions", async (req: AuthRequest, res) => {
+  const data = transitionInput.parse(req.body);
+  const result = await transitionStudentAcademicPlacement(prisma, { organizationId: req.auth!.organizationId, studentId: String(req.params.id), type: data.type, effectiveDate: parseDateOnly(data.effectiveDate), targetBatchId: data.targetBatchId, rollNo: data.rollNo, reason: data.reason, createdById: req.auth!.userId, authorizeBranchIds: tx => assignedBranches(req, tx) });
+  res.status(201).json({ data: result.transition });
+});
+
+router.get("/students/:id/academic-transitions", async (req: AuthRequest, res) => {
+  const studentId = String(req.params.id);
+  const branchIds = await assignedBranches(req);
+  const student = await prisma.studentProfile.findFirst({ where: { organizationId: req.auth!.organizationId, id: studentId }, select: { id: true } });
+  if (!student) throw new AppError(404, "STUDENT_NOT_FOUND", "Student not found");
+  const where = {
+    organizationId: req.auth!.organizationId,
+    studentId,
+    ...(branchIds ? {
+      OR: [
+        { type: { in: [StudentAcademicTransitionType.LEFT, StudentAcademicTransitionType.GRADUATED] }, fromEnrollment: { branchId: { in: branchIds } } },
+        { type: { in: [StudentAcademicTransitionType.PROMOTED, StudentAcademicTransitionType.RETAINED, StudentAcademicTransitionType.TRANSFERRED] }, fromEnrollment: { branchId: { in: branchIds } }, toEnrollment: { branchId: { in: branchIds } } },
+      ],
+    } : {}),
+  };
+  const data = await prisma.studentAcademicTransition.findMany({ where, select: { id: true, type: true, effectiveDate: true, reason: true, createdAt: true, fromEnrollment: { select: { id: true, branchId: true, courseId: true, batchId: true, academicSessionId: true, rollNo: true, status: true } }, toEnrollment: { select: { id: true, branchId: true, courseId: true, batchId: true, academicSessionId: true, rollNo: true, status: true } }, createdBy: { select: { id: true, name: true } } }, orderBy: [{ effectiveDate: "asc" }, { createdAt: "asc" }] });
+  res.json({ data });
 });
 
 router.get("/students/:id", async (req: AuthRequest, res) => {

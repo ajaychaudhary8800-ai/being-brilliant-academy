@@ -3,6 +3,7 @@ import {
   PrismaClient,
   StudentAcademicEnrollmentSource,
   StudentAcademicEnrollmentStatus,
+  StudentStatus,
 } from "@prisma/client";
 import { AppError } from "./http.js";
 
@@ -11,23 +12,24 @@ export type AcademicPlacementDb = Prisma.TransactionClient | PrismaClient;
 export async function runSerializableAcademicPlacement<Authorization, Result>(
   client: PrismaClient,
   authorize: (tx: Prisma.TransactionClient) => Promise<Authorization>,
-  work: (tx: Prisma.TransactionClient, authorization: Authorization) => Promise<Result>,
+  work: (tx: Prisma.TransactionClient, authorization: Authorization, attempt: number) => Promise<Result>,
   maxAttempts = 3,
+  conflictCode = "ACADEMIC_ENROLLMENT_CONFLICT",
 ) {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      return await client.$transaction(async tx => work(tx, await authorize(tx)), {
+      return await client.$transaction(async tx => work(tx, await authorize(tx), attempt), {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       });
     } catch (error) {
       const retryable = Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "P2034");
       if (!retryable) throw error;
       if (attempt === maxAttempts) {
-        throw new AppError(409, "ACADEMIC_ENROLLMENT_CONFLICT", "The academic placement changed; reload and try again");
+        throw new AppError(409, conflictCode, "The academic placement changed; reload and try again");
       }
     }
   }
-  throw new AppError(409, "ACADEMIC_ENROLLMENT_CONFLICT", "The academic placement changed; reload and try again");
+  throw new AppError(409, conflictCode, "The academic placement changed; reload and try again");
 }
 
 export const academicEnrollmentInclude = {
@@ -336,4 +338,79 @@ export function academicPlacementConflict(error: unknown) {
   }
   if (!target.some(field => field === "batchId" || field === "rollNo" || field.includes("btrim(rollNo)"))) return null;
   return new AppError(409, "ACADEMIC_ENROLLMENT_CONFLICT", "The academic placement conflicts with another active enrollment");
+}
+
+export type StudentAcademicTransitionInput = {
+  organizationId: string;
+  studentId: string;
+  type: "PROMOTED" | "RETAINED" | "TRANSFERRED" | "LEFT" | "GRADUATED";
+  effectiveDate: Date;
+  targetBatchId?: string;
+  rollNo?: string;
+  reason?: string | null;
+  createdById: string;
+  authorizedBranchIds?: string[] | null;
+  authorizeBranchIds?: (tx: Prisma.TransactionClient) => Promise<string[] | null>;
+};
+
+/** Atomically consume the student's authoritative ACTIVE placement and record its transition. */
+export async function transitionStudentAcademicPlacement(client: PrismaClient, input: StudentAcademicTransitionInput) {
+  let expectedSourceEnrollmentId: string | null = null;
+  return runSerializableAcademicPlacement(client, input.authorizeBranchIds ?? (async () => input.authorizedBranchIds ?? null), async (tx, branchIds) => {
+    const profile = await tx.studentProfile.findFirst({
+      where: { organizationId: input.organizationId, id: input.studentId },
+      select: { id: true, status: true, branchId: true, batchId: true, academicSessionId: true, rollNo: true },
+    });
+    if (!profile) throw new AppError(404, "STUDENT_NOT_FOUND", "Student not found");
+    let source;
+    if (expectedSourceEnrollmentId) {
+      source = await tx.studentAcademicEnrollment.findFirst({ where: { organizationId: input.organizationId, studentId: input.studentId, id: expectedSourceEnrollmentId, status: StudentAcademicEnrollmentStatus.ACTIVE }, include: academicEnrollmentInclude });
+      if (!source) throw new AppError(409, "ACADEMIC_TRANSITION_CONFLICT", "The student's academic placement changed; reload and retry");
+    } else {
+      const activeRows = await tx.studentAcademicEnrollment.findMany({
+        where: { organizationId: input.organizationId, studentId: input.studentId, status: StudentAcademicEnrollmentStatus.ACTIVE },
+        include: academicEnrollmentInclude,
+      });
+      if (activeRows.length === 0) throw new AppError(409, "NO_ACTIVE_ACADEMIC_ENROLLMENT", "Student has no active academic enrollment");
+      if (activeRows.length !== 1) throw new AppError(409, "ACADEMIC_ENROLLMENT_INTEGRITY_ERROR", "Student has multiple active academic enrollments");
+      source = activeRows[0];
+      expectedSourceEnrollmentId = source.id;
+    }
+    if (input.effectiveDate.getTime() < source.effectiveFrom.getTime()) throw new AppError(422, "INVALID_TRANSITION_DATE", "Transition date cannot precede the source enrollment");
+    if (branchIds && !branchIds.includes(source.branchId)) throw new AppError(403, "ACADEMIC_TRANSITION_FORBIDDEN", "Source branch access denied");
+
+    const hasDestination = input.type === "PROMOTED" || input.type === "RETAINED" || input.type === "TRANSFERRED";
+    if (hasDestination && !input.targetBatchId) throw new AppError(422, "INVALID_TRANSITION_TARGET", "A destination Batch is required for this transition");
+    if (!hasDestination && input.targetBatchId) throw new AppError(422, "INVALID_TRANSITION_TARGET", "This transition cannot have a destination Batch");
+
+    let target: Awaited<ReturnType<typeof resolveAuthoritativeBatchTuple>> | null = null;
+    if (input.targetBatchId) {
+      try {
+        target = await resolveAuthoritativeBatchTuple(tx, { organizationId: input.organizationId, batchId: input.targetBatchId, requireCourse: true });
+      } catch (error) {
+        if (error instanceof AppError && ["ACADEMIC_PLACEMENT_INCONSISTENT", "BATCH_COURSE_REQUIRED"].includes(error.code)) throw new AppError(422, "INVALID_TRANSITION_TARGET", "Destination Batch is invalid");
+        throw error;
+      }
+      const [batch, branch] = await Promise.all([
+        tx.batch.findFirst({ where: { organizationId: input.organizationId, id: target.id, status: "ACTIVE" }, select: { id: true } }),
+        tx.branch.findFirst({ where: { organizationId: input.organizationId, id: target.branchId, isActive: true }, select: { id: true } }),
+      ]);
+      if (!batch || !branch) throw new AppError(422, "INVALID_TRANSITION_TARGET", "Destination Batch must belong to an active branch and session");
+      if (branchIds && !branchIds.includes(target.branchId)) throw new AppError(403, "ACADEMIC_TRANSITION_FORBIDDEN", "Destination branch access denied");
+      if (input.type === "RETAINED" && (!source.courseId || source.courseId !== target.course!.id)) throw new AppError(422, "INVALID_TRANSITION_TARGET", "A retained student must remain in the same Course");
+      if (target.id === source.batchId && target.academicSessionId === source.academicSessionId && target.branchId === source.branchId) throw new AppError(422, "INVALID_TRANSITION_TARGET", "Destination must be a new academic placement");
+      const occupied = await tx.studentAcademicEnrollment.count({ where: { organizationId: input.organizationId, batchId: target.id, status: StudentAcademicEnrollmentStatus.ACTIVE, studentId: { not: input.studentId } } });
+      if (occupied >= target.capacity) throw new AppError(409, "BATCH_CAPACITY_REACHED", "The destination Batch is at full capacity");
+    }
+    if (target && !input.rollNo) throw new AppError(422, "INVALID_TRANSITION_TARGET", "A destination roll number is required");
+    const rollNo = target ? normalizeAcademicRollNumber(input.rollNo!) : null;
+    const closed = await tx.studentAcademicEnrollment.updateMany({ where: { organizationId: input.organizationId, id: source.id, status: StudentAcademicEnrollmentStatus.ACTIVE }, data: { status: StudentAcademicEnrollmentStatus.CLOSED, effectiveTo: input.effectiveDate } });
+    if (closed.count !== 1) throw new AppError(409, "ACADEMIC_TRANSITION_CONFLICT", "The student's academic placement changed; reload and retry");
+    const destination = target ? await createActiveAcademicEnrollment(tx, { organizationId: input.organizationId, studentId: input.studentId, branchId: target.branchId, batchId: target.id, courseId: target.course!.id, academicSessionId: target.academicSessionId, rollNo: rollNo!, source: input.type === "PROMOTED" ? StudentAcademicEnrollmentSource.PROMOTION : input.type === "RETAINED" ? StudentAcademicEnrollmentSource.RETENTION : StudentAcademicEnrollmentSource.TRANSFER, effectiveFrom: input.effectiveDate, createdById: input.createdById }) : null;
+    if (destination) await tx.studentProfile.update({ where: { organizationId_id: { organizationId: input.organizationId, id: input.studentId } }, data: { branchId: destination.branchId, batchId: destination.batchId, academicSessionId: destination.academicSessionId, academicSession: target!.session.name, className: target!.course!.title, rollNo: destination.rollNo, status: StudentStatus.ACTIVE } });
+    else await tx.studentProfile.update({ where: { organizationId_id: { organizationId: input.organizationId, id: input.studentId } }, data: { status: StudentStatus.INACTIVE } });
+    const transition = await tx.studentAcademicTransition.create({ data: { organizationId: input.organizationId, studentId: input.studentId, type: input.type, fromEnrollmentId: source.id, toEnrollmentId: destination?.id ?? null, effectiveDate: input.effectiveDate, reason: input.reason ?? null, createdById: input.createdById } });
+    await tx.auditLog.create({ data: { organizationId: input.organizationId, actorId: input.createdById, action: `STUDENT_ACADEMIC_${input.type}`, entity: "StudentAcademicTransition", entityId: transition.id, metadata: { studentId: input.studentId, fromEnrollmentId: source.id, toEnrollmentId: destination?.id ?? null } } });
+    return { transition, source, destination };
+  }, 3, "ACADEMIC_TRANSITION_CONFLICT");
 }

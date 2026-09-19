@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
-import { EnquiryPriority, EnquiryStatus, Gender, Prisma, Role, StudentAcademicEnrollmentSource, StudentAcademicEnrollmentStatus } from "@prisma/client";
+import { EnquiryPriority, EnquiryStatus, Gender, Prisma, Role, StudentAcademicEnrollmentSource, StudentAcademicEnrollmentStatus, StudentAcademicTransitionType } from "@prisma/client";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { env } from "../config.js";
@@ -19,6 +19,7 @@ const enabled = process.env.RUN_POSTGRES_INTEGRATION === "1";
 const barrier = (parties: number) => { let arrived = 0; let release!: () => void; const ready = new Promise<void>(resolve => { release = resolve; }); return () => { if (++arrived === parties) release(); return ready; }; };
 const unique = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 const serialization = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
+const foreignKey = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003";
 
 function assertSafeTarget() {
   const configured = process.env.TEST_DATABASE_URL;
@@ -53,9 +54,12 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
     createdUserIds.push(admin.id);
     const branchAdmin = await systemPrisma.user.create({ data: { organizationId, email: `ap-branch-admin-${key}@example.test`, passwordHash: "integration", name: "Branch Admin", role: Role.BRANCH_ADMIN } });
     createdUserIds.push(branchAdmin.id);
+    const branchAdminB = await systemPrisma.user.create({ data: { organizationId, email: `ap-branch-admin-b-${key}@example.test`, passwordHash: "integration", name: "Branch Admin B", role: Role.BRANCH_ADMIN } });
+    createdUserIds.push(branchAdminB.id);
     const otherAdmin = await systemPrisma.user.create({ data: { organizationId: otherOrganizationId, email: `ap-other-admin-${key}@example.test`, passwordHash: "integration", name: "Other Admin", role: Role.SUPER_ADMIN } });
     createdUserIds.push(otherAdmin.id);
     await systemPrisma.branchUser.create({ data: { organizationId, branchId: branch.id, userId: branchAdmin.id } });
+    await systemPrisma.branchUser.create({ data: { organizationId, branchId: branchB.id, userId: branchAdminB.id } });
     const withinTenant = <T>(work: () => Promise<T>) => tenantContext.run({ organizationId, userId: admin.id, role: Role.SUPER_ADMIN }, work);
     let studentSequence = 0;
     const createProfile = async (targetBatch = batch, rollNo?: string) => {
@@ -83,7 +87,8 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
     };
     let httpSequence = 0;
     const phoneBase = Number(BigInt(`0x${key.replaceAll("-", "").slice(0, 12)}`) % 8_000_000_000n) + 1_000_000_000;
-    const studentBody = (suffix: string, overrides: Record<string, unknown> = {}) => ({ admissionNo: `HTTP-${suffix}-${key.slice(0, 8)}`, rollNo: `H-${suffix}`, name: `HTTP Student ${suffix}`, gender: Gender.OTHER, dateOfBirth: "2010-01-01", fatherName: "Parent One", motherName: "Parent Two", mobile: `91${String(phoneBase + ++httpSequence).slice(-10).padStart(10, "1")}`, parentMobile: "9999999999", email: `http-${suffix}-${key}@example.test`, password: "Student@123", address: "Integration address", branchId: branch.id, batchId: batch.id, academicSession: session.name, admissionDate: session.startsAt.toISOString().slice(0, 10), ...overrides });
+    const uniqueFixtureMobile = () => `91${String(phoneBase + ++httpSequence).slice(-10).padStart(10, "1")}`;
+    const studentBody = (suffix: string, overrides: Record<string, unknown> = {}) => ({ admissionNo: `HTTP-${suffix}-${key.slice(0, 8)}`, rollNo: `H-${suffix}`, name: `HTTP Student ${suffix}`, gender: Gender.OTHER, dateOfBirth: "2010-01-01", fatherName: "Parent One", motherName: "Parent Two", mobile: uniqueFixtureMobile(), parentMobile: "9999999999", email: `http-${suffix}-${key}@example.test`, password: "Student@123", address: "Integration address", branchId: branch.id, batchId: batch.id, academicSession: session.name, admissionDate: session.startsAt.toISOString().slice(0, 10), ...overrides });
 
     await t.test("production student routes dual-write create/import/PATCH and preserve compatible reads", async () => {
       const admitted = await request("/students", "POST", studentBody("admit"));
@@ -162,7 +167,7 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
       assert.equal(await systemPrisma.studentAcademicEnrollment.count({ where: { organizationId, studentId: importedProfile!.id, source: StudentAcademicEnrollmentSource.IMPORT } }), 1);
       assert.equal(await systemPrisma.user.count({ where: { email: `http-import-bad-${key}@example.test` } }), 0);
 
-      const enquiry = await systemPrisma.enquiry.create({ data: { organizationId, enquiryNumber: `ENQ-${key}`, studentName: "Converted Student", parentName: "Converted Parent", mobile: "9888888888", email: `enquiry-${key}@example.test`, branchId: branch.id, courseId: course.id, className: "Stale client class", source: "Website", priority: EnquiryPriority.MEDIUM } });
+      const enquiry = await systemPrisma.enquiry.create({ data: { organizationId, enquiryNumber: `ENQ-${key}`, studentName: "Converted Student", parentName: "Converted Parent", mobile: uniqueFixtureMobile(), email: `enquiry-${key}@example.test`, branchId: branch.id, courseId: course.id, className: "Stale client class", source: "Website", priority: EnquiryPriority.MEDIUM } });
       const converted = await request(`/enquiries/${enquiry.id}/convert`, "POST", { admissionNo: `ENQ-${key.slice(0, 8)}`, rollNo: " enq-1 ", email: `converted-${key}@example.test`, password: "Student@123", batchId: batch.id, className: "Untrusted class" });
       assert.equal(converted.status, 201, JSON.stringify(converted.payload));
       assert.equal(converted.payload.data.className, course.title);
@@ -172,7 +177,7 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
       createdUserIds.push(converted.payload.data.user.id);
       assert.equal(await systemPrisma.studentAcademicEnrollment.count({ where: { organizationId, studentId: converted.payload.data.id, status: StudentAcademicEnrollmentStatus.ACTIVE } }), 1);
 
-      const conflictingEnquiry = await systemPrisma.enquiry.create({ data: { organizationId, enquiryNumber: `ENQ-CONFLICT-${key}`, studentName: "Conflicting Conversion", mobile: "9777777777", branchId: branch.id, source: "Website", priority: EnquiryPriority.MEDIUM } });
+      const conflictingEnquiry = await systemPrisma.enquiry.create({ data: { organizationId, enquiryNumber: `ENQ-CONFLICT-${key}`, studentName: "Conflicting Conversion", mobile: uniqueFixtureMobile(), branchId: branch.id, source: "Website", priority: EnquiryPriority.MEDIUM } });
       const conflictingEmail = `converted-conflict-${key}@example.test`;
       const conflictingConversion = await request(`/enquiries/${conflictingEnquiry.id}/convert`, "POST", { admissionNo: `EC-${key.slice(0, 8)}`, rollNo: "enq-1", email: conflictingEmail, password: "Student@123", batchId: batch.id });
       assert.equal(conflictingConversion.status, 409, JSON.stringify(conflictingConversion.payload));
@@ -264,6 +269,104 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
       assert.equal(projection!.rollNo, activeRows[0]!.rollNo);
     });
 
+    await t.test("promotion closes the source enrollment and records an immutable transition", async () => {
+      const student = await createProfile(batch, "PROMO-18");
+      await systemPrisma.studentAcademicEnrollment.create({ data: activeData(student.id, batch, "PROMO-18") });
+      const moved = await request(`/students/${student.id}/academic-transitions`, "POST", { type: "PROMOTED", effectiveDate: "2027-04-01", targetBatchId: batchB.id, rollNo: "07", reason: "Completed academic year" });
+      assert.equal(moved.status, 201, JSON.stringify(moved.payload));
+      assert.equal(moved.payload.data.type, "PROMOTED");
+      const rows = await systemPrisma.studentAcademicEnrollment.findMany({ where: { organizationId, studentId: student.id }, orderBy: { createdAt: "asc" } });
+      assert.equal(rows.length, 2);
+      assert.equal(rows[0]!.status, StudentAcademicEnrollmentStatus.CLOSED);
+      assert.equal(rows[0]!.effectiveTo!.toISOString().slice(0, 10), "2027-04-01");
+      assert.equal(rows[1]!.status, StudentAcademicEnrollmentStatus.ACTIVE);
+      assert.equal(rows[1]!.batchId, batchB.id);
+      assert.equal(rows[1]!.rollNo, "07");
+      const transition = await systemPrisma.studentAcademicTransition.findUnique({ where: { id: moved.payload.data.id } });
+      assert.equal(transition!.fromEnrollmentId, rows[0]!.id);
+      assert.equal(transition!.toEnrollmentId, rows[1]!.id);
+      const projection = await systemPrisma.studentProfile.findUnique({ where: { id: student.id } });
+      assert.equal(projection!.batchId, batchB.id);
+      const history = await request(`/students/${student.id}/academic-transitions`, "GET", undefined);
+      assert.equal(history.status, 200, JSON.stringify(history.payload));
+      assert.equal(history.payload.data.length, 1);
+      const sourceOnlyHistory = await request(`/students/${student.id}/academic-transitions`, "GET", undefined, branchAdmin);
+      assert.equal(sourceOnlyHistory.status, 200, JSON.stringify(sourceOnlyHistory.payload));
+      assert.equal(sourceOnlyHistory.payload.data.length, 0);
+      const destinationOnlyHistory = await request(`/students/${student.id}/academic-transitions`, "GET", undefined, branchAdminB);
+      assert.equal(destinationOnlyHistory.status, 200, JSON.stringify(destinationOnlyHistory.payload));
+      assert.equal(destinationOnlyHistory.payload.data.length, 0);
+      await systemPrisma.branchUser.create({ data: { organizationId, branchId: branch.id, userId: branchAdminB.id } });
+      const bothBranchesHistory = await request(`/students/${student.id}/academic-transitions`, "GET", undefined, branchAdminB);
+      assert.equal(bothBranchesHistory.status, 200, JSON.stringify(bothBranchesHistory.payload));
+      assert.equal(bothBranchesHistory.payload.data.length, 1);
+    });
+
+    await t.test("concurrent transitions from one source enrollment have one authoritative winner", async () => {
+      const student = await createProfile(batch, "PROMO-RACE");
+      await systemPrisma.studentAcademicEnrollment.create({ data: activeData(student.id, batch, "PROMO-RACE") });
+      const results = await Promise.all([
+        request(`/students/${student.id}/academic-transitions`, "POST", { type: "PROMOTED", effectiveDate: "2027-04-01", targetBatchId: batchB.id, rollNo: "RACE-B" }),
+        request(`/students/${student.id}/academic-transitions`, "POST", { type: "TRANSFERRED", effectiveDate: "2027-04-01", targetBatchId: batchC.id, rollNo: "RACE-C" }),
+      ]);
+      assert.equal(results.filter(result => result.status === 201).length, 1);
+      assert.equal(results.filter(result => result.status === 409).length, 1);
+      const loser = results.find(result => result.status === 409)!;
+      assert.equal(loser.payload.error.code, "ACADEMIC_TRANSITION_CONFLICT");
+      const transitions = await systemPrisma.studentAcademicTransition.findMany({ where: { organizationId, studentId: student.id } });
+      assert.equal(transitions.length, 1);
+      const rows = await systemPrisma.studentAcademicEnrollment.findMany({ where: { organizationId, studentId: student.id }, orderBy: { createdAt: "asc" } });
+      assert.equal(rows.filter(row => row.status === StudentAcademicEnrollmentStatus.CLOSED).length, 1);
+      const activeRows = rows.filter(row => row.status === StudentAcademicEnrollmentStatus.ACTIVE);
+      assert.equal(activeRows.length, 1);
+      const winner = results.find(result => result.status === 201)!;
+      assert.equal(activeRows[0]!.id, transitions[0]!.toEnrollmentId);
+      assert.equal(activeRows[0]!.batchId, winner.payload.data.type === "PROMOTED" ? batchB.id : batchC.id);
+      assert.equal(rows.length, 2);
+      const projection = await systemPrisma.studentProfile.findUnique({ where: { id: student.id } });
+      assert.equal(projection!.batchId, activeRows[0]!.batchId);
+      assert.equal(await systemPrisma.studentAcademicEnrollment.count({ where: { organizationId, studentId: student.id, status: StudentAcademicEnrollmentStatus.ACTIVE } }), 1);
+    });
+
+    await t.test("transition database constraints protect type, student identity and immutability", async () => {
+      const studentA = await createProfile(batch, "DB-TRANS-A");
+      const studentB = await createProfile(batch, "DB-TRANS-B");
+      const enrollmentA = await systemPrisma.studentAcademicEnrollment.create({ data: activeData(studentA.id, batch, "DB-TRANS-A") });
+      const enrollmentB = await systemPrisma.studentAcademicEnrollment.create({ data: activeData(studentB.id, batchC, "DB-TRANS-B") });
+      const destination = await systemPrisma.studentAcademicEnrollment.create({ data: { ...activeData(studentA.id, batchB, "DB-TRANS-A-DEST"), status: StudentAcademicEnrollmentStatus.CLOSED, effectiveTo: new Date("2027-04-01") } });
+      const base = { organizationId, studentId: studentA.id, effectiveDate: new Date("2027-04-01"), createdById: admin.id, fromEnrollmentId: enrollmentA.id };
+      await assert.rejects(systemPrisma.studentAcademicTransition.create({ data: { ...base, type: StudentAcademicTransitionType.PROMOTED, toEnrollmentId: null } }));
+      await assert.rejects(systemPrisma.studentAcademicTransition.create({ data: { ...base, type: StudentAcademicTransitionType.LEFT, toEnrollmentId: destination.id } }));
+      await assert.rejects(systemPrisma.studentAcademicTransition.create({ data: { ...base, type: StudentAcademicTransitionType.PROMOTED, toEnrollmentId: enrollmentA.id } }));
+      await assert.rejects(systemPrisma.studentAcademicTransition.create({ data: { ...base, type: StudentAcademicTransitionType.LEFT, fromEnrollmentId: enrollmentB.id, toEnrollmentId: null } }), foreignKey);
+      await assert.rejects(systemPrisma.studentAcademicTransition.create({ data: { ...base, type: StudentAcademicTransitionType.PROMOTED, toEnrollmentId: enrollmentB.id } }), foreignKey);
+      const transition = await systemPrisma.studentAcademicTransition.create({ data: { ...base, type: StudentAcademicTransitionType.PROMOTED, toEnrollmentId: destination.id } });
+      await assert.rejects(systemPrisma.studentAcademicTransition.update({ where: { id: transition.id }, data: { reason: "tampered" } }));
+      await assert.rejects(systemPrisma.studentAcademicTransition.delete({ where: { id: transition.id } }));
+    });
+
+    await t.test("Batch capacity counts only authoritative ACTIVE enrollments", async () => {
+      const capacityBatch = await systemPrisma.batch.create({ data: { organizationId, name: "Capacity Batch", code: `AP-${key}-CAPACITY`, branchId: branch.id, courseId: course.id, academicSession: session.name, academicSessionId: session.id, startsAt: session.startsAt, capacity: 1 } });
+      const previous = await createProfile(capacityBatch, "CAPACITY-LEFT");
+      await systemPrisma.studentAcademicEnrollment.create({ data: activeData(previous.id, capacityBatch, "CAPACITY-LEFT") });
+      const left = await request(`/students/${previous.id}/academic-transitions`, "POST", { type: "LEFT", effectiveDate: "2027-04-01" });
+      assert.equal(left.status, 201, JSON.stringify(left.payload));
+      const mover = await createProfile(batch, "CAPACITY-MOVER");
+      await systemPrisma.studentAcademicEnrollment.create({ data: activeData(mover.id, batch, "CAPACITY-MOVER") });
+      const moved = await request(`/students/${mover.id}/academic-transitions`, "POST", { type: "TRANSFERRED", effectiveDate: "2027-04-01", targetBatchId: capacityBatch.id, rollNo: "CAPACITY-NEW" });
+      assert.equal(moved.status, 201, JSON.stringify(moved.payload));
+      assert.equal(await systemPrisma.studentAcademicEnrollment.count({ where: { organizationId, batchId: capacityBatch.id, status: StudentAcademicEnrollmentStatus.ACTIVE } }), 1);
+      const blocked = await createProfile(batch, "CAPACITY-BLOCKED");
+      await systemPrisma.studentAcademicEnrollment.create({ data: activeData(blocked.id, batch, "CAPACITY-BLOCKED") });
+      const rejected = await request(`/students/${blocked.id}/academic-transitions`, "POST", { type: "TRANSFERRED", effectiveDate: "2027-04-01", targetBatchId: capacityBatch.id, rollNo: "CAPACITY-BLOCKED-NEW" });
+      assert.equal(rejected.status, 409);
+      assert.equal(rejected.payload.error.code, "BATCH_CAPACITY_REACHED");
+      const leftProjection = await systemPrisma.studentProfile.findUnique({ where: { id: previous.id } });
+      assert.equal(leftProjection!.batchId, capacityBatch.id);
+      assert.equal(leftProjection!.status, "INACTIVE");
+      assert.equal((await systemPrisma.user.findUnique({ where: { id: previous.userId } }))!.isActive, true);
+    });
+
     await t.test("authorization revoked after a retryable attempt is re-read before retry mutation", async () => {
       const student = await createProfile(batch, "AUTH-RETRY");
       let attempts = 0;
@@ -297,6 +400,11 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
     if (server) await new Promise<void>(resolve => server!.close(() => resolve()));
     await systemPrisma.enquiryFollowUp.deleteMany({ where: { organizationId } });
     await systemPrisma.enquiry.deleteMany({ where: { organizationId } });
+    await systemPrisma.$transaction(async tx => {
+      await tx.$executeRawUnsafe('ALTER TABLE "StudentAcademicTransition" DISABLE TRIGGER "StudentAcademicTransition_immutable"');
+      await tx.studentAcademicTransition.deleteMany({ where: { organizationId } });
+      await tx.$executeRawUnsafe('ALTER TABLE "StudentAcademicTransition" ENABLE TRIGGER "StudentAcademicTransition_immutable"');
+    });
     await systemPrisma.studentAcademicEnrollment.deleteMany({ where: { organizationId } });
     await systemPrisma.auditLog.deleteMany({ where: { organizationId } });
     await systemPrisma.tenantAccessAudit.deleteMany({ where: { organizationId: { in: [organizationId, otherOrganizationId] } } });
