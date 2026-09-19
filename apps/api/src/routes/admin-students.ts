@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { Router } from "express";
 import { z } from "zod";
 import { academicEnrollmentInclude, academicPlacementConflict, assertAcademicProjectionConsistent, changeActiveEnrollmentRollNo, closeActiveAcademicEnrollment, createActiveAcademicEnrollment, getActiveAcademicEnrollment, normalizeAcademicRollNumber, resolveAuthoritativeBatchTuple, runSerializableAcademicPlacement, synchronizeStudentAcademicProjection, transitionStudentAcademicPlacement, type AcademicPlacementDb } from "../lib/academic-placement.js";
+import { processBulkAcademicTransitions } from "../lib/bulk-academic-transitions.js";
 import { AppError } from "../lib/http.js";
 import { institutionCalendarDate, parseDateOnly } from "../lib/institution-time.js";
 import { logger } from "../lib/logger.js";
@@ -164,6 +165,24 @@ router.get("/students/:id/academic-history", async (req: AuthRequest, res) => {
 });
 
 const transitionInput = z.object({ type: z.enum(["PROMOTED", "RETAINED", "TRANSFERRED", "LEFT", "GRADUATED"]), effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), targetBatchId: z.string().cuid().optional(), rollNo: z.string().trim().toUpperCase().min(1).max(30).optional(), reason: z.string().trim().max(2000).nullable().optional() });
+
+router.post("/students/academic-transitions/bulk", async (req: AuthRequest, res) => {
+  const outcome = await processBulkAcademicTransitions(req.body, async item => {
+    const result = await transitionStudentAcademicPlacement(prisma, {
+      organizationId: req.auth!.organizationId,
+      studentId: item.studentId,
+      type: item.type,
+      effectiveDate: parseDateOnly(item.effectiveDate),
+      targetBatchId: item.targetBatchId,
+      rollNo: item.rollNo,
+      reason: item.reason,
+      createdById: req.auth!.userId,
+      authorizeBranchIds: tx => assignedBranches(req, tx),
+    });
+    return result.transition;
+  }, context => logger.error({ err: context.error, organizationId: req.auth!.organizationId, userId: req.auth!.userId, studentId: context.studentId, index: context.index }, "Unexpected bulk academic transition failure"));
+  res.status(outcome.status).json({ data: outcome.data });
+});
 
 router.post("/students/:id/academic-transitions", async (req: AuthRequest, res) => {
   const data = transitionInput.parse(req.body);

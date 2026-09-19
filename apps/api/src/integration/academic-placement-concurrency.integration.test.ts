@@ -367,6 +367,47 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
       assert.equal((await systemPrisma.user.findUnique({ where: { id: previous.userId } }))!.isActive, true);
     });
 
+    await t.test("bulk transitions are ordered, independent and capacity-safe", async () => {
+      const bulkTarget = await systemPrisma.batch.create({ data: { organizationId, name: "Bulk Target", code: `AP-${key}-BULK`, branchId: branch.id, courseId: course.id, academicSession: session.name, academicSessionId: session.id, startsAt: session.startsAt, capacity: 2 } });
+      const students = await Promise.all(["BULK-1", "BULK-2", "BULK-3"].map(async rollNo => {
+        const profile = await createProfile(batch, rollNo);
+        await systemPrisma.studentAcademicEnrollment.create({ data: activeData(profile.id, batch, rollNo) });
+        return profile;
+      }));
+      const response = await request("/students/academic-transitions/bulk", "POST", { items: students.map((student, index) => ({ studentId: student.id, type: "PROMOTED", effectiveDate: "2027-04-01", targetBatchId: bulkTarget.id, rollNo: `BULK-DEST-${index + 1}` })) });
+      assert.equal(response.status, 207, JSON.stringify(response.payload));
+      assert.deepEqual(response.payload.data.results.map((result: { index: number }) => result.index), [0, 1, 2]);
+      assert.deepEqual(response.payload.data.results.map((result: { ok: boolean }) => result.ok), [true, true, false]);
+      assert.equal(response.payload.data.results[2].error.code, "BATCH_CAPACITY_REACHED");
+      assert.equal(response.payload.data.succeeded, 2);
+      assert.equal(response.payload.data.failed, 1);
+      assert.equal(await systemPrisma.studentAcademicTransition.count({ where: { organizationId, studentId: { in: students.map(student => student.id) } } }), 2);
+      assert.equal(await systemPrisma.studentAcademicEnrollment.count({ where: { organizationId, batchId: bulkTarget.id, status: StudentAcademicEnrollmentStatus.ACTIVE } }), 2);
+      assert.equal(await systemPrisma.studentAcademicEnrollment.count({ where: { organizationId, studentId: students[2]!.id, batchId: batch.id, status: StudentAcademicEnrollmentStatus.ACTIVE } }), 1);
+      const projections = await systemPrisma.studentProfile.findMany({ where: { organizationId, id: { in: students.map(student => student.id) } }, select: { id: true, batchId: true }, orderBy: { admissionNo: "asc" } });
+      assert.equal(projections.filter(profile => profile.batchId === bulkTarget.id).length, 2);
+      assert.equal(projections.filter(profile => profile.batchId === batch.id).length, 1);
+    });
+
+    await t.test("bulk transitions enforce branch authorization per item and continue safely", async () => {
+      const authTarget = await systemPrisma.batch.create({ data: { organizationId, name: "Authorized Bulk Target", code: `AP-${key}-AUTH-BULK`, branchId: branch.id, courseId: course.id, academicSession: session.name, academicSessionId: session.id, startsAt: session.startsAt, capacity: 10 } });
+      const authorized = await createProfile(batch, "BULK-AUTHORIZED");
+      await systemPrisma.studentAcademicEnrollment.create({ data: activeData(authorized.id, batch, "BULK-AUTHORIZED") });
+      const unauthorized = await createProfile(batchB, "BULK-UNAUTHORIZED");
+      await systemPrisma.studentAcademicEnrollment.create({ data: activeData(unauthorized.id, batchB, "BULK-UNAUTHORIZED") });
+      const response = await request("/students/academic-transitions/bulk", "POST", { items: [
+        { studentId: authorized.id, type: "TRANSFERRED", effectiveDate: "2027-04-01", targetBatchId: authTarget.id, rollNo: "BULK-AUTHORIZED-NEW" },
+        { studentId: unauthorized.id, type: "TRANSFERRED", effectiveDate: "2027-04-01", targetBatchId: authTarget.id, rollNo: "BULK-UNAUTHORIZED-NEW" },
+      ] }, branchAdmin);
+      assert.equal(response.status, 207, JSON.stringify(response.payload));
+      assert.equal(response.payload.data.results[0].ok, true);
+      assert.equal(response.payload.data.results[1].ok, false);
+      assert.equal(response.payload.data.results[1].error.code, "ACADEMIC_TRANSITION_FORBIDDEN");
+      assert.equal(await systemPrisma.studentAcademicTransition.count({ where: { organizationId, studentId: authorized.id } }), 1);
+      assert.equal(await systemPrisma.studentAcademicTransition.count({ where: { organizationId, studentId: unauthorized.id } }), 0);
+      assert.equal(await systemPrisma.studentAcademicEnrollment.count({ where: { organizationId, studentId: unauthorized.id, status: StudentAcademicEnrollmentStatus.ACTIVE, batchId: batchB.id } }), 1);
+    });
+
     await t.test("authorization revoked after a retryable attempt is re-read before retry mutation", async () => {
       const student = await createProfile(batch, "AUTH-RETRY");
       let attempts = 0;
