@@ -42,6 +42,7 @@ test("legacy ERP routers enforce BranchUser isolation and preserve Super Admin s
   patch((prisma as any).transportVehicle, "update", async ({ data }: any) => { transportUpdates += 1; return { id: id("14"), branchId: BRANCH_A, ...data }; });
   patch((prisma as any).transportVehicle, "delete", async () => { transportDeletes += 1; return {}; });
   patch((prisma as any).transportVehicleType, "findUnique", async () => ({ seatCapacity: 40 }));
+  patch((prisma as any).transportVehicleType, "findFirst", async ({ where }: any) => where.organizationId === ORGANIZATION ? ({ seatCapacity: 40 }) : null);
   patch((prisma as any).transportRoute, "findUnique", async () => ({ id: id("15"), branchId: BRANCH_A, vehicleId: id("14"), status: TransportStatus.ACTIVE }));
   patch((prisma as any).transportStop, "findMany", async () => [{ id: id("16"), branchId: BRANCH_A }, { id: id("17"), branchId: BRANCH_A }]);
   patch((prisma as any).transportRouteStop, "count", async () => 2);
@@ -69,6 +70,7 @@ test("legacy ERP routers enforce BranchUser isolation and preserve Super Admin s
   patch((prisma as any).libraryBook, "findUnique", async ({ where }: any) => ({ id: where.id, branchId: where.id === id("34") ? BRANCH_B : BRANCH_A, categoryId: id("35"), publisherId: null, isArchived: false, _count: { copies: 0, digitalResources: 0, purchases: 0, reservations: 0 } }));
   patch((prisma as any).libraryShelf, "create", async ({ data }: any) => { libraryCreates += 1; return { id: id("30"), ...data }; });
   patch((prisma as any).user, "findUnique", async () => ({ role: Role.TEACHER, isActive: true, studentProfile: null, teacherProfile: { branchId: BRANCH_B }, employee: null }));
+  patch((prisma as any).user, "findFirst", async ({ where }: any) => where.organizationId === ORGANIZATION ? ({ role: Role.TEACHER, isActive: true, studentProfile: null, teacherProfile: { branchId: BRANCH_B }, employee: null }) : null);
   patch((prisma as any).libraryMember, "findUnique", async () => ({ id: id("31"), branchId: BRANCH_A, active: true, borrowLimit: 2, loanDays: 7 }));
   patch((prisma as any).libraryBookCopy, "findUnique", async () => ({ id: id("32"), bookId: id("33"), status: LibraryCopyStatus.AVAILABLE, book: { branchId: BRANCH_B } }));
   patch((prisma as any).libraryLoan, "create", async () => { financialWrites += 1; return {}; });
