@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TeacherAllocationStatus } from "@prisma/client";
-import { certificateTeacherAllocationWhere, selectEligibleParentHomeworkChild, teacherOwnsExamination } from "./portal-student-resource-policy.js";
+import { CertificateStatus, StudentStatus, TeacherAllocationStatus } from "@prisma/client";
+import { assertActiveStudentPortalProfile, assertPortalCertificateDownloadable, certificateTeacherAllocationWhere, portalCertificateVisible, selectEligibleParentHomeworkChild, teacherOwnsExamination } from "./portal-student-resource-policy.js";
 
 test("report-card teacher access is limited to the examination owner", () => {
   assert.equal(teacherOwnsExamination("teacher-a", "teacher-a"), true);
@@ -82,4 +82,24 @@ test("parent homework authorization preserves historical eligibility after a chi
   ];
   assert.equal(selectEligibleParentHomeworkChild(candidates, "batch-old"), candidates[0]);
   assert.equal(selectEligibleParentHomeworkChild([{ student: { batchId: "batch-other" }, enrollment: null }], "batch-old"), null);
+});
+
+
+test("student portal dashboard requires an active StudentProfile", () => {
+  assert.doesNotThrow(() => assertActiveStudentPortalProfile(StudentStatus.ACTIVE));
+  for (const status of [StudentStatus.INACTIVE, StudentStatus.ARCHIVED]) {
+    assert.throws(() => assertActiveStudentPortalProfile(status), cause => (cause as { code?: string }).code === "STUDENT_PROFILE_INACTIVE");
+  }
+});
+
+test("portal certificate visibility excludes draft and revoked records", () => {
+  assert.equal(portalCertificateVisible(CertificateStatus.ISSUED), true);
+  assert.equal(portalCertificateVisible(CertificateStatus.ARCHIVED), true);
+  assert.equal(portalCertificateVisible(CertificateStatus.DRAFT), false);
+  assert.equal(portalCertificateVisible(CertificateStatus.REVOKED), false);
+  assert.doesNotThrow(() => assertPortalCertificateDownloadable(CertificateStatus.ISSUED));
+  assert.doesNotThrow(() => assertPortalCertificateDownloadable(CertificateStatus.ARCHIVED));
+  for (const status of [CertificateStatus.DRAFT, CertificateStatus.REVOKED]) {
+    assert.throws(() => assertPortalCertificateDownloadable(status), cause => (cause as { code?: string }).code === "CERTIFICATE_NOT_AVAILABLE");
+  }
 });
