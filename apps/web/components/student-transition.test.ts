@@ -45,6 +45,14 @@ test("transition UI waits for confirmation and detail consumes history APIs", ()
   assert.match(dialog, /placementRows\(destination, undefined, normalizeTransitionRollNo\(rollNo\)\)/);
   assert.doesNotMatch(dialog, /new Date\(\)\.toISOString\(\)\.slice\(0, 10\)/);
   assert.match(dialog, /querySelectorAll<HTMLElement>/);
+  assert.match(dialog, /role="dialog" aria-modal="true" aria-labelledby="student-transition-title"/);
+  assert.match(dialog, /aria-label="Close transition dialog"/);
+  assert.match(dialog, /headingRef\.current\?\.focus\(\)/);
+  assert.match(dialog, /openerRef\.current\.focus\(\)/);
+  assert.match(dialog, /if \(submitting\) return/);
+  assert.match(dialog, /if \(step === "review"\) setStep\("configure"\);/);
+  assert.match(dialog, /if \(hasDestination && batchesError\)/);
+  assert.match(dialog, /disabled=\{submitting \|\| batchesLoading \|\| Boolean\(batchesError\)\}/);
 
   const detail = readFileSync(fileURLToPath(new URL("../app/admin/students/[id]/page.tsx", import.meta.url)), "utf8");
   assert.match(detail, /academic-history/);
