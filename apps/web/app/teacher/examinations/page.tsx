@@ -4,5 +4,5 @@ import { AuthGate } from "../../../components/auth-provider";
 import { ExaminationWorkflowContent } from "../../../components/examination-workflow";
 
 export default function Page() {
-  return <AuthGate roles={["SUPER_ADMIN", "BRANCH_ADMIN"]}><ExaminationWorkflowContent /></AuthGate>;
+  return <AuthGate roles={["TEACHER"]}><ExaminationWorkflowContent teacherView/></AuthGate>;
 }

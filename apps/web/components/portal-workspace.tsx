@@ -2,10 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import {
-  Bell, BookOpen, CalendarDays, CheckCircle2, Clock3, Download, FileCheck2, GraduationCap,
-  IndianRupee, Loader2, LogOut, Mail, MapPin, NotebookPen, Search, Send, UserRound, Users,
-} from "lucide-react";
+import { Bell, BookOpen, CalendarDays, CheckCircle2, Clock3, Download, FileCheck2, GraduationCap, IndianRupee, Loader2, LogOut, Mail, MapPin, NotebookPen, Search, Send, UserRound, Users } from "lucide-react";
 import { AppRole, AuthGate, errorMessage, getAccessToken, useAuth } from "./auth-provider";
 import { openAuthenticatedDocument } from "./authenticated-download";
 import { documentAsBase64, validateDocumentFile } from "./document-upload";
@@ -18,40 +15,279 @@ import { StudentLmsWorkspace, TeacherLmsWorkspace } from "./portal-lms-workspace
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 type PortalRole = Extract<AppRole, "PARENT" | "STUDENT" | "TEACHER">;
 type Named = { id: string; name: string };
-type Notification = { id: string; title: string; body: string; createdAt: string; readAt: string | null };
-type Announcement = { id: string; title: string; body: string; publishedAt: string; requiresAcknowledgement: boolean; acknowledgedAt: string | null; author?: { name: string } };
-type Message = { id: string; subject: string; body: string; createdAt: string; sender: { id: string; name: string; role: string }; recipient: { id: string; name: string; role: string } };
-type Leave = { id: string; fromDate: string; toDate: string; reason: string; leaveType: string; halfDaySession: string | null; status: string; remarks: string | null; createdAt: string; legacyChildUnspecified: boolean; relationship: string | null; user: { name: string; role: string; studentProfile: { admissionNo: string; className: string; batch: { name: string; code: string; course?: { title: string } | null } } | null }; submittedBy: { name: string; role: string } | null };
+type Notification = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  readAt: string | null;
+};
+type Announcement = {
+  id: string;
+  title: string;
+  body: string;
+  publishedAt: string;
+  requiresAcknowledgement: boolean;
+  acknowledgedAt: string | null;
+  author?: { name: string };
+};
+type Message = {
+  id: string;
+  subject: string;
+  body: string;
+  createdAt: string;
+  sender: { id: string; name: string; role: string };
+  recipient: { id: string; name: string; role: string };
+};
+type Leave = {
+  id: string;
+  fromDate: string;
+  toDate: string;
+  reason: string;
+  leaveType: string;
+  halfDaySession: string | null;
+  status: string;
+  remarks: string | null;
+  createdAt: string;
+  legacyChildUnspecified: boolean;
+  relationship: string | null;
+  user: {
+    name: string;
+    role: string;
+    studentProfile: {
+      admissionNo: string;
+      className: string;
+      batch: { name: string; code: string; course?: { title: string } | null };
+    } | null;
+  };
+  submittedBy: { name: string; role: string } | null;
+};
 type Contact = { id: string; name: string; role: string };
-type CommonData = { announcements: Announcement[]; notifications: Notification[]; messages: Message[]; leaves: Leave[]; leaveChildren: ParentLeaveChild[]; regionalSettings: InstitutionRegionalSettings; contacts: Contact[] };
+type CommonData = {
+  announcements: Announcement[];
+  notifications: Notification[];
+  messages: Message[];
+  leaves: Leave[];
+  leaveChildren: ParentLeaveChild[];
+  regionalSettings: InstitutionRegionalSettings;
+  contacts: Contact[];
+};
 
-type StudentSubmission = { id: string; submittedAt: string; attachmentName: string | null; answerText: string | null; marksObtained: number | null; feedback: string | null; status: string; evaluatedAt: string | null };
-type StudentHomework = { id: string; title: string; description: string; type: string; assignedDate: string; dueDate: string; maximumMarks: number; status: string; attachmentName: string | null; hasAttachment: boolean; subject: Named; teacher: { id: string; user: { name: string } }; course: { id: string; title: string }; batch: Named; submission: StudentSubmission | null };
-type TimetableItem = { id: string; day: string; startMinute: number; endMinute: number; periodNumber: number; academicSession: string; subject: Named; teacher?: { id: string; user: { name: string } }; course: { id: string; title: string }; batch: Named; classroom: Named };
-type StudentExam = { id: string; name: string; type: string; status: string; examDate: string; startMinute: number; endMinute: number; maximumMarks: number; subject: Named; submission: { id: string; status: string; finalizedAt: string | null } | null; result: { id: string; marksObtained: number | null; percentage: number | null; grade: string | null; rank: number | null; status: string } | null };
-type Fee = { id: string; feeHead: string; totalPaise: number; discountPaise: number; finePaise: number; amountPaidPaise: number; dueDate: string; status: string; remarks: string | null; payments: { id: string; amountPaise: number; paymentDate: string; paymentMode: string; receiptNumber: string }[] };
-type AttendanceRecord = { id: string; date: string; status: string; remarks: string | null; batch: { id: string; name: string; course: { title: string } | null } };
+type StudentSubmission = {
+  id: string;
+  submittedAt: string;
+  attachmentName: string | null;
+  answerText: string | null;
+  marksObtained: number | null;
+  feedback: string | null;
+  status: string;
+  evaluatedAt: string | null;
+};
+type StudentHomework = {
+  id: string;
+  title: string;
+  description: string;
+  type: string;
+  assignedDate: string;
+  dueDate: string;
+  maximumMarks: number;
+  status: string;
+  attachmentName: string | null;
+  hasAttachment: boolean;
+  subject: Named;
+  teacher: { id: string; user: { name: string } };
+  course: { id: string; title: string };
+  batch: Named;
+  submission: StudentSubmission | null;
+};
+type TimetableItem = {
+  id: string;
+  day: string;
+  startMinute: number;
+  endMinute: number;
+  periodNumber: number;
+  academicSession: string;
+  subject: Named;
+  teacher?: { id: string; user: { name: string } };
+  course: { id: string; title: string };
+  batch: Named;
+  classroom: Named;
+};
+type StudentExam = {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  examDate: string;
+  startMinute: number;
+  endMinute: number;
+  maximumMarks: number;
+  subject: Named;
+  submission: { id: string; status: string; finalizedAt: string | null } | null;
+  result: {
+    id: string;
+    marksObtained: number | null;
+    percentage: number | null;
+    grade: string | null;
+    rank: number | null;
+    status: string;
+  } | null;
+};
+type Fee = {
+  id: string;
+  feeHead: string;
+  totalPaise: number;
+  discountPaise: number;
+  finePaise: number;
+  amountPaidPaise: number;
+  dueDate: string;
+  status: string;
+  remarks: string | null;
+  payments: {
+    id: string;
+    amountPaise: number;
+    paymentDate: string;
+    paymentMode: string;
+    receiptNumber: string;
+  }[];
+};
+type AttendanceRecord = {
+  id: string;
+  date: string;
+  status: string;
+  remarks: string | null;
+  batch: { id: string; name: string; course: { title: string } | null };
+};
 type StudentDashboard = {
   timeZone: string;
   locale: string;
-  profile: { name: string; admissionNo: string; rollNo: string; status: string; academicSession: string; branch: Named; course: Named; batch: Named };
-  attendance: { records: AttendanceRecord[]; summary: { total: number; present: number; absent: number; late: number; leave: number }; percentage: number };
+  profile: {
+    name: string;
+    admissionNo: string;
+    rollNo: string;
+    status: string;
+    academicSession: string;
+    branch: Named;
+    course: Named;
+    batch: Named;
+  };
+  attendance: {
+    records: AttendanceRecord[];
+    summary: {
+      total: number;
+      present: number;
+      absent: number;
+      late: number;
+      leave: number;
+    };
+    percentage: number;
+  };
   homework: { assignments: StudentHomework[] };
   timetable: TimetableItem[];
   examinations: StudentExam[];
   fees: Fee[];
 };
 
-type TeacherClass = { id: string; weeklyPeriods: number; effectiveFrom: string; effectiveTo: string | null; studentCount: number; branch: { id: string; branchName: string }; course: { id: string; title: string }; batch: Named; subject: Named; schedule: TimetableItem[] };
-type TeacherStudent = { id: string; attendanceTargetId: string; admissionNo: string; rollNo: string; status: string; name: string; email: string; phone: string | null; branch: Named; course: Named; batch: Named };
-type TeacherHomework = { id: string; title: string; description: string; type: string; assignedDate: string; dueDate: string; maximumMarks: number; status: string; attachmentName: string | null; hasAttachment: boolean; pendingEvaluation: number; branch: { id: string; branchName: string }; course: { id: string; title: string }; batch: Named; subject: Named; _count: { submissions: number } };
-type TeacherExam = { id: string; name: string; type: string; status: string; examDate: string; startMinute: number; endMinute: number; maximumMarks: number; branch: { id: string; branchName: string }; course: { id: string; title: string }; batch: Named; subject: Named; questionPaper: { id: string; fileName: string; publishedAt: string | null } | null; _count: { answerSheets: number; results: number } };
-type TeacherAttendance = { id: string; date: string; status: string; remarks: string | null; student: { name: string; studentProfile: { admissionNo: string } | null }; batch: { id: string; name: string; course: { title: string } | null } };
-type TeacherDashboard = { timeZone: string; locale: string; profile: { id: string; name: string; employeeNo: string; qualification: string | null; specialization: string | null; branch: Named }; myClasses: TeacherClass[]; timetable: TimetableItem[]; homework: TeacherHomework[]; examinations: TeacherExam[]; attendance: TeacherAttendance[]; students: TeacherStudent[] };
+type TeacherClass = {
+  id: string;
+  weeklyPeriods: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  studentCount: number;
+  branch: { id: string; branchName: string };
+  course: { id: string; title: string };
+  batch: Named;
+  subject: Named;
+  schedule: TimetableItem[];
+};
+type TeacherStudent = {
+  id: string;
+  attendanceTargetId: string;
+  admissionNo: string;
+  rollNo: string;
+  status: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  branch: Named;
+  course: Named;
+  batch: Named;
+};
+type TeacherHomework = {
+  id: string;
+  title: string;
+  description: string;
+  type: string;
+  assignedDate: string;
+  dueDate: string;
+  maximumMarks: number;
+  status: string;
+  attachmentName: string | null;
+  hasAttachment: boolean;
+  pendingEvaluation: number;
+  branch: { id: string; branchName: string };
+  course: { id: string; title: string };
+  batch: Named;
+  subject: Named;
+  _count: { submissions: number };
+};
+type TeacherExam = {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  examDate: string;
+  startMinute: number;
+  endMinute: number;
+  maximumMarks: number;
+  branch: { id: string; branchName: string };
+  course: { id: string; title: string };
+  batch: Named;
+  subject: Named;
+  questionPaper: {
+    id: string;
+    fileName: string;
+    publishedAt: string | null;
+  } | null;
+  _count: { answerSheets: number; results: number };
+};
+type TeacherAttendance = {
+  id: string;
+  date: string;
+  status: string;
+  remarks: string | null;
+  student: { name: string; studentProfile: { admissionNo: string } | null };
+  batch: { id: string; name: string; course: { title: string } | null };
+};
+type TeacherDashboard = {
+  timeZone: string;
+  locale: string;
+  profile: {
+    id: string;
+    name: string;
+    employeeNo: string;
+    qualification: string | null;
+    specialization: string | null;
+    branch: Named;
+  };
+  myClasses: TeacherClass[];
+  timetable: TimetableItem[];
+  homework: TeacherHomework[];
+  examinations: TeacherExam[];
+  attendance: TeacherAttendance[];
+  students: TeacherStudent[];
+};
 type ParentDashboard = { children: StudentDashboard[] };
 
 async function apiRequest(path: string, init?: RequestInit) {
-  const response = await fetch(`${API}${path}`, { ...init, headers: { Authorization: `Bearer ${getAccessToken() ?? ""}`, ...(init?.body ? { "Content-Type": "application/json" } : {}), ...init?.headers } });
+  const response = await fetch(`${API}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${getAccessToken() ?? ""}`,
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
+    },
+  });
   const json = await response.json().catch(() => null);
   if (!response.ok) throw new Error(json?.error?.message ?? "Request failed");
   return json;
@@ -59,7 +295,10 @@ async function apiRequest(path: string, init?: RequestInit) {
 
 const portalRequest = (path: string, init?: RequestInit) => apiRequest(`/portal${path}`, init);
 async function acknowledgeNotice(noticeId: string) {
-  const response = await fetch(`${API}/notices/${encodeURIComponent(noticeId)}/acknowledge`, { method: "POST", headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` } });
+  const response = await fetch(`${API}/notices/${encodeURIComponent(noticeId)}/acknowledge`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` },
+  });
   const json = await response.json().catch(() => null);
   if (!response.ok) {
     if (response.status === 401) throw new Error("Please sign in again to acknowledge this notice.");
@@ -69,15 +308,30 @@ async function acknowledgeNotice(noticeId: string) {
   }
   return json?.data as { readAt: string };
 }
-const readable = (value: string) => value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, letter => letter.toUpperCase());
+const readable = (value: string) =>
+  value
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 const shortDate = (value: string, locale?: string | null) => formatInstitutionDate(value, locale);
-const dateTime = (value: string) => new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(value));
+const dateTime = (value: string) =>
+  new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 const minute = (value: number) => `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 const money = (paise: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(paise / 100);
-const includes = (query: string, ...values: unknown[]) => !query || values.some(value => String(value ?? "").toLowerCase().includes(query.toLowerCase()));
+const includes = (query: string, ...values: unknown[]) =>
+  !query ||
+  values.some((value) =>
+    String(value ?? "")
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
 const todayName = (timeZone?: string | null) => institutionWeekday(new Date(), timeZone);
 export const portalCourseTitle = (course: { title: string | null } | null | undefined) => course?.title?.trim() || "Course not assigned";
-
 
 function Badge({ value }: { value: string }) {
   const positive = ["ACTIVE", "PRESENT", "PUBLISHED", "PAID", "EVALUATED", "RESULTS_PUBLISHED", "APPROVED"].includes(value);
@@ -86,26 +340,71 @@ function Badge({ value }: { value: string }) {
 }
 
 function Empty({ icon: Icon, children }: { icon: typeof BookOpen; children: string }) {
-  return <div className="rounded-2xl border border-dashed bg-white px-5 py-12 text-center text-slate-500 dark:bg-slate-900"><Icon className="mx-auto mb-3 text-slate-300"/><p>{children}</p></div>;
+  return (
+    <div className="rounded-2xl border border-dashed bg-white px-5 py-12 text-center text-slate-500 dark:bg-slate-900">
+      <Icon className="mx-auto mb-3 text-slate-300" />
+      <p>{children}</p>
+    </div>
+  );
 }
 
 function Metric({ icon: Icon, label, value, hint }: { icon: typeof BookOpen; label: string; value: string | number; hint: string }) {
-  return <article className="card p-5"><Icon className="text-brand-700"/><p className="mt-4 text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-2xl font-black">{value}</p><p className="mt-1 text-xs text-slate-500">{hint}</p></article>;
+  return (
+    <article className="card p-5">
+      <Icon className="text-brand-700" />
+      <p className="mt-4 text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="mt-1 text-2xl font-black">{value}</p>
+      <p className="mt-1 text-xs text-slate-500">{hint}</p>
+    </article>
+  );
 }
 
 function SectionTitle({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
-  return <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-xl font-black">{title}</h2><p className="mt-1 text-sm text-slate-500">{description}</p></div>{action}</div>;
+  return (
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h2 className="text-xl font-black">{title}</h2>
+        <p className="mt-1 text-sm text-slate-500">{description}</p>
+      </div>
+      {action}
+    </div>
+  );
 }
 
 function NotificationList({ items, markRead }: { items: Notification[]; markRead: (id: string) => Promise<void> }) {
   if (!items.length) return <Empty icon={Bell}>No notifications right now.</Empty>;
-  return <div className="space-y-3">{items.map(item => <article key={item.id} className={`rounded-2xl border bg-white p-5 dark:bg-slate-900 ${item.readAt ? "" : "border-brand-300 shadow-sm"}`}><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h3 className="font-bold">{item.title}</h3>{!item.readAt && <span className="h-2 w-2 rounded-full bg-brand-600" aria-label="Unread"/>}</div><p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{item.body}</p><p className="mt-2 text-xs text-slate-400">{dateTime(item.createdAt)}</p></div>{!item.readAt && <button className="rounded-lg border px-3 py-2 text-xs font-bold" onClick={() => void markRead(item.id)}>Mark read</button>}</div></article>)}</div>;
+  return (
+    <div className="space-y-3">
+      {items.map((item) => (
+        <article key={item.id} className={`rounded-2xl border bg-white p-5 dark:bg-slate-900 ${item.readAt ? "" : "border-brand-300 shadow-sm"}`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold">{item.title}</h3>
+                {!item.readAt && <span className="h-2 w-2 rounded-full bg-brand-600" aria-label="Unread" />}
+              </div>
+              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{item.body}</p>
+              <p className="mt-2 text-xs text-slate-400">{dateTime(item.createdAt)}</p>
+            </div>
+            {!item.readAt && (
+              <button className="rounded-lg border px-3 py-2 text-xs font-bold" onClick={() => void markRead(item.id)}>
+                Mark read
+              </button>
+            )}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
 }
 
 function AnnouncementList({ items, settings }: { items: Announcement[]; settings: InstitutionRegionalSettings }) {
   const [rows, setRows] = useState(items);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
+  const [actionError, setActionError] = useState<{
+    id: string;
+    message: string;
+  } | null>(null);
   useEffect(() => setRows(items), [items]);
   async function acknowledge(item: Announcement) {
     if (!item.requiresAcknowledgement || item.acknowledgedAt || busyId) return;
@@ -113,22 +412,129 @@ function AnnouncementList({ items, settings }: { items: Announcement[]; settings
     setActionError(null);
     try {
       const acknowledgement = await acknowledgeNotice(item.id);
-      setRows(current => current.map(row => row.id === item.id ? { ...row, acknowledgedAt: acknowledgement.readAt } : row));
+      setRows((current) => current.map((row) => (row.id === item.id ? { ...row, acknowledgedAt: acknowledgement.readAt } : row)));
     } catch (cause) {
-      setActionError({ id: item.id, message: cause instanceof Error ? cause.message : "Unable to acknowledge this notice. Please try again." });
+      setActionError({
+        id: item.id,
+        message: cause instanceof Error ? cause.message : "Unable to acknowledge this notice. Please try again.",
+      });
     } finally {
       setBusyId(null);
     }
   }
   if (!rows.length) return <Empty icon={Bell}>No announcements have been published.</Empty>;
-  return <div className="space-y-3">{rows.map(item => <article key={item.id} className="rounded-2xl border bg-white p-5 dark:bg-slate-900"><h3 className="font-bold">{item.title}</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600 dark:text-slate-300">{item.body}</p><p className="mt-3 text-xs text-slate-400">{item.author?.name ? `${item.author.name} · ` : ""}{formatInstitutionDateTime(item.publishedAt, settings)}</p>{item.requiresAcknowledgement && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-bold">{item.acknowledgedAt ? "Acknowledged" : "Acknowledgement required"}</p>{item.acknowledgedAt ? <p className="mt-1 text-xs">{formatInstitutionDateTime(item.acknowledgedAt, settings)}</p> : <button type="button" disabled={busyId !== null} className="btn mt-2 bg-brand-700 text-white" onClick={() => void acknowledge(item)}>{busyId === item.id && <Loader2 className="animate-spin" size={16}/>}Acknowledge</button>}{actionError?.id === item.id && busyId === null && <p role="alert" className="mt-2 text-sm text-red-700">{actionError.message}</p>}</div>}</article>)}</div>;
+  return (
+    <div className="space-y-3">
+      {rows.map((item) => (
+        <article key={item.id} className="rounded-2xl border bg-white p-5 dark:bg-slate-900">
+          <h3 className="font-bold">{item.title}</h3>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600 dark:text-slate-300">{item.body}</p>
+          <p className="mt-3 text-xs text-slate-400">
+            {item.author?.name ? `${item.author.name} · ` : ""}
+            {formatInstitutionDateTime(item.publishedAt, settings)}
+          </p>
+          {item.requiresAcknowledgement && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <p className="font-bold">{item.acknowledgedAt ? "Acknowledged" : "Acknowledgement required"}</p>
+              {item.acknowledgedAt ? (
+                <p className="mt-1 text-xs">{formatInstitutionDateTime(item.acknowledgedAt, settings)}</p>
+              ) : (
+                <button type="button" disabled={busyId !== null} className="btn mt-2 bg-brand-700 text-white" onClick={() => void acknowledge(item)}>
+                  {busyId === item.id && <Loader2 className="animate-spin" size={16} />}
+                  Acknowledge
+                </button>
+              )}
+              {actionError?.id === item.id && busyId === null && (
+                <p role="alert" className="mt-2 text-sm text-red-700">
+                  {actionError.message}
+                </p>
+              )}
+            </div>
+          )}
+        </article>
+      ))}
+    </div>
+  );
 }
 
 function MessageCenter({ items, contacts, reload }: { items: Message[]; contacts: Contact[]; reload: () => Promise<void> }) {
   const [form, setForm] = useState({ recipientId: "", subject: "", body: "" });
-  const [busy, setBusy] = useState(false); const [messageError, setMessageError] = useState("");
-  async function send(event: FormEvent) { event.preventDefault(); setBusy(true); setMessageError(""); try { await portalRequest("/messages", { method: "POST", body: JSON.stringify(form) }); setForm({ recipientId: "", subject: "", body: "" }); await reload(); } catch (cause) { setMessageError(errorMessage(cause)); } finally { setBusy(false); } }
-  return <div className="grid gap-5 lg:grid-cols-[.8fr_1.2fr]"><form onSubmit={send} className="card h-fit p-6"><Mail className="text-brand-700"/><h2 className="mt-3 text-xl font-black">New message</h2>{messageError && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{messageError}</p>}<label className="mt-4 block text-sm font-semibold">Recipient<select required className="field mt-1" value={form.recipientId} onChange={event => setForm({ ...form, recipientId: event.target.value })}><option value="">Choose recipient</option>{contacts.map(contact => <option key={contact.id} value={contact.id}>{contact.name} ({readable(contact.role)})</option>)}</select></label><label className="mt-3 block text-sm font-semibold">Subject<input required className="field mt-1" value={form.subject} onChange={event => setForm({ ...form, subject: event.target.value })}/></label><label className="mt-3 block text-sm font-semibold">Message<textarea required rows={5} className="field mt-1" value={form.body} onChange={event => setForm({ ...form, body: event.target.value })}/></label><button disabled={busy} className="btn mt-4 bg-brand-700 text-white">{busy ? <Loader2 className="animate-spin" size={16}/> : <Send size={16}/>}Send</button></form><section><SectionTitle title="Conversations" description="Your latest portal messages."/>{items.length ? <div className="space-y-3">{items.map(item => <article key={item.id} className="rounded-2xl border bg-white p-5 dark:bg-slate-900"><div className="flex flex-wrap justify-between gap-2"><h3 className="font-bold">{item.subject}</h3><span className="text-xs text-slate-400">{dateTime(item.createdAt)}</span></div><p className="mt-1 text-xs text-slate-500">{item.sender.name} → {item.recipient.name}</p><p className="mt-3 text-sm leading-6">{item.body}</p></article>)}</div> : <Empty icon={Mail}>No messages yet.</Empty>}</section></div>;
+  const [busy, setBusy] = useState(false);
+  const [messageError, setMessageError] = useState("");
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessageError("");
+    try {
+      await portalRequest("/messages", {
+        method: "POST",
+        body: JSON.stringify(form),
+      });
+      setForm({ recipientId: "", subject: "", body: "" });
+      await reload();
+    } catch (cause) {
+      setMessageError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="grid gap-5 lg:grid-cols-[.8fr_1.2fr]">
+      <form onSubmit={send} className="card h-fit p-6">
+        <Mail className="text-brand-700" />
+        <h2 className="mt-3 text-xl font-black">New message</h2>
+        {messageError && (
+          <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+            {messageError}
+          </p>
+        )}
+        <label className="mt-4 block text-sm font-semibold">
+          Recipient
+          <select required className="field mt-1" value={form.recipientId} onChange={(event) => setForm({ ...form, recipientId: event.target.value })}>
+            <option value="">Choose recipient</option>
+            {contacts.map((contact) => (
+              <option key={contact.id} value={contact.id}>
+                {contact.name} ({readable(contact.role)})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="mt-3 block text-sm font-semibold">
+          Subject
+          <input required className="field mt-1" value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} />
+        </label>
+        <label className="mt-3 block text-sm font-semibold">
+          Message
+          <textarea required rows={5} className="field mt-1" value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} />
+        </label>
+        <button disabled={busy} className="btn mt-4 bg-brand-700 text-white">
+          {busy ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+          Send
+        </button>
+      </form>
+      <section>
+        <SectionTitle title="Conversations" description="Your latest portal messages." />
+        {items.length ? (
+          <div className="space-y-3">
+            {items.map((item) => (
+              <article key={item.id} className="rounded-2xl border bg-white p-5 dark:bg-slate-900">
+                <div className="flex flex-wrap justify-between gap-2">
+                  <h3 className="font-bold">{item.subject}</h3>
+                  <span className="text-xs text-slate-400">{dateTime(item.createdAt)}</span>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {item.sender.name} → {item.recipient.name}
+                </p>
+                <p className="mt-3 text-sm leading-6">{item.body}</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <Empty icon={Mail}>No messages yet.</Empty>
+        )}
+      </section>
+    </div>
+  );
 }
 
 function LeaveSection({ role, items }: { role: PortalRole; items: Leave[] }) {
@@ -136,7 +542,14 @@ function LeaveSection({ role, items }: { role: PortalRole; items: Leave[] }) {
   const [rows, setRows] = useState(items);
   const [children, setChildren] = useState<ParentLeaveChild[]>([]);
   const [settings, setSettings] = useState<InstitutionRegionalSettings>({});
-  const [request, setRequest] = useState({ studentId: "", fromDate: "", toDate: "", reason: "", leaveType: "FULL_DAY", halfDaySession: "" });
+  const [request, setRequest] = useState({
+    studentId: "",
+    fromDate: "",
+    toDate: "",
+    reason: "",
+    leaveType: "FULL_DAY",
+    halfDaySession: "",
+  });
   const [busy, setBusy] = useState(false);
   const [loadingChildren, setLoadingChildren] = useState(role === "PARENT");
   const [leaveError, setLeaveError] = useState("");
@@ -144,137 +557,1518 @@ function LeaveSection({ role, items }: { role: PortalRole; items: Leave[] }) {
   useEffect(() => setRows(items), [items]);
   useEffect(() => {
     if (role !== "PARENT") return;
-    void portalRequest("/leaves").then(result => {
-      setRows(result.data);
-      setChildren(result.meta?.children ?? []);
-      setSettings({ timeZone: result.meta?.timeZone, locale: result.meta?.locale });
-    }).catch(cause => setLeaveError(errorMessage(cause))).finally(() => setLoadingChildren(false));
+    void portalRequest("/leaves")
+      .then((result) => {
+        setRows(result.data);
+        setChildren(result.meta?.children ?? []);
+        setSettings({
+          timeZone: result.meta?.timeZone,
+          locale: result.meta?.locale,
+        });
+      })
+      .catch((cause) => setLeaveError(errorMessage(cause)))
+      .finally(() => setLoadingChildren(false));
   }, [role]);
-  useEffect(() => setRequest(current => ({ ...current, studentId: parentLeaveSelection(children, current.studentId) })), [children]);
-  const selectedChild = children.find(child => child.studentId === request.studentId);
+  useEffect(
+    () =>
+      setRequest((current) => ({
+        ...current,
+        studentId: parentLeaveSelection(children, current.studentId),
+      })),
+    [children],
+  );
+  const selectedChild = children.find((child) => child.studentId === request.studentId);
   const oneDay = request.leaveType === "HALF_DAY" || request.leaveType === "SHORT_LEAVE";
   async function requestParentLeave(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setLeaveError(""); setLeaveNotice("");
+    event.preventDefault();
+    setBusy(true);
+    setLeaveError("");
+    setLeaveNotice("");
     try {
-      await portalRequest("/leaves", { method: "POST", body: JSON.stringify({ ...request, halfDaySession: request.halfDaySession || null }) });
-      setRequest(current => ({ studentId: parentLeaveSelection(children, current.studentId), fromDate: "", toDate: "", reason: "", leaveType: "FULL_DAY", halfDaySession: "" }));
+      await portalRequest("/leaves", {
+        method: "POST",
+        body: JSON.stringify({
+          ...request,
+          halfDaySession: request.halfDaySession || null,
+        }),
+      });
+      setRequest((current) => ({
+        studentId: parentLeaveSelection(children, current.studentId),
+        fromDate: "",
+        toDate: "",
+        reason: "",
+        leaveType: "FULL_DAY",
+        halfDaySession: "",
+      }));
       const result = await portalRequest("/leaves");
       setRows(result.data);
       setChildren(result.meta?.children ?? []);
-      setSettings({ timeZone: result.meta?.timeZone, locale: result.meta?.locale });
+      setSettings({
+        timeZone: result.meta?.timeZone,
+        locale: result.meta?.locale,
+      });
       setLeaveNotice("Leave request submitted for review.");
-    } catch (cause) { setLeaveError(errorMessage(cause)); } finally { setBusy(false); }
+    } catch (cause) {
+      setLeaveError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
   }
-  const requestPanel = role !== "PARENT" ? <section className="card h-fit p-6"><CalendarDays className="text-brand-700"/><h2 className="mt-3 text-xl font-black">Leave Center</h2><p className="mt-2 text-sm leading-6 text-slate-500">Apply for leave, attach supporting documents, cancel eligible requests and follow review decisions.</p><Link href="/portal/leaves" className="btn mt-4 bg-brand-700 text-white">Open Leave Center</Link></section>
-    : loadingChildren ? <section className="card grid min-h-48 place-items-center p-6"><div className="text-center"><Loader2 className="mx-auto animate-spin text-brand-700"/><p className="mt-3 text-sm text-slate-500">Loading linked students…</p></div></section>
-    : leaveError && children.length === 0 ? <section className="card h-fit p-6"><CalendarDays className="text-brand-700"/><h2 className="mt-3 text-xl font-black">Request leave</h2><p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{leaveError}</p></section>
-    : children.length === 0 ? <section className="card h-fit p-6"><CalendarDays className="text-brand-700"/><h2 className="mt-3 text-xl font-black">Request leave</h2><p className="mt-3 text-sm text-slate-500">No active students are linked to this account. Contact the {terms.institution.toLowerCase()} before submitting a leave request.</p><button disabled className="btn mt-4 bg-brand-700 text-white">Submit request</button></section>
-    : <form onSubmit={requestParentLeave} className="card h-fit p-6"><CalendarDays className="text-brand-700"/><h2 className="mt-3 text-xl font-black">Request leave</h2><p className="mt-2 text-sm leading-6 text-slate-500">Choose the child who needs leave. The institution will review the request.</p>{leaveNotice && <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{leaveNotice}</p>}{leaveError && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{leaveError}</p>}{children.length === 1 && selectedChild ? <div className="mt-4 rounded-xl border bg-slate-50 p-4"><p className="text-xs font-bold uppercase text-slate-400">Student</p><p className="mt-1 font-bold">{selectedChild.name}</p><dl className="mt-2 grid gap-1 text-sm text-slate-600"><div><dt className="inline font-semibold">Admission No: </dt><dd className="inline">{selectedChild.admissionNo}</dd></div><div><dt className="inline font-semibold">Batch/Class: </dt><dd className="inline">{parentLeaveAcademicLabel(selectedChild)}</dd></div><div><dt className="inline font-semibold">Relationship: </dt><dd className="inline">{selectedChild.relationship}</dd></div></dl></div> : <label className="mt-4 block text-sm font-semibold">Student<select required className="field mt-1" value={request.studentId} onChange={event => setRequest(current => ({ ...current, studentId: event.target.value }))}><option value="">Choose child</option>{children.map(child => <option key={child.studentId} value={child.studentId}>{parentLeaveChildSummary(child)}</option>)}</select></label>}<label className="mt-3 block text-sm font-semibold">Leave type<select className="field mt-1" value={request.leaveType} onChange={event => setRequest(current => ({ ...current, leaveType: event.target.value, halfDaySession: event.target.value === "HALF_DAY" ? current.halfDaySession : "", ...(event.target.value !== "FULL_DAY" && current.fromDate ? { toDate: current.fromDate } : {}) }))}><option value="FULL_DAY">Full-Day Leave</option><option value="HALF_DAY">Half-Day Leave</option><option value="SHORT_LEAVE">Short Leave</option></select></label>{request.leaveType === "HALF_DAY" && <label className="mt-3 block text-sm font-semibold">Half-day session<select required className="field mt-1" value={request.halfDaySession} onChange={event => setRequest(current => ({ ...current, halfDaySession: event.target.value }))}><option value="">Select session</option><option value="FIRST_HALF">First Half</option><option value="SECOND_HALF">Second Half</option></select></label>}<div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm font-semibold">From<input required type="date" className="field mt-1" value={request.fromDate} onChange={event => setRequest(current => ({ ...current, fromDate: event.target.value, ...(oneDay ? { toDate: event.target.value } : {}) }))}/></label><label className="text-sm font-semibold">To<input required type="date" min={request.fromDate || undefined} disabled={oneDay} className="field mt-1" value={request.toDate} onChange={event => setRequest(current => ({ ...current, toDate: event.target.value }))}/></label></div><label className="mt-3 block text-sm font-semibold">Reason<textarea required minLength={3} maxLength={2000} className="field mt-1" value={request.reason} onChange={event => setRequest(current => ({ ...current, reason: event.target.value }))}/></label><button disabled={busy || !request.studentId} className="btn mt-4 bg-brand-700 text-white">{busy ? "Submitting…" : "Submit request"}</button></form>;
-  return <div className="grid gap-5 lg:grid-cols-[.8fr_1.2fr]">{requestPanel}<section><SectionTitle title="Recent leave requests" description="Your current leave history and decision status."/>{rows.length ? <div className="space-y-3">{rows.map(item => <article key={item.id} className="rounded-2xl border bg-white p-5 dark:bg-slate-900"><div className="flex flex-wrap justify-between gap-3"><div>{role === "PARENT" && <div className="mb-2 text-sm text-slate-600">{item.legacyChildUnspecified ? <p className="font-bold text-amber-700">Child not recorded (legacy request)</p> : item.user.studentProfile ? <><p className="font-bold text-brand-700">{item.user.name}</p><p>Admission No: {item.user.studentProfile.admissionNo}</p><p>Batch/Class: {parentLeaveAcademicLabel(item.user.studentProfile)}</p></> : <p className="font-bold text-brand-700">{item.user.name}</p>}</div>}<h3 className="font-bold">{shortDate(item.fromDate, settings.locale)} – {shortDate(item.toDate, settings.locale)}</h3><p className="mt-1 text-xs text-slate-400">{readable(item.leaveType)}{item.halfDaySession ? ` · ${readable(item.halfDaySession)}` : ""} · submitted {formatInstitutionDateTime(item.createdAt, settings)}</p><p className="mt-2 text-sm text-slate-600">{item.reason}</p>{item.remarks && <p className="mt-2 text-sm text-slate-500">Review: {item.remarks}</p>}</div><Badge value={item.status}/></div></article>)}</div> : <Empty icon={CalendarDays}>No leave requests found.</Empty>}</section></div>;
+  const requestPanel =
+    role !== "PARENT" ? (
+      <section className="card h-fit p-6">
+        <CalendarDays className="text-brand-700" />
+        <h2 className="mt-3 text-xl font-black">Leave Center</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-500">Apply for leave, attach supporting documents, cancel eligible requests and follow review decisions.</p>
+        <Link href="/portal/leaves" className="btn mt-4 bg-brand-700 text-white">
+          Open Leave Center
+        </Link>
+      </section>
+    ) : loadingChildren ? (
+      <section className="card grid min-h-48 place-items-center p-6">
+        <div className="text-center">
+          <Loader2 className="mx-auto animate-spin text-brand-700" />
+          <p className="mt-3 text-sm text-slate-500">Loading linked students…</p>
+        </div>
+      </section>
+    ) : leaveError && children.length === 0 ? (
+      <section className="card h-fit p-6">
+        <CalendarDays className="text-brand-700" />
+        <h2 className="mt-3 text-xl font-black">Request leave</h2>
+        <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          {leaveError}
+        </p>
+      </section>
+    ) : children.length === 0 ? (
+      <section className="card h-fit p-6">
+        <CalendarDays className="text-brand-700" />
+        <h2 className="mt-3 text-xl font-black">Request leave</h2>
+        <p className="mt-3 text-sm text-slate-500">No active students are linked to this account. Contact the {terms.institution.toLowerCase()} before submitting a leave request.</p>
+        <button disabled className="btn mt-4 bg-brand-700 text-white">
+          Submit request
+        </button>
+      </section>
+    ) : (
+      <form onSubmit={requestParentLeave} className="card h-fit p-6">
+        <CalendarDays className="text-brand-700" />
+        <h2 className="mt-3 text-xl font-black">Request leave</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-500">Choose the child who needs leave. The institution will review the request.</p>
+        {leaveNotice && (
+          <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">
+            {leaveNotice}
+          </p>
+        )}
+        {leaveError && (
+          <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+            {leaveError}
+          </p>
+        )}
+        {children.length === 1 && selectedChild ? (
+          <div className="mt-4 rounded-xl border bg-slate-50 p-4">
+            <p className="text-xs font-bold uppercase text-slate-400">Student</p>
+            <p className="mt-1 font-bold">{selectedChild.name}</p>
+            <dl className="mt-2 grid gap-1 text-sm text-slate-600">
+              <div>
+                <dt className="inline font-semibold">Admission No: </dt>
+                <dd className="inline">{selectedChild.admissionNo}</dd>
+              </div>
+              <div>
+                <dt className="inline font-semibold">Batch/Class: </dt>
+                <dd className="inline">{parentLeaveAcademicLabel(selectedChild)}</dd>
+              </div>
+              <div>
+                <dt className="inline font-semibold">Relationship: </dt>
+                <dd className="inline">{selectedChild.relationship}</dd>
+              </div>
+            </dl>
+          </div>
+        ) : (
+          <label className="mt-4 block text-sm font-semibold">
+            Student
+            <select
+              required
+              className="field mt-1"
+              value={request.studentId}
+              onChange={(event) =>
+                setRequest((current) => ({
+                  ...current,
+                  studentId: event.target.value,
+                }))
+              }
+            >
+              <option value="">Choose child</option>
+              {children.map((child) => (
+                <option key={child.studentId} value={child.studentId}>
+                  {parentLeaveChildSummary(child)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="mt-3 block text-sm font-semibold">
+          Leave type
+          <select
+            className="field mt-1"
+            value={request.leaveType}
+            onChange={(event) =>
+              setRequest((current) => ({
+                ...current,
+                leaveType: event.target.value,
+                halfDaySession: event.target.value === "HALF_DAY" ? current.halfDaySession : "",
+                ...(event.target.value !== "FULL_DAY" && current.fromDate ? { toDate: current.fromDate } : {}),
+              }))
+            }
+          >
+            <option value="FULL_DAY">Full-Day Leave</option>
+            <option value="HALF_DAY">Half-Day Leave</option>
+            <option value="SHORT_LEAVE">Short Leave</option>
+          </select>
+        </label>
+        {request.leaveType === "HALF_DAY" && (
+          <label className="mt-3 block text-sm font-semibold">
+            Half-day session
+            <select
+              required
+              className="field mt-1"
+              value={request.halfDaySession}
+              onChange={(event) =>
+                setRequest((current) => ({
+                  ...current,
+                  halfDaySession: event.target.value,
+                }))
+              }
+            >
+              <option value="">Select session</option>
+              <option value="FIRST_HALF">First Half</option>
+              <option value="SECOND_HALF">Second Half</option>
+            </select>
+          </label>
+        )}
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="text-sm font-semibold">
+            From
+            <input
+              required
+              type="date"
+              className="field mt-1"
+              value={request.fromDate}
+              onChange={(event) =>
+                setRequest((current) => ({
+                  ...current,
+                  fromDate: event.target.value,
+                  ...(oneDay ? { toDate: event.target.value } : {}),
+                }))
+              }
+            />
+          </label>
+          <label className="text-sm font-semibold">
+            To
+            <input
+              required
+              type="date"
+              min={request.fromDate || undefined}
+              disabled={oneDay}
+              className="field mt-1"
+              value={request.toDate}
+              onChange={(event) =>
+                setRequest((current) => ({
+                  ...current,
+                  toDate: event.target.value,
+                }))
+              }
+            />
+          </label>
+        </div>
+        <label className="mt-3 block text-sm font-semibold">
+          Reason
+          <textarea
+            required
+            minLength={3}
+            maxLength={2000}
+            className="field mt-1"
+            value={request.reason}
+            onChange={(event) =>
+              setRequest((current) => ({
+                ...current,
+                reason: event.target.value,
+              }))
+            }
+          />
+        </label>
+        <button disabled={busy || !request.studentId} className="btn mt-4 bg-brand-700 text-white">
+          {busy ? "Submitting…" : "Submit request"}
+        </button>
+      </form>
+    );
+  return (
+    <div className="grid gap-5 lg:grid-cols-[.8fr_1.2fr]">
+      {requestPanel}
+      <section>
+        <SectionTitle title="Recent leave requests" description="Your current leave history and decision status." />
+        {rows.length ? (
+          <div className="space-y-3">
+            {rows.map((item) => (
+              <article key={item.id} className="rounded-2xl border bg-white p-5 dark:bg-slate-900">
+                <div className="flex flex-wrap justify-between gap-3">
+                  <div>
+                    {role === "PARENT" && (
+                      <div className="mb-2 text-sm text-slate-600">
+                        {item.legacyChildUnspecified ? (
+                          <p className="font-bold text-amber-700">Child not recorded (legacy request)</p>
+                        ) : item.user.studentProfile ? (
+                          <>
+                            <p className="font-bold text-brand-700">{item.user.name}</p>
+                            <p>Admission No: {item.user.studentProfile.admissionNo}</p>
+                            <p>Batch/Class: {parentLeaveAcademicLabel(item.user.studentProfile)}</p>
+                          </>
+                        ) : (
+                          <p className="font-bold text-brand-700">{item.user.name}</p>
+                        )}
+                      </div>
+                    )}
+                    <h3 className="font-bold">
+                      {shortDate(item.fromDate, settings.locale)} – {shortDate(item.toDate, settings.locale)}
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {readable(item.leaveType)}
+                      {item.halfDaySession ? ` · ${readable(item.halfDaySession)}` : ""} · submitted {formatInstitutionDateTime(item.createdAt, settings)}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-600">{item.reason}</p>
+                    {item.remarks && <p className="mt-2 text-sm text-slate-500">Review: {item.remarks}</p>}
+                  </div>
+                  <Badge value={item.status} />
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <Empty icon={CalendarDays}>No leave requests found.</Empty>
+        )}
+      </section>
+    </div>
+  );
 }
 
 function ProfilePanel({ name, phone, save, changePassword }: { name: string; phone: string; save: (value: { name: string; phone: string }) => Promise<void>; changePassword: (value: { currentPassword: string; newPassword: string }) => Promise<void> }) {
-  const [profile, setProfile] = useState({ name, phone }); const [password, setPassword] = useState({ currentPassword: "", newPassword: "" }); const [busy, setBusy] = useState(false); const [notice, setNotice] = useState(""); const [panelError, setPanelError] = useState("");
+  const [profile, setProfile] = useState({ name, phone });
+  const [password, setPassword] = useState({
+    currentPassword: "",
+    newPassword: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [panelError, setPanelError] = useState("");
   useEffect(() => setProfile({ name, phone }), [name, phone]);
-  async function run(action: () => Promise<void>, success: string) { setBusy(true); setPanelError(""); setNotice(""); try { await action(); setNotice(success); } catch (cause) { setPanelError(errorMessage(cause)); } finally { setBusy(false); } }
-  return <div className="grid gap-5 lg:grid-cols-2">{(notice || panelError) && <p role={panelError ? "alert" : undefined} className={`rounded-lg p-3 text-sm lg:col-span-2 ${panelError ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>{panelError || notice}</p>}<section className="card p-6"><UserRound className="text-brand-700"/><h2 className="mt-3 text-xl font-black">Profile</h2><label className="mt-4 block text-sm font-semibold">Name<input className="field mt-1" value={profile.name} onChange={event => setProfile({ ...profile, name: event.target.value })}/></label><label className="mt-3 block text-sm font-semibold">Mobile<input className="field mt-1" value={profile.phone} onChange={event => setProfile({ ...profile, phone: event.target.value })}/></label><button disabled={busy} className="btn mt-4 bg-brand-700 text-white" onClick={() => void run(() => save(profile), "Profile updated.")}>Save profile</button></section><section className="card p-6"><h2 className="text-xl font-black">Change password</h2><label className="mt-4 block text-sm font-semibold">Current password<input type="password" className="field mt-1" value={password.currentPassword} onChange={event => setPassword({ ...password, currentPassword: event.target.value })}/></label><label className="mt-3 block text-sm font-semibold">New password<input type="password" className="field mt-1" value={password.newPassword} onChange={event => setPassword({ ...password, newPassword: event.target.value })}/></label><button disabled={busy} className="btn mt-4 bg-brand-700 text-white" onClick={() => void run(async () => { await changePassword(password); setPassword({ currentPassword: "", newPassword: "" }); }, "Password updated.")}>Update password</button></section></div>;
+  async function run(action: () => Promise<void>, success: string) {
+    setBusy(true);
+    setPanelError("");
+    setNotice("");
+    try {
+      await action();
+      setNotice(success);
+    } catch (cause) {
+      setPanelError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="grid gap-5 lg:grid-cols-2">
+      {(notice || panelError) && (
+        <p role={panelError ? "alert" : undefined} className={`rounded-lg p-3 text-sm lg:col-span-2 ${panelError ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+          {panelError || notice}
+        </p>
+      )}
+      <section className="card p-6">
+        <UserRound className="text-brand-700" />
+        <h2 className="mt-3 text-xl font-black">Profile</h2>
+        <label className="mt-4 block text-sm font-semibold">
+          Name
+          <input className="field mt-1" value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} />
+        </label>
+        <label className="mt-3 block text-sm font-semibold">
+          Mobile
+          <input className="field mt-1" value={profile.phone} onChange={(event) => setProfile({ ...profile, phone: event.target.value })} />
+        </label>
+        <button disabled={busy} className="btn mt-4 bg-brand-700 text-white" onClick={() => void run(() => save(profile), "Profile updated.")}>
+          Save profile
+        </button>
+      </section>
+      <section className="card p-6">
+        <h2 className="text-xl font-black">Change password</h2>
+        <label className="mt-4 block text-sm font-semibold">
+          Current password
+          <input type="password" className="field mt-1" value={password.currentPassword} onChange={(event) => setPassword({ ...password, currentPassword: event.target.value })} />
+        </label>
+        <label className="mt-3 block text-sm font-semibold">
+          New password
+          <input type="password" className="field mt-1" value={password.newPassword} onChange={(event) => setPassword({ ...password, newPassword: event.target.value })} />
+        </label>
+        <button
+          disabled={busy}
+          className="btn mt-4 bg-brand-700 text-white"
+          onClick={() =>
+            void run(async () => {
+              await changePassword(password);
+              setPassword({ currentPassword: "", newPassword: "" });
+            }, "Password updated.")
+          }
+        >
+          Update password
+        </button>
+      </section>
+    </div>
+  );
 }
 
 function TeacherOverview({ data, common, open, markRead }: { data: TeacherDashboard; common: CommonData; open: (tab: string) => void; markRead: (id: string) => Promise<void> }) {
   const terms = useGroupTerminology();
-  const today = data.timetable.filter(item => item.day === todayName(data.timeZone)); const pending = data.homework.reduce((total, item) => total + item.pendingEvaluation, 0); const upcoming = data.examinations.filter(item => ["SCHEDULED", "COMPLETED"].includes(item.status)).length;
-  return <><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={Clock3} label={`Today's ${terms.courses.toLowerCase()}`} value={today.length} hint={today.length ? "Scheduled teaching periods" : `No ${terms.courses.toLowerCase()} scheduled today`}/><Metric icon={NotebookPen} label="Homework reviews" value={pending} hint="Submissions awaiting evaluation"/><Metric icon={FileCheck2} label={`Upcoming ${terms.assessments.toLowerCase()}`} value={upcoming} hint={`Assigned ${terms.assessments.toLowerCase()}`}/><Metric icon={Bell} label="Unread notifications" value={common.notifications.filter(item => !item.readAt).length} hint="Items needing your attention"/></section><div className="mt-7 grid gap-6 lg:grid-cols-2"><section><SectionTitle title="Today's schedule" description="Your teaching periods for today." action={<button onClick={() => open("classes")} className="text-sm font-bold text-brand-700">All {terms.courses.toLowerCase()}</button>}/>{today.length ? <div className="space-y-3">{today.map(item => <article key={item.id} className="rounded-2xl border bg-white p-4 dark:bg-slate-900"><div className="flex justify-between gap-3"><div><h3 className="font-bold">{item.subject.name}</h3><p className="text-sm text-slate-500">{item.course.title} · {item.batch.name}</p><p className="mt-2 text-sm"><MapPin className="mr-1 inline" size={14}/>{item.classroom.name}</p></div><p className="font-bold text-brand-700">{minute(item.startMinute)}–{minute(item.endMinute)}</p></div></article>)}</div> : <Empty icon={CalendarDays}>{`No ${terms.courses.toLowerCase()} scheduled today.`}</Empty>}</section><section><SectionTitle title="Recent notifications" description="Latest updates for your account." action={<button onClick={() => open("notifications")} className="text-sm font-bold text-brand-700">View all</button>}/><NotificationList items={common.notifications.slice(0, 4)} markRead={markRead}/></section></div></>;
+  const today = data.timetable.filter((item) => item.day === todayName(data.timeZone));
+  const pending = data.homework.reduce((total, item) => total + item.pendingEvaluation, 0);
+  const upcoming = data.examinations.filter((item) => ["SCHEDULED", "COMPLETED"].includes(item.status)).length;
+  return (
+    <>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric icon={Clock3} label={`Today's ${terms.courses.toLowerCase()}`} value={today.length} hint={today.length ? "Scheduled teaching periods" : `No ${terms.courses.toLowerCase()} scheduled today`} />
+        <Metric icon={NotebookPen} label="Homework reviews" value={pending} hint="Submissions awaiting evaluation" />
+        <Metric icon={FileCheck2} label={`Upcoming ${terms.assessments.toLowerCase()}`} value={upcoming} hint={`Assigned ${terms.assessments.toLowerCase()}`} />
+        <Metric icon={Bell} label="Unread notifications" value={common.notifications.filter((item) => !item.readAt).length} hint="Items needing your attention" />
+      </section>
+      <div className="mt-7 grid gap-6 lg:grid-cols-2">
+        <section>
+          <SectionTitle
+            title="Today's schedule"
+            description="Your teaching periods for today."
+            action={
+              <button onClick={() => open("classes")} className="text-sm font-bold text-brand-700">
+                All {terms.courses.toLowerCase()}
+              </button>
+            }
+          />
+          {today.length ? (
+            <div className="space-y-3">
+              {today.map((item) => (
+                <article key={item.id} className="rounded-2xl border bg-white p-4 dark:bg-slate-900">
+                  <div className="flex justify-between gap-3">
+                    <div>
+                      <h3 className="font-bold">{item.subject.name}</h3>
+                      <p className="text-sm text-slate-500">
+                        {item.course.title} · {item.batch.name}
+                      </p>
+                      <p className="mt-2 text-sm">
+                        <MapPin className="mr-1 inline" size={14} />
+                        {item.classroom.name}
+                      </p>
+                    </div>
+                    <p className="font-bold text-brand-700">
+                      {minute(item.startMinute)}–{minute(item.endMinute)}
+                    </p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <Empty icon={CalendarDays}>{`No ${terms.courses.toLowerCase()} scheduled today.`}</Empty>
+          )}
+        </section>
+        <section>
+          <SectionTitle
+            title="Recent notifications"
+            description="Latest updates for your account."
+            action={
+              <button onClick={() => open("notifications")} className="text-sm font-bold text-brand-700">
+                View all
+              </button>
+            }
+          />
+          <NotificationList items={common.notifications.slice(0, 4)} markRead={markRead} />
+        </section>
+      </div>
+    </>
+  );
 }
 
 function TeacherClasses({ data, query, openStudents }: { data: TeacherDashboard; query: string; openStudents: () => void }) {
   const terms = useGroupTerminology();
-  const items = data.myClasses.filter(item => includes(query, item.course.title, item.batch.name, item.subject.name, item.branch.branchName));
-  return <section><SectionTitle title={`My ${terms.courses.toLowerCase()}`} description={`Current subject allocations, schedules and enrolled students by ${terms.course.toLowerCase()} and ${terms.singular.toLowerCase()}.`}/>{items.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{items.map(item => <article key={item.id} className="card p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase text-brand-700">{item.subject.name}</p><h3 className="mt-1 text-lg font-black">{item.course.title}</h3><p className="text-sm text-slate-500">{item.batch.name}</p></div><span className="rounded-xl bg-brand-50 px-3 py-2 text-sm font-black text-brand-700">{item.studentCount}</span></div><p className="mt-4 text-sm"><MapPin className="mr-1 inline" size={14}/>{item.branch.branchName}</p><p className="mt-2 text-sm text-slate-500">{item.weeklyPeriods} periods/week</p>{item.schedule.length ? <div className="mt-4 flex flex-wrap gap-2">{item.schedule.map(period => <span key={period.id} className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs">{readable(period.day)} {minute(period.startMinute)} · {period.classroom.name}</span>)}</div> : <p className="mt-4 text-xs text-slate-400">Timetable not scheduled yet.</p>}<button onClick={openStudents} className="btn mt-4 w-full">View students</button></article>)}</div> : <Empty icon={GraduationCap}>{`No active ${terms.course.toLowerCase()} allocations found.`}</Empty>}</section>;
+  const items = data.myClasses.filter((item) => includes(query, item.course.title, item.batch.name, item.subject.name, item.branch.branchName));
+  return (
+    <section>
+      <SectionTitle title={`My ${terms.courses.toLowerCase()}`} description={`Current subject allocations, schedules and enrolled students by ${terms.course.toLowerCase()} and ${terms.singular.toLowerCase()}.`} />
+      {items.length ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {items.map((item) => (
+            <article key={item.id} className="card p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase text-brand-700">{item.subject.name}</p>
+                  <h3 className="mt-1 text-lg font-black">{item.course.title}</h3>
+                  <p className="text-sm text-slate-500">{item.batch.name}</p>
+                </div>
+                <span className="rounded-xl bg-brand-50 px-3 py-2 text-sm font-black text-brand-700">{item.studentCount}</span>
+              </div>
+              <p className="mt-4 text-sm">
+                <MapPin className="mr-1 inline" size={14} />
+                {item.branch.branchName}
+              </p>
+              <p className="mt-2 text-sm text-slate-500">{item.weeklyPeriods} periods/week</p>
+              {item.schedule.length ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {item.schedule.map((period) => (
+                    <span key={period.id} className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs">
+                      {readable(period.day)} {minute(period.startMinute)} · {period.classroom.name}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-4 text-xs text-slate-400">Timetable not scheduled yet.</p>
+              )}
+              <button onClick={openStudents} className="btn mt-4 w-full">
+                View students
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <Empty icon={GraduationCap}>{`No active ${terms.course.toLowerCase()} allocations found.`}</Empty>
+      )}
+    </section>
+  );
 }
 
 function TeacherStudents({ items, query }: { items: TeacherStudent[]; query: string }) {
   const terms = useGroupTerminology();
-  const rows = items.filter(item => includes(query, item.name, item.admissionNo, item.rollNo, item.course.name, item.batch.name));
-  return <section><SectionTitle title="My students" description={`Active students from your assigned ${terms.plural.toLowerCase()} only.`}/>{rows.length ? <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{rows.map(item => <article key={item.id} className="card p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-black">{item.name}</h3><p className="text-sm text-slate-500">Admission {item.admissionNo} · Roll {item.rollNo}</p></div><Badge value={item.status}/></div><dl className="mt-4 space-y-2 text-sm"><div><dt className="text-xs uppercase text-slate-400">{terms.course}</dt><dd className="font-semibold">{item.course.name}</dd></div><div><dt className="text-xs uppercase text-slate-400">{terms.singular}</dt><dd>{item.batch.name}</dd></div><div><dt className="text-xs uppercase text-slate-400">Branch</dt><dd>{item.branch.name}</dd></div></dl></article>)}</div> : <Empty icon={Users}>No authorized students match this view.</Empty>}</section>;
+  const rows = items.filter((item) => includes(query, item.name, item.admissionNo, item.rollNo, item.course.name, item.batch.name));
+  return (
+    <section>
+      <SectionTitle title="My students" description={`Active students from your assigned ${terms.plural.toLowerCase()} only.`} />
+      {rows.length ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {rows.map((item) => (
+            <article key={item.id} className="card p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-black">{item.name}</h3>
+                  <p className="text-sm text-slate-500">
+                    Admission {item.admissionNo} · Roll {item.rollNo}
+                  </p>
+                </div>
+                <Badge value={item.status} />
+              </div>
+              <dl className="mt-4 space-y-2 text-sm">
+                <div>
+                  <dt className="text-xs uppercase text-slate-400">{terms.course}</dt>
+                  <dd className="font-semibold">{item.course.name}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase text-slate-400">{terms.singular}</dt>
+                  <dd>{item.batch.name}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase text-slate-400">Branch</dt>
+                  <dd>{item.branch.name}</dd>
+                </div>
+              </dl>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <Empty icon={Users}>No authorized students match this view.</Empty>
+      )}
+    </section>
+  );
 }
 
 function TeacherHomeworkSection({ items, query, settings }: { items: TeacherHomework[]; query: string; settings: InstitutionRegionalSettings }) {
-  const rows = items.filter(item => includes(query, item.title, item.subject.name, item.course.title, item.batch.name, item.status));
-  return <section><SectionTitle title="Homework" description="Assignments you own and their submission progress." action={<Link href="/teacher/homeworks" className="btn bg-brand-700 text-white">Manage homework</Link>}/>{rows.length ? <div className="grid gap-4 lg:grid-cols-2">{rows.map(item => <article key={item.id} className="card p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase text-brand-700">{item.subject.name}</p><h3 className="mt-1 text-lg font-black">{item.title}</h3><p className="text-sm text-slate-500">{item.course.title} · {item.batch.name}</p></div><Badge value={item.status}/></div><p className="mt-3 line-clamp-2 text-sm text-slate-600">{item.description}</p><div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5"><div><small className="text-slate-400">Assigned</small><p className="font-semibold">{formatInstitutionDate(item.assignedDate, settings.locale)}</p></div><div><small className="text-slate-400">Due</small><p className="font-semibold">{formatInstitutionDateTime(item.dueDate, settings)}</p></div><div><small className="text-slate-400">Max marks</small><p className="font-semibold">{item.maximumMarks}</p></div><div><small className="text-slate-400">Submissions</small><p className="font-semibold">{item._count.submissions}</p></div><div><small className="text-slate-400">To review</small><p className="font-semibold">{item.pendingEvaluation}</p></div></div><Link href="/teacher/homeworks" className="btn mt-4">View and evaluate</Link></article>)}</div> : <Empty icon={NotebookPen}>No homework assignments found.</Empty>}</section>;
+  const rows = items.filter((item) => includes(query, item.title, item.subject.name, item.course.title, item.batch.name, item.status));
+  return (
+    <section>
+      <SectionTitle
+        title="Homework"
+        description="Assignments you own and their submission progress."
+        action={
+          <Link href="/teacher/homeworks" className="btn bg-brand-700 text-white">
+            Manage homework
+          </Link>
+        }
+      />
+      {rows.length ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {rows.map((item) => (
+            <article key={item.id} className="card p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase text-brand-700">{item.subject.name}</p>
+                  <h3 className="mt-1 text-lg font-black">{item.title}</h3>
+                  <p className="text-sm text-slate-500">
+                    {item.course.title} · {item.batch.name}
+                  </p>
+                </div>
+                <Badge value={item.status} />
+              </div>
+              <p className="mt-3 line-clamp-2 text-sm text-slate-600">{item.description}</p>
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
+                <div>
+                  <small className="text-slate-400">Assigned</small>
+                  <p className="font-semibold">{formatInstitutionDate(item.assignedDate, settings.locale)}</p>
+                </div>
+                <div>
+                  <small className="text-slate-400">Due</small>
+                  <p className="font-semibold">{formatInstitutionDateTime(item.dueDate, settings)}</p>
+                </div>
+                <div>
+                  <small className="text-slate-400">Max marks</small>
+                  <p className="font-semibold">{item.maximumMarks}</p>
+                </div>
+                <div>
+                  <small className="text-slate-400">Submissions</small>
+                  <p className="font-semibold">{item._count.submissions}</p>
+                </div>
+                <div>
+                  <small className="text-slate-400">To review</small>
+                  <p className="font-semibold">{item.pendingEvaluation}</p>
+                </div>
+              </div>
+              <Link href="/teacher/homeworks" className="btn mt-4">
+                View and evaluate
+              </Link>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <Empty icon={NotebookPen}>No homework assignments found.</Empty>
+      )}
+    </section>
+  );
 }
 
 function TeacherAttendanceSection({ data, query, reload }: { data: TeacherDashboard; query: string; reload: () => Promise<void> }) {
   const terms = useGroupTerminology();
-  const [form, setForm] = useState({ student: "", date: new Date().toISOString().slice(0, 10), status: "PRESENT", remarks: "" }); const [busy, setBusy] = useState(false); const [attendanceError, setAttendanceError] = useState(""); const [notice, setNotice] = useState("");
-  const student = data.students.find(item => item.id === form.student); const records = data.attendance.filter(item => includes(query, item.student.name, item.batch.name, item.status, item.date));
-  async function submit(event: FormEvent) { event.preventDefault(); if (!student) return; setBusy(true); setAttendanceError(""); setNotice(""); try { await apiRequest("/attendance", { method: "POST", body: JSON.stringify({ studentId: student.attendanceTargetId, batchId: student.batch.id, teacherId: data.profile.id, date: form.date, status: form.status, remarks: form.remarks || null }) }); setNotice("Attendance marked successfully."); await reload(); } catch (cause) { setAttendanceError(errorMessage(cause)); } finally { setBusy(false); } }
-  return <div className="grid gap-6 xl:grid-cols-[.75fr_1.25fr]"><form onSubmit={submit} className="card h-fit p-6"><CheckCircle2 className="text-brand-700"/><h2 className="mt-3 text-xl font-black">Mark attendance</h2><p className="mt-1 text-sm text-slate-500">Only students from your assigned {terms.courses.toLowerCase()} are available. Approved-leave protections remain authoritative.</p>{attendanceError && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{attendanceError}</p>}{notice && <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p>}<label className="mt-4 block text-sm font-semibold">Student<select required className="field mt-1" value={form.student} onChange={event => setForm({ ...form, student: event.target.value })}><option value="">Choose student</option>{data.students.map(item => <option key={item.id} value={item.id}>{item.name} — {item.batch.name}</option>)}</select></label><label className="mt-3 block text-sm font-semibold">Date<input required type="date" className="field mt-1" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })}/></label><label className="mt-3 block text-sm font-semibold">Status<select className="field mt-1" value={form.status} onChange={event => setForm({ ...form, status: event.target.value })}>{["PRESENT", "ABSENT", "LATE", "FULL_DAY_LEAVE", "HALF_DAY_LEAVE", "SHORT_LEAVE"].map(value => <option key={value} value={value}>{readable(value)}</option>)}</select></label><label className="mt-3 block text-sm font-semibold">Remarks<textarea className="field mt-1" value={form.remarks} onChange={event => setForm({ ...form, remarks: event.target.value })}/></label><button disabled={busy} className="btn mt-4 bg-brand-700 text-white">{busy && <Loader2 className="animate-spin" size={16}/>}Mark attendance</button></form><section><SectionTitle title="Recent attendance" description={`Attendance records marked for your assigned ${terms.courses.toLowerCase()}.`}/>{records.length ? <div className="space-y-3">{records.map(item => <article key={item.id} className="rounded-2xl border bg-white p-4 dark:bg-slate-900"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-bold">{item.student.name}</h3><p className="text-sm text-slate-500">{portalCourseTitle(item.batch.course)} · {item.batch.name}</p><p className="mt-1 text-xs text-slate-400">{shortDate(item.date)}{item.remarks ? ` · ${item.remarks}` : ""}</p></div><Badge value={item.status}/></div></article>)}</div> : <Empty icon={CheckCircle2}>No attendance records found.</Empty>}</section></div>;
+  const [form, setForm] = useState({
+    student: "",
+    date: new Date().toISOString().slice(0, 10),
+    status: "PRESENT",
+    remarks: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [attendanceError, setAttendanceError] = useState("");
+  const [notice, setNotice] = useState("");
+  const student = data.students.find((item) => item.id === form.student);
+  const records = data.attendance.filter((item) => includes(query, item.student.name, item.batch.name, item.status, item.date));
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!student) return;
+    setBusy(true);
+    setAttendanceError("");
+    setNotice("");
+    try {
+      await apiRequest("/attendance", {
+        method: "POST",
+        body: JSON.stringify({
+          studentId: student.attendanceTargetId,
+          batchId: student.batch.id,
+          teacherId: data.profile.id,
+          date: form.date,
+          status: form.status,
+          remarks: form.remarks || null,
+        }),
+      });
+      setNotice("Attendance marked successfully.");
+      await reload();
+    } catch (cause) {
+      setAttendanceError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="grid gap-6 xl:grid-cols-[.75fr_1.25fr]">
+      <form onSubmit={submit} className="card h-fit p-6">
+        <CheckCircle2 className="text-brand-700" />
+        <h2 className="mt-3 text-xl font-black">Mark attendance</h2>
+        <p className="mt-1 text-sm text-slate-500">Only students from your assigned {terms.courses.toLowerCase()} are available. Approved-leave protections remain authoritative.</p>
+        {attendanceError && (
+          <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+            {attendanceError}
+          </p>
+        )}
+        {notice && <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p>}
+        <label className="mt-4 block text-sm font-semibold">
+          Student
+          <select required className="field mt-1" value={form.student} onChange={(event) => setForm({ ...form, student: event.target.value })}>
+            <option value="">Choose student</option>
+            {data.students.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name} — {item.batch.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="mt-3 block text-sm font-semibold">
+          Date
+          <input required type="date" className="field mt-1" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} />
+        </label>
+        <label className="mt-3 block text-sm font-semibold">
+          Status
+          <select className="field mt-1" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
+            {["PRESENT", "ABSENT", "LATE", "FULL_DAY_LEAVE", "HALF_DAY_LEAVE", "SHORT_LEAVE"].map((value) => (
+              <option key={value} value={value}>
+                {readable(value)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="mt-3 block text-sm font-semibold">
+          Remarks
+          <textarea className="field mt-1" value={form.remarks} onChange={(event) => setForm({ ...form, remarks: event.target.value })} />
+        </label>
+        <button disabled={busy} className="btn mt-4 bg-brand-700 text-white">
+          {busy && <Loader2 className="animate-spin" size={16} />}Mark attendance
+        </button>
+      </form>
+      <section>
+        <SectionTitle title="Recent attendance" description={`Attendance records marked for your assigned ${terms.courses.toLowerCase()}.`} />
+        {records.length ? (
+          <div className="space-y-3">
+            {records.map((item) => (
+              <article key={item.id} className="rounded-2xl border bg-white p-4 dark:bg-slate-900">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold">{item.student.name}</h3>
+                    <p className="text-sm text-slate-500">
+                      {portalCourseTitle(item.batch.course)} · {item.batch.name}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {shortDate(item.date)}
+                      {item.remarks ? ` · ${item.remarks}` : ""}
+                    </p>
+                  </div>
+                  <Badge value={item.status} />
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <Empty icon={CheckCircle2}>No attendance records found.</Empty>
+        )}
+      </section>
+    </div>
+  );
 }
 
 function TeacherExaminations({ items, query }: { items: TeacherExam[]; query: string }) {
   const terms = useGroupTerminology();
-  const rows = items.filter(item => includes(query, item.name, item.type, item.subject.name, item.course.title, item.batch.name, item.status));
-  return <section><SectionTitle title={terms.assessments} description={`Assigned ${terms.assessments.toLowerCase()}, governed by the hardened lifecycle.`} action={<Link href="/admin/examination-submissions" className="btn bg-brand-700 text-white">Manage papers & evaluations</Link>}/>{rows.length ? <div className="grid gap-4 lg:grid-cols-2">{rows.map(item => <article key={item.id} className="card p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase text-brand-700">{readable(item.type)}</p><h3 className="mt-1 text-lg font-black">{item.name}</h3><p className="text-sm text-slate-500">{item.subject.name} · {item.course.title} · {item.batch.name}</p></div><Badge value={item.status}/></div><div className="mt-4 grid gap-3 text-sm sm:grid-cols-2"><p><CalendarDays className="mr-1 inline" size={14}/>{shortDate(item.examDate)}</p><p><Clock3 className="mr-1 inline" size={14}/>{minute(item.startMinute)}–{minute(item.endMinute)}</p><p>Maximum marks: <b>{item.maximumMarks}</b></p><p>Answer sheets: <b>{item._count.answerSheets}</b></p></div><p className="mt-3 text-sm">Paper: <b>{item.questionPaper?.publishedAt ? "Published" : item.questionPaper ? "Uploaded" : "Not uploaded"}</b></p><Link href="/admin/examination-submissions" className="btn mt-4">Open examination workflow</Link></article>)}</div> : <Empty icon={FileCheck2}>{`No assigned ${terms.assessments.toLowerCase()} found.`}</Empty>}</section>;
+  const rows = items.filter((item) => includes(query, item.name, item.type, item.subject.name, item.course.title, item.batch.name, item.status));
+  return (
+    <section>
+      <SectionTitle
+        title={terms.assessments}
+        description={`Assigned ${terms.assessments.toLowerCase()}, governed by the hardened lifecycle.`}
+        action={
+          <Link href="/teacher/examinations" className="btn bg-brand-700 text-white">
+            Manage papers & evaluations
+          </Link>
+        }
+      />
+      {rows.length ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {rows.map((item) => (
+            <article key={item.id} className="card p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase text-brand-700">{readable(item.type)}</p>
+                  <h3 className="mt-1 text-lg font-black">{item.name}</h3>
+                  <p className="text-sm text-slate-500">
+                    {item.subject.name} · {item.course.title} · {item.batch.name}
+                  </p>
+                </div>
+                <Badge value={item.status} />
+              </div>
+              <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                <p>
+                  <CalendarDays className="mr-1 inline" size={14} />
+                  {shortDate(item.examDate)}
+                </p>
+                <p>
+                  <Clock3 className="mr-1 inline" size={14} />
+                  {minute(item.startMinute)}–{minute(item.endMinute)}
+                </p>
+                <p>
+                  Maximum marks: <b>{item.maximumMarks}</b>
+                </p>
+                <p>
+                  Answer sheets: <b>{item._count.answerSheets}</b>
+                </p>
+              </div>
+              <p className="mt-3 text-sm">
+                Paper: <b>{item.questionPaper?.publishedAt ? "Published" : item.questionPaper ? "Uploaded" : "Not uploaded"}</b>
+              </p>
+              <Link href="/teacher/examinations" className="btn mt-4">
+                Open examination workflow
+              </Link>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <Empty icon={FileCheck2}>{`No assigned ${terms.assessments.toLowerCase()} found.`}</Empty>
+      )}
+    </section>
+  );
 }
 
 function StudentOverview({ data, common, open }: { data: StudentDashboard; common: CommonData; open: (tab: string) => void }) {
   const terms = useGroupTerminology();
-  const due = data.homework.assignments.filter(item => item.status === "PUBLISHED" && !item.submission).length; const today = data.timetable.filter(item => item.day === todayName(data.timeZone)).length; const outstanding = data.fees.reduce((sum, item) => sum + Math.max(0, item.totalPaise - item.discountPaise + item.finePaise - item.amountPaidPaise), 0); const upcoming = data.examinations.filter(item => item.status === "SCHEDULED").length;
-  return <><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={CalendarDays} label="Today's schedule" value={today} hint="Teaching periods today"/><Metric icon={NotebookPen} label="Homework due" value={due} hint="Published work awaiting submission"/><Metric icon={CheckCircle2} label="Attendance" value={`${data.attendance.percentage}%`} hint={`${data.attendance.summary.present} present · ${data.attendance.summary.total} records`}/><Metric icon={IndianRupee} label="Outstanding fees" value={money(outstanding)} hint="Current recorded balance"/><Metric icon={FileCheck2} label={`Upcoming ${terms.assessments.toLowerCase()}`} value={upcoming} hint={`Scheduled ${terms.assessments.toLowerCase()}`}/><Metric icon={Bell} label="Unread updates" value={common.notifications.filter(item => !item.readAt).length} hint="Notifications needing attention"/></section><div className="mt-7 grid gap-6 lg:grid-cols-2"><section><SectionTitle title="Homework due" description="Your next published assignments." action={<button onClick={() => open("homework")} className="text-sm font-bold text-brand-700">View homework</button>}/>{data.homework.assignments.filter(item => item.status === "PUBLISHED").slice(0, 3).map(item => <article key={item.id} className="mb-3 rounded-2xl border bg-white p-4 dark:bg-slate-900"><div className="flex justify-between gap-3"><div><h3 className="font-bold">{item.title}</h3><p className="text-sm text-slate-500">{item.subject.name} · {item.teacher.user.name}</p></div><Badge value={item.submission?.status ?? "PENDING"}/></div><p className="mt-2 text-xs text-slate-400">Due {formatInstitutionDateTime(item.dueDate, data)}</p></article>)}{!data.homework.assignments.some(item => item.status === "PUBLISHED") && <Empty icon={NotebookPen}>No published homework is due.</Empty>}</section><section><SectionTitle title={`Upcoming ${terms.assessments.toLowerCase()}`} description={`Your scheduled ${terms.assessments.toLowerCase()}.`} action={<button onClick={() => open("examinations")} className="text-sm font-bold text-brand-700">View {terms.assessments.toLowerCase()}</button>}/>{data.examinations.filter(item => item.status === "SCHEDULED").slice(0, 3).map(item => <article key={item.id} className="mb-3 rounded-2xl border bg-white p-4 dark:bg-slate-900"><h3 className="font-bold">{item.name}</h3><p className="text-sm text-slate-500">{item.subject.name} · {shortDate(item.examDate)} · {minute(item.startMinute)}</p></article>)}{!data.examinations.some(item => item.status === "SCHEDULED") && <Empty icon={FileCheck2}>{`No scheduled ${terms.assessments.toLowerCase()}.`}</Empty>}</section></div></>;
+  const due = data.homework.assignments.filter((item) => item.status === "PUBLISHED" && !item.submission).length;
+  const today = data.timetable.filter((item) => item.day === todayName(data.timeZone)).length;
+  const outstanding = data.fees.reduce((sum, item) => sum + Math.max(0, item.totalPaise - item.discountPaise + item.finePaise - item.amountPaidPaise), 0);
+  const upcoming = data.examinations.filter((item) => item.status === "SCHEDULED").length;
+  return (
+    <>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric icon={CalendarDays} label="Today's schedule" value={today} hint="Teaching periods today" />
+        <Metric icon={NotebookPen} label="Homework due" value={due} hint="Published work awaiting submission" />
+        <Metric icon={CheckCircle2} label="Attendance" value={`${data.attendance.percentage}%`} hint={`${data.attendance.summary.present} present · ${data.attendance.summary.total} records`} />
+        <Metric icon={IndianRupee} label="Outstanding fees" value={money(outstanding)} hint="Current recorded balance" />
+        <Metric icon={FileCheck2} label={`Upcoming ${terms.assessments.toLowerCase()}`} value={upcoming} hint={`Scheduled ${terms.assessments.toLowerCase()}`} />
+        <Metric icon={Bell} label="Unread updates" value={common.notifications.filter((item) => !item.readAt).length} hint="Notifications needing attention" />
+      </section>
+      <div className="mt-7 grid gap-6 lg:grid-cols-2">
+        <section>
+          <SectionTitle
+            title="Homework due"
+            description="Your next published assignments."
+            action={
+              <button onClick={() => open("homework")} className="text-sm font-bold text-brand-700">
+                View homework
+              </button>
+            }
+          />
+          {data.homework.assignments
+            .filter((item) => item.status === "PUBLISHED")
+            .slice(0, 3)
+            .map((item) => (
+              <article key={item.id} className="mb-3 rounded-2xl border bg-white p-4 dark:bg-slate-900">
+                <div className="flex justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold">{item.title}</h3>
+                    <p className="text-sm text-slate-500">
+                      {item.subject.name} · {item.teacher.user.name}
+                    </p>
+                  </div>
+                  <Badge value={item.submission?.status ?? "PENDING"} />
+                </div>
+                <p className="mt-2 text-xs text-slate-400">Due {formatInstitutionDateTime(item.dueDate, data)}</p>
+              </article>
+            ))}
+          {!data.homework.assignments.some((item) => item.status === "PUBLISHED") && <Empty icon={NotebookPen}>No published homework is due.</Empty>}
+        </section>
+        <section>
+          <SectionTitle
+            title={`Upcoming ${terms.assessments.toLowerCase()}`}
+            description={`Your scheduled ${terms.assessments.toLowerCase()}.`}
+            action={
+              <button onClick={() => open("examinations")} className="text-sm font-bold text-brand-700">
+                View {terms.assessments.toLowerCase()}
+              </button>
+            }
+          />
+          {data.examinations
+            .filter((item) => item.status === "SCHEDULED")
+            .slice(0, 3)
+            .map((item) => (
+              <article key={item.id} className="mb-3 rounded-2xl border bg-white p-4 dark:bg-slate-900">
+                <h3 className="font-bold">{item.name}</h3>
+                <p className="text-sm text-slate-500">
+                  {item.subject.name} · {shortDate(item.examDate)} · {minute(item.startMinute)}
+                </p>
+              </article>
+            ))}
+          {!data.examinations.some((item) => item.status === "SCHEDULED") && <Empty icon={FileCheck2}>{`No scheduled ${terms.assessments.toLowerCase()}.`}</Empty>}
+        </section>
+      </div>
+    </>
+  );
 }
 
 function HomeworkSubmissionAction({ item, reload, settings }: { item: StudentHomework; reload: () => Promise<void>; settings: InstitutionRegionalSettings }) {
-  const [answerText, setAnswerText] = useState(item.submission?.answerText ?? ""); const [file, setFile] = useState<File | null>(null); const [busy, setBusy] = useState(false); const [actionError, setActionError] = useState(""); const replaceable = !item.submission || ["SUBMITTED", "LATE"].includes(item.submission.status); const open = item.status === "PUBLISHED" && replaceable;
-  async function submit() { if (!answerText.trim() && !file) { setActionError("Add an answer or choose a file before submitting."); return; } setBusy(true); setActionError(""); try { let attachment: { name: string; mimeType: string; base64: string } | undefined; if (file) { const validation = validateDocumentFile(file, "homework"); if (validation) throw new Error(validation); attachment = { name: file.name, mimeType: file.type, base64: await documentAsBase64(file) }; } await apiRequest(`/student/homeworks/${item.id}/submissions`, { method: "POST", body: JSON.stringify({ answerText: answerText.trim() || null, attachment }) }); setFile(null); await reload(); } catch (cause) { setActionError(errorMessage(cause)); } finally { setBusy(false); } }
-  return <div className="mt-4 border-t pt-4">{item.submission && <div className="mb-3 rounded-xl bg-slate-50 p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><b>Submission</b><Badge value={item.submission.status}/></div><p className="mt-1 text-xs text-slate-500">Submitted {formatInstitutionDateTime(item.submission.submittedAt, settings)}</p>{item.submission.marksObtained !== null && <p className="mt-2">Marks: <b>{item.submission.marksObtained}/{item.maximumMarks}</b></p>}{item.submission.feedback && <p className="mt-1">Feedback: {item.submission.feedback}</p>}</div>}{actionError && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}{open ? <div><textarea rows={3} className="field" placeholder="Write your answer or submission note" value={answerText} onChange={event => setAnswerText(event.target.value)}/><div className="mt-3 flex flex-wrap items-center gap-3"><input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={event => setFile(event.target.files?.[0] ?? null)} className="max-w-full text-sm"/><button disabled={busy} onClick={() => void submit()} className="btn bg-brand-700 text-white">{busy && <Loader2 className="animate-spin" size={16}/>} {item.submission ? "Replace submission" : "Submit homework"}</button></div><p className="mt-2 text-xs text-slate-400">PDF, image, DOC or DOCX; maximum 5 MB.</p></div> : item.status !== "PUBLISHED" ? <p className="text-sm text-slate-500">This homework is closed for submissions.</p> : <p className="text-sm text-slate-500">Replacement is unavailable after review or evaluation begins.</p>}</div>;
+  const [answerText, setAnswerText] = useState(item.submission?.answerText ?? "");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const replaceable = !item.submission || ["SUBMITTED", "LATE"].includes(item.submission.status);
+  const open = item.status === "PUBLISHED" && replaceable;
+  async function submit() {
+    if (!answerText.trim() && !file) {
+      setActionError("Add an answer or choose a file before submitting.");
+      return;
+    }
+    setBusy(true);
+    setActionError("");
+    try {
+      let attachment: { name: string; mimeType: string; base64: string } | undefined;
+      if (file) {
+        const validation = validateDocumentFile(file, "homework");
+        if (validation) throw new Error(validation);
+        attachment = {
+          name: file.name,
+          mimeType: file.type,
+          base64: await documentAsBase64(file),
+        };
+      }
+      await apiRequest(`/student/homeworks/${item.id}/submissions`, {
+        method: "POST",
+        body: JSON.stringify({
+          answerText: answerText.trim() || null,
+          attachment,
+        }),
+      });
+      setFile(null);
+      await reload();
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="mt-4 border-t pt-4">
+      {item.submission && (
+        <div className="mb-3 rounded-xl bg-slate-50 p-3 text-sm">
+          <div className="flex flex-wrap justify-between gap-2">
+            <b>Submission</b>
+            <Badge value={item.submission.status} />
+          </div>
+          <p className="mt-1 text-xs text-slate-500">Submitted {formatInstitutionDateTime(item.submission.submittedAt, settings)}</p>
+          {item.submission.marksObtained !== null && (
+            <p className="mt-2">
+              Marks:{" "}
+              <b>
+                {item.submission.marksObtained}/{item.maximumMarks}
+              </b>
+            </p>
+          )}
+          {item.submission.feedback && <p className="mt-1">Feedback: {item.submission.feedback}</p>}
+        </div>
+      )}
+      {actionError && (
+        <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          {actionError}
+        </p>
+      )}
+      {open ? (
+        <div>
+          <textarea rows={3} className="field" placeholder="Write your answer or submission note" value={answerText} onChange={(event) => setAnswerText(event.target.value)} />
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="max-w-full text-sm" />
+            <button disabled={busy} onClick={() => void submit()} className="btn bg-brand-700 text-white">
+              {busy && <Loader2 className="animate-spin" size={16} />} {item.submission ? "Replace submission" : "Submit homework"}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-slate-400">PDF, image, DOC or DOCX; maximum 5 MB.</p>
+        </div>
+      ) : item.status !== "PUBLISHED" ? (
+        <p className="text-sm text-slate-500">This homework is closed for submissions.</p>
+      ) : (
+        <p className="text-sm text-slate-500">Replacement is unavailable after review or evaluation begins.</p>
+      )}
+    </div>
+  );
 }
 
 function StudentHomeworkSection({ items, query, reload, settings }: { items: StudentHomework[]; query: string; reload: () => Promise<void>; settings: InstitutionRegionalSettings }) {
   const terms = useGroupTerminology();
   const [downloadError, setDownloadError] = useState("");
-  const rows = items.filter(item => includes(query, item.title, item.subject.name, item.teacher.user.name, item.course.title, item.batch.name, item.status));
-  async function download(item: StudentHomework) { setDownloadError(""); try { await openAuthenticatedDocument({ url: `${API}/portal/downloads/homework/${item.id}`, token: getAccessToken() ?? "", fileName: item.attachmentName ?? "homework-attachment", fallbackError: "Unable to download assignment" }); } catch (cause) { setDownloadError(errorMessage(cause)); } }
-  return <section><SectionTitle title="Homework" description={`Published assignments for your ${terms.singular.toLowerCase()} and your submission status.`}/>{downloadError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{downloadError}</p>}{rows.length ? <div className="grid gap-5 xl:grid-cols-2">{rows.map(item => <article key={item.id} className="card p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase text-brand-700">{item.subject.name}</p><h3 className="mt-1 text-lg font-black">{item.title}</h3><p className="text-sm text-slate-500">{item.teacher.user.name} · {item.course.title} · {item.batch.name}</p></div><Badge value={item.status}/></div><p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-600">{item.description}</p><div className="mt-4 flex flex-wrap gap-4 text-sm"><span>Assigned <b>{formatInstitutionDate(item.assignedDate, settings.locale)}</b></span><span>Due <b>{formatInstitutionDateTime(item.dueDate, settings)}</b></span><span>Marks <b>{item.maximumMarks}</b></span></div>{item.hasAttachment && <button onClick={() => void download(item)} className="btn mt-4"><Download size={16}/>View assignment</button>}<HomeworkSubmissionAction item={item} reload={reload} settings={settings}/></article>)}</div> : <Empty icon={NotebookPen}>No published homework assigned.</Empty>}</section>;
+  const rows = items.filter((item) => includes(query, item.title, item.subject.name, item.teacher.user.name, item.course.title, item.batch.name, item.status));
+  async function download(item: StudentHomework) {
+    setDownloadError("");
+    try {
+      await openAuthenticatedDocument({
+        url: `${API}/portal/downloads/homework/${item.id}`,
+        token: getAccessToken() ?? "",
+        fileName: item.attachmentName ?? "homework-attachment",
+        fallbackError: "Unable to download assignment",
+      });
+    } catch (cause) {
+      setDownloadError(errorMessage(cause));
+    }
+  }
+  return (
+    <section>
+      <SectionTitle title="Homework" description={`Published assignments for your ${terms.singular.toLowerCase()} and your submission status.`} />
+      {downloadError && (
+        <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          {downloadError}
+        </p>
+      )}
+      {rows.length ? (
+        <div className="grid gap-5 xl:grid-cols-2">
+          {rows.map((item) => (
+            <article key={item.id} className="card p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase text-brand-700">{item.subject.name}</p>
+                  <h3 className="mt-1 text-lg font-black">{item.title}</h3>
+                  <p className="text-sm text-slate-500">
+                    {item.teacher.user.name} · {item.course.title} · {item.batch.name}
+                  </p>
+                </div>
+                <Badge value={item.status} />
+              </div>
+              <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-600">{item.description}</p>
+              <div className="mt-4 flex flex-wrap gap-4 text-sm">
+                <span>
+                  Assigned <b>{formatInstitutionDate(item.assignedDate, settings.locale)}</b>
+                </span>
+                <span>
+                  Due <b>{formatInstitutionDateTime(item.dueDate, settings)}</b>
+                </span>
+                <span>
+                  Marks <b>{item.maximumMarks}</b>
+                </span>
+              </div>
+              {item.hasAttachment && (
+                <button onClick={() => void download(item)} className="btn mt-4">
+                  <Download size={16} />
+                  View assignment
+                </button>
+              )}
+              <HomeworkSubmissionAction item={item} reload={reload} settings={settings} />
+            </article>
+          ))}
+        </div>
+      ) : (
+        <Empty icon={NotebookPen}>No published homework assigned.</Empty>
+      )}
+    </section>
+  );
 }
 
 function StudentTimetable({ items, query }: { items: TimetableItem[]; query: string }) {
   const terms = useGroupTerminology();
-  const rows = items.filter(item => includes(query, item.day, item.subject.name, item.teacher?.user.name, item.course.title, item.batch.name, item.classroom.name));
-  return <section><SectionTitle title="Timetable" description={`Your active weekly ${terms.course.toLowerCase()} schedule.`}/>{rows.length ? <div className="overflow-hidden rounded-2xl border bg-white dark:bg-slate-900"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 dark:bg-slate-800"><tr>{["Day & time", "Period", "Subject", terms.educators.replace(/s$/, ""), portalAcademicPairLabel(terms), "Classroom"].map(label => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead><tbody>{rows.map(item => <tr key={item.id} className="border-t"><td className="px-4 py-3"><b>{readable(item.day)}</b><br/>{minute(item.startMinute)}–{minute(item.endMinute)}</td><td className="px-4">{item.periodNumber}</td><td className="px-4 font-semibold">{item.subject.name}</td><td className="px-4">{item.teacher?.user.name ?? "To be assigned"}</td><td className="px-4">{item.course.title}<br/><span className="text-slate-500">{item.batch.name}</span></td><td className="px-4">{item.classroom.name}</td></tr>)}</tbody></table></div></div> : <Empty icon={CalendarDays}>No active timetable is available.</Empty>}</section>;
+  const rows = items.filter((item) => includes(query, item.day, item.subject.name, item.teacher?.user.name, item.course.title, item.batch.name, item.classroom.name));
+  return (
+    <section>
+      <SectionTitle title="Timetable" description={`Your active weekly ${terms.course.toLowerCase()} schedule.`} />
+      {rows.length ? (
+        <div className="overflow-hidden rounded-2xl border bg-white dark:bg-slate-900">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="bg-slate-50 dark:bg-slate-800">
+                <tr>
+                  {["Day & time", "Period", "Subject", terms.educators.replace(/s$/, ""), portalAcademicPairLabel(terms), "Classroom"].map((label) => (
+                    <th key={label} className="px-4 py-3">
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((item) => (
+                  <tr key={item.id} className="border-t">
+                    <td className="px-4 py-3">
+                      <b>{readable(item.day)}</b>
+                      <br />
+                      {minute(item.startMinute)}–{minute(item.endMinute)}
+                    </td>
+                    <td className="px-4">{item.periodNumber}</td>
+                    <td className="px-4 font-semibold">{item.subject.name}</td>
+                    <td className="px-4">{item.teacher?.user.name ?? "To be assigned"}</td>
+                    <td className="px-4">
+                      {item.course.title}
+                      <br />
+                      <span className="text-slate-500">{item.batch.name}</span>
+                    </td>
+                    <td className="px-4">{item.classroom.name}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <Empty icon={CalendarDays}>No active timetable is available.</Empty>
+      )}
+    </section>
+  );
 }
 
 function StudentAttendanceSection({ data }: { data: StudentDashboard["attendance"] }) {
-  return <section><SectionTitle title="Attendance" description="Your attendance summary and recent records."/><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5"><Metric icon={CheckCircle2} label="Attendance" value={`${data.percentage}%`} hint={`${data.summary.total} recorded days`}/><Metric icon={CheckCircle2} label="Present" value={data.summary.present} hint="Present days"/><Metric icon={Clock3} label="Late" value={data.summary.late} hint="Late arrivals"/><Metric icon={CalendarDays} label="Leave" value={data.summary.leave} hint="Approved/configured leave"/><Metric icon={CalendarDays} label="Absent" value={data.summary.absent} hint="Absent days"/></div><div className="mt-6 space-y-3">{data.records.length ? data.records.map(item => <article key={item.id} className="rounded-2xl border bg-white p-4 dark:bg-slate-900"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-bold">{shortDate(item.date)}</h3><p className="text-sm text-slate-500">{portalCourseTitle(item.batch.course)} · {item.batch.name}</p>{item.remarks && <p className="mt-1 text-sm">{item.remarks}</p>}</div><Badge value={item.status}/></div></article>) : <Empty icon={CheckCircle2}>No attendance has been recorded.</Empty>}</div></section>;
+  return (
+    <section>
+      <SectionTitle title="Attendance" description="Your attendance summary and recent records." />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <Metric icon={CheckCircle2} label="Attendance" value={`${data.percentage}%`} hint={`${data.summary.total} recorded days`} />
+        <Metric icon={CheckCircle2} label="Present" value={data.summary.present} hint="Present days" />
+        <Metric icon={Clock3} label="Late" value={data.summary.late} hint="Late arrivals" />
+        <Metric icon={CalendarDays} label="Leave" value={data.summary.leave} hint="Approved/configured leave" />
+        <Metric icon={CalendarDays} label="Absent" value={data.summary.absent} hint="Absent days" />
+      </div>
+      <div className="mt-6 space-y-3">
+        {data.records.length ? (
+          data.records.map((item) => (
+            <article key={item.id} className="rounded-2xl border bg-white p-4 dark:bg-slate-900">
+              <div className="flex flex-wrap justify-between gap-3">
+                <div>
+                  <h3 className="font-bold">{shortDate(item.date)}</h3>
+                  <p className="text-sm text-slate-500">
+                    {portalCourseTitle(item.batch.course)} · {item.batch.name}
+                  </p>
+                  {item.remarks && <p className="mt-1 text-sm">{item.remarks}</p>}
+                </div>
+                <Badge value={item.status} />
+              </div>
+            </article>
+          ))
+        ) : (
+          <Empty icon={CheckCircle2}>No attendance has been recorded.</Empty>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function StudentExaminations({ items, query }: { items: StudentExam[]; query: string }) {
   const terms = useGroupTerminology();
   const [reportError, setReportError] = useState("");
-  const rows = items.filter(item => includes(query, item.name, item.type, item.subject.name, item.status));
-  async function report(resultId: string) { setReportError(""); try { const response = await fetch(`${API}/portal/downloads/report-card/${resultId}`, { headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` } }); if (!response.ok) throw new Error("Report card is not available"); const url = URL.createObjectURL(await response.blob()); window.open(url, "_blank", "noopener,noreferrer"); setTimeout(() => URL.revokeObjectURL(url), 60_000); } catch (cause) { setReportError(errorMessage(cause)); } }
-  return <section><SectionTitle title={terms.assessments} description={`Eligible ${terms.assessments.toLowerCase()}, submissions and published results.`} action={<Link href="/portal/examinations" className="btn bg-brand-700 text-white">Open answer-sheet center</Link>}/>{reportError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{reportError}</p>}{rows.length ? <div className="grid gap-4 lg:grid-cols-2">{rows.map(item => <article key={item.id} className="card p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase text-brand-700">{readable(item.type)}</p><h3 className="mt-1 text-lg font-black">{item.name}</h3><p className="text-sm text-slate-500">{item.subject.name}</p></div><Badge value={item.status}/></div><div className="mt-4 flex flex-wrap gap-4 text-sm"><span>{shortDate(item.examDate)}</span><span>{minute(item.startMinute)}–{minute(item.endMinute)}</span><span>{item.maximumMarks} marks</span></div>{item.submission && <p className="mt-3 text-sm">Submission: <b>{readable(item.submission.status)}</b></p>}{item.result ? <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"><p>Marks: <b>{item.result.marksObtained ?? "Absent"}/{item.maximumMarks}</b></p><p>Grade: <b>{item.result.grade ?? "—"}</b>{item.result.rank ? ` · Rank ${item.result.rank}` : ""}</p><button className="mt-2 font-bold text-brand-700" onClick={() => void report(item.result!.id)}>Download report card</button></div> : <p className="mt-4 text-sm text-slate-500">Results are hidden until formally published.</p>}</article>)}</div> : <Empty icon={FileCheck2}>{`No eligible ${terms.assessments.toLowerCase()} found.`}</Empty>}</section>;
+  const rows = items.filter((item) => includes(query, item.name, item.type, item.subject.name, item.status));
+  async function report(resultId: string) {
+    setReportError("");
+    try {
+      const response = await fetch(`${API}/portal/downloads/report-card/${resultId}`, { headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` } });
+      if (!response.ok) throw new Error("Report card is not available");
+      const url = URL.createObjectURL(await response.blob());
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (cause) {
+      setReportError(errorMessage(cause));
+    }
+  }
+  return (
+    <section>
+      <SectionTitle
+        title={terms.assessments}
+        description={`Eligible ${terms.assessments.toLowerCase()}, submissions and published results.`}
+        action={
+          <Link href="/portal/examinations" className="btn bg-brand-700 text-white">
+            Open answer-sheet center
+          </Link>
+        }
+      />
+      {reportError && (
+        <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          {reportError}
+        </p>
+      )}
+      {rows.length ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {rows.map((item) => (
+            <article key={item.id} className="card p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase text-brand-700">{readable(item.type)}</p>
+                  <h3 className="mt-1 text-lg font-black">{item.name}</h3>
+                  <p className="text-sm text-slate-500">{item.subject.name}</p>
+                </div>
+                <Badge value={item.status} />
+              </div>
+              <div className="mt-4 flex flex-wrap gap-4 text-sm">
+                <span>{shortDate(item.examDate)}</span>
+                <span>
+                  {minute(item.startMinute)}–{minute(item.endMinute)}
+                </span>
+                <span>{item.maximumMarks} marks</span>
+              </div>
+              {item.submission && (
+                <p className="mt-3 text-sm">
+                  Submission: <b>{readable(item.submission.status)}</b>
+                </p>
+              )}
+              {item.result ? (
+                <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">
+                  <p>
+                    Marks:{" "}
+                    <b>
+                      {item.result.marksObtained ?? "Absent"}/{item.maximumMarks}
+                    </b>
+                  </p>
+                  <p>
+                    Grade: <b>{item.result.grade ?? "—"}</b>
+                    {item.result.rank ? ` · Rank ${item.result.rank}` : ""}
+                  </p>
+                  <button className="mt-2 font-bold text-brand-700" onClick={() => void report(item.result!.id)}>
+                    Download report card
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Results are hidden until formally published.</p>
+              )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <Empty icon={FileCheck2}>{`No eligible ${terms.assessments.toLowerCase()} found.`}</Empty>
+      )}
+    </section>
+  );
 }
 
 function StudentFees({ items }: { items: Fee[] }) {
   if (!items.length) return <Empty icon={IndianRupee}>No fee records are available.</Empty>;
-  return <section><SectionTitle title="Fees" description="Recorded charges, payments and outstanding balances."/><div className="space-y-4">{items.map(item => { const payable = item.totalPaise - item.discountPaise + item.finePaise, balance = Math.max(0, payable - item.amountPaidPaise); return <article key={item.id} className="card p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-black">{item.feeHead}</h3><p className="text-sm text-slate-500">Due {shortDate(item.dueDate)}</p></div><Badge value={item.status}/></div><div className="mt-4 grid gap-3 sm:grid-cols-4"><div><small className="text-slate-400">Total</small><p className="font-bold">{money(item.totalPaise)}</p></div><div><small className="text-slate-400">Discount</small><p className="font-bold">{money(item.discountPaise)}</p></div><div><small className="text-slate-400">Paid</small><p className="font-bold text-emerald-700">{money(item.amountPaidPaise)}</p></div><div><small className="text-slate-400">Balance</small><p className="font-bold text-amber-700">{money(balance)}</p></div></div>{item.payments.length > 0 && <div className="mt-4 border-t pt-3"><p className="text-xs font-bold uppercase text-slate-400">Payment history</p>{item.payments.map(payment => <p key={payment.id} className="mt-2 text-sm">{shortDate(payment.paymentDate)} · {money(payment.amountPaise)} · {readable(payment.paymentMode)} · Receipt {payment.receiptNumber}</p>)}</div>}</article>; })}</div></section>;
+  return (
+    <section>
+      <SectionTitle title="Fees" description="Recorded charges, payments and outstanding balances." />
+      <div className="space-y-4">
+        {items.map((item) => {
+          const payable = item.totalPaise - item.discountPaise + item.finePaise,
+            balance = Math.max(0, payable - item.amountPaidPaise);
+          return (
+            <article key={item.id} className="card p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-black">{item.feeHead}</h3>
+                  <p className="text-sm text-slate-500">Due {shortDate(item.dueDate)}</p>
+                </div>
+                <Badge value={item.status} />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                <div>
+                  <small className="text-slate-400">Total</small>
+                  <p className="font-bold">{money(item.totalPaise)}</p>
+                </div>
+                <div>
+                  <small className="text-slate-400">Discount</small>
+                  <p className="font-bold">{money(item.discountPaise)}</p>
+                </div>
+                <div>
+                  <small className="text-slate-400">Paid</small>
+                  <p className="font-bold text-emerald-700">{money(item.amountPaidPaise)}</p>
+                </div>
+                <div>
+                  <small className="text-slate-400">Balance</small>
+                  <p className="font-bold text-amber-700">{money(balance)}</p>
+                </div>
+              </div>
+              {item.payments.length > 0 && (
+                <div className="mt-4 border-t pt-3">
+                  <p className="text-xs font-bold uppercase text-slate-400">Payment history</p>
+                  {item.payments.map((payment) => (
+                    <p key={payment.id} className="mt-2 text-sm">
+                      {shortDate(payment.paymentDate)} · {money(payment.amountPaise)} · {readable(payment.paymentMode)} · Receipt {payment.receiptNumber}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function ParentOverview({ data }: { data: ParentDashboard }) {
   const terms = useGroupTerminology();
-  return <section><SectionTitle title="Linked students" description="Academic summaries for students linked to your account."/>{data.children.length ? <div className="grid gap-4 md:grid-cols-2">{data.children.map(child => <article key={child.profile.admissionNo} className="card p-5"><h3 className="text-lg font-black">{child.profile.name}</h3><p className="text-sm text-slate-500">{terms.course}: {child.profile.course.name} · {terms.singular}: {child.profile.batch.name}</p><div className="mt-4 grid grid-cols-3 gap-3 text-sm"><div><small>Attendance</small><p className="font-bold">{child.attendance.percentage}%</p></div><div><small>Homework</small><p className="font-bold">{child.homework.assignments.length}</p></div><div><small>Fees</small><p className="font-bold">{child.fees.length}</p></div></div></article>)}</div> : <Empty icon={Users}>No students are linked to this account.</Empty>}</section>;
+  return (
+    <>
+      <section>
+        <SectionTitle title="Linked students" description="Academic summaries for students linked to your account." />
+        {data.children.length ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            {data.children.map((child) => (
+              <article key={child.profile.admissionNo} className="card p-5">
+                <h3 className="text-lg font-black">{child.profile.name}</h3>
+                <p className="text-sm text-slate-500">
+                  {terms.course}: {child.profile.course.name} · {terms.singular}: {child.profile.batch.name}
+                </p>
+                <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <small>Attendance</small>
+                    <p className="font-bold">{child.attendance.percentage}%</p>
+                  </div>
+                  <div>
+                    <small>Homework</small>
+                    <p className="font-bold">{child.homework.assignments.length}</p>
+                  </div>
+                  <div>
+                    <small>Fees</small>
+                    <p className="font-bold">{child.fees.length}</p>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <Empty icon={Users}>No students are linked to this account.</Empty>
+        )}
+      </section>
+      <div className="mt-8">
+        <ParentHomeworkSection data={data} query="" />
+      </div>
+    </>
+  );
+}
+
+function ParentHomeworkSection({ data, query }: { data: ParentDashboard; query: string }) {
+  const rows = data.children.flatMap((child) => child.homework.assignments.map((homework) => ({ child, homework }))).filter(({ child, homework }) => includes(query, child.profile.name, homework.title, homework.subject.name, homework.course.title, homework.batch.name, homework.submission?.status));
+  return (
+    <section>
+      <SectionTitle title="Homework results" description="Submission status, marks and teacher feedback for your linked students." />
+      {rows.length ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {rows.map(({ child, homework }) => (
+            <article key={`${child.profile.admissionNo}-${homework.id}`} className="card p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase text-brand-700">
+                    {child.profile.name} · {homework.subject.name}
+                  </p>
+                  <h3 className="mt-1 text-lg font-black">{homework.title}</h3>
+                  <p className="text-sm text-slate-500">
+                    {homework.course.title} · {homework.batch.name}
+                  </p>
+                </div>
+                <Badge value={homework.submission?.status ?? "PENDING"} />
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <p>
+                  Due <b>{formatInstitutionDateTime(homework.dueDate, child)}</b>
+                </p>
+                <p>
+                  Maximum marks <b>{homework.maximumMarks}</b>
+                </p>
+                <p>
+                  Submitted <b>{homework.submission ? formatInstitutionDateTime(homework.submission.submittedAt, child) : "Not submitted"}</b>
+                </p>
+                <p>
+                  Marks <b>{homework.submission?.marksObtained == null ? "Awaiting evaluation" : `${homework.submission.marksObtained}/${homework.maximumMarks}`}</b>
+                </p>
+              </div>
+              {homework.submission?.feedback && (
+                <div className="mt-4 rounded-xl bg-slate-50 p-4">
+                  <p className="text-xs font-bold uppercase text-slate-400">Teacher feedback</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm">{homework.submission.feedback}</p>
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <Empty icon={NotebookPen}>No homework is available for linked students.</Empty>
+      )}
+    </section>
+  );
 }
 
 function Workspace({ role }: { role: PortalRole }) {
   const terms = useGroupTerminology();
-  const { user, logout } = useAuth(); const [dashboard, setDashboard] = useState<TeacherDashboard | StudentDashboard | ParentDashboard | null>(null); const [common, setCommon] = useState<CommonData>({ announcements: [], notifications: [], messages: [], leaves: [], leaveChildren: [], regionalSettings: {}, contacts: [] }); const [profile, setProfile] = useState({ name: "", phone: "" }); const [active, setActive] = useState("overview"); const [query, setQuery] = useState(""); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  const { user, logout } = useAuth();
+  const [dashboard, setDashboard] = useState<TeacherDashboard | StudentDashboard | ParentDashboard | null>(null);
+  const [common, setCommon] = useState<CommonData>({
+    announcements: [],
+    notifications: [],
+    messages: [],
+    leaves: [],
+    leaveChildren: [],
+    regionalSettings: {},
+    contacts: [],
+  });
+  const [profile, setProfile] = useState({ name: "", phone: "" });
+  const [active, setActive] = useState("overview");
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const rolePath = role.toLowerCase();
-  const regionalSettings: InstitutionRegionalSettings = role === "PARENT" ? common.regionalSettings : (dashboard as TeacherDashboard | StudentDashboard | null) ?? common.regionalSettings;
-  const load = useCallback(async () => { setLoading(true); setError(""); try { const [dash, announcements, notifications, messages, leaves, profileData, contacts] = await Promise.all([portalRequest(`/${rolePath}/dashboard`), portalRequest("/announcements?limit=50"), portalRequest("/notifications?limit=50"), portalRequest("/messages?limit=50"), portalRequest("/leaves"), portalRequest("/profile"), portalRequest("/contacts")]); setDashboard(dash.data); setCommon({ announcements: announcements.data, notifications: notifications.data, messages: messages.data, leaves: leaves.data, leaveChildren: leaves.meta?.children ?? [], regionalSettings: { timeZone: leaves.meta?.timeZone, locale: leaves.meta?.locale }, contacts: contacts.data }); setProfile({ name: profileData.data.name ?? "", phone: profileData.data.phone ?? "" }); } catch (cause) { setError(errorMessage(cause)); } finally { setLoading(false); } }, [rolePath]);
-  useEffect(() => { void load(); }, [load]);
+  const regionalSettings: InstitutionRegionalSettings = role === "PARENT" ? common.regionalSettings : ((dashboard as TeacherDashboard | StudentDashboard | null) ?? common.regionalSettings);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [dash, announcements, notifications, messages, leaves, profileData, contacts] = await Promise.all([portalRequest(`/${rolePath}/dashboard`), portalRequest("/announcements?limit=50"), portalRequest("/notifications?limit=50"), portalRequest("/messages?limit=50"), portalRequest("/leaves"), portalRequest("/profile"), portalRequest("/contacts")]);
+      setDashboard(dash.data);
+      setCommon({
+        announcements: announcements.data,
+        notifications: notifications.data,
+        messages: messages.data,
+        leaves: leaves.data,
+        leaveChildren: leaves.meta?.children ?? [],
+        regionalSettings: {
+          timeZone: leaves.meta?.timeZone,
+          locale: leaves.meta?.locale,
+        },
+        contacts: contacts.data,
+      });
+      setProfile({
+        name: profileData.data.name ?? "",
+        phone: profileData.data.phone ?? "",
+      });
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setLoading(false);
+    }
+  }, [rolePath]);
+  useEffect(() => {
+    void load();
+  }, [load]);
   const tabs = role === "TEACHER" ? ["overview", "classes", "learning", "students", "homework", "attendance", "examinations", "notifications", "announcements", "messages", "leave", "profile"] : role === "STUDENT" ? ["overview", "learning", "homework", "timetable", "attendance", "examinations", "fees", "notifications", "announcements", "messages", "leave", "profile"] : ["overview", "notifications", "announcements", "messages", "leave", "profile"];
-  async function markRead(notificationId: string) { await portalRequest(`/notifications/${notificationId}/read`, { method: "PATCH" }); setCommon(current => ({ ...current, notifications: current.notifications.map(item => item.id === notificationId ? { ...item, readAt: new Date().toISOString() } : item) })); }
-  return <main className="min-h-screen bg-slate-50 dark:bg-slate-950"><header className="border-b bg-white dark:border-slate-800 dark:bg-slate-900"><div className="container-page flex min-h-16 items-center justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-wider text-brand-700">Being Brilliant {terms.institution}</p><h1 className="font-black">{role === "TEACHER" ? "Teacher Portal" : role === "STUDENT" ? "Student Portal" : "Parent Portal"}</h1></div><div className="flex items-center gap-3"><span className="hidden text-sm text-slate-500 sm:inline">{user?.name}</span><button onClick={() => void logout()} aria-label="Log out" className="rounded-lg border p-2"><LogOut size={17}/></button></div></div></header><div className="container-page py-6"><nav className="flex gap-2 overflow-x-auto pb-3" aria-label="Portal sections">{tabs.map(tab => <button key={tab} onClick={() => setActive(tab)} className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold ${active === tab ? "bg-brand-700 text-white" : "border bg-white dark:bg-slate-900"}`}>{portalSectionLabel(tab, terms)}</button>)}</nav>{!loading && !error && !["overview", "notifications", "announcements", "messages", "leave", "profile"].includes(active) && <label className="relative my-5 block max-w-xl"><Search className="absolute left-3 top-3 text-slate-400" size={18}/><span className="sr-only">Search current section</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder={`Search ${portalSectionLabel(active, terms).toLowerCase()}`} className="field pl-10"/></label>}{loading ? <div className="grid min-h-[55vh] place-items-center"><div className="text-center"><Loader2 className="mx-auto animate-spin text-brand-700"/><p className="mt-3 text-sm text-slate-500">Loading your portal…</p></div></div> : error ? <div role="alert" className="mx-auto mt-12 max-w-xl rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-800"><h2 className="font-black">Unable to load your portal</h2><p className="mt-2 text-sm">{error}</p><button className="btn mt-4 bg-red-700 text-white" onClick={() => void load()}>Try again</button></div> : dashboard ? <div className="mt-5">{role === "TEACHER" && (() => { const data = dashboard as TeacherDashboard; if (active === "overview") return <TeacherOverview data={data} common={common} open={setActive} markRead={markRead}/>; if (active === "classes") return <TeacherClasses data={data} query={query} openStudents={() => setActive("students")}/>; if (active === "learning") return <TeacherLmsWorkspace query={query}/>; if (active === "students") return <TeacherStudents items={data.students} query={query}/>; if (active === "homework") return <TeacherHomeworkSection items={data.homework} query={query} settings={data}/>; if (active === "attendance") return <TeacherAttendanceSection data={data} query={query} reload={load}/>; if (active === "examinations") return <TeacherExaminations items={data.examinations} query={query}/>; return null; })()}{role === "STUDENT" && (() => { const data = dashboard as StudentDashboard; if (active === "overview") return <StudentOverview data={data} common={common} open={setActive}/>; if (active === "learning") return <StudentLmsWorkspace query={query}/>; if (active === "homework") return <StudentHomeworkSection items={data.homework.assignments} query={query} reload={load} settings={data}/>; if (active === "timetable") return <StudentTimetable items={data.timetable} query={query}/>; if (active === "attendance") return <StudentAttendanceSection data={data.attendance}/>; if (active === "examinations") return <StudentExaminations items={data.examinations} query={query}/>; if (active === "fees") return <StudentFees items={data.fees}/>; return null; })()}{role === "PARENT" && active === "overview" && <ParentOverview data={dashboard as ParentDashboard}/>} {active === "notifications" && <><SectionTitle title="Notifications" description="Updates sent directly to your account."/><NotificationList items={common.notifications} markRead={markRead}/></>}{active === "announcements" && <><SectionTitle title="Announcements" description={`Published ${terms.institution.toLowerCase()} and branch notices.`}/><AnnouncementList items={common.announcements} settings={regionalSettings}/></>}{active === "messages" && <MessageCenter items={common.messages} contacts={common.contacts} reload={load}/>} {active === "leave" && <LeaveSection role={role} items={common.leaves}/>} {active === "profile" && <ProfilePanel name={profile.name} phone={profile.phone} save={async value => { await portalRequest("/profile", { method: "PATCH", body: JSON.stringify({ name: value.name, phone: value.phone || null }) }); setProfile(value); }} changePassword={async value => { await portalRequest("/change-password", { method: "POST", body: JSON.stringify(value) }); }}/>}</div> : null}<footer className="mt-12 flex flex-wrap gap-4 border-t pt-5 text-sm text-slate-500"><Link href="/" className="font-bold text-brand-700">{terms.institution} home</Link><span>Secure role-specific workspace</span><span>Organization-aware access</span></footer></div><style jsx global>{`.field{width:100%;border:1px solid #dbe1ea;border-radius:.75rem;padding:.65rem .8rem;background:transparent}.btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;border:1px solid #dbe1ea;border-radius:.75rem;padding:.65rem .9rem;font-size:.875rem;font-weight:700}.btn:disabled{opacity:.55;cursor:not-allowed}`}</style></main>;
+  async function markRead(notificationId: string) {
+    await portalRequest(`/notifications/${notificationId}/read`, {
+      method: "PATCH",
+    });
+    setCommon((current) => ({
+      ...current,
+      notifications: current.notifications.map((item) => (item.id === notificationId ? { ...item, readAt: new Date().toISOString() } : item)),
+    }));
+  }
+  return (
+    <main className="min-h-screen bg-slate-50 dark:bg-slate-950">
+      <header className="border-b bg-white dark:border-slate-800 dark:bg-slate-900">
+        <div className="container-page flex min-h-16 items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wider text-brand-700">Being Brilliant {terms.institution}</p>
+            <h1 className="font-black">{role === "TEACHER" ? "Teacher Portal" : role === "STUDENT" ? "Student Portal" : "Parent Portal"}</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden text-sm text-slate-500 sm:inline">{user?.name}</span>
+            <button onClick={() => void logout()} aria-label="Log out" className="rounded-lg border p-2">
+              <LogOut size={17} />
+            </button>
+          </div>
+        </div>
+      </header>
+      <div className="container-page py-6">
+        <nav className="flex gap-2 overflow-x-auto pb-3" aria-label="Portal sections">
+          {tabs.map((tab) => (
+            <button key={tab} onClick={() => setActive(tab)} className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold ${active === tab ? "bg-brand-700 text-white" : "border bg-white dark:bg-slate-900"}`}>
+              {portalSectionLabel(tab, terms)}
+            </button>
+          ))}
+        </nav>
+        {!loading && !error && !["overview", "notifications", "announcements", "messages", "leave", "profile"].includes(active) && (
+          <label className="relative my-5 block max-w-xl">
+            <Search className="absolute left-3 top-3 text-slate-400" size={18} />
+            <span className="sr-only">Search current section</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${portalSectionLabel(active, terms).toLowerCase()}`} className="field pl-10" />
+          </label>
+        )}
+        {loading ? (
+          <div className="grid min-h-[55vh] place-items-center">
+            <div className="text-center">
+              <Loader2 className="mx-auto animate-spin text-brand-700" />
+              <p className="mt-3 text-sm text-slate-500">Loading your portal…</p>
+            </div>
+          </div>
+        ) : error ? (
+          <div role="alert" className="mx-auto mt-12 max-w-xl rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-800">
+            <h2 className="font-black">Unable to load your portal</h2>
+            <p className="mt-2 text-sm">{error}</p>
+            <button className="btn mt-4 bg-red-700 text-white" onClick={() => void load()}>
+              Try again
+            </button>
+          </div>
+        ) : dashboard ? (
+          <div className="mt-5">
+            {role === "TEACHER" &&
+              (() => {
+                const data = dashboard as TeacherDashboard;
+                if (active === "overview") return <TeacherOverview data={data} common={common} open={setActive} markRead={markRead} />;
+                if (active === "classes") return <TeacherClasses data={data} query={query} openStudents={() => setActive("students")} />;
+                if (active === "learning") return <TeacherLmsWorkspace query={query} />;
+                if (active === "students") return <TeacherStudents items={data.students} query={query} />;
+                if (active === "homework") return <TeacherHomeworkSection items={data.homework} query={query} settings={data} />;
+                if (active === "attendance") return <TeacherAttendanceSection data={data} query={query} reload={load} />;
+                if (active === "examinations") return <TeacherExaminations items={data.examinations} query={query} />;
+                return null;
+              })()}
+            {role === "STUDENT" &&
+              (() => {
+                const data = dashboard as StudentDashboard;
+                if (active === "overview") return <StudentOverview data={data} common={common} open={setActive} />;
+                if (active === "learning") return <StudentLmsWorkspace query={query} />;
+                if (active === "homework") return <StudentHomeworkSection items={data.homework.assignments} query={query} reload={load} settings={data} />;
+                if (active === "timetable") return <StudentTimetable items={data.timetable} query={query} />;
+                if (active === "attendance") return <StudentAttendanceSection data={data.attendance} />;
+                if (active === "examinations") return <StudentExaminations items={data.examinations} query={query} />;
+                if (active === "fees") return <StudentFees items={data.fees} />;
+                return null;
+              })()}
+            {role === "PARENT" && active === "overview" && <ParentOverview data={dashboard as ParentDashboard} />}{" "}
+            {active === "notifications" && (
+              <>
+                <SectionTitle title="Notifications" description="Updates sent directly to your account." />
+                <NotificationList items={common.notifications} markRead={markRead} />
+              </>
+            )}
+            {active === "announcements" && (
+              <>
+                <SectionTitle title="Announcements" description={`Published ${terms.institution.toLowerCase()} and branch notices.`} />
+                <AnnouncementList items={common.announcements} settings={regionalSettings} />
+              </>
+            )}
+            {active === "messages" && <MessageCenter items={common.messages} contacts={common.contacts} reload={load} />} {active === "leave" && <LeaveSection role={role} items={common.leaves} />}{" "}
+            {active === "profile" && (
+              <ProfilePanel
+                name={profile.name}
+                phone={profile.phone}
+                save={async (value) => {
+                  await portalRequest("/profile", {
+                    method: "PATCH",
+                    body: JSON.stringify({
+                      name: value.name,
+                      phone: value.phone || null,
+                    }),
+                  });
+                  setProfile(value);
+                }}
+                changePassword={async (value) => {
+                  await portalRequest("/change-password", {
+                    method: "POST",
+                    body: JSON.stringify(value),
+                  });
+                }}
+              />
+            )}
+          </div>
+        ) : null}
+        <footer className="mt-12 flex flex-wrap gap-4 border-t pt-5 text-sm text-slate-500">
+          <Link href="/" className="font-bold text-brand-700">
+            {terms.institution} home
+          </Link>
+          <span>Secure role-specific workspace</span>
+          <span>Organization-aware access</span>
+        </footer>
+      </div>
+      <style jsx global>{`
+        .field {
+          width: 100%;
+          border: 1px solid #dbe1ea;
+          border-radius: 0.75rem;
+          padding: 0.65rem 0.8rem;
+          background: transparent;
+        }
+        .btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.4rem;
+          border: 1px solid #dbe1ea;
+          border-radius: 0.75rem;
+          padding: 0.65rem 0.9rem;
+          font-size: 0.875rem;
+          font-weight: 700;
+        }
+        .btn:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+      `}</style>
+    </main>
+  );
 }
 
-export function PortalWorkspace({ role }: { role: PortalRole }) { return <AuthGate roles={[role]}><Workspace role={role}/></AuthGate>; }
+export function PortalWorkspace({ role }: { role: PortalRole }) {
+  return (
+    <AuthGate roles={[role]}>
+      <Workspace role={role} />
+    </AuthGate>
+  );
+}
