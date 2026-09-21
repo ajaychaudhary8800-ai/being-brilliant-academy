@@ -141,3 +141,81 @@ INSERT INTO "SaaSPlan" (
   ('saas_plan_standard', 'STANDARD', 'Standard', 'Compatibility-safe standard SaaS plan. Configure pricing and limits before enforcing entitlements.', 0, 0, 'INR', 0, '{"*": true}', '{}', true, CURRENT_TIMESTAMP),
   ('saas_plan_enterprise', 'ENTERPRISE', 'Enterprise', 'Compatibility-safe enterprise SaaS plan with unrestricted feature access by default.', 0, 0, 'INR', 0, '{"*": true}', '{}', true, CURRENT_TIMESTAMP)
 ON CONFLICT ("code") DO NOTHING;
+
+
+-- Enforce configured tenant capacity limits at the database boundary.
+-- Advisory transaction locks serialize concurrent creates/activations per organization and resource.
+CREATE OR REPLACE FUNCTION "saas_commercial_limit_check_fn"()
+RETURNS trigger AS $$
+DECLARE
+  org_id TEXT := NEW."organizationId";
+  resource_key TEXT;
+  plan_limits JSONB;
+  raw_limit TEXT;
+  configured_limit INTEGER;
+  current_usage INTEGER;
+  enforce_limits BOOLEAN;
+BEGIN
+  SELECT COALESCE(o."settings" #>> '{commercialEntitlements,enforce}', 'false') = 'true',
+         COALESCE(active_plan."limits", fallback_plan."limits", '{}'::jsonb)
+    INTO enforce_limits, plan_limits
+  FROM "Organization" o
+  LEFT JOIN "SaaSSubscription" subscription ON subscription."organizationId" = o."id"
+  LEFT JOIN "SaaSPlan" active_plan ON active_plan."id" = subscription."planId"
+  LEFT JOIN "SaaSPlan" fallback_plan ON fallback_plan."code" = o."subscriptionPlan"
+  WHERE o."id" = org_id;
+
+  IF NOT COALESCE(enforce_limits, false) THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_TABLE_NAME = 'Branch' THEN
+    resource_key := 'branches';
+    IF NOT NEW."isActive" THEN RETURN NEW; END IF;
+    IF TG_OP = 'UPDATE' AND OLD."organizationId" = NEW."organizationId" AND OLD."isActive" = NEW."isActive" THEN RETURN NEW; END IF;
+  ELSIF TG_TABLE_NAME = 'User' THEN
+    resource_key := 'users';
+    IF NOT NEW."isActive" THEN RETURN NEW; END IF;
+    IF TG_OP = 'UPDATE' AND OLD."organizationId" = NEW."organizationId" AND OLD."isActive" = NEW."isActive" THEN RETURN NEW; END IF;
+  ELSIF TG_TABLE_NAME = 'StudentProfile' THEN
+    resource_key := 'students';
+    IF NEW."status"::text <> 'ACTIVE' THEN RETURN NEW; END IF;
+    IF TG_OP = 'UPDATE' AND OLD."organizationId" = NEW."organizationId" AND OLD."status" = NEW."status" THEN RETURN NEW; END IF;
+  ELSE
+    RETURN NEW;
+  END IF;
+
+  raw_limit := plan_limits ->> resource_key;
+  IF raw_limit IS NULL THEN
+    RETURN NEW;
+  END IF;
+  configured_limit := raw_limit::INTEGER;
+  PERFORM pg_advisory_xact_lock(hashtextextended('saas-limit:' || org_id || ':' || resource_key, 0));
+
+  IF resource_key = 'branches' THEN
+    SELECT COUNT(*) INTO current_usage FROM "Branch" WHERE "organizationId" = org_id AND "isActive" = true;
+  ELSIF resource_key = 'users' THEN
+    SELECT COUNT(*) INTO current_usage FROM "User" WHERE "organizationId" = org_id AND "isActive" = true;
+  ELSE
+    SELECT COUNT(*) INTO current_usage FROM "StudentProfile" WHERE "organizationId" = org_id AND "status"::text = 'ACTIVE';
+  END IF;
+
+  IF current_usage >= configured_limit THEN
+    RAISE EXCEPTION 'SAAS_PLAN_LIMIT_REACHED:%:%', resource_key, configured_limit
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "Branch_saas_commercial_limit_check"
+BEFORE INSERT OR UPDATE OF "organizationId", "isActive" ON "Branch"
+FOR EACH ROW EXECUTE FUNCTION "saas_commercial_limit_check_fn"();
+
+CREATE TRIGGER "User_saas_commercial_limit_check"
+BEFORE INSERT OR UPDATE OF "organizationId", "isActive" ON "User"
+FOR EACH ROW EXECUTE FUNCTION "saas_commercial_limit_check_fn"();
+
+CREATE TRIGGER "StudentProfile_saas_commercial_limit_check"
+BEFORE INSERT OR UPDATE OF "organizationId", "status" ON "StudentProfile"
+FOR EACH ROW EXECUTE FUNCTION "saas_commercial_limit_check_fn"();
