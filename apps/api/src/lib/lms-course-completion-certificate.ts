@@ -1,5 +1,6 @@
 import { CertificateStatus, CertificateType, StudentStatus } from "@prisma/client";
 import { prisma } from "./prisma.js";
+import { loadTenantDocumentIdentity } from "./tenant-document-brand.js";
 
 const COMPLETION_THRESHOLD = 80;
 
@@ -56,8 +57,9 @@ export async function ensureCourseCompletionCertificate(input: EnsureCourseCompl
   if (!total || Math.round((completed / total) * 100) < COMPLETION_THRESHOLD) return null;
 
   const now = new Date();
+  const brand = await loadTenantDocumentIdentity(input.organizationId);
   const suffix = [student.id, student.batch.courseId].map(value => value.slice(-6).toUpperCase()).join("-");
-  const certificateNumber = `BBA-COURSE-${now.getUTCFullYear()}-${suffix}`;
+  const certificateNumber = `${brand.certificatePrefix}-COURSE-${now.getUTCFullYear()}-${suffix}`;
 
   try {
     return await prisma.certificate.create({
