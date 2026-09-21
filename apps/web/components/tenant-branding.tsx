@@ -79,7 +79,7 @@ function normalize(payload: unknown): TenantBranding {
     supportEmail: stringValue(whiteLabel.supportEmail),
     supportPhone: stringValue(whiteLabel.supportPhone),
     customDomain: stringValue(whiteLabel.customDomain),
-    hideVendorBranding: whiteLabel.hideVendorBranding === true,
+    hideVendorBranding: whiteLabel.hideVendorBranding !== false,
   };
 }
 
