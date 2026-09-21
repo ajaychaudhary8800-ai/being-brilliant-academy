@@ -21,3 +21,14 @@ test("enquiry related branch, course and counsellor validation is tenant-bound",
   assert.match(source, /prisma\.course\.findFirst\(\{where:\{organizationId,id:x\.courseId\}/);
   assert.match(source, /prisma\.user\.findFirst\(\{where:\{organizationId,id:x\.counsellorId\}/);
 });
+
+
+test("CRM completion keeps reminder views terminal-safe and exports filter-aware", async () => {
+  const source = await readFile(new URL("./admin-enquiries.ts", import.meta.url), "utf8");
+  assert.match(source, /conversionRate/);
+  assert.match(source, /overdue/);
+  assert.match(source, /counsellorId:z\.string\(\)\.cuid\(\)\.optional\(\)/);
+  assert.match(source, /reminder:z\.enum\(\["due","upcoming"\]\)\.optional\(\)/);
+  assert.match(source, /status:\{notIn:\[EnquiryStatus\.CONVERTED,EnquiryStatus\.ARCHIVED,EnquiryStatus\.CLOSED\]\}/);
+  assert.match(source, /Content-Disposition":"attachment; filename=enquiries\.xls"/);
+});
