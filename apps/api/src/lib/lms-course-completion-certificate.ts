@@ -18,7 +18,7 @@ export async function ensureCourseCompletionCertificate(input: EnsureCourseCompl
       batch: { select: { courseId: true, course: { select: { title: true } } } },
     },
   });
-  if (!student?.batchId || !student.batch?.courseId) return null;
+  if (!student?.batchId || !student.batch?.courseId || !student.batch.course) return null;
 
   const existing = await prisma.certificate.findFirst({
     where: {
