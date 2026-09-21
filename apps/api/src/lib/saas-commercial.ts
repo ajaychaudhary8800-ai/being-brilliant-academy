@@ -64,7 +64,7 @@ export async function commercialAccessSnapshot(organizationId: string) {
   const [branches, users, students] = await Promise.all([
     systemPrisma.branch.count({ where: { organizationId, isActive: true } }),
     systemPrisma.user.count({ where: { organizationId, isActive: true } }),
-    systemPrisma.studentProfile.count({ where: { organizationId } }),
+    systemPrisma.studentProfile.count({ where: { organizationId, status: "ACTIVE" } }),
   ]);
   return { ...policy, usage: { branches, users, students } };
 }
