@@ -59,6 +59,15 @@ async function commercialPolicySnapshot(organizationId: string) {
   };
 }
 
+export async function commercialEntitlementSnapshot(organizationId: string) {
+  const policy = await commercialPolicySnapshot(organizationId);
+  return {
+    enforcementEnabled: policy.enforcementEnabled,
+    planCode: policy.plan?.code ?? policy.organization.subscriptionPlan,
+    entitlements: policy.plan?.entitlements ?? {},
+  };
+}
+
 export async function commercialAccessSnapshot(organizationId: string) {
   const policy = await commercialPolicySnapshot(organizationId);
   const [branches, users, students] = await Promise.all([
