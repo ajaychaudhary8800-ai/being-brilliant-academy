@@ -73,6 +73,7 @@ import teacherPhotos from "./routes/teacher-photos.js";
 import imageUploads from "./routes/image-uploads.js";
 import publicBranding from "./routes/public-branding.js";
 import saasCommercial from "./routes/saas-commercial.js";
+import { reconcileSaaSLifecycle } from "./lib/saas-commercial.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -279,9 +280,25 @@ const notificationWorker = setInterval(async () => {
   }
 }, 30_000);
 notificationWorker.unref();
+
+const reconcileCommercialLifecycle = async () => {
+  try {
+    const result = await reconcileSaaSLifecycle(new Date());
+    if (result.overdueInvoices || result.pastDue || result.cancelled || result.suspendedTrials) {
+      logger.info(result, "SaaS subscription lifecycle reconciled");
+    }
+  } catch (error) {
+    logger.error({ err: error }, "SaaS subscription lifecycle worker failed");
+  }
+};
+void reconcileCommercialLifecycle();
+const saasLifecycleWorker = setInterval(() => void reconcileCommercialLifecycle(), 5 * 60_000);
+saasLifecycleWorker.unref();
+
 async function shutdown(signal: string) {
   logger.info({ signal }, "Graceful shutdown started");
   clearInterval(notificationWorker);
+  clearInterval(saasLifecycleWorker);
   server.close(async () => {
     await Promise.allSettled([systemPrisma.$disconnect(), redis?.quit() ?? Promise.resolve()]);
     process.exit(0);
