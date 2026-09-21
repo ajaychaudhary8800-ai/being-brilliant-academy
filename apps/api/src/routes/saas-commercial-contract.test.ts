@@ -26,12 +26,18 @@ test("SaaS migration seeds compatibility-safe plans and never edits learner invo
   assert.match(migration, /'ENTERPRISE'.*'\{"\*": true\}'/s);
   assert.doesNotMatch(migration, /ALTER TABLE "Invoice"/);
   assert.doesNotMatch(migration, /ALTER TABLE "Payment"/);
+  assert.match(migration, /saas_commercial_limit_check_fn/);
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /Branch_saas_commercial_limit_check/);
+  assert.match(migration, /User_saas_commercial_limit_check/);
+  assert.match(migration, /StudentProfile_saas_commercial_limit_check/);
 });
 
 test("commercial entitlement enforcement is opt-in for existing tenants", async () => {
   const policy = await readFile(new URL("../lib/saas-commercial.ts", import.meta.url), "utf8");
   assert.match(policy, /commercialSettings\.enforce === true/);
-  assert.match(policy, /if \(!snapshot\.enforcementEnabled\) return snapshot/);
+  assert.match(policy, /if \(!policy\.enforcementEnabled\) return policy/);
+  assert.match(policy, /assertCommercialPlanFitsUsage/);
   assert.match(policy, /PLAN_FEATURE_REQUIRED/);
   assert.match(policy, /PLAN_LIMIT_REACHED/);
 });
@@ -52,4 +58,40 @@ test("verified Razorpay webhook delegates SaaS orders before learner invoice rec
   const captureIndex = payments.indexOf("captureSaaSRazorpayPayment(payment, event)");
   const learnerInvoiceIndex = payments.indexOf("tx.invoice.findUnique");
   assert.ok(captureIndex >= 0 && learnerInvoiceIndex > captureIndex);
+});
+
+
+test("commercial feature middleware protects optional ERP modules", async () => {
+  const expected = [
+    ["transport.ts", "transport"],
+    ["library.ts", "library"],
+    ["hostel.ts", "hostel"],
+    ["inventory.ts", "inventory"],
+    ["analytics.ts", "analytics"],
+    ["communication.ts", "communication"],
+    ["hr-payroll.ts", "hr_payroll"],
+    ["finance.ts", "finance"],
+    ["admin-enquiries.ts", "crm"],
+    ["admin-lms.ts", "lms"],
+  ] as const;
+  for (const [file, feature] of expected) {
+    const source = await readFile(new URL(file, import.meta.url), "utf8");
+    assert.match(source, new RegExp(`requireCommercialFeature\\(["']${feature}["']\\)`), `${file} must enforce ${feature}`);
+  }
+});
+
+test("commercial feature checks do not meter usage on every request", async () => {
+  const policy = await readFile(new URL("../lib/saas-commercial.ts", import.meta.url), "utf8");
+  const featureStart = policy.indexOf("export async function assertFeatureEntitled");
+  const featureEnd = policy.indexOf("export async function assertCommercialPlanFitsUsage");
+  const featureBlock = policy.slice(featureStart, featureEnd);
+  assert.match(featureBlock, /commercialPolicySnapshot/);
+  assert.doesNotMatch(featureBlock, /\.count\(/);
+});
+
+test("database capacity violations become plan-limit API conflicts", async () => {
+  const http = await readFile(new URL("../lib/http.ts", import.meta.url), "utf8");
+  assert.match(http, /SAAS_PLAN_LIMIT_REACHED:/);
+  assert.match(http, /PLAN_LIMIT_REACHED/);
+  assert.match(http, /commercialLimit \? 409/);
 });
