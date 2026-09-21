@@ -32,3 +32,12 @@ test("organization creation exposes group terminology without treating it as ins
   assert.match(page, /label="Custom group label"/);
   assert.doesNotMatch(page, /label="Institution type"/);
 });
+
+
+test("SaaS organization management exposes enforceable subscription lifecycle dates", () => {
+  const page = readFileSync(new URL("../app/admin/organizations/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /label="Trial ends"/);
+  assert.match(page, /label="Subscription ends"/);
+  assert.match(page, /trialEndsAt: form\.trialEndsAt \|\| null/);
+  assert.match(page, /subscriptionEndsAt: form\.subscriptionEndsAt \|\| null/);
+});
