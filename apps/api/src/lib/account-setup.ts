@@ -1,12 +1,12 @@
 import crypto from "node:crypto";
 import { env } from "../config.js";
 import { sendEmail } from "./notifications.js";
-import { prisma, systemPrisma } from "./prisma.js";
+import { systemPrisma } from "./prisma.js";
 
 export async function issueAccountSetup(user: { id: string; organizationId: string; email: string; name: string }) {
   const raw = crypto.randomBytes(32).toString("base64url");
-  await prisma.passwordResetToken.deleteMany({ where: { organizationId: user.organizationId, userId: user.id, usedAt: null } });
-  await prisma.passwordResetToken.create({
+  await systemPrisma.passwordResetToken.deleteMany({ where: { organizationId: user.organizationId, userId: user.id, usedAt: null } });
+  await systemPrisma.passwordResetToken.create({
     data: {
       organizationId: user.organizationId,
       userId: user.id,
