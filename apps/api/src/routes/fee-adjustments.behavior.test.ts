@@ -132,6 +132,7 @@ test("paid fee and fee-adjustment production routes preserve financial history b
   patch((systemPrisma as any).organization, "findUnique", async () => ({ id: ORGANIZATION_ID, isActive: true, deletedAt: null, subscriptionStatus: "ACTIVE", trialEndsAt: null, subscriptionEndsAt: null }));
   patch((systemPrisma as any).user, "findFirst", async () => ({ isActive: true }));
   patch((systemPrisma as any).tenantAccessAudit, "create", async () => ({}));
+  patch((prisma as any).branch, "findMany", async () => [{ id: BRANCH_ID }]);
   patch(prisma as any, "$transaction", async (operation: any, options: any) => {
     transactionIsolation = options?.isolationLevel ?? null;
     const local = copyStore(store);

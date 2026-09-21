@@ -265,8 +265,8 @@ test("historical examination workflows share civil-date and participation eviden
   assert.match(admin, /existingResult.*existingSheet/);
   assert.match(admin, /RESULT_GENERATION_ROSTER_UNAVAILABLE/);
   assert.match(portals, /historicalCivilDate\(item\.examDate\)/);
-  assert.match(portals, /c\.studentId,c\.branchId/);
-  assert.match(portals, /r\.studentId,r\.examination\.branchId/);
+  assert.match(portals, /mayAccessStudent\(req,c\.studentId,\{kind:"certificate",branchId:c\.branchId/);
+  assert.match(portals, /mayAccessStudent\(req,r\.studentId,\{kind:"examination",branchId:r\.examination\.branchId/);
   assert.match(portals, /enrollment\?\.rollNo/);
 });
 
@@ -525,7 +525,7 @@ test("teacher create uses atomic tenant-scoped writes and preserves failed-photo
   assert.match(createRoute, /requireValidTeacherBranch\(req, input\.branchId\)/);
   assert.match(createRoute, /validateTeacherSubjects\(input\.subjectIds\)/);
   assert.match(createRoute, /validateTeacherSpecializations\(input\.specializationIds\)/);
-  assert.match(api, /prisma\.branch\.findFirst\(\{ where: \{ id: branchId, isActive: true \}/);
+  assert.match(api, /prisma\.branch\.findFirst\(\{ where: \{ organizationId: req\.auth!\.organizationId, id: branchId, isActive: true \}/);
   assert.match(createRoute, /prisma\.\$transaction/);
   assert.match(createRoute, /tx\.user\.create/);
   assert.match(createRoute, /tx\.teacherProfile\.create/);
@@ -645,7 +645,7 @@ test("homework routes enforce ownership, secure attachments and Student submissi
   assert.match(homework, /router\.get\("\/homeworks\/submissions\/:id\/attachment"[^]*x\.student\.userId!==req\.auth!\.userId[^]*await manage\(req,x\.homework\)/);
   assert.match(portals, /studentOrganizationId: student\?\.organizationId[^]*studentStatus: student\?\.status/);
   assert.match(portals, /student: \{ organizationId: req\.auth!\.organizationId, batchId: homework\.batchId, status: StudentStatus\.ACTIVE \}/);
-  assert.match(portals, /parentStudentOrganizationId: linked\?\.student\.organizationId[^]*parentStudentStatus: linked\?\.student\.status/);
+  assert.match(portals, /parentStudentOrganizationId: parentCandidate\?\.student\.organizationId[^]*parentStudentStatus: parentCandidate\?\.student\.status/);
   assert.match(homework, /assertDocumentFileExtension/);
   assert.match(homework, /decodeVerifiedUpload\(a\.base64,a\.mimeType as AllowedDocumentType,5\*1024\*1024\)/);
   assert.doesNotMatch(homework, /Buffer\.from\(a\.base64,"base64"\)/);
@@ -664,7 +664,7 @@ test("homework routes enforce ownership, secure attachments and Student submissi
   assert.doesNotMatch(studentHomework, /metadata:[^}]*(?:base64|attachmentData|answerText)/);
   assert.match(homework, /homeworkSubmission\.updateMany\(\{where:\{id:s\.id,organizationId:req\.auth!\.organizationId,status:\{in:evaluableHomeworkSubmissionStatuses\}\}/);
   assert.match(homework, /assertHomeworkSubmissionEvaluated\(changed\.count\)/);
-  assert.match(homework, /homework\.updateMany\(\{where:\{id:existing\.id,organizationId:req\.auth!\.organizationId,status:expectedStatus\}/);
+  assert.match(homework, /tx\.homework\.updateMany\(\{where:\{id:existing\.id,organizationId:req\.auth!\.organizationId,status:compareStatus\}/);
   assert.match(studentHomework, /marksObtained: null,[^]*feedback: null,[^]*evaluatedAt: null/);
   assert.doesNotMatch(homework, /post\("\/homeworks\/:id\/submissions"/);
   assert.match(homework, /router\.get\("\/homeworks",async\(req:AuthRequest,res\)=>\{role\(req,staff\)/);
