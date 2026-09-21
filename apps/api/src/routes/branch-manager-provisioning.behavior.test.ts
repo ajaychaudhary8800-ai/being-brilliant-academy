@@ -65,8 +65,8 @@ test("branch creation provisions a tenant-owned Branch Admin atomically", async 
     };
     return value(tx);
   });
-  patch((prisma as any).passwordResetToken, "deleteMany", async () => ({ count: 0 }));
-  patch((prisma as any).passwordResetToken, "create", async ({ data }: any) => { setupTokenData = data; return { id: "setup-token", ...data }; });
+  patch((systemPrisma as any).passwordResetToken, "deleteMany", async () => ({ count: 0 }));
+  patch((systemPrisma as any).passwordResetToken, "create", async ({ data }: any) => { setupTokenData = data; return { id: "setup-token", ...data }; });
   patch((prisma as any).auditLog, "create", async () => ({}));
   patch((prisma as any).branch, "findFirst", async ({ where }: any) => {
     if (where.id !== BRANCH || where.organizationId !== ORG) return null;
