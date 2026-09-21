@@ -21,6 +21,67 @@ router.use(requireAuth);
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
+function pdfEscape(value: string) {
+  return value.replace(/[()\\]/g, character => `\\${character}`).replace(/[^\x20-\x7E]/g, "?");
+}
+
+function invoicePdfBuffer(title: string, lines: string[]) {
+  const content = [title, ...lines]
+    .slice(0, 42)
+    .map((line, index) => `BT /F1 10 Tf 40 ${800 - index * 18} Td (${pdfEscape(line)}) Tj ET`)
+    .join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(pdf));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, "0")} 00000 n `).join("\n")}\ntrailer << /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(pdf);
+}
+
+function subscriptionInvoiceLines(invoice: {
+  invoiceNo: string;
+  amountPaise: number;
+  taxPaise: number;
+  totalPaise: number;
+  currency: string;
+  status: SaaSInvoiceStatus;
+  periodStart: Date;
+  periodEnd: Date;
+  dueAt: Date | null;
+  paidAt: Date | null;
+  providerOrderId: string | null;
+  organization: { name: string; email: string };
+  plan: { name: string; code: string };
+}) {
+  const amount = (paise: number) => `${invoice.currency} ${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return [
+    `Invoice: ${invoice.invoiceNo}`,
+    `Customer: ${invoice.organization.name}`,
+    `Customer email: ${invoice.organization.email}`,
+    `Plan: ${invoice.plan.name} (${invoice.plan.code})`,
+    `Period: ${invoice.periodStart.toISOString().slice(0, 10)} to ${invoice.periodEnd.toISOString().slice(0, 10)}`,
+    `Base amount: ${amount(invoice.amountPaise)}`,
+    `Tax: ${amount(invoice.taxPaise)}`,
+    `Total: ${amount(invoice.totalPaise)}`,
+    `Status: ${invoice.status}`,
+    `Due: ${invoice.dueAt?.toISOString().slice(0, 10) ?? "-"}`,
+    `Paid: ${invoice.paidAt?.toISOString().slice(0, 10) ?? "-"}`,
+    `Provider order: ${invoice.providerOrderId ?? "-"}`,
+    "",
+    "This document records the SaaS subscription billing transaction.",
+  ];
+}
+
 function requirePlatformAdmin(req: AuthRequest) {
   if (req.auth!.role !== Role.SUPER_ADMIN || req.auth!.homeOrganizationId !== "org_default") {
     throw new AppError(403, "PLATFORM_ADMIN_REQUIRED", "Platform super administrator access required");
@@ -142,6 +203,19 @@ router.get("/platform/saas/organizations/:organizationId", async (req: AuthReque
   res.json({ data: { ...snapshot, invoices, payments } });
 });
 
+router.get("/platform/saas/organizations/:organizationId/invoices/:invoiceId/pdf", async (req: AuthRequest, res) => {
+  requirePlatformAdmin(req);
+  const organizationId = String(req.params.organizationId);
+  const invoice = await systemPrisma.saaSInvoice.findFirst({
+    where: { id: String(req.params.invoiceId), organizationId },
+    include: { organization: { select: { name: true, email: true } }, plan: { select: { name: true, code: true } } },
+  });
+  if (!invoice) throw new AppError(404, "SAAS_INVOICE_NOT_FOUND", "Subscription invoice not found");
+  const file = `${invoice.invoiceNo.replace(/[^A-Za-z0-9_-]/g, "_")}.pdf`;
+  res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${file}"` })
+    .send(invoicePdfBuffer("SaaS Subscription Invoice", subscriptionInvoiceLines(invoice)));
+});
+
 router.patch("/platform/saas/organizations/:organizationId/subscription", async (req: AuthRequest, res) => {
   requirePlatformAdmin(req);
   const organizationId = String(req.params.organizationId);
@@ -238,6 +312,18 @@ router.get("/organization/subscription/plans", async (req: AuthRequest, res) => 
   });
 });
 
+router.get("/organization/subscription/invoices/:invoiceId/pdf", async (req: AuthRequest, res) => {
+  requireTenantBillingAdmin(req);
+  const invoice = await systemPrisma.saaSInvoice.findFirst({
+    where: { id: String(req.params.invoiceId), organizationId: req.auth!.organizationId },
+    include: { organization: { select: { name: true, email: true } }, plan: { select: { name: true, code: true } } },
+  });
+  if (!invoice) throw new AppError(404, "SAAS_INVOICE_NOT_FOUND", "Subscription invoice not found");
+  const file = `${invoice.invoiceNo.replace(/[^A-Za-z0-9_-]/g, "_")}.pdf`;
+  res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${file}"` })
+    .send(invoicePdfBuffer("SaaS Subscription Invoice", subscriptionInvoiceLines(invoice)));
+});
+
 router.get("/organization/subscription", async (req: AuthRequest, res) => {
   requireTenantBillingAdmin(req);
   const organizationId = req.auth!.organizationId;
@@ -249,6 +335,42 @@ router.get("/organization/subscription", async (req: AuthRequest, res) => {
     take: 25,
   });
   res.json({ data: { ...snapshot, invoices } });
+});
+
+router.patch("/organization/subscription/cancellation", async (req: AuthRequest, res) => {
+  requireTenantBillingAdmin(req);
+  const { cancelAtPeriodEnd } = z.object({ cancelAtPeriodEnd: z.boolean() }).parse(req.body);
+  const organizationId = req.auth!.organizationId;
+  const subscription = await systemPrisma.saaSSubscription.findUnique({
+    where: { organizationId },
+    include: { plan: { select: { code: true, name: true } } },
+  });
+  if (!subscription) throw new AppError(404, "SAAS_SUBSCRIPTION_NOT_FOUND", "Subscription record not found");
+  if (subscription.status !== OrganizationSubscriptionStatus.ACTIVE || !subscription.currentPeriodEnd || subscription.currentPeriodEnd <= new Date()) {
+    throw new AppError(409, "SAAS_CANCELLATION_UNAVAILABLE", "Cancellation scheduling is available only for an active paid subscription period");
+  }
+  if (subscription.cancelAtPeriodEnd === cancelAtPeriodEnd) {
+    return res.json({ data: subscription });
+  }
+  const updated = await systemPrisma.$transaction(async tx => {
+    const saved = await tx.saaSSubscription.update({
+      where: { id: subscription.id },
+      data: { cancelAtPeriodEnd },
+      include: { plan: { select: { code: true, name: true } } },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId,
+        actorId: req.auth!.userId,
+        action: cancelAtPeriodEnd ? "SAAS_CANCELLATION_SCHEDULED" : "SAAS_CANCELLATION_REVOKED",
+        entity: "SaaSSubscription",
+        entityId: subscription.id,
+        metadata: { planCode: subscription.plan.code, currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() },
+      },
+    });
+    return saved;
+  });
+  res.json({ data: updated });
 });
 
 const checkoutInput = z.object({

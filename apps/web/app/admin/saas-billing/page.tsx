@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, CreditCard, RefreshCw, Save, Users } from "lucide-react";
+import { Building2, CreditCard, Download, RefreshCw, Save, Users } from "lucide-react";
 import { ProtectedAdminWorkspace } from "../../../components/admin-workspace";
 import { errorMessage, getAccessToken } from "../../../components/auth-provider";
 
@@ -64,6 +64,7 @@ export default function Page() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
 
   const loadIndex = useCallback(async () => {
     try {
@@ -133,6 +134,34 @@ export default function Page() {
     }
   }
 
+  async function downloadInvoice(invoice: Invoice) {
+    if (!selectedId) return;
+    setDownloadingInvoiceId(invoice.id);
+    setError("");
+    try {
+      const response = await fetch(`${API}/platform/saas/organizations/${selectedId}/invoices/${invoice.id}/pdf`, {
+        headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` },
+      });
+      if (!response.ok) {
+        const json = await response.json().catch(() => null);
+        throw new Error(json?.error?.message ?? "Unable to download invoice");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${invoice.invoiceNo}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setDownloadingInvoiceId(null);
+    }
+  }
+
   return <ProtectedAdminWorkspace roles={["SUPER_ADMIN"]} title="SaaS Billing" description="Assign plans, control entitlement enforcement, review tenant usage and inspect subscription invoices.">
     {notice && <p className="mt-6 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p>}
     {error && <p role="alert" className="mt-6 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
@@ -178,9 +207,9 @@ export default function Page() {
 
           <div className="card overflow-hidden">
             <div className="border-b p-5"><h2 className="text-xl font-bold">Subscription invoices</h2></div>
-            <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-900"><tr><th className="p-3">Invoice</th><th className="p-3">Created</th><th className="p-3">Total</th><th className="p-3">Status</th><th className="p-3">Paid</th></tr></thead><tbody>
-              {detail.invoices.map(invoice => <tr key={invoice.id} className="border-t"><td className="p-3 font-semibold">{invoice.invoiceNo}</td><td className="p-3">{new Date(invoice.createdAt).toLocaleDateString("en-IN")}</td><td className="p-3">{money(invoice.totalPaise, invoice.currency)}</td><td className="p-3">{invoice.status}</td><td className="p-3">{invoice.paidAt ? new Date(invoice.paidAt).toLocaleDateString("en-IN") : "—"}</td></tr>)}
-              {!detail.invoices.length && <tr><td colSpan={5} className="p-8 text-center text-slate-500">No subscription invoices yet.</td></tr>}
+            <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-900"><tr><th className="p-3">Invoice</th><th className="p-3">Created</th><th className="p-3">Total</th><th className="p-3">Status</th><th className="p-3">Paid</th><th className="p-3">Document</th></tr></thead><tbody>
+              {detail.invoices.map(invoice => <tr key={invoice.id} className="border-t"><td className="p-3 font-semibold">{invoice.invoiceNo}</td><td className="p-3">{new Date(invoice.createdAt).toLocaleDateString("en-IN")}</td><td className="p-3">{money(invoice.totalPaise, invoice.currency)}</td><td className="p-3">{invoice.status}</td><td className="p-3">{invoice.paidAt ? new Date(invoice.paidAt).toLocaleDateString("en-IN") : "—"}</td><td className="p-3"><button disabled={downloadingInvoiceId === invoice.id} onClick={() => void downloadInvoice(invoice)} className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50"><Download size={14}/>{downloadingInvoiceId === invoice.id ? "Preparing…" : "PDF"}</button></td></tr>)}
+              {!detail.invoices.length && <tr><td colSpan={6} className="p-8 text-center text-slate-500">No subscription invoices yet.</td></tr>}
             </tbody></table></div>
           </div>
         </> : <div className="card grid min-h-64 place-items-center p-8 text-sm text-slate-500"><CreditCard size={28}/><span>Select a tenant to manage subscription billing.</span></div>}
