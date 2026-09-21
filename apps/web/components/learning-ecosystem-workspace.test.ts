@@ -26,3 +26,22 @@ test("Question creation includes Course scope and role-safe navigation remains e
   assert.doesNotMatch(source, /ACCOUNTANT.*manager/);
   assert.doesNotMatch(source, /EMPLOYEE.*manager/);
 });
+
+
+test("Learning Ecosystem managers can build Tests from approved Question Bank items", () => {
+  assert.match(source, /\["questions","tests","materials","live-classes"\]/);
+  assert.match(source, /function LearningTestBuilder/);
+  assert.match(source, /approvalStatus:"APPROVED"/);
+  assert.match(source, /Create draft Test/);
+  assert.match(source, /questions:chosen\.map/);
+  assert.match(source, /maximumMarks/);
+  assert.match(source, /status:"DRAFT"/);
+});
+
+test("Learning Test manager lifecycle exposes publish, archive and safe delete controls", () => {
+  assert.match(source, /"Test published"/);
+  assert.match(source, /"Test archived"/);
+  assert.match(source, /Delete this archived test\?/);
+  assert.match(source, /method:"DELETE"/);
+  assert.match(source, /\["PRACTICE","CHAPTER","UNIT","FULL","MOCK","ADAPTIVE"\]/);
+});
