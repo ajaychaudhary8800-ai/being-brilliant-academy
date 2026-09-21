@@ -139,5 +139,5 @@ INSERT INTO "SaaSPlan" (
   "currency", "taxRateBps", "entitlements", "limits", "isActive", "updatedAt"
 ) VALUES
   ('saas_plan_standard', 'STANDARD', 'Standard', 'Compatibility-safe standard SaaS plan. Configure pricing and limits before enforcing entitlements.', 0, 0, 'INR', 0, '{"*": true}', '{}', true, CURRENT_TIMESTAMP),
-  ('saas_plan_enterprise', 'ENTERPRISE', 'Enterprise', 'Compatibility-safe enterprise SaaS plan with unrestricted feature access by default.', 0, 0, 'INR', '{"*": true}', '{}', true, CURRENT_TIMESTAMP)
+  ('saas_plan_enterprise', 'ENTERPRISE', 'Enterprise', 'Compatibility-safe enterprise SaaS plan with unrestricted feature access by default.', 0, 0, 'INR', 0, '{"*": true}', '{}', true, CURRENT_TIMESTAMP)
 ON CONFLICT ("code") DO NOTHING;
