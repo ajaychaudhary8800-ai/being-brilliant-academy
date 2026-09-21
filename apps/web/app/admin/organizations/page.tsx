@@ -39,7 +39,7 @@ export default function Page() {
     setSaving(true);
     setError("");
     setNotice("");
-    let creationDelivery: { skipped?: boolean; reason?: string } | null = null;
+    let creationDelivery: { skipped?: boolean; reason?: string } = {};
     try {
       const terminology = { groupLabelType: form.groupLabelType, customGroupLabel: form.groupLabelType === "CUSTOM" ? form.customGroupLabel : null };
       const branding: OrganizationBranding = { logoUrl: form.logoUrl, primaryColor: form.primaryColor, secondaryColor: form.secondaryColor, timezone: form.timezone, locale: form.locale, currency: form.currency, academicYearStartMonth: Number(form.academicYearStartMonth), ...terminology };
@@ -83,13 +83,13 @@ export default function Page() {
         };
         setEditing(createdOrganization);
         setForm(current => ({ ...current, logoUrl: null }));
-        setNotice(creationDelivery?.skipped ? "Organization created, but the admin setup email was not delivered. Fix the email provider, then use Resend setup." : "Organization created and setup email issued. Logo upload failed; retry Save Changes to attach it.");
+        setNotice(creationDelivery.skipped ? "Organization created, but the admin setup email was not delivered. Fix the email provider, then use Resend setup." : "Organization created and setup email issued. Logo upload failed; retry Save Changes to attach it.");
         await load();
         setError(errorMessage(result.error));
         return;
       }
       if (editing) setNotice("Organization updated successfully.");
-      else if (creationDelivery?.skipped) setNotice(`Organization created. Setup email was not delivered (${creationDelivery.reason ?? "email provider unavailable"}). Use Resend setup after email is configured.`);
+      else if (creationDelivery.skipped) setNotice(`Organization created. Setup email was not delivered (${creationDelivery.reason ?? "email provider unavailable"}). Use Resend setup after email is configured.`);
       else setNotice("Organization created. A secure administrator setup email was issued.");
       close();
       await load();
