@@ -1,0 +1,55 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const schemaUrl = new URL("../../prisma/schema.prisma", import.meta.url);
+const migrationUrl = new URL("../../prisma/migrations/20260921224500_add_saas_commercial_billing/migration.sql", import.meta.url);
+
+test("commercial SaaS schema keeps platform billing separate from learner invoices", async () => {
+  const schema = await readFile(schemaUrl, "utf8");
+  for (const model of ["SaaSPlan", "SaaSSubscription", "SaaSInvoice", "SaaSPayment", "SaaSWebhookEvent"]) {
+    assert.match(schema, new RegExp(`model ${model} \\\{`));
+  }
+  assert.match(schema, /checkoutKey\s+String\?\s+@unique/);
+  assert.match(schema, /taxRateBps\s+Int\s+@default\(0\)/);
+  assert.match(schema, /saasSubscription\s+SaaSSubscription\?/);
+  assert.match(schema, /model Invoice \{[\s\S]*?userId\s+String/);
+});
+
+test("SaaS migration seeds compatibility-safe plans and never edits learner invoice tables", async () => {
+  const migration = await readFile(migrationUrl, "utf8");
+  assert.match(migration, /CREATE TABLE "SaaSPlan"/);
+  assert.match(migration, /CREATE TABLE "SaaSSubscription"/);
+  assert.match(migration, /CREATE TABLE "SaaSInvoice"/);
+  assert.match(migration, /CREATE TABLE "SaaSPayment"/);
+  assert.match(migration, /'STANDARD'.*'\{"\*": true\}'/s);
+  assert.match(migration, /'ENTERPRISE'.*'\{"\*": true\}'/s);
+  assert.doesNotMatch(migration, /ALTER TABLE "Invoice"/);
+  assert.doesNotMatch(migration, /ALTER TABLE "Payment"/);
+});
+
+test("commercial entitlement enforcement is opt-in for existing tenants", async () => {
+  const policy = await readFile(new URL("../lib/saas-commercial.ts", import.meta.url), "utf8");
+  assert.match(policy, /commercialSettings\.enforce === true/);
+  assert.match(policy, /if \(!snapshot\.enforcementEnabled\) return snapshot/);
+  assert.match(policy, /PLAN_FEATURE_REQUIRED/);
+  assert.match(policy, /PLAN_LIMIT_REACHED/);
+});
+
+test("tenant checkout is idempotent and platform subscription changes are audited", async () => {
+  const route = await readFile(new URL("saas-commercial.ts", import.meta.url), "utf8");
+  assert.match(route, /Idempotency-Key/);
+  assert.match(route, /checkoutKey: idempotencyKey/);
+  assert.match(route, /SAAS_SUBSCRIPTION_UPDATED/);
+  assert.match(route, /SAAS_CHECKOUT_CREATED/);
+  assert.match(route, /requirePlatformAdmin/);
+  assert.match(route, /requireTenantBillingAdmin/);
+});
+
+test("verified Razorpay webhook delegates SaaS orders before learner invoice reconciliation", async () => {
+  const payments = await readFile(new URL("payments.ts", import.meta.url), "utf8");
+  assert.match(payments, /captureSaaSRazorpayPayment\(payment, event\)/);
+  const captureIndex = payments.indexOf("captureSaaSRazorpayPayment(payment, event)");
+  const learnerInvoiceIndex = payments.indexOf("tx.invoice.findUnique");
+  assert.ok(captureIndex >= 0 && learnerInvoiceIndex > captureIndex);
+});
