@@ -7,7 +7,8 @@ test("public branding exposes only the sanitized tenant brand contract", async (
   assert.match(source, /router\.get\("\/branding"/);
   assert.match(source, /organizationId:/);
   assert.match(source, /whiteLabelSettings/);
-  assert.match(source, /where: \{ isActive: true, deletedAt: null \}/);
+  assert.match(source, /where: \{ isActive: true, deletedAt: null, settings: \{ path: \["whiteLabel", "customDomain"\], equals: host \} \}/);
+  assert.match(source, /if \(organization && !available\(organization\)\) organization = null/);
   assert.match(source, /BRANDING_NOT_FOUND/);
   assert.doesNotMatch(source, /res\.json\(\{ data: organization \}\)/);
 });
