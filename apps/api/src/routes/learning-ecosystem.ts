@@ -257,8 +257,8 @@ router.get("/learning/questions/export", managers, async (req: AuthRequest, res)
 
 router.post("/learning/questions/random", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
-  const d = z.object({ count: z.number().int().min(1).max(200), examCategory: z.string().optional(), subjectId: id.optional(), chapter: z.string().optional(), difficulty: z.string().optional() }).parse(req.body);
-  const rows = await prisma.questionBankItem.findMany({ where: { ...learningQuestionWhere(actor), approvalStatus: ApprovalStatus.APPROVED, isArchived: false, ...(d.examCategory ? { examCategory: d.examCategory } : {}), ...(d.subjectId ? { subjectId: d.subjectId } : {}), ...(d.chapter ? { chapter: d.chapter } : {}), ...(d.difficulty ? { difficulty: d.difficulty } : {}) } });
+  const d = z.object({ count: z.number().int().min(1).max(200), courseId: id.optional(), examCategory: z.string().optional(), subjectId: id.optional(), chapter: z.string().optional(), difficulty: z.string().optional() }).parse(req.body);
+  const rows = await prisma.questionBankItem.findMany({ where: { ...learningQuestionWhere(actor), approvalStatus: ApprovalStatus.APPROVED, isArchived: false, ...(d.courseId ? { courseId: d.courseId } : {}), ...(d.examCategory ? { examCategory: d.examCategory } : {}), ...(d.subjectId ? { subjectId: d.subjectId } : {}), ...(d.chapter ? { chapter: d.chapter } : {}), ...(d.difficulty ? { difficulty: d.difficulty } : {}) } });
   res.json({ data: rows.sort(() => Math.random() - .5).slice(0, d.count) });
 });
 
