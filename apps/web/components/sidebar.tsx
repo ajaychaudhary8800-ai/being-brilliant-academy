@@ -111,6 +111,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const groups = menuGroups.map((group) => ({
     ...group,
     entries: group.entries.filter((entry) => {
+      if (user?.billingRecovery) return entry.href === "/admin/subscription";
       if (entry.feature && commercialEntitlements?.enforcementEnabled && commercialEntitlements.entitlements["*"] !== true && commercialEntitlements.entitlements[entry.feature] !== true) return false;
       if (user?.role === "ACCOUNTANT") return accountantRoutes.has(entry.href);
       if (entry.platformOnly) return user?.role === "SUPER_ADMIN" && user.organizationId === "org_default";
@@ -145,7 +146,7 @@ export default function Sidebar() {
   const terms = useGroupTerminology();
   const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
   useEffect(() => {
-    if (user?.role === "ACCOUNTANT") return;
+    if (user?.role === "ACCOUNTANT" || user?.billingRecovery) return;
     const token = getAccessToken();
     if (!token) return;
     fetch(`${api}/admin/academic-sessions?limit=100&status=active`, { headers: { Authorization: `Bearer ${token}` } })
@@ -158,7 +159,7 @@ export default function Sidebar() {
   };
   return <>
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-slate-200 bg-white px-3 py-6 dark:border-slate-800 dark:bg-slate-950 md:flex">
-      <Link href="/admin" className="flex items-center gap-3 px-3 font-bold tracking-tight text-brand-700">{brand.logoUrl ? <Image unoptimized src={brand.logoUrl} alt="" width={38} height={38} className="h-10 w-10 rounded-lg bg-white object-contain" /> : <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand-700 text-white"><School size={20}/></span>}<span className="min-w-0"><span className="block truncate">{brand.appName}</span><span className="mt-1 block truncate text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">{brand.portalName}</span></span></Link>
+      <Link href={user?.billingRecovery ? "/admin/subscription" : "/admin"} className="flex items-center gap-3 px-3 font-bold tracking-tight text-brand-700">{brand.logoUrl ? <Image unoptimized src={brand.logoUrl} alt="" width={38} height={38} className="h-10 w-10 rounded-lg bg-white object-contain" /> : <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand-700 text-white"><School size={20}/></span>}<span className="min-w-0"><span className="block truncate">{brand.appName}</span><span className="mt-1 block truncate text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">{brand.portalName}</span></span></Link>
       {sessions.length > 0 && <label className="mt-6 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Current session<select aria-label="Current academic session" value={current} onChange={(event) => void choose(event.target.value)} className="mt-2 w-full rounded-lg border bg-white p-2 text-sm font-semibold normal-case text-slate-700 dark:bg-slate-900 dark:text-slate-200">{sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}</select></label>}
       <div className="mt-4 flex-1 overflow-y-auto"><Navigation /></div>
       <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-900">{terms.institution} operations<br/><b className="text-slate-800 dark:text-slate-200">Manage with clarity</b>{!brand.hideVendorBranding && brand.organizationId && brand.organizationId !== "org_default" ? <span className="mt-2 block text-[10px] uppercase tracking-wider text-slate-400">Powered by Being Brilliant</span> : null}</div>
