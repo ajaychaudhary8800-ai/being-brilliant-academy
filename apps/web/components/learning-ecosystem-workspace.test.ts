@@ -45,3 +45,24 @@ test("Learning Test manager lifecycle exposes publish, archive and safe delete c
   assert.match(source, /method:"DELETE"/);
   assert.match(source, /\["PRACTICE","CHAPTER","UNIT","FULL","MOCK","ADAPTIVE"\]/);
 });
+
+
+test("Question Bank manager exposes edit, review, archive, import and export workflows", () => {
+  assert.match(source, /setEditingQuestion\(x\);setForm\("questions"\)/);
+  assert.match(source, /approvalStatus":"APPROVED"/);
+  assert.match(source, /approvalStatus":"REJECTED"/);
+  assert.match(source, /approvalStatus":"ARCHIVED"/);
+  assert.match(source, /\/learning\/questions\/export/);
+  assert.match(source, /\/learning\/questions\/bulk/);
+  assert.match(source, /Question updated; approval reset to draft/);
+});
+
+test("Question editor exposes assessment metadata and the builder supports random approved selection", () => {
+  assert.match(source, /\["MCQ","MSQ","NUMERICAL","ASSERTION_REASON","PARAGRAPH","MATCHING","SUBJECTIVE"\]/);
+  assert.match(source, /\["EASY","MEDIUM","HARD"\]/);
+  assert.match(source, /Negative marks/);
+  assert.match(source, /Solution \/ explanation/);
+  assert.match(source, /\/learning\/questions\/random/);
+  assert.match(source, /Random 10/);
+  assert.match(source, /courseId:v\.courseId/);
+});
