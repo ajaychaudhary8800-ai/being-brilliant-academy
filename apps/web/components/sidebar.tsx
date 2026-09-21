@@ -23,6 +23,7 @@ const menuGroups: MenuGroup[] = [
   { name: "Institution", entries: [
     { name: "Organizations", href: "/admin/organizations", icon: School, platformOnly: true },
     { name: "SaaS Plans", href: "/admin/saas-plans", icon: CreditCard, platformOnly: true },
+    { name: "SaaS Billing", href: "/admin/saas-billing", icon: CreditCard, platformOnly: true },
     { name: "Institution Settings", href: "/admin/organization-settings", icon: Settings },
     { name: "Branches", href: "/admin/branches", icon: Building2 },
     { name: "Academic Sessions", href: "/admin/academic-sessions", icon: CalendarDays },
