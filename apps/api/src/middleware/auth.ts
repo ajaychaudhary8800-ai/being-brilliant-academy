@@ -28,7 +28,7 @@ function billingRecoveryEligible(
 }
 
 function billingRecoveryPathAllowed(req: Request) {
-  const path = req.path;
+  const path = req.originalUrl.split("?")[0];
   if (req.method === "GET" && path === "/api/v1/auth/me") return true;
   if (req.method === "GET" && path === "/api/v1/organization/entitlements") return true;
   if (req.method === "GET" && path === "/api/v1/organization/subscription") return true;
