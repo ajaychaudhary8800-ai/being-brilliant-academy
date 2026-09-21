@@ -21,6 +21,7 @@ import { AppError } from "../lib/http.js";
 import { resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
 const router = Router();
 router.use(requireAuth, requireCommercialFeature("lms"));
