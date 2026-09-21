@@ -93,7 +93,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
   useEffect(() => {
     const token = getAccessToken();
-    if (!token || !user) return;
+    if (!token || !user?.organizationId) return;
     let active = true;
     fetch(`${api}/organization/entitlements`, { headers: { Authorization: `Bearer ${token}` } })
       .then(response => response.ok ? response.json() : null)
@@ -151,7 +151,7 @@ export default function Sidebar() {
     if (!token) return;
     fetch(`${api}/admin/academic-sessions?limit=100&status=active`, { headers: { Authorization: `Bearer ${token}` } })
       .then((response) => response.json()).then((json) => setSessions(json.data ?? [])).catch(() => {});
-  }, [api, user?.role]);
+  }, [api, user?.role, user?.billingRecovery]);
   const current = sessions.find((session) => session.isCurrent)?.id ?? "";
   const choose = async (id: string) => {
     const response = await fetch(`${api}/admin/academic-sessions/${id}/current`, { method: "PATCH", headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` } });
