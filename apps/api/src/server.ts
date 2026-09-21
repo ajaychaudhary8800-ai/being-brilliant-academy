@@ -72,6 +72,7 @@ import birthdays from "./routes/birthdays.js";
 import teacherPhotos from "./routes/teacher-photos.js";
 import imageUploads from "./routes/image-uploads.js";
 import publicBranding from "./routes/public-branding.js";
+import saasCommercial from "./routes/saas-commercial.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -226,6 +227,7 @@ app.use("/api/v1", onlyPaths(["/learning"], learningEcosystem));
 app.use("/api/v1", onlyPaths(["/finance/payments", "/finance/payment-offsets"], paymentOffsets));
 
 app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations));
+app.use("/api/v1", saasCommercial);
 app.use("/api/v1", onlyPaths(["/analytics"], analytics));
 app.use("/api/v1", onlyPaths(["/inventory"], inventory));
 app.use("/api/v1", onlyPaths(["/communication"], communication));
