@@ -11,12 +11,14 @@ const record = (value: unknown): JsonRecord =>
 const booleanMap = (value: unknown): Record<string, boolean> =>
   Object.fromEntries(Object.entries(record(value)).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
 
-const limitMap = (value: unknown): Record<string, number | null> =>
-  Object.fromEntries(
-    Object.entries(record(value)).flatMap(([key, raw]) =>
-      raw === null ? [[key, null] as const] : typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? [[key, Math.floor(raw)] as const] : [],
-    ),
-  );
+const limitMap = (value: unknown): Record<string, number | null> => {
+  const limits: Record<string, number | null> = {};
+  for (const [key, raw] of Object.entries(record(value))) {
+    if (raw === null) limits[key] = null;
+    else if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) limits[key] = Math.floor(raw);
+  }
+  return limits;
+};
 
 async function commercialPolicySnapshot(organizationId: string) {
   const organization = await systemPrisma.organization.findUnique({
