@@ -199,8 +199,8 @@ test("billing lifecycle reminders are deduplicated and queued for tenant super a
   assert.match(policy, /role: Role\.SUPER_ADMIN, isActive: true/);
   assert.match(policy, /channels: \["IN_APP", "EMAIL"\]/);
   assert.match(policy, /channel: "EMAIL"/);
-  assert.match(policy, /renewal:.*7D/);
-  assert.match(policy, /renewal:.*1D/);
+  assert.match(policy, /const window = remaining <= oneDay \? "1D" : "7D"/);
+  assert.match(policy, /sourceEntityId: `\$\{subscription\.id\}:renewal:\$\{window\}:/);
   assert.match(policy, /past-due/);
   assert.match(policy, /trial-expired/);
   assert.match(policy, /renewalRemindersQueued/);
