@@ -6,10 +6,11 @@ import { AppError } from "../lib/http.js";
 import { assertLmsLessonEditable, assertLmsLessonStructuralEditAllowed, assertLmsLessonTransition, assertLmsManagementAccess, assertLmsModuleManagementAccess, lmsLessonBranchFilter, lmsLessonCreateStatus, lmsModuleCourseWhere, nextLmsProgress, type LmsActor } from "../lib/lms-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
 const router = Router(), admin = Router();
-router.use(requireAuth);
-admin.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER));
+router.use(requireAuth, requireCommercialFeature("lms"));
+admin.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER), requireCommercialFeature("lms"));
 
 const file = z.object({ name: z.string().min(1).max(180), mimeType: z.string().min(3), base64: z.string().min(1) });
 const input = z.object({
