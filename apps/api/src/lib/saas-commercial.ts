@@ -244,7 +244,6 @@ async function queueSaaSBillingNotice(input: {
         organizationId: input.organizationId,
         sourceModule: "SAAS_BILLING",
         sourceEntityId: input.sourceEntityId,
-        deletedAt: null,
       },
       select: { id: true },
     });
