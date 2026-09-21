@@ -5,7 +5,8 @@ import test from "node:test";
 test("enquiry CRM routes remain organization-scoped", async () => {
   const source = await readFile(new URL("./admin-enquiries.ts", import.meta.url), "utf8");
 
-  assert.match(source, /where:\{organizationId:req\.auth!\.organizationId,\.\.\.\(ids\?/);
+  assert.match(source, /where=\{organizationId:req\.auth!\.organizationId,\.\.\.\(ids\?/);
+  assert.match(source, /prisma\.enquiry\.findMany\(\{where,select/);
   assert.match(source, /findFirst\(\{where:\{organizationId:req\.auth!\.organizationId,id:String\(req\.params\.id\)\}/);
   assert.match(source, /where:\{organizationId:req\.auth!\.organizationId,status:\{notIn:/);
   assert.match(source, /organizationId:req\.auth!\.organizationId,enquiryId:old\.id/);
