@@ -15,3 +15,12 @@ test("CRM due follow-up window contains only overdue follow-ups", () => {
   const now = new Date("2026-09-22T00:00:00.000Z");
   assert.deepEqual(enquiryFollowUpWindow("due", now), { lt: now });
 });
+
+test("CRM dashboard, list and export all use the same reminder window helper", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../routes/admin-enquiries.ts", import.meta.url), "utf8"),
+  );
+  const uses = source.match(/enquiryFollowUpWindow\(/g) ?? [];
+  assert.ok(uses.length >= 5);
+  assert.doesNotMatch(source, /q\.reminder==="due"\?\{lte:now\}:\{gt:now\}/);
+});
