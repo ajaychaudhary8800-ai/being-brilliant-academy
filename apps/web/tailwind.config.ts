@@ -1,2 +1,2 @@
 import type { Config } from "tailwindcss";
-export default { content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"], darkMode: "class", theme: { extend: { colors: { brand: { 50: "#edf4ff", 500: "#1155cc", 700: "#073b9c", orange: "#ff7a00" } }, boxShadow: { glow: "0 20px 60px rgba(17,85,204,.22)" } } }, plugins: [] } satisfies Config;
+export default { content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"], darkMode: "class", theme: { extend: { colors: { brand: { 50: "rgb(var(--brand-50) / <alpha-value>)", 500: "rgb(var(--brand-500) / <alpha-value>)", 700: "rgb(var(--brand-700) / <alpha-value>)", orange: "rgb(var(--brand-accent) / <alpha-value>)" } }, boxShadow: { glow: "0 20px 60px rgb(var(--brand-500) / .22)" } } }, plugins: [] } satisfies Config;
