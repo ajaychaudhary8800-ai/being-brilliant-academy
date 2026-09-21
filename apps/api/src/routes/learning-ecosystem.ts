@@ -23,7 +23,7 @@ import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
-router.use(requireAuth);
+router.use(requireAuth, requireCommercialFeature("lms"));
 router.use(allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER, Role.STUDENT, Role.PARENT));
 const managers = allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER);
 const pageQuery = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20), search: z.string().trim().max(100).optional(), sortOrder: z.enum(["asc", "desc"]).default("desc") });
