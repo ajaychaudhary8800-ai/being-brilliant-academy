@@ -9,6 +9,7 @@ import { AppError } from "../lib/http.js";
 import { institutionCalendarDate, parseDateOnly } from "../lib/institution-time.js";
 import { logger } from "../lib/logger.js";
 import { prisma } from "../lib/prisma.js";
+import { loadTenantDocumentIdentity } from "../lib/tenant-document-brand.js";
 import { deleteObject } from "../lib/storage.js";
 import { parseStoredImageLocation, storedImagePublicPrefix } from "../lib/stored-image.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -137,7 +138,7 @@ router.get("/students/export", async (req: AuthRequest, res) => {
   const format = z.enum(["excel", "pdf"]).default("excel").parse(req.query.format);
   const branchIds = await assignedBranches(req);
   const data = await prisma.studentProfile.findMany({ where: branchIds ? { branchId: { in: branchIds } } : {}, select: studentSelect, orderBy: { admissionNo: "asc" } });
-  if (format === "pdf") return studentPdf(res, data.map(shaped));
+  if (format === "pdf") { const brand = await loadTenantDocumentIdentity(req.auth!.organizationId); return studentPdf(res, data.map(shaped), brand.name); }
   const rows = [["Admission No", "Roll No", "Name", "Gender", "Branch", "Course", "Batch", "Session", "Mobile", "Parent Mobile", "Email", "Status"], ...data.map(student => [student.admissionNo, student.rollNo, student.user.name, student.gender, student.branch.branchName, student.batch.course?.title ?? "", student.batch.name, student.academicSession, student.user.phone, student.parentMobile, student.user.email, student.status])];
   const xml = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Students"><Table>${rows.map(row => `<Row>${row.map(value => `<Cell><Data ss:Type="String">${escapeXml(String(value ?? ""))}</Data></Cell>`).join("")}</Row>`).join("")}</Table></Worksheet></Workbook>`;
   res.set({ "Content-Type": "application/vnd.ms-excel", "Content-Disposition": "attachment; filename=students.xls" }).send(xml);
@@ -288,8 +289,8 @@ router.delete("/students/:id", async (req: AuthRequest, res) => {
 });
 
 function escapeXml(value: string) { return value.replace(/[<>&'\"]/g, character => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[character]!); }
-function studentPdf(res: any, data: any[]) {
-  const lines = ["BEING BRILLIANT ACADEMY - STUDENT DIRECTORY", ...data.slice(0, 45).map(student => `${student.admissionNo} | ${student.rollNo} | ${student.user.name} | ${student.branch.name} | ${student.batch.name} | ${student.status}`)];
+function studentPdf(res: any, data: any[], organizationName: string) {
+  const lines = [`${organizationName} - STUDENT DIRECTORY`, ...data.slice(0, 45).map(student => `${student.admissionNo} | ${student.rollNo} | ${student.user.name} | ${student.branch.name} | ${student.batch.name} | ${student.status}`)];
   const content = lines.map((line, index) => `BT /F1 ${index ? 9 : 16} Tf 35 ${800 - index * 16} Td (${line.replace(/[()\\]/g, "\\$&")}) Tj ET`).join("\n");
   const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>", `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
   let pdf = "%PDF-1.4\n"; const addresses = [0];
