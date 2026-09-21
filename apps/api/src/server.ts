@@ -13,7 +13,7 @@ import { logger } from "./lib/logger.js";
 import { metricsMiddleware, metricsRegistry } from "./lib/metrics.js";
 import { systemPrisma } from "./lib/prisma.js";
 import { ensureRedis, redis } from "./lib/redis.js";
-import { deliverNotification, providerStatus, verifySmtp } from "./lib/notifications.js";
+import { MAX_NOTIFICATION_DELIVERY_ATTEMPTS, deliverNotification, providerStatus, verifySmtp } from "./lib/notifications.js";
 import { activeNotificationConstraints } from "./lib/notification-policy.js";
 import { onlyPaths } from "./lib/scoped-router.js";
 import auth from "./routes/auth.js";
@@ -264,7 +264,7 @@ const notificationWorker = setInterval(async () => {
     const queued = await systemPrisma.notificationDelivery.findMany({
       where: {
         status: { in: ["QUEUED", "FAILED"] },
-        attempts: { lt: 3 },
+        attempts: { lt: MAX_NOTIFICATION_DELIVERY_ATTEMPTS },
         notification: activeNotificationConstraints(now),
       },
       select: { id: true },
