@@ -18,8 +18,8 @@ import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-downl
 import { allowedCommunicationAttachmentTypes, assertCommunicationFileExtension, decodeVerifiedCommunicationUpload, type AllowedCommunicationAttachmentType } from "../lib/secure-upload.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
-const router = Router();
-router.use(requireAuth);
+import{requireCommercialFeature}from"../middleware/commercial-entitlement.js";const router = Router();
+router.use(requireAuth);router.use(requireCommercialFeature("communication"));
 const admins: Role[] = [Role.SUPER_ADMIN, Role.BRANCH_ADMIN];
 const staff: Role[] = [...admins, Role.TEACHER];
 const id = z.string().cuid();

@@ -58,7 +58,8 @@ test("Lesson list branch filters cannot escape assigned Branch Admin scope", () 
 
 test("LMS routers authenticate management and constrain learner progress routes", () => {
   const source = readFileSync(new URL("../routes/admin-lms.ts", import.meta.url), "utf8");
-  assert.match(source, /admin\.use\(requireAuth,\s*allow\(Role\.SUPER_ADMIN,\s*Role\.BRANCH_ADMIN,\s*Role\.TEACHER\)\)/);
+  assert.match(source, /admin\.use\(requireAuth,\s*allow\(Role\.SUPER_ADMIN,\s*Role\.BRANCH_ADMIN,\s*Role\.TEACHER\),\s*requireCommercialFeature\("lms"\)\)/);
+  assert.match(source, /router\.use\(requireAuth,\s*requireCommercialFeature\("lms"\)\)/);
   assert.match(source, /router\.patch\("\/lms\/lessons\/:id\/progress",\s*allow\(Role\.STUDENT\)/);
   assert.match(source, /router\.get\("\/lms\/me",\s*allow\(Role\.STUDENT\)/);
   assert.match(source, /assertLmsRequestContentAccess\(req,\s*lesson\)/);

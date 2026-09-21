@@ -8,7 +8,7 @@ const ACCESS_KEY = "bba.accessToken";
 const REFRESH_KEY = "bba.refreshToken";
 export type AppRole = "SUPER_ADMIN" | "BRANCH_ADMIN" | "ACCOUNTANT" | "TEACHER" | "STUDENT" | "PARENT" | "EMPLOYEE";
 export type AuthPortal = "student" | "parent" | "teacher" | "employee" | "admin";
-export type AuthUser = { id: string; name: string; email: string; role: AppRole; organizationId: string };
+export type AuthUser = { id: string; name: string; email: string; role: AppRole; organizationId: string; billingRecovery?: boolean };
 type AuthResponse = { user: AuthUser; accessToken: string; refreshToken: string };
 type AuthContextValue = { user: AuthUser | null; loading: boolean; login: (email: string, password: string, rememberMe: boolean, organization?: string, portal?: AuthPortal) => Promise<AuthUser>; logout: () => Promise<void>; requestPasswordReset: (email: string, organization?: string) => Promise<void> };
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -73,4 +73,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 export function useAuth() { const context = useContext(AuthContext); if (!context) throw new Error("useAuth must be used inside AuthProvider"); return context; }
-export function AuthGate({ children, roles }: { children: React.ReactNode; roles?: AppRole[] }) { const { user, loading } = useAuth(); const router = useRouter(); const pathname = usePathname(); const roleKey = roles?.join(",") ?? ""; const denied = Boolean(roles && user && !roles.includes(user.role)); useEffect(() => { if (!loading && (!user || denied)) router.replace(!user ? `/login?next=${encodeURIComponent(pathname)}` : "/dashboard"); }, [loading, user, denied, roleKey, router, pathname]); if (loading || !user || denied) return <main className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500 dark:bg-slate-950">Loading your secure workspace…</main>; return <>{children}</>; }
+export function AuthGate({ children, roles }: { children: React.ReactNode; roles?: AppRole[] }) { const { user, loading } = useAuth(); const router = useRouter(); const pathname = usePathname(); const roleKey = roles?.join(",") ?? ""; const denied = Boolean(roles && user && !roles.includes(user.role)); const recoveryBlocked = Boolean(user?.billingRecovery && pathname !== "/admin/subscription"); useEffect(() => { if (!loading && (!user || denied || recoveryBlocked)) router.replace(!user ? `/login?next=${encodeURIComponent(pathname)}` : recoveryBlocked ? "/admin/subscription" : "/dashboard"); }, [loading, user, denied, recoveryBlocked, roleKey, router, pathname]); if (loading || !user || denied || recoveryBlocked) return <main className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500 dark:bg-slate-950">Loading your secure workspace…</main>; return <>{children}</>; }

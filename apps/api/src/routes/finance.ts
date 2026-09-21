@@ -8,8 +8,8 @@ import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-downl
 import { assertDocumentFileExtension, decodeVerifiedUpload, type AllowedDocumentType } from "../lib/secure-upload.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
-const router = Router();
-router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.ACCOUNTANT));
+import{requireCommercialFeature}from"../middleware/commercial-entitlement.js";const router = Router();
+router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.ACCOUNTANT));router.use(requireCommercialFeature("finance"));
 router.use((req: AuthRequest, _res, next) => {
   if (req.auth?.role === Role.ACCOUNTANT && req.method !== "GET") {
     return next(new AppError(403, "ACCOUNTANT_FINANCE_READ_ONLY", "Accountants may only read finance records here"));
