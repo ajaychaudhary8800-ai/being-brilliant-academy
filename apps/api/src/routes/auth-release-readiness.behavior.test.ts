@@ -221,6 +221,8 @@ test("past-due tenant super admin receives billing-only recovery access", async 
   app.use(express.json());
   app.use("/api/v1/auth", auth);
   app.get("/api/v1/organization/subscription", requireAuth, (req: any, res) => res.json({ billingRecovery: req.auth.billingRecovery }));
+  app.get("/api/v1/organization/subscription/invoices/test-invoice/pdf", requireAuth, (req: any, res) => res.json({ billingRecovery: req.auth.billingRecovery, invoice: true }));
+  app.patch("/api/v1/organization/subscription/cancellation", requireAuth, (_req, res) => res.json({ ok: true }));
   app.get("/api/v1/admin/overview", requireAuth, (_req, res) => res.json({ ok: true }));
   app.use(errorHandler);
   const { server, origin } = await serverFor(app);
@@ -242,6 +244,19 @@ test("past-due tenant super admin receives billing-only recovery access", async 
   });
   assert.equal(response.status, 200);
   assert.equal(((await response.json()) as any).billingRecovery, true);
+
+  response = await fetch(`${origin}/api/v1/organization/subscription/invoices/test-invoice/pdf`, {
+    headers: { Authorization: `Bearer ${login.data.accessToken}` },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(((await response.json()) as any).invoice, true);
+
+  response = await fetch(`${origin}/api/v1/organization/subscription/cancellation`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${login.data.accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ cancelAtPeriodEnd: true }),
+  });
+  assert.equal(response.status, 402);
 
   response = await fetch(`${origin}/api/v1/admin/overview`, {
     headers: { Authorization: `Bearer ${login.data.accessToken}` },
