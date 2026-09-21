@@ -39,8 +39,8 @@ function customDomain(settings: unknown) {
   const whiteLabel = settingsRecord(settingsRecord(settings).whiteLabel);
   const raw = typeof whiteLabel.customDomain === "string" ? whiteLabel.customDomain.trim().toLowerCase() : "";
   if (!raw) return null;
-  const normalized = raw.replace(/^https?:///, "").split("/")[0]?.replace(/:d+$/, "").replace(/.$/, "") ?? "";
-  if (raw !== normalized || !/^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(normalized)) {
+  const normalized = raw.replace(/^https?:\/\//, "").split("/")[0]?.replace(/:\d+$/, "").replace(/\.$/, "") ?? "";
+  if (raw !== normalized || !/^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(normalized)) {
     throw new AppError(422, "INVALID_CUSTOM_DOMAIN", "Enter a normalized custom domain such as erp.school.com without protocol or path");
   }
   return normalized;
@@ -69,7 +69,7 @@ router.post("/platform/organizations", async (req: AuthRequest, res) => {
 
   let logoPath = data.logoUrl ?? "";
   try {
-    if (/^https?:///i.test(logoPath)) logoPath = new URL(logoPath).pathname;
+    if (/^https?:\/\//i.test(logoPath)) logoPath = new URL(logoPath).pathname;
   } catch {
     logoPath = "";
   }
