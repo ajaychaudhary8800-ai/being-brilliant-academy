@@ -6,6 +6,7 @@ const router = Router();
 
 const querySchema = z.object({
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9-]+$/).min(2).max(80).optional(),
+  organizationId: z.string().trim().min(2).max(100).optional(),
   host: z.string().trim().min(1).max(255).optional(),
 });
 
@@ -86,9 +87,11 @@ router.get("/branding", async (req, res) => {
   const query = querySchema.parse(req.query);
   const host = normalizeHost(query.host);
 
-  let organization = query.slug
-    ? await systemPrisma.organization.findUnique({ where: { slug: query.slug }, select })
-    : null;
+  let organization = query.organizationId
+    ? await systemPrisma.organization.findUnique({ where: { id: query.organizationId }, select })
+    : query.slug
+      ? await systemPrisma.organization.findUnique({ where: { slug: query.slug }, select })
+      : null;
 
   if (organization && !available(organization)) organization = null;
 
