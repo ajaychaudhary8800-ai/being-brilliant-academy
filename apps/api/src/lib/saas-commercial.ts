@@ -34,7 +34,7 @@ async function commercialPolicySnapshot(organizationId: string) {
   if (!organization) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
 
   const { saasSubscription: subscription, ...organizationRecord } = organization;
-  const fallbackPlan = subscription ? null : await systemPrisma.saaSPlan.findUnique({ where: { code: organization.subscriptionPlan } });
+  const fallbackPlan = subscription || !organization.subscriptionPlan ? null : await systemPrisma.saaSPlan.findUnique({ where: { code: organization.subscriptionPlan } });
   const plan = subscription?.plan ?? fallbackPlan;
   const commercialSettings = record(record(organization.settings).commercialEntitlements);
   const enforcementEnabled = commercialSettings.enforce === true;
