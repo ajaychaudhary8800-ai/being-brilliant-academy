@@ -168,10 +168,15 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
       assert.equal(await systemPrisma.user.count({ where: { email: `http-import-bad-${key}@example.test` } }), 0);
 
       const enquiry = await systemPrisma.enquiry.create({ data: { organizationId, enquiryNumber: `ENQ-${key}`, studentName: "Converted Student", parentName: "Converted Parent", mobile: uniqueFixtureMobile(), email: `enquiry-${key}@example.test`, branchId: branch.id, courseId: course.id, className: "Stale client class", source: "Website", priority: EnquiryPriority.MEDIUM } });
-      const converted = await request(`/enquiries/${enquiry.id}/convert`, "POST", { admissionNo: `ENQ-${key.slice(0, 8)}`, rollNo: " enq-1 ", email: `converted-${key}@example.test`, password: "Student@123", batchId: batch.id, className: "Untrusted class" });
+      const converted = await request(`/enquiries/${enquiry.id}/convert`, "POST", { admissionNo: `ENQ-${key.slice(0, 8)}`, rollNo: " enq-1 ", email: `converted-${key}@example.test`, password: "Student@123", batchId: batch.id, dateOfBirth: "2012-03-14", gender: "MALE", fatherName: "Converted Parent", motherName: "Converted Mother", address: "12 Test Avenue" });
       assert.equal(converted.status, 201, JSON.stringify(converted.payload));
       assert.equal(converted.payload.data.className, course.title);
       assert.equal(converted.payload.data.rollNo, "ENQ-1");
+      assert.equal(converted.payload.data.gender, "MALE");
+      assert.match(String(converted.payload.data.dateOfBirth), /^2012-03-14/);
+      assert.equal(converted.payload.data.fatherName, "Converted Parent");
+      assert.equal(converted.payload.data.motherName, "Converted Mother");
+      assert.equal(converted.payload.data.address, "12 Test Avenue");
       assert.equal(converted.payload.data.currentEnrollment.source, StudentAcademicEnrollmentSource.ADMISSION);
       assert.equal(converted.payload.data.currentEnrollment.batchId, batch.id);
       createdUserIds.push(converted.payload.data.user.id);
@@ -179,7 +184,7 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
 
       const conflictingEnquiry = await systemPrisma.enquiry.create({ data: { organizationId, enquiryNumber: `ENQ-CONFLICT-${key}`, studentName: "Conflicting Conversion", mobile: uniqueFixtureMobile(), branchId: branch.id, source: "Website", priority: EnquiryPriority.MEDIUM } });
       const conflictingEmail = `converted-conflict-${key}@example.test`;
-      const conflictingConversion = await request(`/enquiries/${conflictingEnquiry.id}/convert`, "POST", { admissionNo: `EC-${key.slice(0, 8)}`, rollNo: "enq-1", email: conflictingEmail, password: "Student@123", batchId: batch.id });
+      const conflictingConversion = await request(`/enquiries/${conflictingEnquiry.id}/convert`, "POST", { admissionNo: `EC-${key.slice(0, 8)}`, rollNo: "enq-1", email: conflictingEmail, password: "Student@123", batchId: batch.id, dateOfBirth: "2011-07-09", gender: "FEMALE", fatherName: "Conflict Father", motherName: "Conflict Mother", address: "45 Conflict Road" });
       assert.equal(conflictingConversion.status, 409, JSON.stringify(conflictingConversion.payload));
       assert.equal(conflictingConversion.payload.error.code, "ACADEMIC_ENROLLMENT_CONFLICT");
       assert.equal(await systemPrisma.user.count({ where: { organizationId, email: conflictingEmail } }), 0);
