@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { PremiumLanding } from "../components/premium-landing";
 import type { Course } from "../components/course-card";
 export const dynamic = "force-dynamic";
@@ -17,6 +19,15 @@ const fallback: Course[] = [
 export default async function Home() {
   let courses = fallback;
   const internalApiUrl = process.env.INTERNAL_API_URL;
+  const host = (await headers()).get("host") ?? "";
+  let tenantHost = false;
+  try {
+    if (internalApiUrl && host) {
+      const branding = await fetch(`${internalApiUrl}/public/branding?host=${encodeURIComponent(host)}`, { cache: "no-store" });
+      tenantHost = branding.ok;
+    }
+  } catch { /* keep the public site resilient if branding lookup is unavailable */ }
+  if (tenantHost) redirect("/login");
   try {
     if (internalApiUrl) {
       const response = await fetch(`${internalApiUrl}/courses`, { next: { revalidate: 300 } });
