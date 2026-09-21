@@ -118,7 +118,7 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
     await systemPrisma.$transaction(async tx => {
       const invoice = await tx.saaSInvoice.findUnique({
         where: { providerOrderId: payment.order_id },
-        include: { subscription: { include: { plan: true } } },
+        include: { subscription: true, plan: true },
       });
       if (!invoice) return;
       if (invoice.status === "PAID") return;
@@ -169,6 +169,7 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
       await tx.saaSSubscription.update({
         where: { id: invoice.subscriptionId },
         data: {
+          planId: invoice.planId,
           status: OrganizationSubscriptionStatus.ACTIVE,
           currentPeriodStart: invoice.periodStart,
           currentPeriodEnd: invoice.periodEnd,
@@ -179,7 +180,7 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
         where: { id: invoice.organizationId },
         data: {
           subscriptionStatus: OrganizationSubscriptionStatus.ACTIVE,
-          subscriptionPlan: invoice.subscription.plan.code,
+          subscriptionPlan: invoice.plan.code,
           trialEndsAt: null,
           subscriptionEndsAt: invoice.periodEnd,
           isActive: true,
@@ -195,7 +196,7 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
             provider: "RAZORPAY",
             providerPaymentId: payment.id,
             amountPaise: payment.amount,
-            planCode: invoice.subscription.plan.code,
+            planCode: invoice.plan.code,
             periodEnd: invoice.periodEnd.toISOString(),
           },
         },
