@@ -6,7 +6,7 @@ import { announcementListFields, circularVersionListFields, messageListFields } 
 import { participantMessageUpdate } from "./message-policy.js";
 import { activeNotificationConstraints, notificationIsActive, notificationLifecycleConstraints } from "./notification-policy.js";
 import { noticeArchivedState } from "./notice-policy.js";
-import { deliverNotification } from "./notifications.js";
+import { MAX_NOTIFICATION_DELIVERY_ATTEMPTS, deliverNotification, notificationFailureStatus } from "./notifications.js";
 import { systemPrisma } from "./prisma.js";
 
 const now = new Date("2026-09-19T10:00:00.000Z");
@@ -42,6 +42,14 @@ test("recipient notification lifecycle hides future, expired, archived and delet
       { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
     ],
   });
+});
+
+test("notification delivery enters dead-letter state after the final retry", () => {
+  assert.equal(MAX_NOTIFICATION_DELIVERY_ATTEMPTS, 3);
+  assert.equal(notificationFailureStatus(0), "FAILED");
+  assert.equal(notificationFailureStatus(1), "FAILED");
+  assert.equal(notificationFailureStatus(2), "DEAD_LETTER");
+  assert.equal(notificationFailureStatus(3), "DEAD_LETTER");
 });
 
 test("provider delivery refuses future, expired, archived and deleted notifications", async () => {

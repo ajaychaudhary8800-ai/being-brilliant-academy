@@ -5,6 +5,10 @@ import { logger } from "./logger.js";
 import { systemPrisma } from "./prisma.js";
 import { notificationIsActive } from "./notification-policy.js";
 
+export const MAX_NOTIFICATION_DELIVERY_ATTEMPTS = 3;
+export const notificationFailureStatus = (previousAttempts: number) =>
+  previousAttempts + 1 >= MAX_NOTIFICATION_DELIVERY_ATTEMPTS ? "DEAD_LETTER" : "FAILED";
+
 export const providerStatus = () => ({
   email: Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASSWORD && env.EMAIL_FROM),
   sms: Boolean(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && env.TWILIO_SMS_FROM),
@@ -69,7 +73,8 @@ export async function deliverNotification(deliveryId: string, now = new Date()) 
     await systemPrisma.notificationDelivery.update({ where: { id: delivery.id }, data: result.skipped ? { status: "SKIPPED", lastError: result.reason } : { status: "SENT", provider: result.provider, providerMessageId: result.messageId, deliveredAt: new Date() } });
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 500) : "Provider delivery failed";
-    await systemPrisma.notificationDelivery.update({ where: { id: delivery.id }, data: { status: "FAILED", lastError: message } });
-    logger.error({ err: error, deliveryId, channel: delivery.channel }, "Notification delivery failed");
+    const status = notificationFailureStatus(delivery.attempts);
+    await systemPrisma.notificationDelivery.update({ where: { id: delivery.id }, data: { status, lastError: message } });
+    logger.error({ err: error, deliveryId, channel: delivery.channel, status }, "Notification delivery failed");
   }
 }
