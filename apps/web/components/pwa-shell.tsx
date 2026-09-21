@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { BookOpen, Contrast, Download, Home, LayoutDashboard, Search } from "lucide-react";
+import { useTenantBranding } from "./tenant-branding";
 
 type InstallEvent = Event & {
   prompt(): Promise<void>;
@@ -10,6 +11,7 @@ type InstallEvent = Event & {
 };
 
 export function PwaShell() {
+  const { brand } = useTenantBranding();
   const [install, setInstall] = useState<InstallEvent | null>(null);
   const [workerFailed, setWorkerFailed] = useState(false);
 
@@ -36,7 +38,7 @@ export function PwaShell() {
     {workerFailed && <p role="status" className="fixed bottom-20 left-4 right-4 z-40 mx-auto max-w-md rounded-xl bg-amber-50 p-3 text-center text-xs text-amber-900 shadow-lg">Offline installation is temporarily unavailable. The website remains available online.</p>}
     {install && <aside className="install-banner fixed bottom-20 left-4 right-4 z-40 mx-auto flex max-w-md items-center gap-3 rounded-2xl bg-slate-950 p-4 text-sm text-white shadow-2xl">
       <Download />
-      <span className="flex-1"><b className="block">Install Being Brilliant</b>Learn faster, even offline.</span>
+      <span className="flex-1"><b className="block">Install {brand.appName}</b>Access your workspace faster, even offline.</span>
       <button onClick={async () => { await install.prompt(); await install.userChoice; setInstall(null); }} className="rounded-lg bg-white px-3 py-2 font-bold text-slate-950">Install App</button>
     </aside>}
     <nav className="pwa-bottom fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-xl backdrop-blur md:hidden" aria-label="Mobile navigation">
