@@ -619,6 +619,7 @@ model SaaSPlan {
   monthlyPricePaise Int               @default(0)
   annualPricePaise  Int               @default(0)
   currency         String             @default("INR")
+  taxRateBps       Int                @default(0)
   entitlements     Json               @default("{}")
   limits           Json               @default("{}")
   isActive         Boolean            @default(true)
