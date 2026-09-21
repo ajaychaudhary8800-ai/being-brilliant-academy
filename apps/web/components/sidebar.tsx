@@ -121,6 +121,7 @@ export default function Sidebar() {
   const [open, setOpen] = useState(false);
   const [sessions, setSessions] = useState<{ id: string; name: string; isCurrent: boolean }[]>([]);
   const { user } = useAuth();
+  const { brand } = useTenantBranding();
   const terms = useGroupTerminology();
   const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
   useEffect(() => {
