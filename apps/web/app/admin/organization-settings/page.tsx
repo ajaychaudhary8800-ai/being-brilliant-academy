@@ -113,7 +113,7 @@ export default function Page() {
       </section>
 
       <section className="card grid gap-4 p-6 md:grid-cols-2">
-        <div className="md:col-span-2"><h2 className="text-lg font-bold">White-label brand</h2><p className="text-sm text-slate-500">These values replace Being Brilliant identity inside this tenant's login and administration experience.</p></div>
+        <div className="md:col-span-2"><h2 className="text-lg font-bold">White-label brand</h2><p className="text-sm text-slate-500">These values replace Being Brilliant identity inside this tenant&apos;s login and administration experience.</p></div>
         <ImageUploadField label="Institution Logo" currentUrl={form.logoUrl || null} selectedFile={logoFile} disabled={saving} onFileChange={setLogoFile} onRemove={() => update("logoUrl", null)} onError={setLogoError} error={logoError} />
         <div className="grid gap-4">
           <Field label="Product / app name" value={whiteLabel.appName ?? ""} onChange={value => updateWhiteLabel("appName", value)} placeholder={form.name} />
