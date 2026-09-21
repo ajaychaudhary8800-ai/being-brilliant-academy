@@ -116,9 +116,12 @@ test("SaaS billing UI keeps platform plans separate from tenant subscription che
   const subscriptionPage = await readFile(new URL("../../../web/app/admin/subscription/page.tsx", import.meta.url), "utf8");
   const nginx = await readFile(new URL("../../../../infra/nginx/nginx.conf", import.meta.url), "utf8");
   assert.match(sidebar, /SaaS Plans.*platformOnly: true/);
+  assert.match(sidebar, /organization\/entitlements/);
+  assert.match(sidebar, /commercialEntitlements\.entitlements\[entry\.feature\]/);
   assert.match(sidebar, /Subscription & Billing.*tenantOnly: true.*superAdminOnly: true/);
   assert.match(plansPage, /\/platform\/saas\/plans/);
   assert.match(subscriptionPage, /Idempotency-Key/);
+  assert.match(subscriptionPage, /activation is confirmed by the verified payment webhook/);
   assert.match(subscriptionPage, /checkout\.razorpay\.com\/v1\/checkout\.js/);
   assert.match(nginx, /https:\/\/checkout\.razorpay\.com/);
 });
