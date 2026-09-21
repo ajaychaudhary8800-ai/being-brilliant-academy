@@ -23,11 +23,11 @@ export async function provisionTenantOrganization(input: TenantOrganizationProvi
 
   const now = new Date();
   const status = input.organization.subscriptionStatus ?? OrganizationSubscriptionStatus.TRIAL;
-  let trialEndsAt = input.organization.trialEndsAt ?? null;
+  let trialEndsAt = input.organization.trialEndsAt ? new Date(input.organization.trialEndsAt) : null;
   if (status === OrganizationSubscriptionStatus.TRIAL && !trialEndsAt && plan.trialDays > 0) {
     trialEndsAt = new Date(now.getTime() + plan.trialDays * 24 * 60 * 60 * 1000);
   }
-  const subscriptionEndsAt = input.organization.subscriptionEndsAt ?? null;
+  const subscriptionEndsAt = input.organization.subscriptionEndsAt ? new Date(input.organization.subscriptionEndsAt) : null;
   const periodEnd = status === OrganizationSubscriptionStatus.TRIAL ? trialEndsAt : subscriptionEndsAt;
   const generatedPassword = input.admin.password ?? crypto.randomBytes(48).toString("base64url");
   const passwordHash = await bcrypt.hash(generatedPassword, 12);
@@ -59,7 +59,7 @@ export async function provisionTenantOrganization(input: TenantOrganizationProvi
           planId: plan.id,
           status,
           billingCycle: SaaSBillingCycle.MONTHLY,
-          currentPeriodStart: [OrganizationSubscriptionStatus.TRIAL, OrganizationSubscriptionStatus.ACTIVE].includes(status) ? now : null,
+          currentPeriodStart: status === OrganizationSubscriptionStatus.TRIAL || status === OrganizationSubscriptionStatus.ACTIVE ? now : null,
           currentPeriodEnd: periodEnd,
         },
         include: { plan: true },
