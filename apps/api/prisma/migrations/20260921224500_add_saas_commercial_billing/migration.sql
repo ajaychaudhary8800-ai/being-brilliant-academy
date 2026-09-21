@@ -44,6 +44,7 @@ CREATE TABLE "SaaSInvoice" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "subscriptionId" TEXT NOT NULL,
+    "planId" TEXT NOT NULL,
     "invoiceNo" TEXT NOT NULL,
     "amountPaise" INTEGER NOT NULL,
     "taxPaise" INTEGER NOT NULL DEFAULT 0,
@@ -102,6 +103,7 @@ CREATE UNIQUE INDEX "SaaSInvoice_providerOrderId_key" ON "SaaSInvoice"("provider
 CREATE UNIQUE INDEX "SaaSInvoice_checkoutKey_key" ON "SaaSInvoice"("checkoutKey");
 CREATE INDEX "SaaSInvoice_organizationId_status_createdAt_idx" ON "SaaSInvoice"("organizationId", "status", "createdAt");
 CREATE INDEX "SaaSInvoice_subscriptionId_periodEnd_idx" ON "SaaSInvoice"("subscriptionId", "periodEnd");
+CREATE INDEX "SaaSInvoice_planId_status_idx" ON "SaaSInvoice"("planId", "status");
 
 CREATE UNIQUE INDEX "SaaSPayment_providerPaymentId_key" ON "SaaSPayment"("providerPaymentId");
 CREATE INDEX "SaaSPayment_organizationId_createdAt_idx" ON "SaaSPayment"("organizationId", "createdAt");
@@ -125,6 +127,10 @@ ALTER TABLE "SaaSInvoice"
 ALTER TABLE "SaaSInvoice"
   ADD CONSTRAINT "SaaSInvoice_subscriptionId_fkey"
   FOREIGN KEY ("subscriptionId") REFERENCES "SaaSSubscription"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+ALTER TABLE "SaaSInvoice"
+  ADD CONSTRAINT "SaaSInvoice_planId_fkey"
+  FOREIGN KEY ("planId") REFERENCES "SaaSPlan"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "SaaSPayment"
   ADD CONSTRAINT "SaaSPayment_organizationId_fkey"
