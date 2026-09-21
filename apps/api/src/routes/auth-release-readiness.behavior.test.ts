@@ -192,3 +192,68 @@ test("auth routes enforce provisioned accounts, portal eligibility and bounded r
   assert.ok(sessionCreated);
   assert.equal(new Date(sessionCreated.expiresAt).getTime(), originalExpiry.getTime());
 });
+
+
+test("past-due tenant super admin receives billing-only recovery access", async t => {
+  const { patch, restore } = patcher();
+  const passwordHash = await bcrypt.hash(PASSWORD, 4);
+  const expiredOrg = {
+    ...activeOrg,
+    subscriptionStatus: "PAST_DUE",
+    subscriptionEndsAt: new Date(Date.now() - 60_000),
+  };
+  let userRole: Role = Role.SUPER_ADMIN;
+
+  patch((systemPrisma as any).organization, "findUnique", async () => expiredOrg);
+  patch((systemPrisma as any).user, "findFirst", async () => ({
+    id: USER,
+    organizationId: ORG,
+    name: "Billing Recovery Admin",
+    email: EMAIL,
+    passwordHash,
+    role: userRole,
+    isActive: true,
+  }));
+  patch((systemPrisma as any).session, "create", async ({ data }: any) => ({ id: "recovery-session", ...data }));
+  patch((systemPrisma as any).tenantAccessAudit, "create", async () => ({}));
+
+  const app = express();
+  app.use(express.json());
+  app.use("/api/v1/auth", auth);
+  app.get("/api/v1/organization/subscription", requireAuth, (req: any, res) => res.json({ billingRecovery: req.auth.billingRecovery }));
+  app.get("/api/v1/admin/overview", requireAuth, (_req, res) => res.json({ ok: true }));
+  app.use(errorHandler);
+  const { server, origin } = await serverFor(app);
+  t.after(() => { restore(); server.close(); });
+
+  let response = await fetch(`${origin}/api/v1/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD, organization: expiredOrg.slug, portal: "admin" }),
+  });
+  assert.equal(response.status, 200);
+  const login = await response.json() as any;
+  assert.equal(login.data.user.role, Role.SUPER_ADMIN);
+  assert.equal(login.data.user.billingRecovery, true);
+  assert.ok(login.data.accessToken);
+
+  response = await fetch(`${origin}/api/v1/organization/subscription`, {
+    headers: { Authorization: `Bearer ${login.data.accessToken}` },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(((await response.json()) as any).billingRecovery, true);
+
+  response = await fetch(`${origin}/api/v1/admin/overview`, {
+    headers: { Authorization: `Bearer ${login.data.accessToken}` },
+  });
+  assert.equal(response.status, 402);
+  assert.equal(((await response.json()) as any).error.code, "SUBSCRIPTION_INACTIVE");
+
+  userRole = Role.BRANCH_ADMIN;
+  response = await fetch(`${origin}/api/v1/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD, organization: expiredOrg.slug, portal: "admin" }),
+  });
+  assert.equal(response.status, 402);
+});
