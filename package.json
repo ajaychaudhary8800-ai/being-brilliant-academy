@@ -17,7 +17,10 @@
     "db:generate": "pnpm --filter @bba/api prisma:generate",
     "db:migrate": "pnpm --filter @bba/api prisma:migrate",
     "db:seed": "pnpm --filter @bba/api prisma:seed",
-    "test:integration:postgres": "pnpm --filter @bba/api exec tsx scripts/run-postgres-integration.mjs"
+    "test:integration:postgres": "pnpm --filter @bba/api exec tsx scripts/run-postgres-integration.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test --grep @smoke",
+    "test:e2e:headed": "playwright test --headed"
   },
-  "devDependencies": { "typescript": "^5.7.3" }
+  "devDependencies": { "@playwright/test": "^1.63.0", "@types/node": "^22.10.5", "typescript": "^5.7.3" }
 }
