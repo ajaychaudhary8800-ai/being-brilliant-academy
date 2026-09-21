@@ -128,7 +128,7 @@ export default function Page() {
         <Field label="Support email" type="email" value={whiteLabel.supportEmail ?? ""} onChange={value => updateWhiteLabel("supportEmail", value)} />
         <Field label="Support phone" value={whiteLabel.supportPhone ?? ""} onChange={value => updateWhiteLabel("supportPhone", value)} />
         <Field label="Custom domain" value={whiteLabel.customDomain ?? ""} onChange={value => updateWhiteLabel("customDomain", value.toLowerCase().replace(/^https?:\/\//, "").split("/")[0])} placeholder="erp.yourschool.com" help="Application mapping is enabled here; DNS and TLS still need to point this domain to the deployment." />
-        <label className="flex items-center gap-3 rounded-xl border p-4 text-sm font-semibold md:col-span-2"><input type="checkbox" checked={whiteLabel.hideVendorBranding === true} onChange={event => updateWhiteLabel("hideVendorBranding", event.target.checked)} />Hide platform vendor branding in tenant-facing surfaces</label>
+        <label className="flex items-center gap-3 rounded-xl border p-4 text-sm font-semibold md:col-span-2"><input type="checkbox" checked={whiteLabel.hideVendorBranding !== false} onChange={event => updateWhiteLabel("hideVendorBranding", event.target.checked)} />Hide platform vendor branding in tenant-facing surfaces</label>
 
         <div className="overflow-hidden rounded-2xl border md:col-span-2">
           <div className="flex min-h-44 items-center gap-5 p-6 text-white" style={{ background: `linear-gradient(135deg,${form.primaryColor},${form.secondaryColor})` }}>
