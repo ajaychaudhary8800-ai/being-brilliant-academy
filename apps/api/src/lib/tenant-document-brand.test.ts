@@ -9,7 +9,7 @@ test("tenant document identity prefers configured white-label app name", () => {
       slug: "green-shine-world-school",
       settings: { whiteLabel: { appName: "Green Shine SchoolOS" } },
     }),
-    { name: "Green Shine SchoolOS", certificatePrefix: "GREEN-SHINE-WORLD-" },
+    { name: "Green Shine SchoolOS", certificatePrefix: "GREEN-SHINE-WORLD" },
   );
 });
 
