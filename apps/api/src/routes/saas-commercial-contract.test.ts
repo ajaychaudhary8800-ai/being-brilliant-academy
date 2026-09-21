@@ -129,3 +129,35 @@ test("SaaS billing UI keeps platform plans separate from tenant subscription che
   assert.match(subscriptionPage, /checkout\.razorpay\.com\/v1\/checkout\.js/);
   assert.match(nginx, /https:\/\/checkout\.razorpay\.com/);
 });
+
+
+test("billing recovery is restricted to renewal surfaces", async () => {
+  const authMiddleware = await readFile(new URL("../middleware/auth.ts", import.meta.url), "utf8");
+  const authRoute = await readFile(new URL("auth.ts", import.meta.url), "utf8");
+  const authProvider = await readFile(new URL("../../../web/components/auth-provider.tsx", import.meta.url), "utf8");
+  const portalAuth = await readFile(new URL("../../../web/components/portal-auth.tsx", import.meta.url), "utf8");
+  const sidebar = await readFile(new URL("../../../web/components/sidebar.tsx", import.meta.url), "utf8");
+
+  assert.match(authMiddleware, /billingRecoveryEligible/);
+  assert.match(authMiddleware, /BILLING_RECOVERY_ROUTE_BLOCKED/);
+  assert.match(authMiddleware, /\/api\/v1\/organization\/subscription\/checkout/);
+  assert.doesNotMatch(authMiddleware, /\/api\/v1\/admin\/overview.*return true/);
+  assert.match(authRoute, /billingRecoveryEligible/);
+  assert.match(authRoute, /billingRecovery/);
+  assert.match(authProvider, /billingRecovery\?: boolean/);
+  assert.match(authProvider, /recoveryBlocked/);
+  assert.match(portalAuth, /user\.billingRecovery \? "\/admin\/subscription"/);
+  assert.match(sidebar, /user\?\.billingRecovery.*entry\.href === "\/admin\/subscription"/);
+  assert.match(sidebar, /user\?\.role === "ACCOUNTANT" \|\| user\?\.billingRecovery/);
+});
+
+test("subscription lifecycle reconciliation handles expiry and overdue states", async () => {
+  const policy = await readFile(new URL("../lib/saas-commercial.ts", import.meta.url), "utf8");
+  const server = await readFile(new URL("../server.ts", import.meta.url), "utf8");
+  assert.match(policy, /reconcileSaaSLifecycle/);
+  assert.match(policy, /SAAS_SUBSCRIPTION_PAST_DUE/);
+  assert.match(policy, /SAAS_SUBSCRIPTION_CANCELLED/);
+  assert.match(policy, /SAAS_TRIAL_EXPIRED/);
+  assert.match(server, /reconcileCommercialLifecycle/);
+  assert.match(server, /5 \* 60_000/);
+});
