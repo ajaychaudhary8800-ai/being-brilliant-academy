@@ -14,13 +14,14 @@ import {
 } from "lucide-react";
 
 type DynamicLabel = "courses" | "groups" | "educators" | "assessments" | "learning";
-type MenuEntry = { name: string; href: string; icon: typeof LayoutDashboard; dynamicLabel?: DynamicLabel; superAdminOnly?: boolean; platformOnly?: boolean };
+type MenuEntry = { name: string; href: string; icon: typeof LayoutDashboard; dynamicLabel?: DynamicLabel; superAdminOnly?: boolean; platformOnly?: boolean; tenantOnly?: boolean };
 type MenuGroup = { name: string; entries: MenuEntry[] };
 
 const menuGroups: MenuGroup[] = [
   { name: "Overview", entries: [{ name: "Dashboard", href: "/admin", icon: LayoutDashboard }] },
   { name: "Institution", entries: [
     { name: "Organizations", href: "/admin/organizations", icon: School, platformOnly: true },
+    { name: "SaaS Plans", href: "/admin/saas-plans", icon: CreditCard, platformOnly: true },
     { name: "Institution Settings", href: "/admin/organization-settings", icon: Settings },
     { name: "Branches", href: "/admin/branches", icon: Building2 },
     { name: "Academic Sessions", href: "/admin/academic-sessions", icon: CalendarDays },
@@ -75,7 +76,10 @@ const menuGroups: MenuGroup[] = [
     { name: "Analytics & Insights", href: "/admin/analytics", icon: BrainCircuit },
     { name: "Reports", href: "/admin/reports", icon: BarChart3 },
   ] },
-  { name: "System", entries: [{ name: "Settings", href: "/admin/settings", icon: Settings }] },
+  { name: "System", entries: [
+    { name: "Subscription & Billing", href: "/admin/subscription", icon: CreditCard, tenantOnly: true, superAdminOnly: true },
+    { name: "Settings", href: "/admin/settings", icon: Settings },
+  ] },
 ];
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
@@ -95,6 +99,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
     entries: group.entries.filter((entry) => {
       if (user?.role === "ACCOUNTANT") return accountantRoutes.has(entry.href);
       if (entry.platformOnly) return user?.role === "SUPER_ADMIN" && user.organizationId === "org_default";
+      if (entry.tenantOnly) return user?.role === "SUPER_ADMIN" && user.organizationId !== "org_default";
       if (entry.superAdminOnly) return user?.role === "SUPER_ADMIN";
       return true;
     }),
