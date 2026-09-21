@@ -166,3 +166,43 @@ test("subscription lifecycle reconciliation handles expiry and overdue states", 
   assert.match(server, /reconcileCommercialLifecycle/);
   assert.match(server, /5 \* 60_000/);
 });
+
+
+test("self-service cancellation and invoice documents are tenant-scoped", async () => {
+  const route = await readFile(new URL("saas-commercial.ts", import.meta.url), "utf8");
+  const policy = await readFile(new URL("../lib/saas-commercial.ts", import.meta.url), "utf8");
+  const tenantPage = await readFile(new URL("../../../web/app/admin/subscription/page.tsx", import.meta.url), "utf8");
+  const platformPage = await readFile(new URL("../../../web/app/admin/saas-billing/page.tsx", import.meta.url), "utf8");
+
+  assert.match(route, /\/organization\/subscription\/cancellation/);
+  assert.match(route, /status !== OrganizationSubscriptionStatus\.ACTIVE/);
+  assert.match(route, /SAAS_CANCELLATION_SCHEDULED/);
+  assert.match(route, /SAAS_CANCELLATION_REVOKED/);
+  assert.match(route, /organizationId: req\.auth!\.organizationId/);
+  assert.match(route, /\/organization\/subscription\/invoices\/:invoiceId\/pdf/);
+  assert.match(route, /\/platform\/saas\/organizations\/:organizationId\/invoices\/:invoiceId\/pdf/);
+  assert.match(route, /where: \{ id: String\(req\.params\.invoiceId\), organizationId/);
+  assert.match(policy, /cancelAtPeriodEnd: false/);
+  assert.match(tenantPage, /Cancel at period end/);
+  assert.match(tenantPage, /Keep subscription active/);
+  assert.match(tenantPage, /subscription\/invoices\/\$\{invoice\.id\}\/pdf/);
+  assert.match(platformPage, /platform\/saas\/organizations\/\$\{selectedId\}\/invoices\/\$\{invoice\.id\}\/pdf/);
+});
+
+test("billing lifecycle reminders are deduplicated and queued for tenant super admins", async () => {
+  const policy = await readFile(new URL("../lib/saas-commercial.ts", import.meta.url), "utf8");
+  const server = await readFile(new URL("../server.ts", import.meta.url), "utf8");
+
+  assert.match(policy, /queueSaaSBillingNotice/);
+  assert.match(policy, /pg_advisory_xact_lock\(hashtext/);
+  assert.match(policy, /sourceModule: "SAAS_BILLING"/);
+  assert.match(policy, /role: Role\.SUPER_ADMIN, isActive: true/);
+  assert.match(policy, /channels: \["IN_APP", "EMAIL"\]/);
+  assert.match(policy, /channel: "EMAIL"/);
+  assert.match(policy, /renewal:.*7D/);
+  assert.match(policy, /renewal:.*1D/);
+  assert.match(policy, /past-due/);
+  assert.match(policy, /trial-expired/);
+  assert.match(policy, /renewalRemindersQueued/);
+  assert.match(server, /result\.renewalRemindersQueued/);
+});
