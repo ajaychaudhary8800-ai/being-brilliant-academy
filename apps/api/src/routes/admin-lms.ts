@@ -5,6 +5,7 @@ import { activeTeacherLmsAllocations, assertLmsRequestContentAccess, lmsActorFor
 import { AppError } from "../lib/http.js";
 import { assertLmsLessonEditable, assertLmsLessonStructuralEditAllowed, assertLmsLessonTransition, assertLmsManagementAccess, assertLmsModuleManagementAccess, lmsLessonBranchFilter, lmsLessonCreateStatus, lmsModuleCourseWhere, nextLmsProgress, type LmsActor } from "../lib/lms-policy.js";
 import { prisma } from "../lib/prisma.js";
+import { ensureCourseCompletionCertificate } from "../lib/lms-course-completion-certificate.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
@@ -272,7 +273,10 @@ router.patch("/lms/lessons/:id/progress", allow(Role.STUDENT), async (req: AuthR
     update: { watchedSeconds: next.watchedSeconds, watchPercentage: next.watchPercentage, lastPositionSeconds: next.lastPositionSeconds, timeSpentSeconds: { increment: next.creditedTimeSeconds }, completed: next.completed, completedAt: next.completedAt },
     create: { userId: req.auth!.userId, lessonId: lesson.id, watchedSeconds: next.watchedSeconds, watchPercentage: next.watchPercentage, lastPositionSeconds: next.lastPositionSeconds, timeSpentSeconds: next.creditedTimeSeconds, completed: next.completed, completedAt: next.completedAt },
   });
-  res.json({ data: progress });
+  const completionCertificate = progress.completed
+    ? await ensureCourseCompletionCertificate({ organizationId: req.auth!.organizationId, userId: req.auth!.userId })
+    : null;
+  res.json({ data: progress, meta: { completionCertificate } });
 });
 
 router.get("/lms/me", allow(Role.STUDENT), async (req: AuthRequest, res) => {
@@ -281,7 +285,11 @@ router.get("/lms/me", allow(Role.STUDENT), async (req: AuthRequest, res) => {
   const lessons = await prisma.lesson.findMany({ where: { batchId: student.batchId, status: LmsContentStatus.PUBLISHED }, select: { ...select, progress: { where: { userId: req.auth!.userId }, select: { watchedSeconds: true, watchPercentage: true, lastPositionSeconds: true, timeSpentSeconds: true, completed: true, updatedAt: true } } }, orderBy: [{ module: { position: "asc" } }, { position: "asc" }] });
   const total = lessons.length, completed = lessons.filter((lesson: any) => lesson.progress[0]?.completed).length, percentage = total ? Math.round(completed / total * 100) : 0;
   const continueLesson = lessons.filter((lesson: any) => !lesson.progress[0]?.completed).sort((a: any, b: any) => new Date(b.progress[0]?.updatedAt ?? 0).getTime() - new Date(a.progress[0]?.updatedAt ?? 0).getTime())[0] ?? null;
-  res.json({ data: { lessons: lessons.map(shape), summary: { total, completed, percentage, certificateEligible: total > 0 && percentage >= 80, continueLesson } } });
+  const certificateEligible = total > 0 && percentage >= 80;
+  const completionCertificate = certificateEligible
+    ? await ensureCourseCompletionCertificate({ organizationId: req.auth!.organizationId, userId: req.auth!.userId })
+    : null;
+  res.json({ data: { lessons: lessons.map(shape), summary: { total, completed, percentage, certificateEligible, completionCertificate, continueLesson } } });
 });
 
 export { router as lmsLearning };
