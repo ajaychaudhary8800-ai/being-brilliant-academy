@@ -14,6 +14,7 @@ type Plan = {
   description: string | null;
   monthlyPricePaise: number;
   annualPricePaise: number;
+  trialDays: number;
   currency: string;
   taxRateBps: number;
   entitlements: Record<string, boolean>;
@@ -27,6 +28,7 @@ type Form = {
   description: string;
   monthlyPrice: string;
   annualPrice: string;
+  trialDays: string;
   currency: string;
   taxPercent: string;
   entitlements: string;
@@ -40,6 +42,7 @@ const empty: Form = {
   description: "",
   monthlyPrice: "0",
   annualPrice: "0",
+  trialDays: "0",
   currency: "INR",
   taxPercent: "0",
   entitlements: JSON.stringify({ "*": true }, null, 2),
@@ -97,6 +100,7 @@ export default function Page() {
       description: plan.description ?? "",
       monthlyPrice: String(plan.monthlyPricePaise / 100),
       annualPrice: String(plan.annualPricePaise / 100),
+      trialDays: String(plan.trialDays ?? 0),
       currency: plan.currency,
       taxPercent: String(plan.taxRateBps / 100),
       entitlements: JSON.stringify(plan.entitlements ?? {}, null, 2),
@@ -121,6 +125,7 @@ export default function Page() {
         description: form.description.trim() || null,
         monthlyPricePaise: Math.round(Number(form.monthlyPrice) * 100),
         annualPricePaise: Math.round(Number(form.annualPrice) * 100),
+        trialDays: Math.max(0, Math.floor(Number(form.trialDays))),
         currency: form.currency.trim().toUpperCase(),
         taxRateBps: Math.round(Number(form.taxPercent) * 100),
         entitlements,
@@ -161,6 +166,7 @@ export default function Page() {
       <Field label="Name" value={form.name} onChange={value => setForm(current => ({ ...current, name: value }))} />
       <Field label="Monthly price" type="number" step="0.01" value={form.monthlyPrice} onChange={value => setForm(current => ({ ...current, monthlyPrice: value }))} />
       <Field label="Annual price" type="number" step="0.01" value={form.annualPrice} onChange={value => setForm(current => ({ ...current, annualPrice: value }))} />
+      <Field label="Default trial days" type="number" step="1" value={form.trialDays} onChange={value => setForm(current => ({ ...current, trialDays: value }))} />
       <Field label="Currency" value={form.currency} onChange={value => setForm(current => ({ ...current, currency: value.toUpperCase() }))} />
       <Field label="Tax %" type="number" step="0.01" value={form.taxPercent} onChange={value => setForm(current => ({ ...current, taxPercent: value }))} />
       <label className="text-sm font-semibold md:col-span-2">Description
@@ -196,6 +202,7 @@ export default function Page() {
         <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
           <Metric label="Monthly" value={money(plan.monthlyPricePaise, plan.currency)} />
           <Metric label="Annual" value={money(plan.annualPricePaise, plan.currency)} />
+          <Metric label="Trial" value={plan.trialDays > 0 ? `${plan.trialDays} days` : "Manual/no default"} />
           <Metric label="Tax" value={`${(plan.taxRateBps / 100).toFixed(2)}%`} />
           <Metric label="Limits" value={Object.keys(plan.limits ?? {}).length ? Object.entries(plan.limits).map(([key, value]) => `${key}: ${value ?? "∞"}`).join(", ") : "Unlimited"} />
         </div>
