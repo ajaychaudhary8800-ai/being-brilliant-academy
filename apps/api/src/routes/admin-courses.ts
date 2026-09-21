@@ -90,6 +90,12 @@ async function scope(req: AuthRequest, branchId?: string | null) {
   return ids;
 }
 
+async function writeScope(req: AuthRequest, branchId?: string | null) {
+  if (req.auth!.role !== Role.BRANCH_ADMIN) return;
+  if (!branchId) throw new AppError(403, "BRANCH_SCOPE_REQUIRED", "Branch Admin must select an assigned branch");
+  await scope(req, branchId);
+}
+
 function validateCommon(data: { regularPricePaise?: number; salePricePaise?: number | null; startDate?: Date | null; endDate?: Date | null }) {
   if (data.regularPricePaise !== undefined && data.salePricePaise != null && data.salePricePaise > data.regularPricePaise) throw new AppError(422, "INVALID_PRICE", "Sale price cannot exceed regular price");
   if (data.startDate && data.endDate && data.endDate < data.startDate) throw new AppError(422, "INVALID_DATES", "End date must follow start date");
@@ -160,7 +166,7 @@ router.get("/courses", async (req: AuthRequest, res) => {
 router.get("/courses/:id", async (req: AuthRequest, res) => {
   const data = await prisma.course.findUnique({ where: { id: String(req.params.id) }, select });
   if (!data) throw new AppError(404, "COURSE_NOT_FOUND", "Course not found");
-  await scope(req, data.branchId);
+  await writeScope(req, data.branchId);
   res.json({ data });
 });
 
@@ -182,9 +188,9 @@ router.post("/courses", async (req: AuthRequest, res) => {
 router.patch("/courses/:id", async (req: AuthRequest, res) => {
   const old = await prisma.course.findUnique({ where: { id: String(req.params.id) } });
   if (!old) throw new AppError(404, "COURSE_NOT_FOUND", "Course not found");
-  await scope(req, old.branchId);
+  await writeScope(req, old.branchId);
   const patch = input.partial().parse(req.body);
-  if (patch.branchId !== undefined) await scope(req, patch.branchId);
+  if (patch.branchId !== undefined) await writeScope(req, patch.branchId);
   if (patch.categoryId) {
     const category = await prisma.category.findUnique({ where: { id: patch.categoryId }, select: { id: true } });
     if (!category) throw new AppError(422, "CATEGORY_NOT_FOUND", "Select a valid legacy course category");
@@ -208,21 +214,21 @@ router.patch("/courses/:id", async (req: AuthRequest, res) => {
 router.patch("/courses/:id/status", async (req: AuthRequest, res) => {
   const existing = await prisma.course.findUnique({ where: { id: String(req.params.id) }, select: { id: true, branchId: true } });
   if (!existing) throw new AppError(404, "COURSE_NOT_FOUND", "Course not found");
-  await scope(req, existing.branchId);
+  await writeScope(req, existing.branchId);
   res.json({ data: await prisma.course.update({ where: { id: existing.id }, data: { status: z.object({ status: z.nativeEnum(CourseStatus) }).parse(req.body).status }, select }) });
 });
 
 router.patch("/courses/:id/featured", async (req: AuthRequest, res) => {
   const existing = await prisma.course.findUnique({ where: { id: String(req.params.id) }, select: { id: true, branchId: true } });
   if (!existing) throw new AppError(404, "COURSE_NOT_FOUND", "Course not found");
-  await scope(req, existing.branchId);
+  await writeScope(req, existing.branchId);
   res.json({ data: await prisma.course.update({ where: { id: existing.id }, data: { isFeatured: z.object({ isFeatured: z.boolean() }).parse(req.body).isFeatured }, select }) });
 });
 
 router.delete("/courses/:id", async (req: AuthRequest, res) => {
   const course = await prisma.course.findUnique({ where: { id: String(req.params.id) }, include: { _count: { select: { enrollments: true, batches: true, modules: true, teacherAllocations: true } } } });
   if (!course) throw new AppError(404, "COURSE_NOT_FOUND", "Course not found");
-  await scope(req, course.branchId);
+  await writeScope(req, course.branchId);
   if (course._count.enrollments || course._count.batches || course._count.modules || course._count.teacherAllocations) throw new AppError(409, "COURSE_IN_USE", "Archive this course; it has active dependencies");
   await prisma.course.delete({ where: { id: course.id } });
   res.status(204).send();
@@ -236,7 +242,7 @@ router.post("/courses/:id/subjects", async (req: AuthRequest, res) => {
     prisma.subject.findUnique({ where: { id: data.subjectId }, select: { status: true, legacyReviewStatus: true } }),
   ]);
   if (!course) throw new AppError(404, "COURSE_NOT_FOUND", "Course not found");
-  await scope(req, course.branchId);
+  await writeScope(req, course.branchId);
   if (!subject || subject.status !== "ACTIVE" || subject.legacyReviewStatus !== "CONFIRMED") throw new AppError(422, "INVALID_SUBJECT", "Select an active, confirmed subject from this organization");
   res.status(201).json({ data: await prisma.courseSubject.upsert({ where: { courseId_subjectId: { courseId, subjectId: data.subjectId } }, update: data, create: { ...data, courseId } }) });
 });
@@ -245,7 +251,7 @@ router.delete("/courses/:id/subjects/:subjectId", async (req: AuthRequest, res) 
   const courseId = z.string().cuid().parse(req.params.id), subjectId = z.string().cuid().parse(req.params.subjectId);
   const course = await prisma.course.findUnique({ where: { id: courseId }, select: { branchId: true } });
   if (!course) throw new AppError(404, "COURSE_NOT_FOUND", "Course not found");
-  await scope(req, course.branchId);
+  await writeScope(req, course.branchId);
   const references = await Promise.all([
     prisma.teacherAllocation.count({ where: { courseId, subjectId } }), prisma.timetable.count({ where: { courseId, subjectId } }),
     prisma.homework.count({ where: { courseId, subjectId } }), prisma.examination.count({ where: { courseId, subjectId } }),
