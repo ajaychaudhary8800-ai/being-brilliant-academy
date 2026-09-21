@@ -538,6 +538,27 @@ enum OrganizationSubscriptionStatus {
   CANCELLED
 }
 
+enum SaaSBillingCycle {
+  MONTHLY
+  ANNUAL
+  CUSTOM
+}
+
+enum SaaSInvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+  OVERDUE
+}
+
+enum SaaSPaymentStatus {
+  CREATED
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
 model Organization {
   id                     String                         @id @default(cuid())
   slug                   String                         @unique
@@ -583,8 +604,110 @@ model Organization {
   feePaymentOffsets       FeePaymentOffset[]
   studentAcademicEnrollments StudentAcademicEnrollment[]
   studentAcademicTransitions StudentAcademicTransition[]
+  saasSubscription       SaaSSubscription?
+  saasInvoices           SaaSInvoice[]
+  saasPayments           SaaSPayment[]
 
   @@index([subscriptionStatus, isActive])
+}
+
+model SaaSPlan {
+  id               String             @id @default(cuid())
+  code             String             @unique
+  name             String
+  description      String?            @db.Text
+  monthlyPricePaise Int               @default(0)
+  annualPricePaise  Int               @default(0)
+  currency         String             @default("INR")
+  entitlements     Json               @default("{}")
+  limits           Json               @default("{}")
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  subscriptions    SaaSSubscription[]
+
+  @@index([isActive, code])
+}
+
+model SaaSSubscription {
+  id                     String                         @id @default(cuid())
+  organizationId         String                         @unique
+  planId                 String
+  status                 OrganizationSubscriptionStatus @default(TRIAL)
+  billingCycle           SaaSBillingCycle               @default(MONTHLY)
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean                        @default(false)
+  provider               String?
+  providerCustomerId     String?
+  providerSubscriptionId String?                        @unique
+  createdAt              DateTime                       @default(now())
+  updatedAt              DateTime                       @updatedAt
+  organization           Organization                   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  plan                   SaaSPlan                       @relation(fields: [planId], references: [id], onDelete: Restrict)
+  invoices               SaaSInvoice[]
+
+  @@index([planId, status])
+  @@index([currentPeriodEnd])
+}
+
+model SaaSInvoice {
+  id              String            @id @default(cuid())
+  organizationId  String
+  subscriptionId  String
+  invoiceNo       String            @unique
+  amountPaise     Int
+  taxPaise        Int               @default(0)
+  totalPaise      Int
+  currency        String            @default("INR")
+  status          SaaSInvoiceStatus @default(OPEN)
+  periodStart     DateTime
+  periodEnd       DateTime
+  dueAt           DateTime?
+  paidAt          DateTime?
+  provider        String?
+  providerOrderId String?           @unique
+  metadata        Json?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  subscription    SaaSSubscription  @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  payments        SaaSPayment[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([subscriptionId, periodEnd])
+}
+
+model SaaSPayment {
+  id                String            @id @default(cuid())
+  organizationId    String
+  invoiceId         String
+  provider          String
+  providerPaymentId String?           @unique
+  amountPaise       Int
+  currency          String            @default("INR")
+  status            SaaSPaymentStatus @default(CREATED)
+  raw               Json?
+  capturedAt        DateTime?
+  createdAt         DateTime          @default(now())
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice           SaaSInvoice       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt])
+  @@index([invoiceId, status])
+}
+
+model SaaSWebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  eventKey    String
+  eventType   String
+  payload     Json
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@unique([provider, eventKey])
+  @@index([provider, createdAt])
 }
 
 model AcademicSession {
