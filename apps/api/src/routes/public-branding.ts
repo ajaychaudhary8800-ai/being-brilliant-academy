@@ -96,21 +96,19 @@ router.get("/branding", async (req, res) => {
   if (organization && !available(organization)) organization = null;
 
   if (!organization && host) {
+    organization = await systemPrisma.organization.findFirst({
+      where: { isActive: true, deletedAt: null, settings: { path: ["whiteLabel", "customDomain"], equals: host } },
+      select,
+    });
+  }
+
+  if (!organization && host) {
     const firstLabel = host.split(".")[0] ?? "";
     const reserved = new Set(["www", "app", "api", "staging"]);
     if (firstLabel && !reserved.has(firstLabel) && /^[a-z0-9-]{2,80}$/.test(firstLabel)) {
       const bySubdomain = await systemPrisma.organization.findUnique({ where: { slug: firstLabel }, select });
       if (bySubdomain && available(bySubdomain)) organization = bySubdomain;
     }
-  }
-
-  if (!organization && host) {
-    const organizations = await systemPrisma.organization.findMany({
-      where: { isActive: true, deletedAt: null },
-      select,
-      take: 500,
-    });
-    organization = organizations.find((candidate) => whiteLabelSettings(candidate.settings).customDomain === host) ?? null;
   }
 
   if (!organization) {
