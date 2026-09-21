@@ -17,7 +17,7 @@ export function tenantDocumentIdentity(organization: { name: string; slug: strin
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 18) || "ORG";
+    .slice(0, 18).replace(/-+$/g, "") || "ORG";
   return { name, certificatePrefix };
 }
 
