@@ -122,6 +122,45 @@ admin.post("/lms/modules", allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN), async (re
   catch (error: any) { if (error?.code === "P2002") throw new AppError(409, "MODULE_POSITION_CONFLICT", "A Module already uses this position in the selected Course"); throw error; }
 });
 
+admin.patch("/lms/modules/:id", allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN), async (req: AuthRequest, res) => {
+  const data = z.object({
+    title: z.string().trim().min(2).max(150).optional(),
+    position: z.number().int().positive().optional(),
+  }).strict().refine(value => value.title !== undefined || value.position !== undefined, { message: "Provide a Module title or position" }).parse(req.body);
+  const current = await lmsActorForRequest(req);
+  const module = await prisma.module.findFirst({
+    where: { id: String(req.params.id), organizationId: req.auth!.organizationId },
+    select: { id: true, courseId: true, course: { select: { branchId: true } } },
+  });
+  if (!module) throw new AppError(404, "MODULE_NOT_FOUND", "Module not found");
+  assertLmsModuleManagementAccess(current, module.course);
+  try {
+    res.json({ data: await prisma.module.update({
+      where: { id: module.id },
+      data,
+      select: { id: true, title: true, position: true, courseId: true },
+    }) });
+  } catch (error: any) {
+    if (error?.code === "P2002") throw new AppError(409, "MODULE_POSITION_CONFLICT", "A Module already uses this position in the selected Course");
+    throw error;
+  }
+});
+
+admin.delete("/lms/modules/:id", allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN), async (req: AuthRequest, res) => {
+  const current = await lmsActorForRequest(req);
+  const module = await prisma.module.findFirst({
+    where: { id: String(req.params.id), organizationId: req.auth!.organizationId },
+    select: { id: true, course: { select: { branchId: true } }, _count: { select: { lessons: true } } },
+  });
+  if (!module) throw new AppError(404, "MODULE_NOT_FOUND", "Module not found");
+  assertLmsModuleManagementAccess(current, module.course);
+  if (module._count.lessons > 0) {
+    throw new AppError(409, "MODULE_HAS_LESSONS", "Move or remove every Lesson before deleting this Module");
+  }
+  await prisma.module.delete({ where: { id: module.id } });
+  res.status(204).send();
+});
+
 admin.get("/lms/dashboard", async (req: AuthRequest, res) => {
   const current = await lmsActorForRequest(req), where = managementWhere(current, await activeTeacherLmsAllocations(current));
   const [lessons, published, archived, students, completed] = await Promise.all([
