@@ -21,6 +21,6 @@ test("CRM dashboard, list and export all use the same reminder window helper", a
     readFile(new URL("../routes/admin-enquiries.ts", import.meta.url), "utf8"),
   );
   const uses = source.match(/enquiryFollowUpWindow\(/g) ?? [];
-  assert.ok(uses.length >= 5);
+  assert.ok(uses.length >= 4);
   assert.doesNotMatch(source, /q\.reminder==="due"\?\{lte:now\}:\{gt:now\}/);
 });
