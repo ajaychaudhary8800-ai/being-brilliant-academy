@@ -284,7 +284,7 @@ notificationWorker.unref();
 const reconcileCommercialLifecycle = async () => {
   try {
     const result = await reconcileSaaSLifecycle(new Date());
-    if (result.overdueInvoices || result.pastDue || result.cancelled || result.expiredTrialsPastDue) {
+    if (result.overdueInvoices || result.pastDue || result.cancelled || result.expiredTrialsPastDue || result.renewalRemindersQueued) {
       logger.info(result, "SaaS subscription lifecycle reconciled");
     }
   } catch (error) {
