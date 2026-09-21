@@ -14,7 +14,8 @@ import {
 } from "lucide-react";
 
 type DynamicLabel = "courses" | "groups" | "educators" | "assessments" | "learning";
-type MenuEntry = { name: string; href: string; icon: typeof LayoutDashboard; dynamicLabel?: DynamicLabel; superAdminOnly?: boolean; platformOnly?: boolean; tenantOnly?: boolean };
+type CommercialFeature = "crm" | "lms" | "hr_payroll" | "finance" | "communication" | "transport" | "library" | "hostel" | "inventory" | "analytics";
+type MenuEntry = { name: string; href: string; icon: typeof LayoutDashboard; dynamicLabel?: DynamicLabel; superAdminOnly?: boolean; platformOnly?: boolean; tenantOnly?: boolean; feature?: CommercialFeature };
 type MenuGroup = { name: string; entries: MenuEntry[] };
 
 const menuGroups: MenuGroup[] = [
@@ -32,7 +33,7 @@ const menuGroups: MenuGroup[] = [
     { name: "Teachers", href: "/admin/teachers", icon: UserRoundCheck, dynamicLabel: "educators" },
     { name: "User Management", href: "/admin/users", icon: Users },
     { name: "Accountants", href: "/admin/accountants", icon: Landmark, superAdminOnly: true },
-    { name: "HR & Payroll", href: "/admin/hr", icon: BriefcaseBusiness },
+    { name: "HR & Payroll", href: "/admin/hr", icon: BriefcaseBusiness, feature: "hr_payroll" },
     { name: "Birthdays", href: "/admin/birthdays", icon: Bell },
   ] },
   { name: "Academics", entries: [
@@ -46,11 +47,11 @@ const menuGroups: MenuGroup[] = [
     { name: "Examinations", href: "/admin/examinations", icon: FileCheck2, dynamicLabel: "assessments" },
     { name: "Answer Submissions", href: "/admin/examination-submissions", icon: FileCheck2 },
     { name: "Tests", href: "/admin/tests", icon: ClipboardCheck },
-    { name: "LMS", href: "/admin/lms", icon: PlaySquare },
-    { name: "Learning Resources", href: "/admin/learning-ecosystem", icon: BrainCircuit, dynamicLabel: "learning" },
+    { name: "LMS", href: "/admin/lms", icon: PlaySquare, feature: "lms" },
+    { name: "Learning Resources", href: "/admin/learning-ecosystem", icon: BrainCircuit, dynamicLabel: "learning", feature: "lms" },
   ] },
   { name: "Admissions", entries: [
-    { name: "Admissions CRM", href: "/admin/enquiries", icon: FileText },
+    { name: "Admissions CRM", href: "/admin/enquiries", icon: FileText, feature: "crm" },
     { name: "Certificates", href: "/admin/certificates", icon: Award },
   ] },
   { name: "Attendance & Leave", entries: [
@@ -60,20 +61,20 @@ const menuGroups: MenuGroup[] = [
   { name: "Fees & Finance", entries: [
     { name: "Fees", href: "/admin/fees", icon: CreditCard },
     { name: "Outstanding Fees", href: "/admin/fee-defaulters", icon: Bell },
-    { name: "Finance & Accounts", href: "/admin/finance", icon: Landmark },
+    { name: "Finance & Accounts", href: "/admin/finance", icon: Landmark, feature: "finance" },
   ] },
   { name: "Communication", entries: [
-    { name: "Communication", href: "/admin/communication", icon: Bell },
-    { name: "Notice Board", href: "/admin/notices", icon: Bell },
+    { name: "Communication", href: "/admin/communication", icon: Bell, feature: "communication" },
+    { name: "Notice Board", href: "/admin/notices", icon: Bell, feature: "communication" },
   ] },
   { name: "Operations", entries: [
-    { name: "Transport", href: "/admin/transport", icon: Bus },
-    { name: "Library", href: "/admin/library", icon: Library },
-    { name: "Hostel", href: "/admin/hostel", icon: Building2 },
-    { name: "Inventory & Assets", href: "/admin/inventory", icon: Boxes },
+    { name: "Transport", href: "/admin/transport", icon: Bus, feature: "transport" },
+    { name: "Library", href: "/admin/library", icon: Library, feature: "library" },
+    { name: "Hostel", href: "/admin/hostel", icon: Building2, feature: "hostel" },
+    { name: "Inventory & Assets", href: "/admin/inventory", icon: Boxes, feature: "inventory" },
   ] },
   { name: "Reports & Analytics", entries: [
-    { name: "Analytics & Insights", href: "/admin/analytics", icon: BrainCircuit },
+    { name: "Analytics & Insights", href: "/admin/analytics", icon: BrainCircuit, feature: "analytics" },
     { name: "Reports", href: "/admin/reports", icon: BarChart3 },
   ] },
   { name: "System", entries: [
@@ -87,6 +88,18 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth();
   const { brand } = useTenantBranding();
   const terms = useGroupTerminology();
+  const [commercialEntitlements, setCommercialEntitlements] = useState<{ enforcementEnabled: boolean; entitlements: Record<string, boolean> } | null>(null);
+  const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!token || !user) return;
+    let active = true;
+    fetch(`${api}/organization/entitlements`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(response => response.ok ? response.json() : null)
+      .then(json => { if (active && json?.data) setCommercialEntitlements(json.data); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [api, user?.organizationId]);
   const accountantRoutes = new Set(["/admin/finance", "/admin/fees", "/admin/fee-defaulters"]);
   const dynamicLabels: Record<DynamicLabel, string> = { courses: terms.courses, groups: terms.plural, educators: terms.educators, assessments: terms.assessments, learning: terms.learning };
   const groupLabels: Record<string, string> = terms.mode === "SCHOOL"
@@ -98,6 +111,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
     ...group,
     entries: group.entries.filter((entry) => {
       if (user?.role === "ACCOUNTANT") return accountantRoutes.has(entry.href);
+      if (entry.feature && commercialEntitlements?.enforcementEnabled && commercialEntitlements.entitlements["*"] !== true && commercialEntitlements.entitlements[entry.feature] !== true) return false;
       if (entry.platformOnly) return user?.role === "SUPER_ADMIN" && user.organizationId === "org_default";
       if (entry.tenantOnly) return user?.role === "SUPER_ADMIN" && user.organizationId !== "org_default";
       if (entry.superAdminOnly) return user?.role === "SUPER_ADMIN";
