@@ -23,7 +23,7 @@ test("SaaS plans own configurable default trial duration", async () => {
 
 test("tenant provisioning atomically creates organization admin and SaaS subscription", async () => {
   const source = await readFile(new URL("../lib/organization-provisioning.ts", import.meta.url), "utf8");
-  assert.match(source, /systemPrisma\.saasPlan\.findUnique/);
+  assert.match(source, /systemPrisma\.saaSPlan\.findUnique/);
   assert.match(source, /!plan \|\| !plan\.isActive/);
   assert.match(source, /plan\.trialDays \* 24 \* 60 \* 60 \* 1000/);
   assert.match(source, /crypto\.randomBytes\(48\)/);
