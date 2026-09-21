@@ -4,7 +4,7 @@ import { ArrowLeft, Loader2, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { getAccessToken } from "./auth-provider";
+import { getAccessToken, useAuth } from "./auth-provider";
 import Sidebar from "./sidebar";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
@@ -32,6 +32,7 @@ const nullable = (value: string) => value.trim() || null;
 
 export default function CourseForm({ courseId }: { courseId?: string }) {
   const router = useRouter();
+  const { user } = useAuth();
   const [form, setForm] = useState<FormState>(blank);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [exams, setExams] = useState<NamedOption[]>([]);
