@@ -48,7 +48,8 @@ test("@workflow synthetic cross-role academic workflow", async ({ request, baseU
   test.skip(process.env.QA_RUN_MUTATION_TESTS !== "true", "Mutation workflow suite is disabled");
   assertSafeTarget(baseURL ?? "http://127.0.0.1:3000", true);
 
-  const [teacher, student, parent] = await Promise.all([
+  const [superAdmin, teacher, student, parent] = await Promise.all([
+    loginApi(request, "superAdmin"),
     loginApi(request, "teacher"),
     loginApi(request, "student"),
     loginApi(request, "parent"),
@@ -175,8 +176,9 @@ test("@workflow synthetic cross-role academic workflow", async ({ request, baseU
   const lms = await apiJson<any>(request, student, "/api/v1/learning/lms/me");
   expect(lms.data.lessons.length, "QA student's batch needs at least one published LMS lesson").toBeGreaterThan(0);
   const lesson = lms.data.lessons[0];
-  const previousPosition = Number(lesson.progress?.lastPositionSeconds ?? 0);
-  const nextPosition = Math.max(previousPosition, 1) + 1;
+  const previousPosition = Number(lesson.progress?.[0]?.lastPositionSeconds ?? 0);
+  const durationSeconds = Math.max(Number(lesson.durationSeconds ?? 0), previousPosition + 1);
+  const nextPosition = Math.min(durationSeconds, Math.max(previousPosition, 1) + 1);
   const progress = await apiJson<any>(
     request,
     student,
@@ -227,8 +229,8 @@ test("@workflow synthetic cross-role academic workflow", async ({ request, baseU
 
   const archived = await apiJson<{ data: { status: string } }>(
     request,
-    teacher,
-    `/api/v1/teacher/homeworks/${created.data.id}/status`,
+    superAdmin,
+    `/api/v1/admin/homeworks/${created.data.id}/status`,
     { method: "PATCH", data: { status: "ARCHIVED" } },
   );
   expect(archived.data.status).toBe("ARCHIVED");
