@@ -49,7 +49,7 @@ const menuGroups: MenuGroup[] = [
     { name: "Learning Resources", href: "/admin/learning-ecosystem", icon: BrainCircuit, dynamicLabel: "learning" },
   ] },
   { name: "Admissions", entries: [
-    { name: "Enquiries & Admissions", href: "/admin/enquiries", icon: FileText },
+    { name: "Admissions CRM", href: "/admin/enquiries", icon: FileText },
     { name: "Certificates", href: "/admin/certificates", icon: Award },
   ] },
   { name: "Attendance & Leave", entries: [
