@@ -224,3 +224,88 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
     throw error;
   }
 }
+
+
+export async function reconcileSaaSLifecycle(now = new Date()) {
+  const overdue = await systemPrisma.saaSInvoice.updateMany({
+    where: { status: "OPEN", dueAt: { lt: now } },
+    data: { status: "OVERDUE" },
+  });
+
+  const expiring = await systemPrisma.saaSSubscription.findMany({
+    where: {
+      status: OrganizationSubscriptionStatus.ACTIVE,
+      currentPeriodEnd: { lte: now },
+    },
+    select: { id: true, organizationId: true, cancelAtPeriodEnd: true },
+    take: 500,
+  });
+
+  let pastDue = 0, cancelled = 0;
+  for (const subscription of expiring) {
+    const nextStatus = subscription.cancelAtPeriodEnd
+      ? OrganizationSubscriptionStatus.CANCELLED
+      : OrganizationSubscriptionStatus.PAST_DUE;
+    const changed = await systemPrisma.$transaction(async tx => {
+      const updated = await tx.saaSSubscription.updateMany({
+        where: { id: subscription.id, status: OrganizationSubscriptionStatus.ACTIVE, currentPeriodEnd: { lte: now } },
+        data: { status: nextStatus },
+      });
+      if (!updated.count) return false;
+      await tx.organization.update({
+        where: { id: subscription.organizationId },
+        data: { subscriptionStatus: nextStatus },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: subscription.organizationId,
+          action: nextStatus === OrganizationSubscriptionStatus.CANCELLED ? "SAAS_SUBSCRIPTION_CANCELLED" : "SAAS_SUBSCRIPTION_PAST_DUE",
+          entity: "SaaSSubscription",
+          entityId: subscription.id,
+          metadata: { reconciledAt: now.toISOString() },
+        },
+      });
+      return true;
+    });
+    if (changed && nextStatus === OrganizationSubscriptionStatus.CANCELLED) cancelled++;
+    else if (changed) pastDue++;
+  }
+
+  const expiredTrials = await systemPrisma.organization.findMany({
+    where: {
+      subscriptionStatus: OrganizationSubscriptionStatus.TRIAL,
+      trialEndsAt: { lte: now },
+      isActive: true,
+      deletedAt: null,
+    },
+    select: { id: true },
+    take: 500,
+  });
+  let suspendedTrials = 0;
+  for (const organization of expiredTrials) {
+    const changed = await systemPrisma.$transaction(async tx => {
+      const updated = await tx.organization.updateMany({
+        where: { id: organization.id, subscriptionStatus: OrganizationSubscriptionStatus.TRIAL, trialEndsAt: { lte: now } },
+        data: { subscriptionStatus: OrganizationSubscriptionStatus.SUSPENDED },
+      });
+      if (!updated.count) return false;
+      await tx.saaSSubscription.updateMany({
+        where: { organizationId: organization.id, status: OrganizationSubscriptionStatus.TRIAL },
+        data: { status: OrganizationSubscriptionStatus.SUSPENDED },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: organization.id,
+          action: "SAAS_TRIAL_EXPIRED",
+          entity: "Organization",
+          entityId: organization.id,
+          metadata: { reconciledAt: now.toISOString() },
+        },
+      });
+      return true;
+    });
+    if (changed) suspendedTrials++;
+  }
+
+  return { overdueInvoices: overdue.count, pastDue, cancelled, suspendedTrials };
+}
