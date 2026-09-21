@@ -668,6 +668,7 @@ model SaaSInvoice {
   paidAt          DateTime?
   provider        String?
   providerOrderId String?           @unique
+  checkoutKey     String?           @unique
   metadata        Json?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
