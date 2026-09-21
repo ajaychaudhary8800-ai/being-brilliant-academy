@@ -10,6 +10,7 @@ import { formatInstitutionDate, formatInstitutionDateTime, institutionWeekday, t
 import { parentLeaveAcademicLabel, parentLeaveChildSummary, parentLeaveSelection, type ParentLeaveChild } from "./parent-leave";
 import { portalAcademicPairLabel, portalSectionLabel } from "./institution-presentation";
 import { useGroupTerminology } from "./use-group-terminology";
+import { useTenantBranding } from "./tenant-branding";
 import { StudentLmsWorkspace, TeacherLmsWorkspace } from "./portal-lms-workspace";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
@@ -1860,6 +1861,7 @@ function ParentHomeworkSection({ data, query }: { data: ParentDashboard; query: 
 
 function Workspace({ role }: { role: PortalRole }) {
   const terms = useGroupTerminology();
+  const { brand } = useTenantBranding();
   const { user, logout } = useAuth();
   const [dashboard, setDashboard] = useState<TeacherDashboard | StudentDashboard | ParentDashboard | null>(null);
   const [common, setCommon] = useState<CommonData>({
@@ -1924,7 +1926,7 @@ function Workspace({ role }: { role: PortalRole }) {
       <header className="border-b bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="container-page flex min-h-16 items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-black uppercase tracking-wider text-brand-700">Being Brilliant {terms.institution}</p>
+            <p className="text-xs font-black uppercase tracking-wider text-brand-700">{brand.appName}</p>
             <h1 className="font-black">{role === "TEACHER" ? "Teacher Portal" : role === "STUDENT" ? "Student Portal" : "Parent Portal"}</h1>
           </div>
           <div className="flex items-center gap-3">
