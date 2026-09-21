@@ -24,3 +24,20 @@ test("changing Branch or Course clears a stale Module selection", () => {
   assert.match(page, /upd\("batchId",e\.target\.value\);upd\("moduleId",""\)/);
   assert.match(page, /<LmsModuleSelect courseId=\{form\.courseId\}/);
 });
+
+
+test("administrators can rename, reorder and safely delete Modules", () => {
+  assert.match(component, /method: "PATCH"/);
+  assert.match(component, /method: "DELETE"/);
+  assert.match(component, /Only empty Modules can be deleted/);
+  assert.match(component, /onUpdated\?\./);
+  assert.match(component, /onDeleted\?\./);
+  assert.match(page, /onUpdated=\{/);
+  assert.match(page, /onDeleted=\{/);
+});
+
+test("Module mutation controls remain hidden from teachers", () => {
+  assert.match(component, /courseId && canManage && available\.length > 0/);
+  assert.match(component, /Manage Modules/);
+  assert.match(component, /A Module can be deleted only after all Lessons have been moved or removed/);
+});
