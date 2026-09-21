@@ -211,6 +211,28 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
   res.json({ data: { subscription, snapshot: await commercialAccessSnapshot(organizationId) } });
 });
 
+router.get("/organization/subscription/plans", async (req: AuthRequest, res) => {
+  requireTenantBillingAdmin(req);
+  res.json({
+    data: await systemPrisma.saaSPlan.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        description: true,
+        monthlyPricePaise: true,
+        annualPricePaise: true,
+        currency: true,
+        taxRateBps: true,
+        entitlements: true,
+        limits: true,
+      },
+      orderBy: [{ monthlyPricePaise: "asc" }, { code: "asc" }],
+    }),
+  });
+});
+
 router.get("/organization/subscription", async (req: AuthRequest, res) => {
   requireTenantBillingAdmin(req);
   const organizationId = req.auth!.organizationId;
