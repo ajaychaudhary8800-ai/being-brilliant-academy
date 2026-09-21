@@ -10,7 +10,7 @@ import {
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config.js";
-import { assertCommercialPlanFitsUsage, commercialAccessSnapshot } from "../lib/saas-commercial.js";
+import { assertCommercialPlanFitsUsage, commercialAccessSnapshot, commercialEntitlementSnapshot } from "../lib/saas-commercial.js";
 import { AppError } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -210,6 +210,10 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
   });
 
   res.json({ data: { subscription, snapshot: await commercialAccessSnapshot(organizationId) } });
+});
+
+router.get("/organization/entitlements", async (req: AuthRequest, res) => {
+  res.json({ data: await commercialEntitlementSnapshot(req.auth!.organizationId) });
 });
 
 router.get("/organization/subscription/plans", async (req: AuthRequest, res) => {
