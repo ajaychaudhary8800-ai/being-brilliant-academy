@@ -626,6 +626,7 @@ model SaaSPlan {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   subscriptions    SaaSSubscription[]
+  invoices         SaaSInvoice[]
 
   @@index([isActive, code])
 }
@@ -656,6 +657,7 @@ model SaaSInvoice {
   id              String            @id @default(cuid())
   organizationId  String
   subscriptionId  String
+  planId          String
   invoiceNo       String            @unique
   amountPaise     Int
   taxPaise        Int               @default(0)
@@ -674,10 +676,12 @@ model SaaSInvoice {
   updatedAt       DateTime          @updatedAt
   organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   subscription    SaaSSubscription  @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  plan            SaaSPlan          @relation(fields: [planId], references: [id], onDelete: Restrict)
   payments        SaaSPayment[]
 
   @@index([organizationId, status, createdAt])
   @@index([subscriptionId, periodEnd])
+  @@index([planId, status])
 }
 
 model SaaSPayment {
