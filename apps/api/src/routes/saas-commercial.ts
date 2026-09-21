@@ -22,9 +22,7 @@ const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
 function pdfEscape(value: string) {
-  return value.replace(/[()\\]/g, "\\const record = (value: unknown): Record<string, unknown> =>
-  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-").replace(/[^\x20-\x7E]/g, "?");
+  return value.replace(/[()\\]/g, character => `\\${character}`).replace(/[^\x20-\x7E]/g, "?");
 }
 
 function invoicePdfBuffer(title: string, lines: string[]) {
