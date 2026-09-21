@@ -13,6 +13,7 @@ test("commercial SaaS schema keeps platform billing separate from learner invoic
   assert.match(schema, /checkoutKey\s+String\?\s+@unique/);
   assert.match(schema, /taxRateBps\s+Int\s+@default\(0\)/);
   assert.match(schema, /saasSubscription\s+SaaSSubscription\?/);
+  assert.match(schema, /planId\s+String[\s\S]*?plan\s+SaaSPlan\s+@relation\(fields: \[planId\]/);
   assert.match(schema, /model Invoice \{[\s\S]*?userId\s+String/);
 });
 
@@ -94,4 +95,30 @@ test("database capacity violations become plan-limit API conflicts", async () =>
   assert.match(http, /SAAS_PLAN_LIMIT_REACHED:/);
   assert.match(http, /PLAN_LIMIT_REACHED/);
   assert.match(http, /commercialLimit \? 409/);
+});
+
+
+test("checkout cannot grant an unpaid plan", async () => {
+  const route = await readFile(new URL("saas-commercial.ts", import.meta.url), "utf8");
+  const policy = await readFile(new URL("../lib/saas-commercial.ts", import.meta.url), "utf8");
+  const checkoutStart = route.indexOf("const subscription = await systemPrisma.saaSSubscription.upsert");
+  const checkoutEnd = route.indexOf("let invoice = existing", checkoutStart);
+  const checkoutSubscription = route.slice(checkoutStart, checkoutEnd);
+  assert.doesNotMatch(checkoutSubscription, /update:\s*\{[^}]*planId:\s*plan\.id/s);
+  assert.match(route, /planId: plan\.id/);
+  assert.match(policy, /planId: invoice\.planId/);
+  assert.match(policy, /subscriptionPlan: invoice\.plan\.code/);
+});
+
+test("SaaS billing UI keeps platform plans separate from tenant subscription checkout", async () => {
+  const sidebar = await readFile(new URL("../../../web/components/sidebar.tsx", import.meta.url), "utf8");
+  const plansPage = await readFile(new URL("../../../web/app/admin/saas-plans/page.tsx", import.meta.url), "utf8");
+  const subscriptionPage = await readFile(new URL("../../../web/app/admin/subscription/page.tsx", import.meta.url), "utf8");
+  const nginx = await readFile(new URL("../../../../infra/nginx/nginx.conf", import.meta.url), "utf8");
+  assert.match(sidebar, /SaaS Plans.*platformOnly: true/);
+  assert.match(sidebar, /Subscription & Billing.*tenantOnly: true.*superAdminOnly: true/);
+  assert.match(plansPage, /\/platform\/saas\/plans/);
+  assert.match(subscriptionPage, /Idempotency-Key/);
+  assert.match(subscriptionPage, /checkout\.razorpay\.com\/v1\/checkout\.js/);
+  assert.match(nginx, /https:\/\/checkout\.razorpay\.com/);
 });
