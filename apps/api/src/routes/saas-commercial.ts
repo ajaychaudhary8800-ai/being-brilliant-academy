@@ -301,6 +301,7 @@ router.post("/organization/subscription/checkout", async (req: AuthRequest, res)
     }
   }
 
+  const currentPlan = await systemPrisma.saaSPlan.findUnique({ where: { code: organization.subscriptionPlan } });
   const baseAmount = body.billingCycle === "ANNUAL" ? plan.annualPricePaise : plan.monthlyPricePaise;
   if (baseAmount <= 0) throw new AppError(409, "SAAS_PLAN_NOT_PRICED", "This SaaS plan does not yet have a checkout price");
   const taxPaise = Math.round(baseAmount * plan.taxRateBps / 10_000);
@@ -313,12 +314,11 @@ router.post("/organization/subscription/checkout", async (req: AuthRequest, res)
     where: { organizationId },
     create: {
       organizationId,
-      planId: plan.id,
+      planId: currentPlan?.id ?? plan.id,
       status: organization.subscriptionStatus,
       billingCycle: body.billingCycle,
     },
     update: {
-      planId: plan.id,
       billingCycle: body.billingCycle,
     },
   });
@@ -328,6 +328,7 @@ router.post("/organization/subscription/checkout", async (req: AuthRequest, res)
         where: { id: existing.id },
         data: {
           subscriptionId: subscription.id,
+          planId: plan.id,
           amountPaise: baseAmount,
           taxPaise,
           totalPaise,
@@ -343,6 +344,7 @@ router.post("/organization/subscription/checkout", async (req: AuthRequest, res)
         data: {
           organizationId,
           subscriptionId: subscription.id,
+          planId: plan.id,
           invoiceNo,
           checkoutKey: idempotencyKey,
           amountPaise: baseAmount,
