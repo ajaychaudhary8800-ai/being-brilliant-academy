@@ -20,8 +20,8 @@ function textValue(value: unknown, max = 1000) {
   return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 }
 
-function booleanValue(value: unknown) {
-  return typeof value === "boolean" ? value : false;
+function booleanValue(value: unknown, fallback = false) {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function normalizeHost(value: string | null | undefined) {
@@ -49,7 +49,7 @@ function whiteLabelSettings(settings: unknown) {
     customDomain: normalizeHost(textValue(whiteLabel.customDomain, 255)),
     faviconUrl: safeAssetUrl(whiteLabel.faviconUrl),
     accentColor: typeof whiteLabel.accentColor === "string" && /^#[0-9a-fA-F]{6}$/.test(whiteLabel.accentColor) ? whiteLabel.accentColor : null,
-    hideVendorBranding: booleanValue(whiteLabel.hideVendorBranding),
+    hideVendorBranding: booleanValue(whiteLabel.hideVendorBranding, true),
   };
 }
 
