@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getAccessToken, useAuth } from "./auth-provider";
 import { useGroupTerminology } from "./use-group-terminology";
+import { useTenantBranding } from "./tenant-branding";
 import {
   Award, BarChart3, BookOpen, Building2, CalendarCheck, CalendarClock, ClipboardCheck,
   CreditCard, FileText, GraduationCap, LayoutDashboard, Menu, Settings, CalendarDays, NotebookPen, FileCheck2, PlaySquare,
@@ -79,6 +81,7 @@ const menuGroups: MenuGroup[] = [
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { user } = useAuth();
+  const { brand } = useTenantBranding();
   const terms = useGroupTerminology();
   const accountantRoutes = new Set(["/admin/finance", "/admin/fees", "/admin/fee-defaulters"]);
   const dynamicLabels: Record<DynamicLabel, string> = { courses: terms.courses, groups: terms.plural, educators: terms.educators, assessments: terms.assessments, learning: terms.learning };
@@ -134,12 +137,12 @@ export default function Sidebar() {
   };
   return <>
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-slate-200 bg-white px-3 py-6 dark:border-slate-800 dark:bg-slate-950 md:flex">
-      <Link href="/admin" className="px-3 font-bold tracking-tight text-brand-700">BEING <span className="text-brand-orange">BRILLIANT</span><span className="mt-1 block text-[10px] font-semibold tracking-[0.2em] text-slate-400">ADMIN PORTAL</span></Link>
+      <Link href="/admin" className="flex items-center gap-3 px-3 font-bold tracking-tight text-brand-700">{brand.logoUrl ? <Image unoptimized src={brand.logoUrl} alt="" width={38} height={38} className="h-10 w-10 rounded-lg bg-white object-contain" /> : <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand-700 text-white"><School size={20}/></span>}<span className="min-w-0"><span className="block truncate">{brand.appName}</span><span className="mt-1 block truncate text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">{brand.portalName}</span></span></Link>
       {sessions.length > 0 && <label className="mt-6 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Current session<select aria-label="Current academic session" value={current} onChange={(event) => void choose(event.target.value)} className="mt-2 w-full rounded-lg border bg-white p-2 text-sm font-semibold normal-case text-slate-700 dark:bg-slate-900 dark:text-slate-200">{sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}</select></label>}
       <div className="mt-4 flex-1 overflow-y-auto"><Navigation /></div>
       <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-900">{terms.institution} operations<br/><b className="text-slate-800 dark:text-slate-200">Manage with clarity</b></div>
     </aside>
-    <div className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-950 md:hidden"><span className="font-bold text-brand-700">BBA ADMIN</span><button type="button" aria-label="Open navigation" onClick={() => setOpen(true)} className="rounded-lg p-2 text-slate-700 dark:text-slate-200"><Menu size={21}/></button></div>
-    {open && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="Close navigation" onClick={() => setOpen(false)} className="absolute inset-0 bg-slate-950/45"/><aside className="relative flex h-full w-72 flex-col bg-white px-3 py-6 shadow-2xl dark:bg-slate-950"><div className="flex items-center justify-between px-3"><span className="font-bold text-brand-700">BEING BRILLIANT</span><button type="button" aria-label="Close navigation" onClick={() => setOpen(false)} className="rounded-lg p-2"><X size={20}/></button></div><div className="mt-8 flex-1 overflow-y-auto"><Navigation onNavigate={() => setOpen(false)} /></div></aside></div>}
+    <div className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-950 md:hidden"><span className="max-w-[75%] truncate font-bold text-brand-700">{brand.appName}</span><button type="button" aria-label="Open navigation" onClick={() => setOpen(true)} className="rounded-lg p-2 text-slate-700 dark:text-slate-200"><Menu size={21}/></button></div>
+    {open && <div className="fixed inset-0 z-50 md:hidden"><button type="button" aria-label="Close navigation" onClick={() => setOpen(false)} className="absolute inset-0 bg-slate-950/45"/><aside className="relative flex h-full w-72 flex-col bg-white px-3 py-6 shadow-2xl dark:bg-slate-950"><div className="flex items-center justify-between px-3"><span className="max-w-[190px] truncate font-bold text-brand-700">{brand.appName}</span><button type="button" aria-label="Close navigation" onClick={() => setOpen(false)} className="rounded-lg p-2"><X size={20}/></button></div><div className="mt-8 flex-1 overflow-y-auto"><Navigation onNavigate={() => setOpen(false)} /></div></aside></div>}
   </>;
 }
