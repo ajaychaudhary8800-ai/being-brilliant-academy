@@ -1,4 +1,4 @@
-import { OrganizationSubscriptionStatus, Prisma, SaaSPaymentStatus } from "@prisma/client";
+import { OrganizationSubscriptionStatus, Prisma, Role, SaaSPaymentStatus } from "@prisma/client";
 import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
 
@@ -229,6 +229,59 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
 }
 
 
+async function queueSaaSBillingNotice(input: {
+  organizationId: string;
+  sourceEntityId: string;
+  title: string;
+  body: string;
+  priority?: "NORMAL" | "HIGH" | "URGENT";
+}) {
+  return systemPrisma.$transaction(async tx => {
+    const lockKey = `saas-billing-notice:${input.organizationId}:${input.sourceEntityId}`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    const existing = await tx.notification.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        sourceModule: "SAAS_BILLING",
+        sourceEntityId: input.sourceEntityId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (existing) return 0;
+
+    const admins = await tx.user.findMany({
+      where: { organizationId: input.organizationId, role: Role.SUPER_ADMIN, isActive: true },
+      select: { id: true },
+    });
+    for (const admin of admins) {
+      const notification = await tx.notification.create({
+        data: {
+          organizationId: input.organizationId,
+          userId: admin.id,
+          title: input.title,
+          body: input.body,
+          category: "BILLING",
+          sourceModule: "SAAS_BILLING",
+          sourceEntityId: input.sourceEntityId,
+          actionUrl: "/admin/subscription",
+          priority: input.priority ?? "HIGH",
+          channels: ["IN_APP", "EMAIL"],
+        },
+      });
+      await tx.notificationDelivery.create({
+        data: {
+          organizationId: input.organizationId,
+          notificationId: notification.id,
+          channel: "EMAIL",
+          status: "QUEUED",
+        },
+      });
+    }
+    return admins.length;
+  });
+}
+
 export async function reconcileSaaSLifecycle(now = new Date()) {
   const overdue = await systemPrisma.saaSInvoice.updateMany({
     where: { status: "OPEN", dueAt: { lt: now } },
@@ -310,5 +363,86 @@ export async function reconcileSaaSLifecycle(now = new Date()) {
     if (changed) expiredTrialsPastDue++;
   }
 
-  return { overdueInvoices: overdue.count, pastDue, cancelled, expiredTrialsPastDue };
+
+  const sevenDays = 7 * 24 * 60 * 60 * 1000;
+  const oneDay = 24 * 60 * 60 * 1000;
+  let renewalRemindersQueued = 0;
+
+  const upcoming = await systemPrisma.saaSSubscription.findMany({
+    where: {
+      status: OrganizationSubscriptionStatus.ACTIVE,
+      currentPeriodEnd: { gt: now, lte: new Date(now.getTime() + sevenDays) },
+    },
+    select: {
+      id: true,
+      organizationId: true,
+      currentPeriodEnd: true,
+      cancelAtPeriodEnd: true,
+      plan: { select: { name: true } },
+    },
+    take: 500,
+  });
+  for (const subscription of upcoming) {
+    if (!subscription.currentPeriodEnd) continue;
+    const remaining = subscription.currentPeriodEnd.getTime() - now.getTime();
+    const window = remaining <= oneDay ? "1D" : "7D";
+    const ending = subscription.currentPeriodEnd.toISOString().slice(0, 10);
+    renewalRemindersQueued += await queueSaaSBillingNotice({
+      organizationId: subscription.organizationId,
+      sourceEntityId: `${subscription.id}:renewal:${window}:${subscription.currentPeriodEnd.toISOString()}`,
+      title: subscription.cancelAtPeriodEnd ? "Subscription scheduled to end" : "Subscription renewal due soon",
+      body: subscription.cancelAtPeriodEnd
+        ? `Your ${subscription.plan.name} subscription is scheduled to end on ${ending}. You can keep the subscription active from Subscription & Billing before the period ends.`
+        : `Your ${subscription.plan.name} subscription period ends on ${ending}. Open Subscription & Billing to review the plan and complete renewal.`,
+      priority: remaining <= oneDay ? "URGENT" : "HIGH",
+    });
+  }
+
+  const pastDueSubscriptions = await systemPrisma.saaSSubscription.findMany({
+    where: {
+      status: OrganizationSubscriptionStatus.PAST_DUE,
+      currentPeriodEnd: { lte: now },
+    },
+    select: {
+      id: true,
+      organizationId: true,
+      currentPeriodEnd: true,
+      plan: { select: { name: true } },
+    },
+    take: 500,
+  });
+  for (const subscription of pastDueSubscriptions) {
+    const periodEnd = subscription.currentPeriodEnd?.toISOString() ?? "unknown";
+    renewalRemindersQueued += await queueSaaSBillingNotice({
+      organizationId: subscription.organizationId,
+      sourceEntityId: `${subscription.id}:past-due:${periodEnd}`,
+      title: "Subscription payment required",
+      body: `Your ${subscription.plan.name} subscription has expired. Billing-only recovery access remains available so an organization Super Admin can renew the subscription.`,
+      priority: "URGENT",
+    });
+  }
+
+  const expiredTrialOrganizations = await systemPrisma.organization.findMany({
+    where: {
+      subscriptionStatus: OrganizationSubscriptionStatus.PAST_DUE,
+      trialEndsAt: { lte: now },
+      subscriptionEndsAt: null,
+      isActive: true,
+      deletedAt: null,
+    },
+    select: { id: true, trialEndsAt: true },
+    take: 500,
+  });
+  for (const organization of expiredTrialOrganizations) {
+    if (!organization.trialEndsAt) continue;
+    renewalRemindersQueued += await queueSaaSBillingNotice({
+      organizationId: organization.id,
+      sourceEntityId: `trial-expired:${organization.id}:${organization.trialEndsAt.toISOString()}`,
+      title: "Trial expired",
+      body: "Your SaaS trial has ended. Billing-only recovery access remains available so an organization Super Admin can choose a plan and activate the subscription.",
+      priority: "URGENT",
+    });
+  }
+
+  return { overdueInvoices: overdue.count, pastDue, cancelled, expiredTrialsPastDue, renewalRemindersQueued };
 }
