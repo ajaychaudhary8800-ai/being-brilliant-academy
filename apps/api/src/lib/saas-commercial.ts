@@ -18,31 +18,31 @@ const limitMap = (value: unknown): Record<string, number | null> =>
     ),
   );
 
-export async function commercialAccessSnapshot(organizationId: string) {
+async function commercialPolicySnapshot(organizationId: string) {
   const organization = await systemPrisma.organization.findUnique({
     where: { id: organizationId },
-    select: { id: true, subscriptionPlan: true, subscriptionStatus: true, settings: true, trialEndsAt: true, subscriptionEndsAt: true },
+    select: {
+      id: true,
+      subscriptionPlan: true,
+      subscriptionStatus: true,
+      settings: true,
+      trialEndsAt: true,
+      subscriptionEndsAt: true,
+      saasSubscription: { include: { plan: true } },
+    },
   });
   if (!organization) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
 
-  const subscription = await systemPrisma.saaSSubscription.findUnique({
-    where: { organizationId },
-    include: { plan: true },
-  });
+  const { saasSubscription: subscription, ...organizationRecord } = organization;
   const fallbackPlan = subscription ? null : await systemPrisma.saaSPlan.findUnique({ where: { code: organization.subscriptionPlan } });
   const plan = subscription?.plan ?? fallbackPlan;
   const commercialSettings = record(record(organization.settings).commercialEntitlements);
   const enforcementEnabled = commercialSettings.enforce === true;
   const entitlements = booleanMap(plan?.entitlements);
   const limits = limitMap(plan?.limits);
-  const [branches, users, students] = await Promise.all([
-    systemPrisma.branch.count({ where: { organizationId, isActive: true } }),
-    systemPrisma.user.count({ where: { organizationId, isActive: true } }),
-    systemPrisma.studentProfile.count({ where: { organizationId } }),
-  ]);
 
   return {
-    organization,
+    organization: organizationRecord,
     subscription,
     plan: plan ? {
       id: plan.id,
@@ -56,14 +56,23 @@ export async function commercialAccessSnapshot(organizationId: string) {
       limits,
     } : null,
     enforcementEnabled,
-    usage: { branches, users, students },
   };
 }
 
+export async function commercialAccessSnapshot(organizationId: string) {
+  const policy = await commercialPolicySnapshot(organizationId);
+  const [branches, users, students] = await Promise.all([
+    systemPrisma.branch.count({ where: { organizationId, isActive: true } }),
+    systemPrisma.user.count({ where: { organizationId, isActive: true } }),
+    systemPrisma.studentProfile.count({ where: { organizationId } }),
+  ]);
+  return { ...policy, usage: { branches, users, students } };
+}
+
 export async function assertFeatureEntitled(organizationId: string, feature: string) {
-  const snapshot = await commercialAccessSnapshot(organizationId);
-  if (!snapshot.enforcementEnabled) return snapshot;
-  if (snapshot.plan?.entitlements["*"] === true || snapshot.plan?.entitlements[feature] === true) return snapshot;
+  const policy = await commercialPolicySnapshot(organizationId);
+  if (!policy.enforcementEnabled) return policy;
+  if (policy.plan?.entitlements["*"] === true || policy.plan?.entitlements[feature] === true) return policy;
   throw new AppError(403, "PLAN_FEATURE_REQUIRED", `Your subscription plan does not include ${feature}`);
 }
 
