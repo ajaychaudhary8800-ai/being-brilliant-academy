@@ -4,6 +4,7 @@ import { z } from "zod";
 import { averageAttendancePercentage, groupAttendanceRecords, summarizeAttendance, type AttendanceReportRecord } from "../lib/attendance-reporting.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
+import { loadTenantDocumentIdentity } from "../lib/tenant-document-brand.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -117,7 +118,7 @@ export function attendancePdfResponse(report: Awaited<ReturnType<typeof loadRepo
     body: pdfReport(report, organizationName),
   };
 }
-async function organizationName(req: AuthRequest) { return (await prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { name: true } }))?.name ?? "Being Brilliant Academy"; }
+async function organizationName(req: AuthRequest) { return (await loadTenantDocumentIdentity(req.auth!.organizationId)).name; }
 router.get("/reports", async (req: AuthRequest, res) => res.json({ data: await loadReport(req, attendanceReportInput.parse(req.query)) }));
 const exportHandler = async (req: AuthRequest, res: Response) => { const query = attendanceReportInput.parse(req.query); const format = z.enum(["pdf", "excel"]).parse(req.query.format); const report = await loadReport(req, query); const name = await organizationName(req); if (format === "pdf") { const response = attendancePdfResponse(report, name); return res.status(response.status).set(response.headers).send(response.body); } return res.set({ "Content-Type": "application/vnd.ms-excel", "Content-Disposition": "attachment; filename=attendance-report.xls" }).send(xmlWorkbook(report, name)); };
 router.get("/reports/export", exportHandler);
