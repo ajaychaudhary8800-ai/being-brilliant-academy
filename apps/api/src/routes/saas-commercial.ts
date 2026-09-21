@@ -312,6 +312,7 @@ router.post("/organization/subscription/checkout", async (req: AuthRequest, res)
   const totalPaise = baseAmount + taxPaise;
   const periodStart = new Date();
   const periodEnd = addBillingPeriod(periodStart, body.billingCycle);
+  const dueAt = new Date(periodStart.getTime() + 24 * 60 * 60 * 1000);
   const invoiceNo = existing?.invoiceNo ?? `SAA-${Date.now()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
 
   const subscription = await systemPrisma.saaSSubscription.upsert({
@@ -340,7 +341,7 @@ router.post("/organization/subscription/checkout", async (req: AuthRequest, res)
           status: SaaSInvoiceStatus.OPEN,
           periodStart,
           periodEnd,
-          dueAt: periodStart,
+          dueAt,
           provider: "RAZORPAY",
         },
       })
@@ -358,7 +359,7 @@ router.post("/organization/subscription/checkout", async (req: AuthRequest, res)
           status: SaaSInvoiceStatus.OPEN,
           periodStart,
           periodEnd,
-          dueAt: periodStart,
+          dueAt,
           provider: "RAZORPAY",
           metadata: { planCode: plan.code, billingCycle: body.billingCycle } as Prisma.InputJsonValue,
         },
