@@ -76,6 +76,23 @@ export async function assertFeatureEntitled(organizationId: string, feature: str
   throw new AppError(403, "PLAN_FEATURE_REQUIRED", `Your subscription plan does not include ${feature}`);
 }
 
+export async function assertCommercialPlanFitsUsage(organizationId: string, limitsValue: unknown) {
+  const limits = limitMap(limitsValue);
+  const [branches, users, students] = await Promise.all([
+    systemPrisma.branch.count({ where: { organizationId, isActive: true } }),
+    systemPrisma.user.count({ where: { organizationId, isActive: true } }),
+    systemPrisma.studentProfile.count({ where: { organizationId, status: "ACTIVE" } }),
+  ]);
+  const usage = { branches, users, students };
+  for (const key of ["branches", "users", "students"] as const) {
+    const limit = limits[key];
+    if (limit !== null && limit !== undefined && usage[key] > limit) {
+      throw new AppError(409, "PLAN_LIMIT_BELOW_USAGE", `The selected plan allows ${limit} ${key}, but this organization currently uses ${usage[key]}`);
+    }
+  }
+  return usage;
+}
+
 export async function assertWithinCommercialLimit(
   organizationId: string,
   limitKey: "branches" | "users" | "students",
