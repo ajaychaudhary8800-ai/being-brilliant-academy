@@ -281,17 +281,17 @@ export async function reconcileSaaSLifecycle(now = new Date()) {
     select: { id: true },
     take: 500,
   });
-  let suspendedTrials = 0;
+  let expiredTrialsPastDue = 0;
   for (const organization of expiredTrials) {
     const changed = await systemPrisma.$transaction(async tx => {
       const updated = await tx.organization.updateMany({
         where: { id: organization.id, subscriptionStatus: OrganizationSubscriptionStatus.TRIAL, trialEndsAt: { lte: now } },
-        data: { subscriptionStatus: OrganizationSubscriptionStatus.SUSPENDED },
+        data: { subscriptionStatus: OrganizationSubscriptionStatus.PAST_DUE },
       });
       if (!updated.count) return false;
       await tx.saaSSubscription.updateMany({
         where: { organizationId: organization.id, status: OrganizationSubscriptionStatus.TRIAL },
-        data: { status: OrganizationSubscriptionStatus.SUSPENDED },
+        data: { status: OrganizationSubscriptionStatus.PAST_DUE },
       });
       await tx.auditLog.create({
         data: {
@@ -304,8 +304,8 @@ export async function reconcileSaaSLifecycle(now = new Date()) {
       });
       return true;
     });
-    if (changed) suspendedTrials++;
+    if (changed) expiredTrialsPastDue++;
   }
 
-  return { overdueInvoices: overdue.count, pastDue, cancelled, suspendedTrials };
+  return { overdueInvoices: overdue.count, pastDue, cancelled, expiredTrialsPastDue };
 }
