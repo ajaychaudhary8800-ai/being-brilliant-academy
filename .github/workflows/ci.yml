@@ -38,6 +38,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - name: Validate Playwright suite discovery
+        run: pnpm exec playwright test --list
       - run: pnpm --filter @bba/api prisma:generate
       - run: pnpm --filter @bba/api exec prisma migrate deploy
       - name: Prepare dedicated integration database
