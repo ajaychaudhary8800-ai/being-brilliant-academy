@@ -618,6 +618,7 @@ model SaaSPlan {
   description      String?            @db.Text
   monthlyPricePaise Int               @default(0)
   annualPricePaise  Int               @default(0)
+  trialDays         Int                @default(0)
   currency         String             @default("INR")
   taxRateBps       Int                @default(0)
   entitlements     Json               @default("{}")
