@@ -257,6 +257,22 @@ export default function Page() {
       <button disabled={paying || !chosen || total <= 0} onClick={() => void checkout()} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-brand-700 px-5 py-3 font-semibold text-white disabled:opacity-50">
         <CreditCard size={18}/>{paying ? "Preparing checkout…" : total <= 0 ? "Plan pricing not configured" : "Pay with Razorpay"}
       </button>
+      {snapshot?.subscription?.status === "ACTIVE" && snapshot.subscription.currentPeriodEnd && <div className="mt-5 rounded-xl border p-4">
+        <p className="font-semibold">Subscription renewal</p>
+        <p className="mt-1 text-sm text-slate-500">
+          {snapshot.subscription.cancelAtPeriodEnd
+            ? `Cancellation is scheduled after ${new Date(snapshot.subscription.currentPeriodEnd).toLocaleDateString("en-IN")}. Access remains active until then.`
+            : `Your current paid period ends on ${new Date(snapshot.subscription.currentPeriodEnd).toLocaleDateString("en-IN")}.`}
+        </p>
+        <button
+          disabled={changingCancellation}
+          onClick={() => void setCancellation(!snapshot.subscription!.cancelAtPeriodEnd)}
+          className="mt-3 inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+        >
+          {snapshot.subscription.cancelAtPeriodEnd ? <RotateCcw size={17}/> : <CalendarX2 size={17}/>}
+          {changingCancellation ? "Updating…" : snapshot.subscription.cancelAtPeriodEnd ? "Keep subscription active" : "Cancel at period end"}
+        </button>
+      </div>}
     </section>
 
     <section className="card mt-6 overflow-hidden">
@@ -265,7 +281,7 @@ export default function Page() {
         <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-900"><tr><th className="p-3">Invoice</th><th className="p-3">Date</th><th className="p-3">Base</th><th className="p-3">Tax</th><th className="p-3">Total</th><th className="p-3">Status</th><th className="p-3">Document</th></tr></thead>
           <tbody>{(snapshot?.invoices ?? []).map(invoice => <tr key={invoice.id} className="border-t"><td className="p-3 font-semibold">{invoice.invoiceNo}</td><td className="p-3">{new Date(invoice.createdAt).toLocaleDateString("en-IN")}</td><td className="p-3">{money(invoice.amountPaise, invoice.currency)}</td><td className="p-3">{money(invoice.taxPaise, invoice.currency)}</td><td className="p-3 font-semibold">{money(invoice.totalPaise, invoice.currency)}</td><td className="p-3">{invoice.status}</td><td className="p-3"><button disabled={downloadingInvoiceId === invoice.id} onClick={() => void downloadInvoice(invoice)} className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50"><Download size={14}/>{downloadingInvoiceId === invoice.id ? "Preparing…" : "PDF"}</button></td></tr>)}
-          {(snapshot?.invoices?.length ?? 0) === 0 && <tr><td colSpan={7} className="p-8 text-center text-slate-500">No subscription invoices yet.</td></tr>
+          {(snapshot?.invoices?.length ?? 0) === 0 && <tr><td colSpan={7} className="p-8 text-center text-slate-500">No subscription invoices yet.</td></tr>}
           </tbody>
         </table>
       </div>
