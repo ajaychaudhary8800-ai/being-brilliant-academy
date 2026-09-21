@@ -75,6 +75,8 @@ test("commercial feature middleware protects optional ERP modules", async () => 
     ["finance.ts", "finance"],
     ["admin-enquiries.ts", "crm"],
     ["admin-lms.ts", "lms"],
+    ["learning.ts", "lms"],
+    ["learning-ecosystem.ts", "lms"],
   ] as const;
   for (const [file, feature] of expected) {
     const source = await readFile(new URL(file, import.meta.url), "utf8");
