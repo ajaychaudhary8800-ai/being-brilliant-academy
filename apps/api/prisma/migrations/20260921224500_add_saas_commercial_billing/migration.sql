@@ -56,6 +56,7 @@ CREATE TABLE "SaaSInvoice" (
     "paidAt" TIMESTAMP(3),
     "provider" TEXT,
     "providerOrderId" TEXT,
+    "checkoutKey" TEXT,
     "metadata" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -98,6 +99,7 @@ CREATE INDEX "SaaSSubscription_currentPeriodEnd_idx" ON "SaaSSubscription"("curr
 
 CREATE UNIQUE INDEX "SaaSInvoice_invoiceNo_key" ON "SaaSInvoice"("invoiceNo");
 CREATE UNIQUE INDEX "SaaSInvoice_providerOrderId_key" ON "SaaSInvoice"("providerOrderId");
+CREATE UNIQUE INDEX "SaaSInvoice_checkoutKey_key" ON "SaaSInvoice"("checkoutKey");
 CREATE INDEX "SaaSInvoice_organizationId_status_createdAt_idx" ON "SaaSInvoice"("organizationId", "status", "createdAt");
 CREATE INDEX "SaaSInvoice_subscriptionId_periodEnd_idx" ON "SaaSInvoice"("subscriptionId", "periodEnd");
 
