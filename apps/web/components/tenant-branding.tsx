@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { getAccessToken, useAuth } from "./auth-provider";
+import { useAuth } from "./auth-provider";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 
@@ -148,13 +148,9 @@ export function TenantBrandingProvider({ children }: { children: React.ReactNode
     if (loading) return;
     let cancelled = false;
     void (async () => {
-      if (user && getAccessToken()) {
-        const response = await fetch(`${API}/organization/settings`, {
-          headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` },
-          cache: "no-store",
-        }).catch(() => null);
-        const json = response?.ok ? await response.json().catch(() => null) : null;
-        if (!cancelled && json?.data) commit(normalize(json.data));
+      if (user) {
+        const resolved = await fetchPublic(new URLSearchParams({ organizationId: user.organizationId })).catch(() => null);
+        if (!cancelled && resolved) commit(resolved);
         return;
       }
       const resolved = await fetchPublic(new URLSearchParams({ host: window.location.host })).catch(() => null);
