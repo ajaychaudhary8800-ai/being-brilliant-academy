@@ -10,7 +10,7 @@ import {
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config.js";
-import { commercialAccessSnapshot } from "../lib/saas-commercial.js";
+import { assertCommercialPlanFitsUsage, commercialAccessSnapshot } from "../lib/saas-commercial.js";
 import { AppError } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -158,6 +158,7 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
     ...record(settings.commercialEntitlements),
     ...(data.enforcementEnabled === undefined ? {} : { enforce: data.enforcementEnabled }),
   };
+  if (data.enforcementEnabled === true) await assertCommercialPlanFitsUsage(organizationId, plan.limits);
 
   const subscription = await systemPrisma.$transaction(async tx => {
     const saved = await tx.saaSSubscription.upsert({
