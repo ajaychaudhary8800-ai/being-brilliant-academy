@@ -62,7 +62,7 @@ export function PortalLogin({ portal: portalKey }: { portal: AuthPortal }) {
         await logout();
         throw new Error(`This account is not authorized for the ${portal.title}.`);
       }
-      router.replace(user.role === "ACCOUNTANT" ? "/admin/finance" : portal.dashboard);
+      router.replace(user.billingRecovery ? "/admin/subscription" : user.role === "ACCOUNTANT" ? "/admin/finance" : portal.dashboard);
     } catch (cause) { setError(errorMessage(cause)); } finally { setSubmitting(false); }
   }
 
