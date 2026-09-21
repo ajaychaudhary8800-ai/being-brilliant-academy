@@ -47,6 +47,7 @@ test("tenant checkout is idempotent and platform subscription changes are audite
   const route = await readFile(new URL("saas-commercial.ts", import.meta.url), "utf8");
   assert.match(route, /Idempotency-Key/);
   assert.match(route, /checkoutKey: idempotencyKey/);
+  assert.match(route, /24 \* 60 \* 60 \* 1000/);
   assert.match(route, /SAAS_SUBSCRIPTION_UPDATED/);
   assert.match(route, /SAAS_CHECKOUT_CREATED/);
   assert.match(route, /requirePlatformAdmin/);
@@ -158,6 +159,7 @@ test("subscription lifecycle reconciliation handles expiry and overdue states", 
   assert.match(policy, /SAAS_SUBSCRIPTION_PAST_DUE/);
   assert.match(policy, /SAAS_SUBSCRIPTION_CANCELLED/);
   assert.match(policy, /SAAS_TRIAL_EXPIRED/);
+  assert.match(policy, /subscriptionStatus: OrganizationSubscriptionStatus\.PAST_DUE/);
   assert.match(server, /reconcileCommercialLifecycle/);
   assert.match(server, /5 \* 60_000/);
 });
