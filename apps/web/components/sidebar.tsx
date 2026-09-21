@@ -110,8 +110,8 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const groups = menuGroups.map((group) => ({
     ...group,
     entries: group.entries.filter((entry) => {
-      if (user?.role === "ACCOUNTANT") return accountantRoutes.has(entry.href);
       if (entry.feature && commercialEntitlements?.enforcementEnabled && commercialEntitlements.entitlements["*"] !== true && commercialEntitlements.entitlements[entry.feature] !== true) return false;
+      if (user?.role === "ACCOUNTANT") return accountantRoutes.has(entry.href);
       if (entry.platformOnly) return user?.role === "SUPER_ADMIN" && user.organizationId === "org_default";
       if (entry.tenantOnly) return user?.role === "SUPER_ADMIN" && user.organizationId !== "org_default";
       if (entry.superAdminOnly) return user?.role === "SUPER_ADMIN";
