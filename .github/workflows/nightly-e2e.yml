@@ -15,7 +15,7 @@ concurrency:
 jobs:
   role-workflows:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     env:
       CI: "true"
       QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
@@ -34,6 +34,8 @@ jobs:
       QA_PARENT_PASSWORD: ${{ secrets.QA_PARENT_PASSWORD }}
       QA_EMPLOYEE_EMAIL: ${{ secrets.QA_EMPLOYEE_EMAIL }}
       QA_EMPLOYEE_PASSWORD: ${{ secrets.QA_EMPLOYEE_PASSWORD }}
+      QA_RUN_MUTATION_TESTS: "true"
+      QA_ALLOW_MUTATIONS: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -42,8 +44,10 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Run staging role and module QA
+      - name: Run staging role and module smoke QA
         run: pnpm test:e2e:smoke
+      - name: Run guarded staging workflow QA
+        run: pnpm test:e2e:workflow
       - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@v4
