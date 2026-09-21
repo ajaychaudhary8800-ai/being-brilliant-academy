@@ -184,6 +184,7 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
           status: OrganizationSubscriptionStatus.ACTIVE,
           currentPeriodStart: invoice.periodStart,
           currentPeriodEnd: invoice.periodEnd,
+          cancelAtPeriodEnd: false,
           provider: "RAZORPAY",
         },
       });
