@@ -69,7 +69,9 @@ function available(organization: { isActive: boolean; deletedAt: Date | null }) 
   return organization.isActive && !organization.deletedAt;
 }
 
-type BrandOrganization = { id: string; slug: string; name: string; logoUrl: string | null; primaryColor: string; secondaryColor: string; settings: unknown; isActive: boolean; deletedAt: Date | null };\n\nfunction present(organization: BrandOrganization | null) {
+type BrandOrganization = { id: string; slug: string; name: string; logoUrl: string | null; primaryColor: string; secondaryColor: string; settings: unknown; isActive: boolean; deletedAt: Date | null };
+
+function present(organization: BrandOrganization | null) {
   if (!organization) return null;
   const whiteLabel = whiteLabelSettings((organization as { settings?: unknown }).settings);
   return {
