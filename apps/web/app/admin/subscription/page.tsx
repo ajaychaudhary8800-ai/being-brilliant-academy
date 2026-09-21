@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CreditCard, ReceiptText, Users, Building2, GraduationCap } from "lucide-react";
+import { CreditCard, ReceiptText, Users, Building2, Download, CalendarX2, RotateCcw } from "lucide-react";
 import { ProtectedAdminWorkspace } from "../../../components/admin-workspace";
 import { errorMessage, getAccessToken } from "../../../components/auth-provider";
 
@@ -41,6 +41,14 @@ type Snapshot = {
     subscriptionEndsAt: string | null;
   };
   plan: Plan | null;
+  subscription: {
+    id: string;
+    status: string;
+    billingCycle: string;
+    currentPeriodStart: string | null;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+  } | null;
   enforcementEnabled: boolean;
   usage: { branches: number; users: number; students: number };
   invoices: Invoice[];
@@ -94,6 +102,8 @@ export default function Page() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [paying, setPaying] = useState(false);
+  const [changingCancellation, setChangingCancellation] = useState(false);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -148,6 +158,51 @@ export default function Page() {
       setError(errorMessage(cause));
     } finally {
       setPaying(false);
+    }
+  }
+
+  async function setCancellation(cancelAtPeriodEnd: boolean) {
+    setChangingCancellation(true);
+    setError("");
+    setNotice("");
+    try {
+      await api("/organization/subscription/cancellation", {
+        method: "PATCH",
+        body: JSON.stringify({ cancelAtPeriodEnd }),
+      });
+      setNotice(cancelAtPeriodEnd ? "Cancellation scheduled for the end of the current paid period." : "Scheduled cancellation removed. Your subscription will continue through its current renewal cycle.");
+      await load();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setChangingCancellation(false);
+    }
+  }
+
+  async function downloadInvoice(invoice: Invoice) {
+    setDownloadingInvoiceId(invoice.id);
+    setError("");
+    try {
+      const response = await fetch(`${API}/organization/subscription/invoices/${invoice.id}/pdf`, {
+        headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` },
+      });
+      if (!response.ok) {
+        const json = await response.json().catch(() => null);
+        throw new Error(json?.error?.message ?? "Unable to download invoice");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${invoice.invoiceNo}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setDownloadingInvoiceId(null);
     }
   }
 
@@ -208,9 +263,9 @@ export default function Page() {
       <div className="border-b p-5"><h2 className="text-xl font-bold">Invoices</h2><p className="mt-1 text-sm text-slate-500">Subscription invoices and payment status.</p></div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-900"><tr><th className="p-3">Invoice</th><th className="p-3">Date</th><th className="p-3">Base</th><th className="p-3">Tax</th><th className="p-3">Total</th><th className="p-3">Status</th></tr></thead>
-          <tbody>{(snapshot?.invoices ?? []).map(invoice => <tr key={invoice.id} className="border-t"><td className="p-3 font-semibold">{invoice.invoiceNo}</td><td className="p-3">{new Date(invoice.createdAt).toLocaleDateString("en-IN")}</td><td className="p-3">{money(invoice.amountPaise, invoice.currency)}</td><td className="p-3">{money(invoice.taxPaise, invoice.currency)}</td><td className="p-3 font-semibold">{money(invoice.totalPaise, invoice.currency)}</td><td className="p-3">{invoice.status}</td></tr>)}
-          {(snapshot?.invoices?.length ?? 0) === 0 && <tr><td colSpan={6} className="p-8 text-center text-slate-500">No subscription invoices yet.</td></tr>}
+          <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-900"><tr><th className="p-3">Invoice</th><th className="p-3">Date</th><th className="p-3">Base</th><th className="p-3">Tax</th><th className="p-3">Total</th><th className="p-3">Status</th><th className="p-3">Document</th></tr></thead>
+          <tbody>{(snapshot?.invoices ?? []).map(invoice => <tr key={invoice.id} className="border-t"><td className="p-3 font-semibold">{invoice.invoiceNo}</td><td className="p-3">{new Date(invoice.createdAt).toLocaleDateString("en-IN")}</td><td className="p-3">{money(invoice.amountPaise, invoice.currency)}</td><td className="p-3">{money(invoice.taxPaise, invoice.currency)}</td><td className="p-3 font-semibold">{money(invoice.totalPaise, invoice.currency)}</td><td className="p-3">{invoice.status}</td><td className="p-3"><button disabled={downloadingInvoiceId === invoice.id} onClick={() => void downloadInvoice(invoice)} className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50"><Download size={14}/>{downloadingInvoiceId === invoice.id ? "Preparing…" : "PDF"}</button></td></tr>)}
+          {(snapshot?.invoices?.length ?? 0) === 0 && <tr><td colSpan={7} className="p-8 text-center text-slate-500">No subscription invoices yet.</td></tr>
           </tbody>
         </table>
       </div>
