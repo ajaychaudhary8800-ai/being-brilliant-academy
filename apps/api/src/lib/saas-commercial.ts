@@ -53,6 +53,7 @@ async function commercialPolicySnapshot(organizationId: string) {
       currency: plan.currency,
       monthlyPricePaise: plan.monthlyPricePaise,
       annualPricePaise: plan.annualPricePaise,
+      trialDays: plan.trialDays,
       taxRateBps: plan.taxRateBps,
       entitlements,
       limits,
