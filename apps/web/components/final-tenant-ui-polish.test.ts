@@ -58,3 +58,14 @@ test("password setup links preserve tenant workspace context", async () => {
   assert.match(reset, /params\.get\("workspace"\)/);
   assert.match(reset, /resolveWorkspace\(workspace\)/);
 });
+
+
+test("academic workflows use institution-specific group terminology", async () => {
+  for (const page of ["../app/admin/homeworks/page.tsx", "../app/admin/timetables/page.tsx", "../app/admin/examinations/page.tsx"]) {
+    const source = await readFile(new URL(page, import.meta.url), "utf8");
+    assert.match(source, /terms\.singular/);
+    assert.match(source, /terms\.plural/);
+    assert.doesNotMatch(source, /Batch \/ Section/);
+    assert.doesNotMatch(source, /"All batches"/);
+  }
+});
