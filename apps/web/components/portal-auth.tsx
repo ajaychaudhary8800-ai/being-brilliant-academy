@@ -25,7 +25,7 @@ const portals: Record<AuthPortal, PortalConfig> = {
   parent: { title: "Parent Portal", audience: "For families", description: "Progress, attendance, fees and teacher communication.", dashboard: "/parent", roles: ["PARENT"], icon: HeartHandshake, accent: "bg-emerald-700", surface: "from-emerald-50 to-teal-50", ring: "focus:ring-emerald-500" },
   teacher: { title: "Teacher Portal", audience: "For faculty", description: "Classes, attendance, homework and student insights.", dashboard: "/teacher", roles: ["TEACHER"], icon: UsersRound, accent: "bg-violet-700", surface: "from-violet-50 to-fuchsia-50", ring: "focus:ring-violet-500" },
   employee: { title: "Employee Portal", audience: "For staff", description: "Attendance, leave, payslips and employee documents.", dashboard: "/employee", roles: ["EMPLOYEE"], icon: UsersRound, accent: "bg-amber-700", surface: "from-amber-50 to-orange-50", ring: "focus:ring-amber-500" },
-  admin: { title: "Admin Portal", audience: "For administrators", description: "Secure academy operations, reports and settings.", dashboard: "/admin", roles: ["SUPER_ADMIN", "BRANCH_ADMIN", "ACCOUNTANT"], icon: ShieldCheck, accent: "bg-slate-900", surface: "from-slate-100 to-blue-50", ring: "focus:ring-slate-500" },
+  admin: { title: "Admin Portal", audience: "For administrators", description: "Secure institution operations, reports and settings.", dashboard: "/admin", roles: ["SUPER_ADMIN", "BRANCH_ADMIN", "ACCOUNTANT"], icon: ShieldCheck, accent: "bg-slate-900", surface: "from-slate-100 to-blue-50", ring: "focus:ring-slate-500" },
 };
 
 function Brand({ compact = false }: { compact?: boolean }) {
