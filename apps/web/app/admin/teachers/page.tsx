@@ -29,6 +29,7 @@ async function photoBase64(file: File) {
 }
 
 function TeachersContent() {
+  const terms = useGroupTerminology();
   const [teachers, setTeachers] = useState<Teacher[]>([]); const [branches, setBranches] = useState<Branch[]>([]); const [subjects, setSubjects] = useState<Subject[]>([]); const [specializations, setSpecializations] = useState<Specialization[]>([]);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [search, setSearch] = useState(""); const [branchId, setBranchId] = useState(""); const [specialization, setSpecialization] = useState(""); const [status, setStatus] = useState(""); const [sortBy, setSortBy] = useState("createdAt"); const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc"); const [page, setPage] = useState(1); const [meta, setMeta] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
   const [mode, setMode] = useState<Mode>(null); const [selected, setSelected] = useState<Teacher | null>(null); const [form, setForm] = useState<TeacherForm>(blank); const [saving, setSaving] = useState(false); const [modalError, setModalError] = useState("");
