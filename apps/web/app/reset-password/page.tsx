@@ -9,7 +9,7 @@ import { useTenantBranding } from "../../components/tenant-branding";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 
 export default function ResetPasswordPage() {
-  const { brand } = useTenantBranding();
+  const { brand, resolveWorkspace } = useTenantBranding();
   const [token, setToken] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -18,10 +18,13 @@ export default function ResetPasswordPage() {
   const [complete, setComplete] = useState(false);
 
   useEffect(() => {
-    const resetToken = new URLSearchParams(window.location.search).get("token")?.trim() ?? "";
+    const params = new URLSearchParams(window.location.search);
+    const resetToken = params.get("token")?.trim() ?? "";
+    const workspace = params.get("workspace")?.trim() ?? "";
     setToken(resetToken);
+    if (workspace) void resolveWorkspace(workspace);
     if (resetToken) window.history.replaceState(null, "", "/reset-password");
-  }, []);
+  }, [resolveWorkspace]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
