@@ -46,3 +46,15 @@ test("dense admin action bars wrap on smaller screens", async () => {
     assert.match(source, /className="flex flex-wrap gap-2"/);
   }
 });
+
+
+test("password setup links preserve tenant workspace context", async () => {
+  const setup = await readFile(new URL("../../api/src/lib/account-setup.ts", import.meta.url), "utf8");
+  const auth = await readFile(new URL("../../api/src/routes/auth.ts", import.meta.url), "utf8");
+  const reset = await readFile(new URL("../app/reset-password/page.tsx", import.meta.url), "utf8");
+
+  assert.match(setup, /workspace=\$\{encodeURIComponent\(organization\?\.slug/);
+  assert.match(auth, /workspace=\$\{encodeURIComponent\(org\.slug\)\}/);
+  assert.match(reset, /params\.get\("workspace"\)/);
+  assert.match(reset, /resolveWorkspace\(workspace\)/);
+});
