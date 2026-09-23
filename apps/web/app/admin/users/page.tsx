@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { AuthGate, getAccessToken } from "../../../components/auth-provider";
 import Sidebar from "../../../components/sidebar";
+import { useGroupTerminology } from "../../../components/use-group-terminology";
 import { formatAdminUserDate, normalizeAdminUsersResponse, type AdminUserRow } from "../../../components/admin-user-presentation";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
@@ -20,6 +21,7 @@ type Student = {
 };
 
 function Content() {
+    const terms = useGroupTerminology();
   const [users, setUsers] = useState<AdminUserRow[]>([]),
     [students, setStudents] = useState<Student[]>([]),
     [search, setSearch] = useState(""),
@@ -172,7 +174,7 @@ function Content() {
         <div className="mx-auto max-w-7xl">
           <header className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-bold text-brand-700">ACADEMY OPERATIONS</p>
+              <p className="text-sm font-bold text-brand-700">{terms.institution.toUpperCase()} OPERATIONS</p>
               <h1 className="text-3xl font-bold">User Management</h1>
               <p className="text-sm text-slate-500">Manage accounts, access and parent relationships.</p>
             </div>
