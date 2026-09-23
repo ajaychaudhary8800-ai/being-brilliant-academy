@@ -21,6 +21,7 @@ test("tenant admin surfaces do not hard-code academy operations", async () => {
   for (const page of adminPages) {
     const source = await readFile(new URL(page, import.meta.url), "utf8");
     assert.match(source, /useGroupTerminology/);
+    assert.match(source, /const terms = useGroupTerminology\(\)/);
     assert.match(source, /terms\.institution\.toUpperCase\(\)/);
     assert.doesNotMatch(source, />ACADEMY OPERATIONS<\/p>/);
   }
