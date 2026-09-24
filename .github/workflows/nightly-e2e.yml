@@ -116,7 +116,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
       - name: Run guarded staging academic workflow
-        run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
+        run: pnpm exec playwright test e2e/qa-fixture.setup.spec.ts --project=desktop-chromium --grep "@fixture" --workers=1 --retries=0\n      - name: Run cross-role workflow\n        run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
       - name: Upload workflow evidence
         if: always()
         uses: actions/upload-artifact@v4
