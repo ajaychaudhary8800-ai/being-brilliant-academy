@@ -291,7 +291,13 @@ test("real PostgreSQL completes the full client onboarding dry run to READY / 10
     }
 
     await systemPrisma.branch.deleteMany({ where: { organizationId: otherOrganizationId } });
-    await systemPrisma.organization.deleteMany({ where: { id: otherOrganizationId } });
+    await systemPrisma.$executeRawUnsafe('ALTER TABLE "AcademicSession" DISABLE TRIGGER "AcademicSession_exactly_one_current"');
+    try {
+      await systemPrisma.academicSession.deleteMany({ where: { organizationId: otherOrganizationId } });
+      await systemPrisma.organization.deleteMany({ where: { id: otherOrganizationId } });
+    } finally {
+      await systemPrisma.$executeRawUnsafe('ALTER TABLE "AcademicSession" ENABLE TRIGGER "AcademicSession_exactly_one_current"');
+    }
 
     if (platformUserId) {
       await systemPrisma.tenantAccessAudit.deleteMany({ where: { userId: platformUserId } });
