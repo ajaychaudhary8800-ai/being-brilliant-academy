@@ -14,9 +14,9 @@
 3. Run `docker compose --env-file .env.production config --quiet`.
 4. Run `docker compose --env-file .env.production build api web backup`.
 5. Run `docker compose --env-file .env.production up -d --wait`.
-6. Verify `https://$APP_DOMAIN/health/nginx`, `/api/health/live`, and `/api/health/ready`. Prometheus reaches the non-public `/metrics` endpoint over the internal network.
+6. Verify `https://$APP_DOMAIN/health/nginx`, `/api/health/live`, and `/api/health/ready`.
 
-The one-shot `migrate` service runs `prisma migrate deploy` before API startup. PostgreSQL and Redis are internal-only. Nginx is the only public service. Grafana is exposed at `/grafana/` and must use a strong administrator password.
+The one-shot `migrate` service runs `prisma migrate deploy` before API startup. PostgreSQL and Redis are internal-only. Nginx is the only public service. The repository includes Prometheus/Grafana configuration under `infra/`, but the base Compose file does not start those monitoring services.
 
 ## Secrets and storage
 
@@ -26,7 +26,7 @@ Docker's `json-file` driver rotates API, proxy, and infrastructure logs at 10 MB
 
 ## Monitoring
 
-Prometheus retains 30 days of API, PostgreSQL, Redis, process, and uptime metrics. Grafana automatically provisions the BBA Production Overview dashboard. Configure an external alert receiver/uptime service for off-host notification because an on-host monitor cannot report a total host outage.
+The scheduled GitHub Actions uptime monitor checks both production and staging readiness from off-host every 30 minutes. A healthy response must report the API as ready with PostgreSQL and Redis checks passing. The repository also contains Prometheus, Blackbox, and Grafana configuration for an optional on-host metrics stack; enable those services explicitly before relying on the Grafana dashboard. Off-host monitoring remains required because an on-host monitor cannot report a total host outage.
 
 ## Backup and restore
 
