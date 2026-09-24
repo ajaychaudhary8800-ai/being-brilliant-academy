@@ -248,3 +248,9 @@ test("white-label and custom-domain settings are plan-gated while core instituti
   assert.match(settingsPage, /White-label branding and custom domains are not included/);
   assert.match(settingsPage, /Core institution settings remain available/);
 });
+
+
+test("an enforced tenant cannot be downgraded below its current branch/user/student usage", async () => {
+  const route = await readFile(new URL("saas-commercial.ts", import.meta.url), "utf8");
+  assert.match(route, /if \(commercialEntitlements\.enforce === true\) await assertCommercialPlanFitsUsage\(organizationId, plan\.limits\)/);
+});
