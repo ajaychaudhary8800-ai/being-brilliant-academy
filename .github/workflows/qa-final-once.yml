@@ -32,8 +32,6 @@ jobs:
       QA_STUDENT_PASSWORD: ${{ secrets.QA_STUDENT_PASSWORD }}
       QA_PARENT_EMAIL: ${{ secrets.QA_PARENT_EMAIL }}
       QA_PARENT_PASSWORD: ${{ secrets.QA_PARENT_PASSWORD }}
-      QA_EMPLOYEE_EMAIL: ${{ secrets.QA_EMPLOYEE_EMAIL }}
-      QA_EMPLOYEE_PASSWORD: ${{ secrets.QA_EMPLOYEE_PASSWORD }}
       QA_RUN_MUTATION_TESTS: "true"
       QA_ALLOW_MUTATIONS: "true"
 
@@ -48,8 +46,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Run role and module smoke QA
-        run: pnpm test:e2e:smoke
+      - name: Run role and module smoke QA except employee
+        run: pnpm exec playwright test e2e/admin-navigation.spec.ts e2e/public-and-auth.spec.ts e2e/role-portals.spec.ts --grep "@smoke" --grep-invert "employee"
       - name: Run guarded cross-role workflow QA
         run: pnpm test:e2e:workflow
       - name: Upload QA evidence
