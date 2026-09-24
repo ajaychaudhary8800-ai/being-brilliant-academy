@@ -8,9 +8,10 @@ import { assertExaminationHistoricalFieldsEditable, assertExaminationPublication
 import { prisma } from "../lib/prisma.js";
 import { historicalCivilDate, resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
 const router = Router();
-router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
+router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN), requireCommercialFeature("examinations"));
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } as const;
 const civilDate = historicalCivilDate;
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
