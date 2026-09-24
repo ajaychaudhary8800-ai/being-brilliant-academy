@@ -93,7 +93,9 @@ function genericValue(key: string, value: any) {
   if (value && typeof value === "object") {
     return value.name ?? value.branchName ?? value.employeeCode ?? value.title ?? "Details";
   }
-  if (value == null || value === "") return "—";\n  const text = String(value);\n  return text.includes("_") ? titleCase(text) : text;
+  if (value == null || value === "") return "—";
+  const text = String(value);
+  return text.includes("_") ? titleCase(text) : text;
 }
 
 type Column = { key: string; label: string; render: (row: Obj) => React.ReactNode };
