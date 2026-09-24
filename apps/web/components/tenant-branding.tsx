@@ -153,11 +153,11 @@ export function TenantBrandingProvider({ children }: { children: React.ReactNode
     void (async () => {
       if (user) {
         const resolved = await fetchPublic(new URLSearchParams({ organizationId: user.organizationId })).catch(() => null);
-        if (!cancelled && resolved) commit(resolved, true);
+        if (!cancelled && resolved) commit(resolved);
         return;
       }
       const resolved = await fetchPublic(new URLSearchParams({ host: window.location.host })).catch(() => null);
-      if (!cancelled && resolved) commit(resolved);
+      if (!cancelled && resolved) commit(resolved, true);
     })();
     return () => { cancelled = true; };
   }, [commit, loading, user]);
