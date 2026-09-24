@@ -31,7 +31,7 @@ jobs:
 
       - name: Run live and staging acceptance QA
         run: |
-          cat > /tmp/public-site-qa.mjs <<'NODE'
+          cat > public-site-qa.mjs <<'NODE'
           import { chromium } from '@playwright/test';
 
           const browser = await chromium.launch({ headless: true });
@@ -135,4 +135,4 @@ jobs:
           console.log('\nALL PUBLIC SITE ACCEPTANCE CHECKS PASSED');
           NODE
 
-          node /tmp/public-site-qa.mjs
+          node public-site-qa.mjs
