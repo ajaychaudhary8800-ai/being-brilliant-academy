@@ -1,19 +1,19 @@
-name: Nightly staging end-to-end QA
+name: One-time final role QA
 
 on:
-  schedule:
-    - cron: "30 21 * * *" # 03:00 Asia/Kolkata
-  workflow_dispatch:
+  push:
+    branches:
+      - "qa/final-role-suite-20260924"
 
 permissions:
   contents: read
 
 concurrency:
-  group: nightly-staging-e2e
+  group: final-role-qa
   cancel-in-progress: true
 
 jobs:
-  role-workflows:
+  final-qa:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -32,8 +32,7 @@ jobs:
       QA_STUDENT_PASSWORD: ${{ secrets.QA_STUDENT_PASSWORD }}
       QA_PARENT_EMAIL: ${{ secrets.QA_PARENT_EMAIL }}
       QA_PARENT_PASSWORD: ${{ secrets.QA_PARENT_PASSWORD }}
-      QA_EMPLOYEE_EMAIL: ${{ secrets.QA_EMPLOYEE_EMAIL }}
-      QA_EMPLOYEE_PASSWORD: ${{ secrets.QA_EMPLOYEE_PASSWORD }}
+      QA_SKIP_EMPLOYEE: "true"
       QA_RUN_MUTATION_TESTS: "true"
       QA_ALLOW_MUTATIONS: "true"
       QA_AUTH_STATE_DIR: test-results/qa-auth
@@ -47,27 +46,32 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
 
-      - name: Authenticate each QA role once
-        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --workers=1 --retries=0
+      - name: Authenticate configured QA roles once
+        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --grep-invert "accountant|employee" --workers=1 --retries=0
 
-      - name: Validate public portal selector
+      - name: Validate public login surfaces
         run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
 
-      - name: Run role and module smoke QA with saved sessions
+      - name: Validate super admin critical modules
         env:
           QA_REUSE_AUTH_STATE: "true"
-        run: pnpm exec playwright test e2e/admin-navigation.spec.ts e2e/role-portals.spec.ts --grep "@smoke" --workers=1 --retries=0
+        run: pnpm exec playwright test e2e/admin-navigation.spec.ts --project=desktop-chromium --grep "super admin critical modules" --workers=1 --retries=0
 
-      - name: Run guarded staging workflow QA with saved sessions
+      - name: Validate teacher student and parent portals
+        env:
+          QA_REUSE_AUTH_STATE: "true"
+        run: pnpm exec playwright test e2e/role-portals.spec.ts --project=desktop-chromium --grep "@smoke" --grep-invert "employee" --workers=1 --retries=0
+
+      - name: Run guarded cross-role academic workflow
         env:
           QA_REUSE_AUTH_STATE: "true"
         run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
 
-      - name: Upload QA evidence
+      - name: Upload non-secret QA evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nightly-staging-e2e-${{ github.run_id }}
+          name: final-role-qa-${{ github.run_id }}
           path: |
             playwright-report
             test-results

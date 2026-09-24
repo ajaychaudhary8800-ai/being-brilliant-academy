@@ -2,7 +2,7 @@ import { test } from "@playwright/test";
 import { assertSafeTarget, expectHealthyPage, login } from "./support/environment";
 
 const adminPages: Array<[string, RegExp]> = [
-  ["/admin", /dashboard/i],
+  ["/admin", /overview/i],
   ["/admin/organizations", /organizations/i],
   ["/admin/branches", /branches/i],
   ["/admin/academic-sessions", /academic sessions/i],

@@ -45,3 +45,11 @@ QA_RUN_MUTATION_TESTS=true QA_ALLOW_MUTATIONS=true pnpm test:e2e:workflow
 ```
 
 The scheduled GitHub workflow runs both smoke and guarded workflow QA daily at 03:00 Asia/Kolkata (21:30 UTC).
+
+## Authentication strategy
+
+Staging protects `/api/v1/auth/login` with a 15-minute login rate limit. The nightly suite therefore authenticates each configured QA role exactly once, stores the resulting Playwright browser state under `test-results/qa-auth`, and reuses/rotates those sessions for the remaining smoke and workflow checks. The saved state is ephemeral CI output, is Git-ignored, is explicitly excluded from uploaded QA artifacts, and must never be committed.
+
+The nightly commands run with one worker and zero retries around authentication so a transient assertion cannot create a login retry storm. API workflow checks refresh the saved role sessions through `/auth/refresh`, which does not consume another login attempt.
+
+For ad-hoc staging QA, prefer the same sequence: run `e2e/auth.setup.spec.ts` once, then set `QA_REUSE_AUTH_STATE=true` for role/navigation and workflow specs. Do not run the complete legacy `@smoke` login matrix repeatedly against staging, because it can intentionally trigger the security limiter.
