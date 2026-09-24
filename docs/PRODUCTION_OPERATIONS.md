@@ -22,7 +22,7 @@ A healthy response must report:
 - `checks.database=true`
 - `checks.redis=true`
 
-When a check fails, the workflow opens or updates one GitHub incident issue per environment. When health recovers, the workflow comments on and closes the incident automatically.
+When a check fails, the scheduled workflow fails and is visible in GitHub Actions. Configure GitHub Actions failure notifications for off-host alert delivery.
 
 ### Backup
 
@@ -36,12 +36,12 @@ Default schedule: `0 2 * * *` in the backup container timezone.
 2. Check the latest nightly staging QA result.
 3. Confirm a new backup directory exists and `SHA256SUMS` verifies.
 4. Check Coolify for unhealthy or restarting containers.
-5. Review new uptime incident issues and application errors.
+5. Review failed uptime-monitor runs and application errors.
 6. Check disk usage and backup retention.
 
 ## Weekly checks
 
-1. Review failed GitHub Actions runs and unresolved incident issues.
+1. Review failed GitHub Actions runs and unresolved operational issues.
 2. Confirm backup growth and available disk space.
 3. Review authentication/rate-limit anomalies and provider delivery failures.
 4. Review dependency and security alerts.
