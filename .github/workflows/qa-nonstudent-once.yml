@@ -28,6 +28,8 @@ jobs:
       QA_ACCOUNTANT_PASSWORD: ${{ secrets.QA_ACCOUNTANT_PASSWORD }}
       QA_TEACHER_EMAIL: ${{ secrets.QA_TEACHER_EMAIL }}
       QA_TEACHER_PASSWORD: ${{ secrets.QA_TEACHER_PASSWORD }}
+      QA_STUDENT_EMAIL: ${{ secrets.QA_STUDENT_EMAIL }}
+      QA_STUDENT_PASSWORD: ${{ secrets.QA_STUDENT_PASSWORD }}
       QA_PARENT_EMAIL: ${{ secrets.QA_PARENT_EMAIL }}
       QA_PARENT_PASSWORD: ${{ secrets.QA_PARENT_PASSWORD }}
       QA_AUTH_STATE_DIR: test-results/qa-auth
@@ -41,8 +43,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
 
-      - name: Authenticate available QA roles including accountant
-        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --grep "superAdmin|branchAdmin|accountant|teacher|parent" --workers=1 --retries=0
+      - name: Authenticate available QA roles except employee
+        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --grep "superAdmin|branchAdmin|accountant|teacher|student|parent" --workers=1 --retries=0
 
       - name: Validate public portal selector
         run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
@@ -52,11 +54,11 @@ jobs:
           QA_REUSE_AUTH_STATE: "true"
         run: pnpm exec playwright test e2e/admin-navigation.spec.ts --project=desktop-chromium --grep "super admin critical modules|accountant finance workspace" --workers=1 --retries=0
 
-      - name: Validate teacher and parent portals
+      - name: Validate teacher student and parent portals
         if: always()
         env:
           QA_REUSE_AUTH_STATE: "true"
-        run: pnpm exec playwright test e2e/role-portals.spec.ts --project=desktop-chromium --grep "teacher workspace|parent portal|teacher cannot" --workers=1 --retries=0
+        run: pnpm exec playwright test e2e/role-portals.spec.ts --project=desktop-chromium --grep "teacher workspace|student portal|parent portal|teacher cannot" --workers=1 --retries=0
 
       - name: Upload non-secret QA evidence
         if: always()
