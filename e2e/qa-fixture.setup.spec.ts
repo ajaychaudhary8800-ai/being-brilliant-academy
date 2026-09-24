@@ -69,14 +69,33 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
         apiJson<any>(request, superAdmin, `/api/v1/admin/courses/${encodeURIComponent(courseId)}`),
         apiJson<any>(request, superAdmin, `/api/v1/admin/teachers/${encodeURIComponent(teacherProfile.id)}/subjects`),
       ]);
-      const eligibleCourseSubject = course.data.subjects
+      let eligibleCourseSubject = course.data.subjects
+        .filter((item: any) => item.isActive !== false)
         .map((item: any) => item.subject)
         .find((subject: any) => subject?.status === "ACTIVE" && subject?.legacyReviewStatus === "CONFIRMED");
 
-      expect(
-        eligibleCourseSubject,
-        "QA student's course must have at least one active confirmed subject for automated fixture alignment",
-      ).toBeTruthy();
+      if (!eligibleCourseSubject) {
+        const subjectOptions = await apiJson<any>(request, superAdmin, "/api/v1/admin/subjects/options");
+        eligibleCourseSubject = subjectOptions.data[0];
+        expect(
+          eligibleCourseSubject,
+          "QA organization must have at least one active confirmed Subject Master record",
+        ).toBeTruthy();
+
+        await apiJson(
+          request,
+          superAdmin,
+          `/api/v1/admin/courses/${encodeURIComponent(courseId)}/subjects`,
+          {
+            method: "POST",
+            data: {
+              subjectId: eligibleCourseSubject.id,
+              position: 0,
+              isActive: true,
+            },
+          },
+        );
+      }
 
       const preservedSubjectIds = teacherSubjects.data
         .filter((subject: any) => subject.status === "ACTIVE" && subject.legacyReviewStatus === "CONFIRMED")
