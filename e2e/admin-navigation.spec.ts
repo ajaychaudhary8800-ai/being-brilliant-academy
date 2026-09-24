@@ -3,7 +3,7 @@ import { assertSafeTarget, expectHealthyPage, login } from "./support/environmen
 
 const adminPages: Array<[string, RegExp]> = [
   ["/admin", /overview/i],
-  ["/admin/organizations", /organizations/i],
+  ["/admin/organizations", /organization/i],
   ["/admin/branches", /branches/i],
   ["/admin/academic-sessions", /academic sessions/i],
   ["/admin/classrooms", /classrooms/i],
@@ -31,11 +31,34 @@ const adminPages: Array<[string, RegExp]> = [
   ["/admin/settings", /settings/i],
 ];
 
+
+const branchAdminPages: Array<[string, RegExp]> = [
+  ["/admin", /overview/i],
+  ["/admin/branches", /branches/i],
+  ["/admin/students", /students/i],
+  ["/admin/teachers", /faculty|teachers/i],
+  ["/admin/courses", /courses/i],
+  ["/admin/subjects", /subject/i],
+  ["/admin/batches", /batches/i],
+  ["/admin/attendance", /attendance/i],
+];
+
 test.beforeAll(({ baseURL }) => assertSafeTarget(baseURL ?? "http://127.0.0.1:3000"));
 
 test("@smoke super admin critical modules load without server errors", async ({ page }) => {
   await login(page, "superAdmin");
   for (const [path, heading] of adminPages) {
+    await test.step(path, async () => {
+      await page.goto(path);
+      await expectHealthyPage(page, heading);
+    });
+  }
+});
+
+
+test("@smoke branch admin core workspace loads", async ({ page }) => {
+  await login(page, "branchAdmin");
+  for (const [path, heading] of branchAdminPages) {
     await test.step(path, async () => {
       await page.goto(path);
       await expectHealthyPage(page, heading);
