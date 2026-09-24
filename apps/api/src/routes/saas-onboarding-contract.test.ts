@@ -97,3 +97,28 @@ test("platform organization patch cannot bypass the subscription billing ledger"
   assert.doesNotMatch(block, /trialEndsAt/);
   assert.doesNotMatch(block, /subscriptionEndsAt/);
 });
+
+
+test("platform client onboarding exposes computed readiness and auditable operational progress", async () => {
+  const [route, page] = await Promise.all([
+    readFile(new URL("organization-provisioning.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../../web/app/admin/organizations/page.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /\/platform\/organizations\/:id\/onboarding/);
+  assert.match(route, /dataMigration/);
+  assert.match(route, /training/);
+  assert.match(route, /targetGoLiveDate/);
+  assert.match(route, /goLiveApproved/);
+  assert.match(route, /Administrator account activated/);
+  assert.match(route, /At least one active branch\/campus created/);
+  assert.match(route, /Subscription active and ledger aligned/);
+  assert.match(route, /CLIENT_ONBOARDING_UPDATED/);
+  assert.match(route, /readyForGoLive/);
+  assert.match(route, /customDomainFromSettings/);
+  assert.match(page, /Client onboarding/);
+  assert.match(page, /Initial data migration/);
+  assert.match(page, /Client training/);
+  assert.match(page, /Go-live approved/);
+  assert.match(page, /Open SaaS Billing/);
+  assert.match(page, /Onboarding/);
+});
