@@ -56,12 +56,31 @@ async function completeLogin(page: Page, qa: QaAccount) {
 
 export async function loginFresh(page: Page, role: QaRole) {
   const qa = account(role);
+  page.on("response", response => {
+    if (response.url().includes("/auth/refresh") || response.url().includes("/auth/me")) {
+      console.log("QA_AUTH_RESPONSE", JSON.stringify({ role, url: response.url(), status: response.status() }));
+    }
+  });
+  page.on("requestfailed", request => {
+    if (request.url().includes("/auth/refresh") || request.url().includes("/auth/me")) {
+      console.log("QA_AUTH_REQUEST_FAILED", JSON.stringify({ role, url: request.url(), failure: request.failure() }));
+    }
+  });
   await page.goto(`/login/${qa.portal}`);
   await page.getByLabel("Workspace", { exact: true }).fill(organization);
   await page.getByLabel("Email address").fill(qa.email);
   await page.locator('input[type="password"]').fill(qa.password);
   await page.getByRole("button", { name: /Sign in to/i }).click();
   await completeLogin(page, qa);
+  console.log("QA_AUTH_STORAGE", JSON.stringify({
+    role,
+    ...(await page.evaluate(() => ({
+      localAccess: Boolean(localStorage.getItem("bba.accessToken")),
+      localRefresh: Boolean(localStorage.getItem("bba.refreshToken")),
+      sessionAccess: Boolean(sessionStorage.getItem("bba.accessToken")),
+      sessionRefresh: Boolean(sessionStorage.getItem("bba.refreshToken")),
+    }))),
+  }));
 }
 
 export async function restoreLogin(page: Page, role: QaRole) {
