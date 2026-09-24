@@ -1,5 +1,6 @@
 import { env } from "../config.js";
 import { systemPrisma } from "./prisma.js";
+import { customDomainFromSettings, tenantPortalBaseUrl } from "./tenant-domain.js";
 
 type OrganizationBrandSource = {
   id?: string;
@@ -16,11 +17,6 @@ function stringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function normalizeDomain(value: unknown) {
-  const raw = stringValue(value);
-  if (!raw) return null;
-  return raw.toLowerCase().replace(/^https?:\/\//, "").split("/")[0]?.replace(/:\d+$/, "").replace(/\.$/, "") || null;
-}
 
 function defaultDocumentPrefix(name: string) {
   const words = name.toUpperCase().match(/[A-Z0-9]+/g) ?? [];
@@ -36,13 +32,12 @@ export function tenantBrandFromOrganization(organization: OrganizationBrandSourc
   const appName = stringValue(whiteLabel.appName) ?? organization.name;
   const configuredPrefix = stringValue(whiteLabel.documentPrefix)?.toUpperCase().replace(/[^A-Z0-9]/g, "") ?? "";
   const documentPrefix = /^[A-Z0-9]{2,12}$/.test(configuredPrefix) ? configuredPrefix : defaultDocumentPrefix(appName);
-  const customDomain = normalizeDomain(whiteLabel.customDomain);
-  const fallbackBase = env.WEB_URL.replace(/\/$/, "");
+  const customDomain = customDomainFromSettings(organization.settings);
   return {
     appName,
     documentPrefix,
     customDomain,
-    portalBaseUrl: customDomain ? `https://${customDomain}` : fallbackBase,
+    portalBaseUrl: tenantPortalBaseUrl(organization.settings),
   };
 }
 
