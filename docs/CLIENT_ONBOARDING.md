@@ -16,8 +16,10 @@ Collect these items before creating the organization:
 - Logo and preferred primary/secondary brand colours.
 - Whether the client wants a custom domain.
 - Target go-live date.
-- Initial data-import scope: students, staff, fees, courses/classes, subjects, historical balances, and other required masters.
-- Training contacts and users who require handover/training.
+- Initial data-import requirement, source system, and scope: students, staff, fees, courses/classes, subjects, historical balances, and other required masters.
+- Training contact details and users who require handover/training.
+- Authorized sign-off contact.
+- Branch/campus setup details using `/client-kit/branches-data-collection.csv`.
 
 Never request or store the tenant administrator's password. The platform sends a secure setup link.
 
