@@ -13,7 +13,7 @@ The Playwright suite validates public access, authentication, role routing, admi
 
 ## Required GitHub Actions secrets
 
-Store email/password pairs for `SUPER_ADMIN`, `BRANCH_ADMIN`, `ACCOUNTANT`, `TEACHER`, `STUDENT`, `PARENT`, and `EMPLOYEE` as repository Actions secrets. The nightly workflow fixes the target to `https://main-staging.beingbrilliantedu.com` and the dedicated synthetic organization slug to `automate-qa-academy`.
+Store email/password pairs for `SUPER_ADMIN`, `BRANCH_ADMIN`, `ACCOUNTANT`, `TEACHER`, `STUDENT`, `PARENT`, and `EMPLOYEE` as repository Actions secrets. The nightly workflow fixes the target to `https://main-staging.beingbrilliantedu.com` and the dedicated synthetic organization slug to `automate-qa-school`.
 
 Use synthetic names, phone numbers, fees, marks, messages, attendance and documents only.
 
