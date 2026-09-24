@@ -1,0 +1,38 @@
+name: One-time V2 force staging deploy
+
+on:
+  push:
+    branches:
+      - "qa/v2-force-staging-deploy-20260924"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      VERSION: rc-81ca9d460b87
+      OWNER: ${{ github.repository_owner }}
+      GHCR_TOKEN: ${{ secrets.STAGING_GHCR_TOKEN }}
+    steps:
+      - name: Deploy exact V2 image to staging
+        uses: appleboy/ssh-action@v1.2.1
+        with:
+          host: ${{ secrets.STAGING_DEPLOY_HOST }}
+          username: ${{ secrets.STAGING_DEPLOY_USER }}
+          key: ${{ secrets.STAGING_DEPLOY_SSH_KEY }}
+          envs: VERSION,OWNER,GHCR_TOKEN
+          script: |
+            set -e
+            cd /opt/bba-staging
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$OWNER" --password-stdin
+            export BBA_COMPOSE_PROJECT_NAME=bba-staging
+            export API_IMAGE="ghcr.io/$OWNER/bba-api:$VERSION"
+            export WEB_IMAGE="ghcr.io/$OWNER/bba-web:$VERSION"
+            docker compose --env-file .env.staging pull api web
+            docker compose --env-file .env.staging up -d migrate
+            docker compose --env-file .env.staging up -d --wait --remove-orphans
+            curl -fkSs https://localhost/health/nginx
+            curl -fkSs https://localhost/api/health/ready
