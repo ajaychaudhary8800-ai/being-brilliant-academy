@@ -39,7 +39,7 @@ jobs:
 
           const targets = [
             { name: 'live', base: 'https://beingbrilliantedu.com' },
-            { name: 'staging', base: 'https://staging.beingbrilliantedu.com' },
+            { name: 'staging', base: 'https://main-staging.beingbrilliantedu.com' },
           ];
 
           const oldText = 'Your ambition. Made unstoppable.';
