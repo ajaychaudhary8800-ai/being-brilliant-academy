@@ -45,6 +45,7 @@ const defaults: TenantBranding = {
 
 type BrandingContextValue = {
   brand: TenantBranding;
+  hostBound: boolean;
   resolveWorkspace: (slug: string) => Promise<TenantBranding | null>;
 };
 
@@ -130,9 +131,11 @@ async function fetchPublic(params: URLSearchParams) {
 export function TenantBrandingProvider({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const [brand, setBrand] = useState<TenantBranding>(defaults);
+  const [hostBound, setHostBound] = useState(false);
 
-  const commit = useCallback((next: TenantBranding) => {
+  const commit = useCallback((next: TenantBranding, bound?: boolean) => {
     setBrand(next);
+    if (bound !== undefined) setHostBound(bound);
     applyBrand(next);
     return next;
   }, []);
@@ -141,7 +144,7 @@ export function TenantBrandingProvider({ children }: { children: React.ReactNode
     const clean = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
     if (clean.length < 2) return null;
     const resolved = await fetchPublic(new URLSearchParams({ slug: clean })).catch(() => null);
-    return resolved ? commit(resolved) : null;
+    return resolved ? commit(resolved, false) : null;
   }, [commit]);
 
   useEffect(() => {
@@ -150,7 +153,7 @@ export function TenantBrandingProvider({ children }: { children: React.ReactNode
     void (async () => {
       if (user) {
         const resolved = await fetchPublic(new URLSearchParams({ organizationId: user.organizationId })).catch(() => null);
-        if (!cancelled && resolved) commit(resolved);
+        if (!cancelled && resolved) commit(resolved, true);
         return;
       }
       const resolved = await fetchPublic(new URLSearchParams({ host: window.location.host })).catch(() => null);
@@ -159,9 +162,8 @@ export function TenantBrandingProvider({ children }: { children: React.ReactNode
     return () => { cancelled = true; };
   }, [commit, loading, user]);
 
-  useEffect(() => { applyBrand(brand); }, [brand]);
 
-  const value = useMemo(() => ({ brand, resolveWorkspace }), [brand, resolveWorkspace]);
+  const value = useMemo(() => ({ brand, hostBound, resolveWorkspace }), [brand, hostBound, resolveWorkspace]);
   return <BrandingContext.Provider value={value}>{children}</BrandingContext.Provider>;
 }
 
