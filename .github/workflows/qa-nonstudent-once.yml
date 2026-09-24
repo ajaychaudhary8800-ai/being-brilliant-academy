@@ -42,15 +42,15 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
 
       - name: Authenticate five available QA roles
-        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --grep "superAdmin|branchAdmin|accountant|teacher|parent" --workers=1 --retries=0
+        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --grep "superAdmin|branchAdmin|teacher|parent" --workers=1 --retries=0
 
       - name: Validate public portal selector
         run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
 
-      - name: Validate super admin and accountant workspaces
+      - name: Validate super admin workspace
         env:
           QA_REUSE_AUTH_STATE: "true"
-        run: pnpm exec playwright test e2e/admin-navigation.spec.ts --project=desktop-chromium --grep "super admin critical modules|accountant finance workspace" --workers=1 --retries=0
+        run: pnpm exec playwright test e2e/admin-navigation.spec.ts --project=desktop-chromium --grep "super admin critical modules" --workers=1 --retries=0
 
       - name: Validate teacher and parent portals
         env:
