@@ -29,6 +29,6 @@ jobs:
       - name: Check staging readiness
         shell: bash
         run: |
-          response="$(curl -fsS --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 https://staging.beingbrilliantedu.com/api/health/ready)"
+          response="$(curl -fsS --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 https://main-staging.beingbrilliantedu.com/api/health/ready)"
           printf '%s\n' "$response"
           printf '%s' "$response" | jq -e '.status == "ready" and .checks.database == true and .checks.redis == true' >/dev/null
