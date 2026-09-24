@@ -9,7 +9,6 @@ import {
   BookOpen,
   Building2,
   CheckCircle2,
-  CreditCard,
   FileText,
   GraduationCap,
   Layers,
