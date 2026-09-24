@@ -48,7 +48,7 @@ The scheduled GitHub workflow runs both smoke and guarded workflow QA daily at 0
 
 ## Authentication strategy
 
-Staging protects `/api/v1/auth/login` with a 15-minute login rate limit. The nightly suite therefore authenticates each configured QA role exactly once, stores the resulting Playwright browser state under `test-results/qa-auth`, and reuses/rotates those sessions for the remaining smoke and workflow checks. The saved state is ephemeral CI output and must never be committed.
+Staging protects `/api/v1/auth/login` with a 15-minute login rate limit. The nightly suite therefore authenticates each configured QA role exactly once, stores the resulting Playwright browser state under `test-results/qa-auth`, and reuses/rotates those sessions for the remaining smoke and workflow checks. The saved state is ephemeral CI output, is Git-ignored, is explicitly excluded from uploaded QA artifacts, and must never be committed.
 
 The nightly commands run with one worker and zero retries around authentication so a transient assertion cannot create a login retry storm. API workflow checks refresh the saved role sessions through `/auth/refresh`, which does not consume another login attempt.
 
