@@ -41,7 +41,7 @@ test("Admin import UI accepts real XLSX, CSV and JSON files through the shared p
   assert.match(finance, /accept="\.xlsx,\.csv,\.json/);
   assert.match(hr, /\/hr\/import\/employees/);
   assert.match(hr, /parseTabularFile\(file\)/);
-  assert.match(hr, /Authorization:\`Bearer \$\{getAccessToken\(\)\}\`/);
+  assert.match(hr, /Authorization:\s*\`Bearer \$\{getAccessToken\(\)\}\`/);
 });
 
 test("Analytics cache, reports and assistant are tenant-bound", async () => {

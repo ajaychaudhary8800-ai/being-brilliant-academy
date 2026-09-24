@@ -64,3 +64,20 @@ test("attendance and fee-defaulter pages preserve contract labels and honest emp
   assert.match(defaulters, /No fee defaulters found\./);
   assert.match(defaulters, /internal notification only/);
 });
+
+
+test("HR employee creation uses guided selectors and hides tenant/internal identifiers", () => {
+  const page = read("apps/web/app/admin/hr/page.tsx");
+  assert.match(page, /Add Employee/);
+  assert.match(page, /Select branch/);
+  assert.match(page, /Select department/);
+  assert.match(page, /Select designation/);
+  assert.match(page, /Create Employee/);
+  assert.match(page, /\/hr\/employees/);
+  assert.match(page, /organizationId/);
+  assert.match(page, /INTERNAL_KEYS/);
+  assert.match(page, /"organizationId"/);
+  assert.match(page, /"createdAt"/);
+  assert.match(page, /"updatedAt"/);
+  assert.doesNotMatch(page, /<th[^>]*>\s*Organization ID\s*<\/th>/i);
+});
