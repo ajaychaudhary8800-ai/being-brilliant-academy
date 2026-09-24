@@ -24,7 +24,7 @@ function valid(org: Awaited<ReturnType<typeof organization>>) { const now = new 
 function billingRecoveryEligible(org: Awaited<ReturnType<typeof organization>>, role: Role) { const now = new Date(); if (!org || !org.isActive || org.deletedAt || role !== Role.SUPER_ADMIN) return false; if (org.subscriptionStatus === "PAST_DUE") return true; if (org.subscriptionStatus === "ACTIVE" && org.subscriptionEndsAt && org.subscriptionEndsAt <= now) return true; return org.subscriptionStatus === "TRIAL" && Boolean(org.trialEndsAt && org.trialEndsAt <= now); }
 
 async function assertRequestHostMatchesOrganization(req: { get(name: string): string | undefined }, org: NonNullable<Awaited<ReturnType<typeof organization>>>) {
-  const host = normalizeTenantHost(req.get("host"));
+  const host = normalizeTenantHost(req.get("origin") ?? req.get("host"));
   const platformHost = platformWebHost();
   if (!host || !platformHost || host === platformHost || host === `www.${platformHost}`) return;
 
