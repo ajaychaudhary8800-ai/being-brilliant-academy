@@ -36,6 +36,8 @@ jobs:
       QA_EMPLOYEE_PASSWORD: ${{ secrets.QA_EMPLOYEE_PASSWORD }}
       QA_RUN_MUTATION_TESTS: "true"
       QA_ALLOW_MUTATIONS: "true"
+      QA_AUTH_STATE_DIR: test-results/qa-auth
+
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -44,10 +46,23 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Run staging role and module smoke QA
-        run: pnpm test:e2e:smoke
-      - name: Run guarded staging workflow QA
-        run: pnpm test:e2e:workflow
+
+      - name: Authenticate each QA role once
+        run: pnpm exec playwright test e2e/auth.setup.ts --project=desktop-chromium --workers=1 --retries=0
+
+      - name: Validate public portal selector
+        run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
+
+      - name: Run role and module smoke QA with saved sessions
+        env:
+          QA_REUSE_AUTH_STATE: "true"
+        run: pnpm exec playwright test e2e/admin-navigation.spec.ts e2e/role-portals.spec.ts --grep "@smoke" --workers=1 --retries=0
+
+      - name: Run guarded staging workflow QA with saved sessions
+        env:
+          QA_REUSE_AUTH_STATE: "true"
+        run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
+
       - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@v4
