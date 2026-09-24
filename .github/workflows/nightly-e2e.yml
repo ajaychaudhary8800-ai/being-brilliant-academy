@@ -19,7 +19,7 @@ jobs:
     env:
       CI: "true"
       QA_BASE_URL: "https://main-staging.beingbrilliantedu.com"
-      QA_ORGANIZATION_SLUG: "automated-qa-academy"
+      QA_ORGANIZATION_SLUG: "automate-qa-school"
       QA_SUPER_ADMIN_EMAIL: ${{ secrets.QA_SUPER_ADMIN_EMAIL }}
       QA_SUPER_ADMIN_PASSWORD: ${{ secrets.QA_SUPER_ADMIN_PASSWORD }}
       QA_BRANCH_ADMIN_EMAIL: ${{ secrets.QA_BRANCH_ADMIN_EMAIL }}
