@@ -1,9 +1,6 @@
 name: One-time final role QA
 
-on:
-  push:
-    branches:
-      - "qa/final-role-suite-20260924"
+on:\n  workflow_dispatch:
 
 permissions:
   contents: read
