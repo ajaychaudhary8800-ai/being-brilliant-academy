@@ -53,6 +53,7 @@ jobs:
         run: pnpm exec playwright test e2e/admin-navigation.spec.ts --project=desktop-chromium --grep "super admin critical modules" --workers=1 --retries=0
 
       - name: Validate teacher and parent portals
+        if: always()
         env:
           QA_REUSE_AUTH_STATE: "true"
         run: pnpm exec playwright test e2e/role-portals.spec.ts --project=desktop-chromium --grep "teacher workspace|parent portal|teacher cannot" --workers=1 --retries=0
