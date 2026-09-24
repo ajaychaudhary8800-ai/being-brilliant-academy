@@ -1,4 +1,4 @@
-import { OrganizationSubscriptionStatus, Role } from "@prisma/client";
+import { OrganizationSubscriptionStatus, Prisma, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { issueAccountSetup } from "../lib/account-setup.js";
@@ -25,6 +25,123 @@ const input = organizationBrandingSchema.extend({
   adminPassword: z.string().min(10).max(128).optional(),
   sendSetupEmail: z.boolean().optional(),
 });
+
+const onboardingProgress = z.enum(["NOT_STARTED", "IN_PROGRESS", "COMPLETE", "NOT_REQUIRED"]);
+const onboardingUpdate = z.object({
+  dataMigration: onboardingProgress.optional(),
+  training: onboardingProgress.optional(),
+  targetGoLiveDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  goLiveApproved: z.boolean().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+}).strict();
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function clientOnboarding(settings: unknown) {
+  const raw = record(record(settings).clientOnboarding);
+  const progress = (value: unknown) => onboardingProgress.safeParse(value).success ? value as z.infer<typeof onboardingProgress> : "NOT_STARTED";
+  return {
+    dataMigration: progress(raw.dataMigration),
+    training: progress(raw.training),
+    targetGoLiveDate: typeof raw.targetGoLiveDate === "string" ? raw.targetGoLiveDate : null,
+    goLiveApproved: raw.goLiveApproved === true,
+    notes: typeof raw.notes === "string" ? raw.notes : null,
+  };
+}
+
+async function onboardingSnapshot(organizationId: string) {
+  const [organization, admin, activeBranches] = await Promise.all([
+    systemPrisma.organization.findUnique({
+      where: { id: organizationId },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        isActive: true,
+        deletedAt: true,
+        settings: true,
+        subscriptionStatus: true,
+        subscriptionPlan: true,
+        trialEndsAt: true,
+        subscriptionEndsAt: true,
+        saasSubscription: {
+          select: {
+            status: true,
+            currentPeriodEnd: true,
+            plan: { select: { code: true, name: true, isActive: true } },
+          },
+        },
+      },
+    }),
+    systemPrisma.user.findFirst({
+      where: { organizationId, role: Role.SUPER_ADMIN, isActive: true },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, name: true, email: true, emailVerifiedAt: true },
+    }),
+    systemPrisma.branch.count({ where: { organizationId, isActive: true } }),
+  ]);
+
+  if (!organization || organization.deletedAt) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
+
+  const now = new Date();
+  const onboarding = clientOnboarding(organization.settings);
+  const subscriptionAccessValid =
+    (organization.subscriptionStatus === OrganizationSubscriptionStatus.ACTIVE
+      || organization.subscriptionStatus === OrganizationSubscriptionStatus.TRIAL && (!organization.trialEndsAt || organization.trialEndsAt > now))
+    && (!organization.subscriptionEndsAt || organization.subscriptionEndsAt > now);
+  const subscriptionAligned = Boolean(
+    organization.saasSubscription
+    && organization.saasSubscription.status === organization.subscriptionStatus
+    && organization.saasSubscription.plan.code === organization.subscriptionPlan,
+  );
+  const dataReady = onboarding.dataMigration === "COMPLETE" || onboarding.dataMigration === "NOT_REQUIRED";
+  const trainingReady = onboarding.training === "COMPLETE" || onboarding.training === "NOT_REQUIRED";
+
+  const checks = [
+    { key: "organization", label: "Organization active", complete: organization.isActive, required: true },
+    { key: "subscription", label: "Subscription active and ledger aligned", complete: subscriptionAccessValid && subscriptionAligned, required: true },
+    { key: "admin", label: "Administrator account activated", complete: Boolean(admin?.emailVerifiedAt), required: true },
+    { key: "branch", label: "At least one active branch/campus created", complete: activeBranches > 0, required: true },
+    { key: "data", label: "Initial data migration completed or not required", complete: dataReady, required: true },
+    { key: "training", label: "Client training completed or not required", complete: trainingReady, required: true },
+    { key: "approval", label: "Go-live approved", complete: onboarding.goLiveApproved, required: true },
+  ];
+  const completed = checks.filter(item => item.complete).length;
+  const blocked = !organization.isActive || !subscriptionAccessValid || !subscriptionAligned || !admin;
+  const customDomain = customDomainFromSettings(organization.settings);
+
+  return {
+    organization: {
+      id: organization.id,
+      slug: organization.slug,
+      name: organization.name,
+      subscriptionStatus: organization.subscriptionStatus,
+      subscriptionPlan: organization.subscriptionPlan,
+    },
+    administrator: admin,
+    activeBranches,
+    onboarding,
+    access: {
+      sharedPath: `/login/admin?workspace=${organization.slug}`,
+      customDomain: customDomain ? `https://${customDomain}` : null,
+    },
+    subscription: {
+      valid: subscriptionAccessValid,
+      aligned: subscriptionAligned,
+      plan: organization.saasSubscription?.plan ?? null,
+    },
+    checklist: checks,
+    readiness: {
+      completed,
+      total: checks.length,
+      percent: Math.round(completed / checks.length * 100),
+      readyForGoLive: completed === checks.length,
+      status: blocked ? "BLOCKED" : completed === checks.length ? "READY" : "IN_PROGRESS",
+    },
+  };
+}
 
 function platform(req: AuthRequest) {
   if (req.auth!.role !== Role.SUPER_ADMIN || req.auth!.homeOrganizationId !== "org_default") {
@@ -145,6 +262,55 @@ router.post("/platform/organizations/:id/admin/setup-email", async (req: AuthReq
     },
   });
   res.status(202).json({ data: { organization, admin, delivery } });
+});
+
+router.get("/platform/organizations/:id/onboarding", async (req: AuthRequest, res) => {
+  platform(req);
+  res.json({ data: await onboardingSnapshot(String(req.params.id)) });
+});
+
+router.patch("/platform/organizations/:id/onboarding", async (req: AuthRequest, res) => {
+  platform(req);
+  const organizationId = String(req.params.id);
+  const data = onboardingUpdate.parse(req.body);
+  const organization = await systemPrisma.organization.findFirst({
+    where: { id: organizationId, deletedAt: null },
+    select: { id: true, settings: true },
+  });
+  if (!organization) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
+
+  const settings = record(organization.settings);
+  const current = clientOnboarding(settings);
+  const next = {
+    ...current,
+    ...data,
+    ...(data.notes === undefined ? {} : { notes: data.notes || null }),
+    ...(data.targetGoLiveDate === undefined ? {} : { targetGoLiveDate: data.targetGoLiveDate }),
+  };
+
+  await systemPrisma.$transaction([
+    systemPrisma.organization.update({
+      where: { id: organizationId },
+      data: {
+        settings: {
+          ...settings,
+          clientOnboarding: next,
+        } as Prisma.InputJsonValue,
+      },
+    }),
+    systemPrisma.auditLog.create({
+      data: {
+        organizationId,
+        actorId: req.auth!.userId,
+        action: "CLIENT_ONBOARDING_UPDATED",
+        entity: "Organization",
+        entityId: organizationId,
+        metadata: next,
+      },
+    }),
+  ]);
+
+  res.json({ data: await onboardingSnapshot(organizationId) });
 });
 
 export default router;
