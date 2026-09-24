@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   health:
-    name: "\${{ matrix.name }} health"
+    name: "${{ matrix.name }} health"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -31,7 +31,7 @@ jobs:
         name: Check readiness
         shell: bash
         env:
-          BASE_URL: "\${{ matrix.url }}"
+          BASE_URL: "${{ matrix.url }}"
         run: |
           set +e
           response="$(curl --fail --silent --show-error --location --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 "$BASE_URL/api/health/ready" 2>&1)"
@@ -57,10 +57,10 @@ jobs:
         if: always()
         uses: actions/github-script@v7
         env:
-          ENVIRONMENT_NAME: "\${{ matrix.name }}"
-          HEALTH_URL: "\${{ matrix.url }}/api/health/ready"
-          HEALTH_OK: "\${{ steps.check.outputs.ok }}"
-          HEALTH_RESPONSE: "\${{ steps.check.outputs.response }}"
+          ENVIRONMENT_NAME: "${{ matrix.name }}"
+          HEALTH_URL: "${{ matrix.url }}/api/health/ready"
+          HEALTH_OK: "${{ steps.check.outputs.ok }}"
+          HEALTH_RESPONSE: "${{ steps.check.outputs.response }}"
         with:
           script: |
             const owner = context.repo.owner;
