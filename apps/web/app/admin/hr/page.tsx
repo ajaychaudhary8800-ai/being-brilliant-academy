@@ -169,7 +169,8 @@ function Hr() {
   const [branches, setBranches] = useState<Obj[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [departmentForm, setDepartmentForm] = useState({ name: "", code: "" });\n  const [designationForm, setDesignationForm] = useState({ departmentId: "", name: "", code: "", level: "1" });
+  const [departmentForm, setDepartmentForm] = useState({ name: "", code: "" });
+  const [designationForm, setDesignationForm] = useState({ departmentId: "", name: "", code: "", level: "1" });
   const [employeeOpen, setEmployeeOpen] = useState(false);
   const [employeeForm, setEmployeeForm] = useState<EmployeeForm>(blankEmployee);
   const [savingEmployee, setSavingEmployee] = useState(false);
