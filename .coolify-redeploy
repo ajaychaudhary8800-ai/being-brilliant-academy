@@ -1,5 +1,7 @@
 # Coolify redeploy trigger
 
-Requested UI synchronization for staging and production.
+Requested synchronized production + staging deployment.
 Source: current main
+Target commit before trigger: 625eb0b947866ad25c0572bfd0799ef2a189b522
+Reason: deploy tenant custom-domain hardening and final V2 closure.
 Date: 2026-09-24
