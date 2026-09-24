@@ -12,32 +12,32 @@ concurrency:
   group: nightly-staging-e2e
   cancel-in-progress: true
 
-jobs:
-  role-workflows:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      CI: "true"
-      QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
-      QA_ORGANIZATION_SLUG: ${{ secrets.QA_ORGANIZATION_SLUG }}
-      QA_SUPER_ADMIN_EMAIL: ${{ secrets.QA_SUPER_ADMIN_EMAIL }}
-      QA_SUPER_ADMIN_PASSWORD: ${{ secrets.QA_SUPER_ADMIN_PASSWORD }}
-      QA_BRANCH_ADMIN_EMAIL: ${{ secrets.QA_BRANCH_ADMIN_EMAIL }}
-      QA_BRANCH_ADMIN_PASSWORD: ${{ secrets.QA_BRANCH_ADMIN_PASSWORD }}
-      QA_ACCOUNTANT_EMAIL: ${{ secrets.QA_ACCOUNTANT_EMAIL }}
-      QA_ACCOUNTANT_PASSWORD: ${{ secrets.QA_ACCOUNTANT_PASSWORD }}
-      QA_TEACHER_EMAIL: ${{ secrets.QA_TEACHER_EMAIL }}
-      QA_TEACHER_PASSWORD: ${{ secrets.QA_TEACHER_PASSWORD }}
-      QA_STUDENT_EMAIL: ${{ secrets.QA_STUDENT_EMAIL }}
-      QA_STUDENT_PASSWORD: ${{ secrets.QA_STUDENT_PASSWORD }}
-      QA_PARENT_EMAIL: ${{ secrets.QA_PARENT_EMAIL }}
-      QA_PARENT_PASSWORD: ${{ secrets.QA_PARENT_PASSWORD }}
-      QA_EMPLOYEE_EMAIL: ${{ secrets.QA_EMPLOYEE_EMAIL }}
-      QA_EMPLOYEE_PASSWORD: ${{ secrets.QA_EMPLOYEE_PASSWORD }}
-      QA_RUN_MUTATION_TESTS: "true"
-      QA_ALLOW_MUTATIONS: "true"
-      QA_AUTH_STATE_DIR: test-results/qa-auth
+env:
+  CI: "true"
+  QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
+  QA_ORGANIZATION_SLUG: ${{ secrets.QA_ORGANIZATION_SLUG }}
+  QA_SUPER_ADMIN_EMAIL: ${{ secrets.QA_SUPER_ADMIN_EMAIL }}
+  QA_SUPER_ADMIN_PASSWORD: ${{ secrets.QA_SUPER_ADMIN_PASSWORD }}
+  QA_BRANCH_ADMIN_EMAIL: ${{ secrets.QA_BRANCH_ADMIN_EMAIL }}
+  QA_BRANCH_ADMIN_PASSWORD: ${{ secrets.QA_BRANCH_ADMIN_PASSWORD }}
+  QA_ACCOUNTANT_EMAIL: ${{ secrets.QA_ACCOUNTANT_EMAIL }}
+  QA_ACCOUNTANT_PASSWORD: ${{ secrets.QA_ACCOUNTANT_PASSWORD }}
+  QA_TEACHER_EMAIL: ${{ secrets.QA_TEACHER_EMAIL }}
+  QA_TEACHER_PASSWORD: ${{ secrets.QA_TEACHER_PASSWORD }}
+  QA_STUDENT_EMAIL: ${{ secrets.QA_STUDENT_EMAIL }}
+  QA_STUDENT_PASSWORD: ${{ secrets.QA_STUDENT_PASSWORD }}
+  QA_PARENT_EMAIL: ${{ secrets.QA_PARENT_EMAIL }}
+  QA_PARENT_PASSWORD: ${{ secrets.QA_PARENT_PASSWORD }}
+  QA_EMPLOYEE_EMAIL: ${{ secrets.QA_EMPLOYEE_EMAIL }}
+  QA_EMPLOYEE_PASSWORD: ${{ secrets.QA_EMPLOYEE_PASSWORD }}
+  QA_RUN_MUTATION_TESTS: "true"
+  QA_ALLOW_MUTATIONS: "true"
+  QA_AUTH_STATE_DIR: test-results/qa-auth
 
+jobs:
+  public:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -46,37 +46,83 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-
-      - name: Authenticate each QA role once
-        id: auth
-        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --workers=1 --retries=0
-
       - name: Validate public portal selector
-        id: public
-        if: always()
         run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
 
-      - name: Run role and module smoke QA with saved sessions
-        id: smoke
-        if: always()
+  role-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [superAdmin, branchAdmin, accountant, teacher, student, parent, employee]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Authenticate role once
+        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --grep "${{ matrix.role }}" --workers=1 --retries=0
+      - name: Run role smoke with saved session
         env:
           QA_REUSE_AUTH_STATE: "true"
-        run: pnpm exec playwright test e2e/admin-navigation.spec.ts e2e/role-portals.spec.ts --grep "@smoke" --workers=1 --retries=0
-
-      - name: Run guarded staging workflow QA with saved sessions
-        id: workflow
-        if: always()
-        env:
-          QA_REUSE_AUTH_STATE: "true"
-        run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
-
-      - name: Upload QA evidence
+        run: |
+          case "${{ matrix.role }}" in
+            superAdmin)
+              pnpm exec playwright test e2e/admin-navigation.spec.ts --project=desktop-chromium --grep "super admin critical modules" --workers=1 --retries=0
+              ;;
+            branchAdmin)
+              pnpm exec playwright test e2e/admin-navigation.spec.ts --project=desktop-chromium --grep "branch admin core workspace" --workers=1 --retries=0
+              ;;
+            accountant)
+              pnpm exec playwright test e2e/admin-navigation.spec.ts --project=desktop-chromium --grep "accountant finance workspace" --workers=1 --retries=0
+              ;;
+            teacher)
+              pnpm exec playwright test e2e/role-portals.spec.ts --project=desktop-chromium --grep "teacher workspace|teacher cannot" --workers=1 --retries=0
+              ;;
+            student)
+              pnpm exec playwright test e2e/role-portals.spec.ts --project=desktop-chromium --grep "student portal" --workers=1 --retries=0
+              ;;
+            parent)
+              pnpm exec playwright test e2e/role-portals.spec.ts --project=desktop-chromium --grep "parent portal" --workers=1 --retries=0
+              ;;
+            employee)
+              pnpm exec playwright test e2e/role-portals.spec.ts --project=desktop-chromium --grep "employee portal" --workers=1 --retries=0
+              ;;
+          esac
+      - name: Upload role QA evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nightly-staging-e2e-${{ github.run_id }}
+          name: nightly-${{ matrix.role }}-${{ github.run_id }}
           path: |
             playwright-report
             test-results
             !test-results/qa-auth/**
+          retention-days: 14
+
+  cross-role-workflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Run guarded staging academic workflow
+        run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
+      - name: Upload workflow evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-cross-role-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results
           retention-days: 14
