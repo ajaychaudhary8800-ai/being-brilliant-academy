@@ -48,17 +48,25 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
 
       - name: Authenticate each QA role once
+        id: auth
+        continue-on-error: true
         run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --workers=1 --retries=0
 
       - name: Validate public portal selector
+        id: public
+        continue-on-error: true
         run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
 
       - name: Run role and module smoke QA with saved sessions
+        id: smoke
+        continue-on-error: true
         env:
           QA_REUSE_AUTH_STATE: "true"
         run: pnpm exec playwright test e2e/admin-navigation.spec.ts e2e/role-portals.spec.ts --grep "@smoke" --workers=1 --retries=0
 
       - name: Run guarded staging workflow QA with saved sessions
+        id: workflow
+        continue-on-error: true
         env:
           QA_REUSE_AUTH_STATE: "true"
         run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
@@ -73,3 +81,9 @@ jobs:
             test-results
             !test-results/qa-auth/**
           retention-days: 14
+
+      - name: Enforce nightly QA gate
+        if: ${{ always() && (steps.auth.outcome != 'success' || steps.public.outcome != 'success' || steps.smoke.outcome != 'success' || steps.workflow.outcome != 'success') }}
+        run: |
+          echo "Nightly QA found one or more failures. Review all completed QA steps above."
+          exit 1
