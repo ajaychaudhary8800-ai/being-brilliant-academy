@@ -17,6 +17,13 @@ async function settingsApi(init?: RequestInit) {
   return json.data;
 }
 
+async function entitlementApi() {
+  const response = await fetch(`${API}/organization/entitlements`, { headers: headers() });
+  const json = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(json?.error?.message ?? "Unable to load subscription entitlements");
+  return json.data as { enforcementEnabled: boolean; planCode: string; entitlements: Record<string, boolean> };
+}
+
 async function uploadLogo(file: File) {
   const response = await fetch(`${API}/admin/image-uploads`, {
     method: "POST",
@@ -43,10 +50,18 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoError, setLogoError] = useState("");
+  const [commercial, setCommercial] = useState<{ enforcementEnabled: boolean; planCode: string; entitlements: Record<string, boolean> } | null>(null);
 
-  useEffect(() => { void settingsApi().then(setForm).catch(cause => setError(errorMessage(cause))); }, []);
+  useEffect(() => {
+    void Promise.all([settingsApi(), entitlementApi()])
+      .then(([settings, entitlement]) => { setForm(settings); setCommercial(entitlement); })
+      .catch(cause => setError(errorMessage(cause)));
+  }, []);
 
   const whiteLabel = form?.settings?.whiteLabel ?? {};
+  const featureEnabled = (feature: string) => !commercial?.enforcementEnabled || commercial.entitlements["*"] === true || commercial.entitlements[feature] === true;
+  const canWhiteLabel = featureEnabled("white_label");
+  const canCustomDomain = featureEnabled("custom_domain");
   const update = (key: string, value: unknown) => setForm((current: any) => ({ ...current, [key]: value }));
   const updateWhiteLabel = (key: string, value: unknown) => setForm((current: any) => ({
     ...current,
@@ -66,26 +81,31 @@ export default function Page() {
     setSaving(true); setMessage(""); setError("");
     let uploadedUrl: string | null = null;
     try {
-      if (logoFile) uploadedUrl = await uploadLogo(logoFile);
+      if (logoFile && canWhiteLabel) uploadedUrl = await uploadLogo(logoFile);
+      const payload: Record<string, unknown> = {
+        name: form.name,
+        legalName: form.legalName,
+        phone: form.phone,
+        timezone: form.timezone,
+        locale: form.locale,
+        currency: form.currency,
+        academicYearStartMonth: Number(form.academicYearStartMonth),
+        groupLabelType: form.groupLabelType,
+        customGroupLabel: form.groupLabelType === "CUSTOM" ? form.customGroupLabel : null,
+      };
+      if (canWhiteLabel) {
+        const settings = { ...(form.settings ?? {}), whiteLabel: { ...(form.settings?.whiteLabel ?? {}) } };
+        if (!canCustomDomain && settings.whiteLabel) delete settings.whiteLabel.customDomain;
+        payload.logoUrl = uploadedUrl ?? (form.logoUrl || null);
+        payload.primaryColor = form.primaryColor;
+        payload.secondaryColor = form.secondaryColor;
+        payload.settings = settings;
+      }
       const updated = await settingsApi({
         method: "PATCH",
-        body: JSON.stringify({
-          name: form.name,
-          legalName: form.legalName,
-          phone: form.phone,
-          logoUrl: uploadedUrl ?? (form.logoUrl || null),
-          primaryColor: form.primaryColor,
-          secondaryColor: form.secondaryColor,
-          timezone: form.timezone,
-          locale: form.locale,
-          currency: form.currency,
-          academicYearStartMonth: Number(form.academicYearStartMonth),
-          groupLabelType: form.groupLabelType,
-          customGroupLabel: form.groupLabelType === "CUSTOM" ? form.customGroupLabel : null,
-          settings: form.settings ?? {},
-        }),
+        body: JSON.stringify(payload),
       });
-      setForm(updated); setLogoFile(null); setMessage("Branding and institution settings saved.");
+      setForm(updated); setLogoFile(null); setMessage(canWhiteLabel ? "Branding and institution settings saved." : "Institution settings saved.");
     } catch (cause) {
       if (uploadedUrl) await discardUpload(uploadedUrl).catch(() => undefined);
       setError(errorMessage(cause));
@@ -112,8 +132,8 @@ export default function Page() {
         {form.groupLabelType === "CUSTOM" && <Field label="Custom group label" value={form.customGroupLabel ?? ""} onChange={value => update("customGroupLabel", value)} placeholder="e.g. Learning Group" />}
       </section>
 
-      <section className="card grid gap-4 p-6 md:grid-cols-2">
-        <div className="md:col-span-2"><h2 className="text-lg font-bold">White-label brand</h2><p className="text-sm text-slate-500">These values control this tenant&apos;s login and administration identity.</p></div>
+      {canWhiteLabel ? <section className="card grid gap-4 p-6 md:grid-cols-2">
+        <div className="md:col-span-2"><h2 className="text-lg font-bold">White-label brand</h2><p className="text-sm text-slate-500">These values control this tenant&apos;s login and administration identity. Plan: {commercial?.planCode ?? "—"}.</p></div>
         <ImageUploadField label="Institution Logo" currentUrl={form.logoUrl || null} selectedFile={logoFile} disabled={saving} onFileChange={setLogoFile} onRemove={() => update("logoUrl", null)} onError={setLogoError} error={logoError} />
         <div className="grid gap-4">
           <Field label="Product / app name" value={whiteLabel.appName ?? ""} onChange={value => updateWhiteLabel("appName", value)} placeholder={form.name} />
@@ -127,7 +147,7 @@ export default function Page() {
         <Field label="Login subheadline" value={whiteLabel.loginSubheadline ?? ""} onChange={value => updateWhiteLabel("loginSubheadline", value)} placeholder="Sign in to continue." />
         <Field label="Support email" type="email" value={whiteLabel.supportEmail ?? ""} onChange={value => updateWhiteLabel("supportEmail", value)} />
         <Field label="Support phone" value={whiteLabel.supportPhone ?? ""} onChange={value => updateWhiteLabel("supportPhone", value)} />
-        <Field label="Custom domain" value={whiteLabel.customDomain ?? ""} onChange={value => updateWhiteLabel("customDomain", value.toLowerCase().replace(/^https?:\/\//, "").split("/")[0])} placeholder="erp.yourschool.com" help="Application mapping is enabled here; DNS and TLS still need to point this domain to the deployment." />
+        {canCustomDomain ? <Field label="Custom domain" value={whiteLabel.customDomain ?? ""} onChange={value => updateWhiteLabel("customDomain", value.toLowerCase().replace(/^https?:\/\//, "").split("/")[0])} placeholder="erp.yourschool.com" help="Application mapping is enabled here; DNS and TLS still need to point this domain to the deployment." /> : <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Custom domains are not included in the current plan.</div>}
         <label className="flex items-center gap-3 rounded-xl border p-4 text-sm font-semibold md:col-span-2"><input type="checkbox" checked={whiteLabel.hideVendorBranding !== false} onChange={event => updateWhiteLabel("hideVendorBranding", event.target.checked)} />Hide platform vendor branding in tenant-facing surfaces</label>
 
         <div className="overflow-hidden rounded-2xl border md:col-span-2">
@@ -136,7 +156,7 @@ export default function Page() {
             <div><span className="text-xs font-bold uppercase tracking-[.2em]" style={{ color: previewAccent }}>{whiteLabel.portalName || "Admin Portal"}</span><b className="mt-2 block text-2xl">{displayName}</b><span className="mt-1 block text-sm opacity-80">{whiteLabel.loginHeadline || "Welcome back"}</span></div>
           </div>
         </div>
-      </section>
+      </section> : <section className="card p-6"><h2 className="text-lg font-bold">White-label brand</h2><p className="mt-2 text-sm text-slate-500">White-label branding and custom domains are not included in the current {commercial?.planCode ?? ""} plan. Core institution settings remain available.</p></section>}
 
       {message && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{message}</p>}
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
