@@ -1,19 +1,19 @@
-name: Nightly staging end-to-end QA
+name: One-time final seven-role closure QA
 
 on:
-  schedule:
-    - cron: "30 21 * * *" # 03:00 Asia/Kolkata
-  workflow_dispatch:
+  push:
+    branches:
+      - "qa/final-seven-role-closure"
 
 permissions:
   contents: read
 
 concurrency:
-  group: nightly-staging-e2e
+  group: final-seven-role-closure-qa
   cancel-in-progress: true
 
 jobs:
-  role-workflows:
+  final-qa:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     env:
@@ -49,6 +49,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
 
+      - name: Wait for staging auth limiter reset
+        run: sleep 900
+
       - name: Authenticate all QA roles once
         run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --workers=1 --retries=0
 
@@ -70,11 +73,11 @@ jobs:
           QA_REUSE_AUTH_STATE: "true"
         run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
 
-      - name: Upload QA evidence
+      - name: Upload final QA evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nightly-staging-e2e-${{ github.run_id }}
+          name: final-seven-role-closure-${{ github.run_id }}
           path: |
             playwright-report
             test-results
