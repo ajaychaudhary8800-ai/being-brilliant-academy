@@ -11,9 +11,14 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
     loginApi(request, "student"),
   ]);
 
-  const [teacherDashboard, studentDashboard] = await Promise.all([
+  const [teacherDashboard, studentDashboard, adminStudents] = await Promise.all([
     apiJson<any>(request, teacher, "/api/v1/portal/teacher/dashboard"),
     apiJson<any>(request, student, "/api/v1/portal/student/dashboard"),
+    apiJson<any>(
+      request,
+      superAdmin,
+      `/api/v1/admin/students?search=${encodeURIComponent(student.user.email)}&status=ACTIVE&page=1&limit=20`,
+    ),
   ]);
 
   const studentUserId = student.user.id;
@@ -21,11 +26,20 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
 
   const teacherProfile = teacherDashboard.data.profile;
   const studentProfile = studentDashboard.data.profile;
+  const adminStudent = adminStudents.data.find((item: any) => item.user?.id === studentUserId);
 
-  expect(teacherProfile.branch.id, "QA teacher and student must belong to the same staging branch").toBe(studentProfile.branch.id);
-  expect(studentProfile.course?.id, "QA student must have an active course").toBeTruthy();
-  expect(studentProfile.batch?.id, "QA student must have an active batch").toBeTruthy();
-  expect(studentProfile.academicSession?.id, "QA student must have an active academic session").toBeTruthy();
+  expect(adminStudent, "QA student must be visible to the staging super admin").toBeTruthy();
+
+  const branchId = adminStudent!.branchId ?? studentProfile.branch?.id;
+  const courseId = adminStudent!.course?.id ?? adminStudent!.batch?.course?.id ?? studentProfile.course?.id;
+  const batchId = adminStudent!.batchId ?? adminStudent!.batch?.id ?? studentProfile.batch?.id;
+  const academicSessionId = adminStudent!.academicSessionId ?? adminStudent!.batch?.academicSessionId;
+
+  expect(branchId, "QA student must have an active branch").toBeTruthy();
+  expect(courseId, "QA student must have an active course").toBeTruthy();
+  expect(batchId, "QA student must have an active batch").toBeTruthy();
+  expect(academicSessionId, "QA student must have an active academic session").toBeTruthy();
+  expect(teacherProfile.branch.id, "QA teacher and student must belong to the same staging branch").toBe(branchId);
 
   const allocations = await apiJson<any>(
     request,
@@ -34,9 +48,9 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
   );
 
   const sameCourse = allocations.data.find((item: any) =>
-    item.branchId === studentProfile.branch.id &&
-    item.courseId === studentProfile.course.id &&
-    item.academicSessionId === studentProfile.academicSession.id,
+    item.branchId === branchId &&
+    item.courseId === courseId &&
+    item.academicSessionId === academicSessionId,
   );
 
   expect(
@@ -45,7 +59,7 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
   ).toBeTruthy();
 
   const alreadyAllocated = allocations.data.find((item: any) =>
-    item.batchId === studentProfile.batch.id &&
+    item.batchId === batchId &&
     item.subjectId === sameCourse.subjectId &&
     item.status === "ACTIVE",
   );
@@ -58,10 +72,10 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
       {
         method: "POST",
         data: {
-          academicSessionId: studentProfile.academicSession.id,
-          branchId: studentProfile.branch.id,
-          courseId: studentProfile.course.id,
-          batchId: studentProfile.batch.id,
+          academicSessionId,
+          branchId,
+          courseId,
+          batchId,
           teacherId: teacherProfile.id,
           subjectId: sameCourse.subjectId,
           weeklyPeriods: Math.max(1, Number(sameCourse.weeklyPeriods ?? 1)),
