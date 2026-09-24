@@ -3,7 +3,7 @@ import { assertSafeTarget, expectHealthyPage, login } from "./support/environmen
 
 const adminPages: Array<[string, RegExp]> = [
   ["/admin", /overview/i],
-  ["/admin/organizations", /organizations/i],
+  ["/admin/organizations", /organization/i],
   ["/admin/branches", /branches/i],
   ["/admin/academic-sessions", /academic sessions/i],
   ["/admin/classrooms", /classrooms/i],
