@@ -11,11 +11,17 @@ function normalizeHeader(value: unknown) {
   return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
+function numericField(key: string) {
+  return /(paise|amount|rate|bps|level|days|minutes|seconds|position|sequence|capacity|count|maxPeriodsPerDay|maxPeriodsPerWeek|academicYearStartMonth)$/i.test(key);
+}
+
 function coerce(value: unknown, key: string) {
+  const dateField = /(date|at)$/i.test(key);
   if (typeof value !== "string") {
-    if (typeof value === "number" && /(date|at)$/i.test(key) && value > 1 && value < 100000) {
+    if (typeof value === "number" && dateField && value > 1 && value < 100000) {
       return new Date(Date.UTC(1899, 11, 30) + Math.round(value * 86400000)).toISOString().slice(0, 10);
     }
+    if (typeof value === "number" && !numericField(key)) return String(value);
     return value;
   }
   const text = value.trim();
@@ -24,10 +30,10 @@ function coerce(value: unknown, key: string) {
   if (/^-?(?:\d+|\d*\.\d+)$/.test(text)) {
     const number = Number(text);
     if (Number.isFinite(number)) {
-      if (/(date|at)$/i.test(key) && number > 1 && number < 100000) {
+      if (dateField && number > 1 && number < 100000) {
         return new Date(Date.UTC(1899, 11, 30) + Math.round(number * 86400000)).toISOString().slice(0, 10);
       }
-      return number;
+      if (numericField(key)) return number;
     }
   }
   return text;
