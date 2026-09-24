@@ -34,9 +34,11 @@ const adminPages: Array<[string, RegExp]> = [
 
 const branchAdminPages: Array<[string, RegExp]> = [
   ["/admin", /overview/i],
+  ["/admin/branches", /branches/i],
   ["/admin/students", /student/i],
   ["/admin/teachers", /faculty|teacher/i],
   ["/admin/courses", /course/i],
+  ["/admin/subjects", /subject/i],
   ["/admin/batches", /batch|section|group/i],
   ["/admin/attendance", /attendance/i],
   ["/admin/homeworks", /homework/i],
