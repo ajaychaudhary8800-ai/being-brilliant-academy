@@ -90,4 +90,4 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
+      - name: Align synthetic staging fixture\n        run: pnpm exec playwright test e2e/qa-fixture.setup.spec.ts --project=desktop-chromium --grep "@fixture" --workers=1 --retries=0\n      - name: Run cross-role workflow\n        run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
