@@ -1,12 +1,14 @@
 import { test } from "@playwright/test";
-import { configuredQaRoles, loginFresh } from "./support/environment";
-import { savePageAuthState } from "./support/auth-state";
+import { configuredQaRoles } from "./support/environment";
+import { loginApi } from "./support/api";
+import { writeStoredAuthTokens } from "./support/auth-state";
 
 test.describe.configure({ mode: "serial" });
 
 for (const role of configuredQaRoles()) {
-  test(`@auth ${role} authenticates through the assigned portal`, async ({ page }) => {
-    await loginFresh(page, role);
-    await savePageAuthState(page, role);
+  test(`@auth ${role} authenticates through the assigned portal`, async ({ request, baseURL }) => {
+    const session = await loginApi(request, role);
+    const origin = new URL(baseURL ?? "http://127.0.0.1:3000").origin;
+    writeStoredAuthTokens(role, session.accessToken, session.refreshToken, origin);
   });
 }
