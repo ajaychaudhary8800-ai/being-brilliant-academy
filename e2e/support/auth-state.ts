@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { BrowserContext } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 const ACCESS_KEY = "bba.accessToken";
 const REFRESH_KEY = "bba.refreshToken";
@@ -48,7 +48,31 @@ export function updateStoredAuthTokens(role: string, accessToken: string, refres
   writeState(role, state);
 }
 
-export async function saveContextAuthState(context: BrowserContext, role: string) {
-  const state = await context.storageState();
+export async function savePageAuthState(page: Page, role: string) {
+  const state = await page.context().storageState();
+  const captured = await page.evaluate(
+    ({ accessKey, refreshKey }) => ({
+      origin: window.location.origin,
+      accessToken: localStorage.getItem(accessKey) ?? sessionStorage.getItem(accessKey),
+      refreshToken: localStorage.getItem(refreshKey) ?? sessionStorage.getItem(refreshKey),
+    }),
+    { accessKey: ACCESS_KEY, refreshKey: REFRESH_KEY },
+  );
+
+  if (!captured.accessToken || !captured.refreshToken) {
+    throw new Error(`Live QA auth state for ${role} is missing access or refresh token`);
+  }
+
+  state.origins ??= [];
+  let origin = state.origins.find(item => item.origin === captured.origin);
+  if (!origin) {
+    origin = { origin: captured.origin, localStorage: [] };
+    state.origins.push(origin);
+  }
+
+  const local = new Map((origin.localStorage ?? []).map(item => [item.name, item.value]));
+  local.set(ACCESS_KEY, captured.accessToken);
+  local.set(REFRESH_KEY, captured.refreshToken);
+  origin.localStorage = Array.from(local, ([name, value]) => ({ name, value }));
   writeState(role, state);
 }
