@@ -74,6 +74,7 @@ import imageUploads from "./routes/image-uploads.js";
 import publicBranding from "./routes/public-branding.js";
 import saasCommercial from "./routes/saas-commercial.js";
 import { reconcileSaaSLifecycle } from "./lib/saas-commercial.js";
+import { isTenantCorsOriginAllowed } from "./lib/cors-origin.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -108,7 +109,13 @@ app.use(
 app.use(
   cors({
     origin(origin, callback) {
-      callback(origin && !corsOrigins.includes(origin) ? new AppError(403, "ORIGIN_NOT_ALLOWED", "Origin not allowed") : null, true);
+      if (!origin || corsOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      void isTenantCorsOriginAllowed(origin)
+        .then((allowed) => callback(allowed ? null : new AppError(403, "ORIGIN_NOT_ALLOWED", "Origin not allowed"), allowed))
+        .catch((error) => callback(error instanceof Error ? error : new Error("Unable to validate origin"), false));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
