@@ -53,11 +53,15 @@ test("password setup links preserve tenant workspace context", async () => {
   const setup = await readFile(new URL("../../api/src/lib/account-setup.ts", import.meta.url), "utf8");
   const auth = await readFile(new URL("../../api/src/routes/auth.ts", import.meta.url), "utf8");
   const reset = await readFile(new URL("../app/reset-password/page.tsx", import.meta.url), "utf8");
+  const portal = await readFile(new URL("./portal-auth.tsx", import.meta.url), "utf8");
 
   assert.match(setup, /workspace=\$\{encodeURIComponent\(organization\?\.slug/);
-  assert.match(auth, /workspace=\$\{encodeURIComponent\(org\.slug\)\}/);
+  assert.match(auth, /tenantBrandFromOrganization\(org\)\.portalBaseUrl/);
+  assert.match(auth, /workspace=\$\{encodeURIComponent\(org\?\.slug/);
   assert.match(reset, /params\.get\("workspace"\)/);
   assert.match(reset, /resolveWorkspace\(workspace\)/);
+  assert.match(portal, /URLSearchParams\(window\.location\.search\)/);
+  assert.match(portal, /readOnly=\{hostBound\}/);
 });
 
 

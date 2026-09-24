@@ -9,6 +9,7 @@ test("public branding exposes only the sanitized tenant brand contract", async (
   assert.match(source, /whiteLabelSettings/);
   assert.match(source, /where: \{ isActive: true, deletedAt: null, settings: \{ path: \["whiteLabel", "customDomain"\], equals: host \} \}/);
   assert.match(source, /if \(organization && !available\(organization\)\) organization = null/);
+  assert.match(source, /tenantSlugFromHost\(host\)/);
   assert.match(source, /BRANDING_NOT_FOUND/);
   assert.doesNotMatch(source, /res\.json\(\{ data: organization \}\)/);
 });
@@ -22,11 +23,17 @@ test("white-label public route is mounted before authenticated feature routers",
 });
 
 test("organization settings validate custom-domain ownership without a schema migration", async () => {
-  const organizations = await readFile(new URL("./organizations.ts", import.meta.url), "utf8");
-  assert.match(organizations, /INVALID_CUSTOM_DOMAIN/);
+  const [organizations, domains] = await Promise.all([
+    readFile(new URL("./organizations.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/tenant-domain.ts", import.meta.url), "utf8"),
+  ]);
   assert.match(organizations, /CUSTOM_DOMAIN_EXISTS/);
   assert.match(organizations, /requireUniqueCustomDomain\(organizationId,d\.settings\)/);
-  assert.match(organizations, /settingsRecord/);
+  assert.match(organizations, /customDomainFromSettings\(settings,true\)/);
+  assert.match(domains, /INVALID_CUSTOM_DOMAIN/);
+  assert.match(domains, /CUSTOM_DOMAIN_RESERVED/);
+  assert.match(domains, /platformWebHost/);
+  assert.match(domains, /tenantSlugFromHost/);
 });
 
 test("tenant-facing web shell consumes runtime branding rather than a fixed admin brand", async () => {
@@ -38,6 +45,18 @@ test("tenant-facing web shell consumes runtime branding rather than a fixed admi
   assert.match(provider, /--brand-700/);
   assert.match(sidebar, /brand\.appName/);
   assert.match(sidebar, /brand\.portalName/);
+  assert.match(provider, /hostBound/);
   assert.match(portals, /resolveWorkspace/);
+  assert.match(portals, /readOnly=\{hostBound\}/);
   assert.match(portals, /brand\.loginHeadline/);
+});
+
+
+test("tenant-specific hosts cannot be used to select another workspace", async () => {
+  const auth = await readFile(new URL("./auth.ts", import.meta.url), "utf8");
+  assert.match(auth, /assertRequestHostMatchesOrganization/);
+  assert.match(auth, /WORKSPACE_HOST_MISMATCH/);
+  assert.match(auth, /tenantSlugFromHost\(host\)/);
+  assert.match(auth, /customDomainFromSettings\(org\.settings\)/);
+  assert.match(auth, /await assertRequestHostMatchesOrganization\(req, org\)/);
 });

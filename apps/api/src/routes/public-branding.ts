@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { systemPrisma } from "../lib/prisma.js";
+import { customDomainFromSettings, normalizeTenantHost, tenantSlugFromHost } from "../lib/tenant-domain.js";
 
 const router = Router();
 
@@ -24,12 +25,6 @@ function booleanValue(value: unknown, fallback = false) {
   return typeof value === "boolean" ? value : fallback;
 }
 
-function normalizeHost(value: string | null | undefined) {
-  if (!value) return null;
-  const withoutProtocol = value.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0] ?? "";
-  return withoutProtocol.replace(/:\d+$/, "").replace(/\.$/, "") || null;
-}
-
 function safeAssetUrl(value: unknown) {
   const candidate = textValue(value);
   if (!candidate) return null;
@@ -46,7 +41,7 @@ function whiteLabelSettings(settings: unknown) {
     loginSubheadline: textValue(whiteLabel.loginSubheadline, 300),
     supportEmail: textValue(whiteLabel.supportEmail, 254),
     supportPhone: textValue(whiteLabel.supportPhone, 40),
-    customDomain: normalizeHost(textValue(whiteLabel.customDomain, 255)),
+    customDomain: customDomainFromSettings({ whiteLabel }),
     faviconUrl: safeAssetUrl(whiteLabel.faviconUrl),
     accentColor: typeof whiteLabel.accentColor === "string" && /^#[0-9a-fA-F]{6}$/.test(whiteLabel.accentColor) ? whiteLabel.accentColor : null,
     hideVendorBranding: booleanValue(whiteLabel.hideVendorBranding, true),
@@ -87,7 +82,7 @@ function present(organization: BrandOrganization | null) {
 
 router.get("/branding", async (req, res) => {
   const query = querySchema.parse(req.query);
-  const host = normalizeHost(query.host);
+  const host = normalizeTenantHost(query.host);
 
   let organization = query.organizationId
     ? await systemPrisma.organization.findUnique({ where: { id: query.organizationId }, select })
@@ -105,10 +100,9 @@ router.get("/branding", async (req, res) => {
   }
 
   if (!organization && host) {
-    const firstLabel = host.split(".")[0] ?? "";
-    const reserved = new Set(["www", "app", "api", "staging"]);
-    if (firstLabel && !reserved.has(firstLabel) && /^[a-z0-9-]{2,80}$/.test(firstLabel)) {
-      const bySubdomain = await systemPrisma.organization.findUnique({ where: { slug: firstLabel }, select });
+    const subdomainSlug = tenantSlugFromHost(host);
+    if (subdomainSlug) {
+      const bySubdomain = await systemPrisma.organization.findUnique({ where: { slug: subdomainSlug }, select });
       if (bySubdomain && available(bySubdomain)) organization = bySubdomain;
     }
   }

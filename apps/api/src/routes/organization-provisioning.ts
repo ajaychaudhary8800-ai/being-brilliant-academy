@@ -7,6 +7,7 @@ import { logger } from "../lib/logger.js";
 import { provisionTenantOrganization } from "../lib/organization-provisioning.js";
 import { systemPrisma } from "../lib/prisma.js";
 import { storedImagePublicPrefix } from "../lib/stored-image.js";
+import { customDomainFromSettings } from "../lib/tenant-domain.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { organizationBrandingSchema } from "../validation/organization.js";
 
@@ -31,23 +32,9 @@ function platform(req: AuthRequest) {
   }
 }
 
-function settingsRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function customDomain(settings: unknown) {
-  const whiteLabel = settingsRecord(settingsRecord(settings).whiteLabel);
-  const raw = typeof whiteLabel.customDomain === "string" ? whiteLabel.customDomain.trim().toLowerCase() : "";
-  if (!raw) return null;
-  const normalized = raw.replace(/^https?:\/\//, "").split("/")[0]?.replace(/:\d+$/, "").replace(/\.$/, "") ?? "";
-  if (raw !== normalized || !/^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(normalized)) {
-    throw new AppError(422, "INVALID_CUSTOM_DOMAIN", "Enter a normalized custom domain such as erp.school.com without protocol or path");
-  }
-  return normalized;
-}
 
 async function requireUniqueCustomDomain(settings: unknown) {
-  const domain = customDomain(settings);
+  const domain = customDomainFromSettings(settings, true);
   if (!domain) return;
   const duplicate = await systemPrisma.organization.findFirst({
     where: {
