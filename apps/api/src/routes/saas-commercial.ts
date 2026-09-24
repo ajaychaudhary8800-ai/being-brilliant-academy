@@ -233,7 +233,7 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
     ...record(settings.commercialEntitlements),
     ...(data.enforcementEnabled === undefined ? {} : { enforce: data.enforcementEnabled }),
   };
-  if (data.enforcementEnabled === true) await assertCommercialPlanFitsUsage(organizationId, plan.limits);
+  if (commercialEntitlements.enforce === true) await assertCommercialPlanFitsUsage(organizationId, plan.limits);
 
   const subscription = await systemPrisma.$transaction(async tx => {
     const saved = await tx.saaSSubscription.upsert({
