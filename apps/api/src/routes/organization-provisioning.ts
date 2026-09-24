@@ -17,7 +17,7 @@ router.use(requireAuth);
 const input = organizationBrandingSchema.extend({
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9-]+$/).min(2).max(80),
   subscriptionStatus: z.nativeEnum(OrganizationSubscriptionStatus).default(OrganizationSubscriptionStatus.TRIAL),
-  subscriptionPlan: z.string().trim().toUpperCase().min(2).max(50).default("STANDARD"),
+  subscriptionPlan: z.string().trim().toUpperCase().min(2).max(50).default("ESSENTIALS"),
   trialEndsAt: z.coerce.date().nullable().optional(),
   subscriptionEndsAt: z.coerce.date().nullable().optional(),
   adminName: z.string().trim().min(2).max(100),
