@@ -53,14 +53,70 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
     item.academicSessionId === academicSessionId,
   );
 
-  expect(
-    sameCourse,
-    "QA teacher needs at least one active subject allocation in the QA student's course/session so the staging fixture can be aligned safely",
-  ).toBeTruthy();
+  let subjectId = sameCourse?.subjectId as string | undefined;
+  let weeklyPeriods = Math.max(1, Number(sameCourse?.weeklyPeriods ?? 1));
+
+  if (!subjectId) {
+    const commonSubjects = await apiJson<any>(
+      request,
+      superAdmin,
+      `/api/v1/admin/allocation-subject-options?teacherId=${encodeURIComponent(teacherProfile.id)}&courseId=${encodeURIComponent(courseId)}`,
+    );
+    subjectId = commonSubjects.data[0]?.id;
+
+    if (!subjectId) {
+      const [course, teacherSubjects] = await Promise.all([
+        apiJson<any>(request, superAdmin, `/api/v1/admin/courses/${encodeURIComponent(courseId)}`),
+        apiJson<any>(request, superAdmin, `/api/v1/admin/teachers/${encodeURIComponent(teacherProfile.id)}/subjects`),
+      ]);
+      let eligibleCourseSubject = course.data.subjects
+        .filter((item: any) => item.isActive !== false)
+        .map((item: any) => item.subject)
+        .find((subject: any) => subject?.status === "ACTIVE" && subject?.legacyReviewStatus === "CONFIRMED");
+
+      if (!eligibleCourseSubject) {
+        const subjectOptions = await apiJson<any>(request, superAdmin, "/api/v1/admin/subjects/options");
+        eligibleCourseSubject = subjectOptions.data[0];
+        expect(
+          eligibleCourseSubject,
+          "QA organization must have at least one active confirmed Subject Master record",
+        ).toBeTruthy();
+
+        await apiJson(
+          request,
+          superAdmin,
+          `/api/v1/admin/courses/${encodeURIComponent(courseId)}/subjects`,
+          {
+            method: "POST",
+            data: {
+              subjectId: eligibleCourseSubject.id,
+              position: 0,
+              isActive: true,
+            },
+          },
+        );
+      }
+
+      const preservedSubjectIds = teacherSubjects.data
+        .filter((subject: any) => subject.status === "ACTIVE" && subject.legacyReviewStatus === "CONFIRMED")
+        .map((subject: any) => subject.id);
+      const subjectIds = [...new Set([...preservedSubjectIds, eligibleCourseSubject.id])];
+
+      await apiJson(
+        request,
+        superAdmin,
+        `/api/v1/admin/teachers/${encodeURIComponent(teacherProfile.id)}/subjects`,
+        { method: "PUT", data: { subjectIds } },
+      );
+      subjectId = eligibleCourseSubject.id;
+    }
+  }
+
+  expect(subjectId, "QA fixture could not resolve a valid teacher/course subject").toBeTruthy();
 
   const alreadyAllocated = allocations.data.find((item: any) =>
     item.batchId === batchId &&
-    item.subjectId === sameCourse.subjectId &&
+    item.subjectId === subjectId &&
     item.status === "ACTIVE",
   );
 
@@ -77,8 +133,8 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
           courseId,
           batchId,
           teacherId: teacherProfile.id,
-          subjectId: sameCourse.subjectId,
-          weeklyPeriods: Math.max(1, Number(sameCourse.weeklyPeriods ?? 1)),
+          subjectId,
+          weeklyPeriods,
           effectiveFrom: new Date().toISOString().slice(0, 10),
           effectiveTo: null,
           remarks: "Automated QA fixture alignment",
@@ -93,4 +149,79 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
     refreshed.data.students.some((item: any) => item.attendanceTargetId === studentUserId),
     "QA teacher must see the QA student after fixture alignment",
   ).toBe(true);
+
+  let studentLms = await apiJson<any>(request, student, "/api/v1/learning/lms/me");
+  if (!studentLms.data.lessons.length) {
+    const options = await apiJson<any>(request, superAdmin, "/api/v1/admin/lms/options");
+    const courseModules = options.data.modules.filter((item: any) => item.courseId === courseId);
+    let module = courseModules[0];
+
+    if (!module) {
+      const position = Math.max(0, ...options.data.modules.filter((item: any) => item.courseId === courseId).map((item: any) => Number(item.position ?? 0))) + 1;
+      const createdModule = await apiJson<any>(
+        request,
+        superAdmin,
+        "/api/v1/admin/lms/modules",
+        {
+          method: "POST",
+          data: {
+            courseId,
+            title: "Automated QA Module",
+            position,
+          },
+        },
+      );
+      module = createdModule.data;
+    }
+
+    const existingLessons = await apiJson<any>(
+      request,
+      superAdmin,
+      `/api/v1/admin/lms/lessons?courseId=${encodeURIComponent(courseId)}&limit=100`,
+    );
+    const nextPosition = Math.max(
+      0,
+      ...existingLessons.data
+        .filter((item: any) => item.module?.id === module.id)
+        .map((item: any) => Number(item.position ?? 0)),
+    ) + 1;
+    const token = Date.now().toString(36);
+    const lesson = await apiJson<any>(
+      request,
+      superAdmin,
+      "/api/v1/admin/lms/lessons",
+      {
+        method: "POST",
+        data: {
+          title: `Automated QA Lesson ${token}`,
+          description: "Published lesson created for automated cross-role QA.",
+          moduleId: module.id,
+          branchId,
+          courseId,
+          batchId,
+          subjectId,
+          teacherId: teacherProfile.id,
+          chapter: "QA Automation",
+          videoUrl: null,
+          notes: "Synthetic LMS content used only for staging QA verification.",
+          durationSeconds: 60,
+          position: nextPosition,
+          preview: false,
+          status: "DRAFT",
+          homeworkId: null,
+          testId: null,
+        },
+      },
+    );
+    await apiJson(
+      request,
+      superAdmin,
+      `/api/v1/admin/lms/lessons/${lesson.data.id}/status`,
+      { method: "PATCH", data: { status: "PUBLISHED" } },
+    );
+
+    studentLms = await apiJson<any>(request, student, "/api/v1/learning/lms/me");
+  }
+
+  expect(studentLms.data.lessons.length, "QA student's batch must have a published LMS lesson after fixture alignment").toBeGreaterThan(0);
 });
