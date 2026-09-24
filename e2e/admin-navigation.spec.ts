@@ -10,7 +10,7 @@ const adminPages: Array<[string, RegExp]> = [
   ["/admin/students", /student/i],
   ["/admin/teachers", /faculty|teachers/i],
   ["/admin/users", /user management/i],
-  ["/admin/courses", /course/i],
+  ["/admin/courses", /course|class/i],
   ["/admin/subjects", /subject/i],
   ["/admin/batches", /batch|section|group/i],
   ["/admin/teacher-allocations", /allocation/i],
