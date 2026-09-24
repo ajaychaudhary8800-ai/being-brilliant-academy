@@ -1,4 +1,5 @@
-import{Role,TestStatus,TestType}from"@prisma/client";import{Router}from"express";import{z}from"zod";import{AppError}from"../lib/http.js";import{resolveHistoricalAcademicEnrollment}from"../lib/academic-placement.js";import{prisma}from"../lib/prisma.js";import{allow,requireAuth,type AuthRequest}from"../middleware/auth.js";const router=Router();router.use(requireAuth,allow(Role.SUPER_ADMIN,Role.BRANCH_ADMIN));
+import{Role,TestStatus,TestType}from"@prisma/client";import{Router}from"express";import{z}from"zod";import{AppError}from"../lib/http.js";import{resolveHistoricalAcademicEnrollment}from"../lib/academic-placement.js";import{prisma}from"../lib/prisma.js";import{allow,requireAuth,type AuthRequest}from"../middleware/auth.js";import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
+const router=Router();router.use(requireAuth,allow(Role.SUPER_ADMIN,Role.BRANCH_ADMIN),requireCommercialFeature("examinations"));
 // Historical marks use the TestBatch's stored context rather than the
 // student's current projection. This route is registered before the legacy
 // handler below and preserves its response contract.
