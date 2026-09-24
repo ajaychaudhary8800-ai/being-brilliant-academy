@@ -81,6 +81,11 @@ export async function commercialAccessSnapshot(organizationId: string) {
   return { ...policy, usage: { branches, users, students } };
 }
 
+export async function commercialFeatureEnabled(organizationId: string, feature: string) {
+  const policy = await commercialPolicySnapshot(organizationId);
+  return !policy.enforcementEnabled || policy.plan?.entitlements["*"] === true || policy.plan?.entitlements[feature] === true;
+}
+
 export async function assertFeatureEntitled(organizationId: string, feature: string) {
   const policy = await commercialPolicySnapshot(organizationId);
   if (!policy.enforcementEnabled) return policy;
