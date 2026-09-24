@@ -50,11 +50,17 @@ test("client kit publishes the supported data templates with explicit import con
 });
 
 test("student migration now uses the shared safe tabular parser", async () => {
-  const page = await readFile(new URL("../../../web/app/admin/students/page.tsx", import.meta.url), "utf8");
+  const [page, parser] = await Promise.all([
+    readFile(new URL("../../../web/app/admin/students/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../../web/components/tabular-import.ts", import.meta.url), "utf8"),
+  ]);
   assert.match(page, /parseTabularFile/);
   assert.match(page, /accept="\.xlsx,\.csv,\.json"/);
   assert.match(page, /\/admin\/students\/import/);
   assert.doesNotMatch(page, /split\(\/\\r\?\\n\//);
+  assert.match(parser, /function numericField/);
+  assert.match(parser, /typeof value === "number" && !numericField\(key\).*String\(value\)/);
+  assert.match(parser, /if \(numericField\(key\)\) return number/);
 });
 
 test("implementation runbook distinguishes current capability from contractual promises", async () => {
