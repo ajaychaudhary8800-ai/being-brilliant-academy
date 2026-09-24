@@ -70,3 +70,15 @@ test("academic workflows use institution-specific group terminology", async () =
     assert.doesNotMatch(source, /"All batches"/);
   }
 });
+
+
+test("teacher allocation uses tenant academic terminology", async () => {
+  const source = await readFile(new URL("../app/admin/teacher-allocations/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /const terms=useGroupTerminology\(\)/);
+  assert.match(source, /terms\.course/);
+  assert.match(source, /terms\.singular/);
+  assert.match(source, /terms\.plural/);
+  assert.doesNotMatch(source, /Course \/ Batch/);
+  assert.doesNotMatch(source, /label="All batches"/);
+  assert.doesNotMatch(source, /Batch \/ Section \/ Group/);
+});
