@@ -2,6 +2,6 @@
 
 Requested synchronized production + staging deployment.
 Source: current main
-Target commit before trigger: 625eb0b947866ad25c0572bfd0799ef2a189b522
-Reason: deploy tenant custom-domain hardening and final V2 closure.
+Target application commit: a66b4114a88281f40f44a27140d6c662de6f39d1
+Reason: deploy final tenant custom-URL runtime/CORS hardening and V2 closure.
 Date: 2026-09-24
