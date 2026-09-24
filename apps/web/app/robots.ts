@@ -5,9 +5,23 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: "/",
-      disallow: ["/admin/", "/dashboard/", "/employee/", "/parent/", "/student/", "/teacher/", "/api/"],
+      disallow: [
+        "/admin/",
+        "/dashboard/",
+        "/employee/",
+        "/parent/",
+        "/student/",
+        "/teacher/",
+        "/portal/",
+        "/portals/",
+        "/login",
+        "/forgot-password",
+        "/reset-password",
+        "/register",
+        "/api/",
+      ],
     },
-    sitemap: "https://beingbrilliant.in/sitemap.xml",
-    host: "https://beingbrilliant.in",
+    sitemap: "https://beingbrilliantedu.com/sitemap.xml",
+    host: "https://beingbrilliantedu.com",
   };
 }
