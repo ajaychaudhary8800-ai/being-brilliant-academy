@@ -1,0 +1,69 @@
+name: One-time non-student final QA
+
+on:
+  push:
+    branches:
+      - "qa/nonstudent-final-20260924"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nonstudent-final-qa
+  cancel-in-progress: true
+
+jobs:
+  final-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "true"
+      QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
+      QA_ORGANIZATION_SLUG: ${{ secrets.QA_ORGANIZATION_SLUG }}
+      QA_SUPER_ADMIN_EMAIL: ${{ secrets.QA_SUPER_ADMIN_EMAIL }}
+      QA_SUPER_ADMIN_PASSWORD: ${{ secrets.QA_SUPER_ADMIN_PASSWORD }}
+      QA_BRANCH_ADMIN_EMAIL: ${{ secrets.QA_BRANCH_ADMIN_EMAIL }}
+      QA_BRANCH_ADMIN_PASSWORD: ${{ secrets.QA_BRANCH_ADMIN_PASSWORD }}
+      QA_ACCOUNTANT_EMAIL: ${{ secrets.QA_ACCOUNTANT_EMAIL }}
+      QA_ACCOUNTANT_PASSWORD: ${{ secrets.QA_ACCOUNTANT_PASSWORD }}
+      QA_TEACHER_EMAIL: ${{ secrets.QA_TEACHER_EMAIL }}
+      QA_TEACHER_PASSWORD: ${{ secrets.QA_TEACHER_PASSWORD }}
+      QA_PARENT_EMAIL: ${{ secrets.QA_PARENT_EMAIL }}
+      QA_PARENT_PASSWORD: ${{ secrets.QA_PARENT_PASSWORD }}
+      QA_AUTH_STATE_DIR: test-results/qa-auth
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Authenticate five available QA roles
+        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --grep "superAdmin|branchAdmin|accountant|teacher|parent" --workers=1 --retries=0
+
+      - name: Validate public portal selector
+        run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
+
+      - name: Validate super admin and accountant workspaces
+        env:
+          QA_REUSE_AUTH_STATE: "true"
+        run: pnpm exec playwright test e2e/admin-navigation.spec.ts --project=desktop-chromium --grep "super admin critical modules|accountant finance workspace" --workers=1 --retries=0
+
+      - name: Validate teacher and parent portals
+        env:
+          QA_REUSE_AUTH_STATE: "true"
+        run: pnpm exec playwright test e2e/role-portals.spec.ts --project=desktop-chromium --grep "teacher workspace|parent portal|teacher cannot" --workers=1 --retries=0
+
+      - name: Upload non-secret QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nonstudent-final-qa-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results
+            !test-results/qa-auth/**
+          retention-days: 14
