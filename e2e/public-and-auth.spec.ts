@@ -12,7 +12,7 @@ test("@smoke portal selector and all login pages render", async ({ page }) => {
     await page.goto(`/login/${portal}`);
     await expect(page.getByLabel("Workspace", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Email address")).toBeVisible();
-    await expect(page.getByLabel("Password")).toBeVisible();
+    await expect(page.locator('input[type="password"]')).toBeVisible();
   }
 });
 
