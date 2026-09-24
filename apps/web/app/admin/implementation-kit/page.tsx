@@ -96,7 +96,7 @@ export default function Page() {
 
       <section className="card p-5">
         <h2 className="text-xl font-bold">UAT & go-live acceptance</h2>
-        <p className="mt-1 text-sm text-slate-500">Record PASS, FAIL or NOT APPLICABLE for every item included in the client's plan. Critical failures must be fixed or explicitly accepted as deferred before go-live approval.</p>
+        <p className="mt-1 text-sm text-slate-500">Record PASS, FAIL or NOT APPLICABLE for every item included in the client&apos;s plan. Critical failures must be fixed or explicitly accepted as deferred before go-live approval.</p>
         <div className="mt-4 grid gap-2 md:grid-cols-2">
           {uat.map(item => <div key={item} className="flex items-start gap-2 rounded-lg border p-3 text-sm"><CheckCircle2 size={17} className="mt-0.5 shrink-0 text-slate-400"/><span>{item}</span></div>)}
         </div>
