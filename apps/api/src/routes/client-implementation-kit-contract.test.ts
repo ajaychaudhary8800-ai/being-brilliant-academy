@@ -58,7 +58,7 @@ test("student migration now uses the shared safe tabular parser", async () => {
 });
 
 test("implementation runbook distinguishes current capability from contractual promises", async () => {
-  const runbook = await readFile(new URL("../../../docs/CLIENT_IMPLEMENTATION_KIT.md", import.meta.url), "utf8");
+  const runbook = await readFile(new URL("../../../../docs/CLIENT_IMPLEMENTATION_KIT.md", import.meta.url), "utf8");
   assert.match(runbook, /Direct-import compatible/);
   assert.match(runbook, /Collection\/mapping templates/);
   assert.match(runbook, /Do not tell clients these are direct-import files/);
