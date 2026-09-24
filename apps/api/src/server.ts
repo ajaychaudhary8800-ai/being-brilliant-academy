@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import compression from "compression";
 import cors from "cors";
 import express from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
 import { RedisStore } from "rate-limit-redis";
@@ -131,12 +131,18 @@ app.use(
 );
 app.use(
   "/api/v1/auth/login",
+  express.json({ limit: "1mb" }),
   rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: env.AUTH_RATE_LIMIT_MAX,
     standardHeaders: "draft-8",
     legacyHeaders: false,
     store: redis ? new RedisStore({ prefix: "rl:auth:", sendCommand: sendRedisCommand }) : undefined,
+    keyGenerator: (req) => {
+      const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "unknown";
+      const organization = typeof req.body?.organization === "string" ? req.body.organization.trim().toLowerCase() : "unknown";
+      return `${ipKeyGenerator(req.ip ?? "")}:${organization}:${email}`;
+    },
   }),
 );
 app.use("/api/v1/payments/razorpay/webhook", express.raw({ type: "application/json" }));
