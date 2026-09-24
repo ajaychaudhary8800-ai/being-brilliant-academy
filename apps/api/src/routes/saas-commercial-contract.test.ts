@@ -254,3 +254,12 @@ test("an enforced tenant cannot be downgraded below its current branch/user/stud
   const route = await readFile(new URL("saas-commercial.ts", import.meta.url), "utf8");
   assert.match(route, /if \(commercialEntitlements\.enforce === true\) await assertCommercialPlanFitsUsage\(organizationId, plan\.limits\)/);
 });
+
+
+test("downgraded tenants may keep stored branding while core organization edits remain possible", async () => {
+  const organizations = await readFile(new URL("organizations.ts", import.meta.url), "utf8");
+  assert.match(organizations, /requireEntitledBrandingChange/);
+  assert.match(organizations, /nextDomain&&nextDomain!==currentDomain/);
+  assert.match(organizations, /JSON\.stringify\(nextWhiteLabel\)!==JSON\.stringify\(currentWhiteLabel\)/);
+  assert.match(organizations, /select:\{logoUrl:true,settings:true\}/);
+});
