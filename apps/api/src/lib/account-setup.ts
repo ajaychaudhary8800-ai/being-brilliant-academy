@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { env } from "../config.js";
 import { sendEmail } from "./notifications.js";
 import { systemPrisma } from "./prisma.js";
 import { loadTenantBrand } from "./tenant-brand.js";
@@ -19,9 +20,12 @@ export async function issueAccountSetup(user: { id: string; organizationId: stri
   const whiteLabel = settings.whiteLabel && typeof settings.whiteLabel === "object" && !Array.isArray(settings.whiteLabel) ? settings.whiteLabel as Record<string, unknown> : {};
   const brand = await loadTenantBrand(user.organizationId);
   const brandName = typeof whiteLabel.appName === "string" && whiteLabel.appName.trim() ? whiteLabel.appName.trim() : organization?.name ?? "Your institution";
+  const primaryLink = `${brand.portalBaseUrl}/reset-password?token=${encodeURIComponent(raw)}&workspace=${encodeURIComponent(organization?.slug ?? "")}`;
+  const sharedBaseUrl = env.WEB_URL.replace(/\/$/, "");
+  const fallbackLink = `${sharedBaseUrl}/reset-password?token=${encodeURIComponent(raw)}&workspace=${encodeURIComponent(organization?.slug ?? "")}`;
   return sendEmail(
     user.email,
     `Set up your ${brandName} account`,
-    `Hello ${user.name},\n\nUse this secure link within one hour to set your password:\n\n${brand.portalBaseUrl}/reset-password?token=${encodeURIComponent(raw)}&workspace=${encodeURIComponent(organization?.slug ?? "")}`,
+    `Hello ${user.name},\n\nUse this secure link within one hour to set your password:\n\n${primaryLink}${primaryLink !== fallbackLink ? `\n\nIf your custom domain is still being activated, use this fallback link:\n\n${fallbackLink}` : ""}`,
   );
 }
