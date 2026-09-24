@@ -14,7 +14,7 @@ Recommended production policy:
 
 ## Cloudflare R2
 
-Create a dedicated private bucket, for example `bba-production-backups`. Create an R2 S3 credential with Object Read & Write permission scoped only to that bucket.
+Create a dedicated private bucket, for example `bba-production-backups`. Create the long-lived backup S3 credential with **Object Read & Write** permission scoped only to that bucket. Do not give the backup service administrative bucket permissions.
 
 Set these production environment values in Coolify:
 
@@ -32,13 +32,11 @@ Do not store real credentials in Git. After changing the environment, redeploy/r
 
 ## Configure and verify off-site retention
 
-Inside the backup container:
+Configure the lifecycle rule in the Cloudflare R2 bucket **Settings → Object lifecycle rules** using prefix `backups/` and expiration after 30 days. This is a bucket-level administrative action and should not be performed with the long-lived Object Read & Write backup credential.
 
-```sh
-/usr/local/bin/configure-retention.sh
-```
+If an administrator deliberately uses a separate temporary/admin S3 credential, `/usr/local/bin/configure-retention.sh` can configure and read back the same lifecycle rule. Revoke or remove that administrative credential immediately after the one-off configuration; do not save it in the production backup service.
 
-The command writes the bucket lifecycle rule `bba-backup-retention` for the configured prefix and immediately reads it back.
+Retention verification evidence is the lifecycle rule shown in R2 settings (or a successful read-back using the separate administrative credential), with rule ID `bba-backup-retention`, prefix `backups/`, and the configured expiration days.
 
 ## Manual backup and upload test
 
