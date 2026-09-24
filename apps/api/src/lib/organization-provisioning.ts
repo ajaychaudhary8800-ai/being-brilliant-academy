@@ -3,6 +3,7 @@ import { OrganizationSubscriptionStatus, Prisma, Role, SaaSBillingCycle } from "
 import bcrypt from "bcryptjs";
 import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
+import { customDomainFromSettings } from "./tenant-domain.js";
 
 export type TenantOrganizationProvisionInput = {
   organization: Prisma.OrganizationUncheckedCreateInput;
@@ -19,6 +20,13 @@ export async function provisionTenantOrganization(input: TenantOrganizationProvi
   const plan = await systemPrisma.saaSPlan.findUnique({ where: { code: planCode } });
   if (!plan || !plan.isActive) {
     throw new AppError(422, "SAAS_PLAN_NOT_FOUND", "Select an active SaaS plan before provisioning the organization");
+  }
+  const planEntitlements = plan.entitlements && typeof plan.entitlements === "object" && !Array.isArray(plan.entitlements)
+    ? plan.entitlements as Record<string, unknown>
+    : {};
+  const requestedCustomDomain = customDomainFromSettings(input.organization.settings, true);
+  if (requestedCustomDomain && planEntitlements["*"] !== true && planEntitlements.custom_domain !== true) {
+    throw new AppError(403, "PLAN_FEATURE_REQUIRED", "The selected subscription plan does not include a custom domain");
   }
 
   const now = new Date();
