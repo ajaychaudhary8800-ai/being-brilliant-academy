@@ -1,0 +1,138 @@
+name: Public Site Acceptance QA
+
+on:
+  push:
+    branches:
+      - qa/public-site-acceptance-20260924
+
+permissions:
+  contents: read
+
+jobs:
+  public-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run live and staging acceptance QA
+        run: |
+          cat > /tmp/public-site-qa.mjs <<'NODE'
+          import { chromium } from '@playwright/test';
+
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
+
+          const targets = [
+            { name: 'live', base: 'https://beingbrilliantedu.com' },
+            { name: 'staging', base: 'https://staging.beingbrilliantedu.com' },
+          ];
+
+          const oldText = 'Your ambition. Made unstoppable.';
+          const newText = 'Run your entire education institution from one platform.';
+          const routeRedirects = {
+            '/courses': '/#modules',
+            '/faculty': '/#solutions',
+            '/blog': '/#platform',
+            '/about': '/#platform',
+            '/results': '/#analytics',
+            '/contact': '/#contact',
+          };
+
+          function assert(condition, message) {
+            if (!condition) throw new Error(message);
+          }
+
+          for (const target of targets) {
+            console.log('\n---', target.name.toUpperCase(), target.base, '---');
+
+            await page.setViewportSize({ width: 1440, height: 1200 });
+            await page.goto(target.base + '/?qa=20260924', { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+            const body = await page.locator('body').innerText();
+            assert(body.includes(newText), target.name + ': new SaaS hero missing');
+            assert(!body.includes(oldText), target.name + ': old coaching hero still present');
+            assert((await page.title()).includes('Education ERP, LMS, CRM & Analytics Platform'), target.name + ': SEO title mismatch');
+
+            for (const id of ['platform','modules','solutions','white-label','analytics','pricing','contact']) {
+              assert(await page.locator('#' + id).count() === 1, target.name + ': missing section #' + id);
+            }
+
+            for (const label of ['Platform','Modules','Solutions','White-label','Pricing','Sign in','Book demo']) {
+              assert((await page.getByText(label, { exact: true }).count()) >= 1, target.name + ': missing navigation/CTA ' + label);
+            }
+
+            assert(await page.locator('.pwa-bottom').count() === 0, target.name + ': public PWA bottom navigation is visible before login');
+            assert(await page.locator('.install-banner').count() === 0, target.name + ': public install banner is visible before login');
+
+            const themeButton = page.getByRole('button', { name: 'Toggle colour theme' }).first();
+            await themeButton.click();
+            assert(await page.locator('html.dark').count() === 1, target.name + ': dark mode did not activate');
+
+            await page.setViewportSize({ width: 390, height: 844 });
+            await page.goto(target.base + '/?qa=20260924-mobile', { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await page.getByRole('button', { name: 'Open navigation menu' }).click();
+            assert((await page.getByRole('navigation', { name: 'Mobile navigation' }).count()) === 1, target.name + ': mobile navigation did not open');
+            assert((await page.getByRole('navigation', { name: 'Mobile navigation' }).getByText('Modules', { exact: true }).count()) === 1, target.name + ': mobile Modules link missing');
+
+            await page.goto(target.base + '/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+            const loginText = await page.locator('body').innerText();
+            assert(loginText.includes('Choose your portal'), target.name + ': portal selector missing');
+            for (const portal of ['Student Portal','Parent Portal','Teacher Portal','Employee Portal','Admin Portal']) {
+              assert(loginText.includes(portal), target.name + ': missing ' + portal);
+            }
+
+            for (const [from, expected] of Object.entries(routeRedirects)) {
+              await page.goto(target.base + from, { waitUntil: 'domcontentloaded', timeout: 60000 });
+              const final = new URL(page.url());
+              assert(final.pathname + final.hash === expected, target.name + ': redirect mismatch for ' + from + ' -> ' + final.pathname + final.hash);
+            }
+
+            const robots = await page.request.get(target.base + '/robots.txt');
+            assert(robots.ok(), target.name + ': robots.txt request failed: ' + robots.status());
+            const robotsText = await robots.text();
+            assert(robotsText.includes('Sitemap: https://beingbrilliantedu.com/sitemap.xml'), target.name + ': robots sitemap missing');
+            assert(robotsText.includes('Disallow: /login'), target.name + ': robots login exclusion missing');
+
+            const sitemap = await page.request.get(target.base + '/sitemap.xml');
+            assert(sitemap.ok(), target.name + ': sitemap.xml request failed: ' + sitemap.status());
+            const sitemapText = await sitemap.text();
+            assert(sitemapText.includes('<loc>https://beingbrilliantedu.com</loc>'), target.name + ': sitemap canonical homepage missing');
+
+            await page.goto(target.base + '/#contact', { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await page.getByLabel('Contact name').fill('QA Public Site');
+            await page.getByLabel('Organisation name').fill('QA Smoke Institution');
+            await page.getByLabel('Mobile number').fill('12345');
+            await page.getByLabel('Work email').fill('qa.publicsite@beingbrilliantedu.com');
+            await page.getByRole('button', { name: 'Request demo' }).click();
+            assert(await page.getByRole('alert').getByText('Enter a valid 10-digit Indian mobile number.').count() === 1, target.name + ': invalid-mobile validation failed');
+
+            if (target.name === 'staging') {
+              await page.getByLabel('Mobile number').fill('9876501234');
+              await page.getByRole('button', { name: 'Request demo' }).click();
+              await page.getByText('Demo request received.', { exact: true }).waitFor({ timeout: 30000 });
+              console.log('staging: demo form submission passed');
+            }
+
+            console.log(target.name + ': PASS');
+          }
+
+          await browser.close();
+          console.log('\nALL PUBLIC SITE ACCEPTANCE CHECKS PASSED');
+          NODE
+
+          node /tmp/public-site-qa.mjs
