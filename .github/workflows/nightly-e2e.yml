@@ -71,4 +71,5 @@ jobs:
           path: |
             playwright-report
             test-results
+            !test-results/qa-auth/**
           retention-days: 14
