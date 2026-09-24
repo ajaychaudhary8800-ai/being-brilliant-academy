@@ -41,7 +41,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
 
-      - name: Authenticate five available QA roles
+      - name: Authenticate available QA roles including accountant
         run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --grep "superAdmin|branchAdmin|accountant|teacher|parent" --workers=1 --retries=0
 
       - name: Validate public portal selector
