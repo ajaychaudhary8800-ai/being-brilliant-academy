@@ -1,3 +1,4 @@
+import "express-async-errors";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import type { Server } from "node:http";
@@ -280,7 +281,13 @@ test("real PostgreSQL completes the full client onboarding dry run to READY / 10
       await systemPrisma.branch.deleteMany({ where: { organizationId } });
       await systemPrisma.saaSSubscription.deleteMany({ where: { organizationId } });
       await systemPrisma.user.deleteMany({ where: { organizationId } });
-      await systemPrisma.organization.deleteMany({ where: { id: organizationId } });
+      await systemPrisma.$executeRawUnsafe('ALTER TABLE "AcademicSession" DISABLE TRIGGER "AcademicSession_exactly_one_current"');
+      try {
+        await systemPrisma.academicSession.deleteMany({ where: { organizationId } });
+        await systemPrisma.organization.deleteMany({ where: { id: organizationId } });
+      } finally {
+        await systemPrisma.$executeRawUnsafe('ALTER TABLE "AcademicSession" ENABLE TRIGGER "AcademicSession_exactly_one_current"');
+      }
     }
 
     await systemPrisma.branch.deleteMany({ where: { organizationId: otherOrganizationId } });
