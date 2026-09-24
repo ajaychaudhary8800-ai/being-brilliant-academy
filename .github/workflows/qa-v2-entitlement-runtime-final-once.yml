@@ -1,0 +1,69 @@
+name: V2 entitlement runtime final
+
+on:
+  push:
+    branches:
+      - "qa/v2-entitlement-runtime-final-20260924"
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
+      QA_ORGANIZATION_SLUG: ${{ secrets.QA_ORGANIZATION_SLUG }}
+      QA_SUPER_ADMIN_EMAIL: ${{ secrets.QA_SUPER_ADMIN_EMAIL }}
+      QA_SUPER_ADMIN_PASSWORD: ${{ secrets.QA_SUPER_ADMIN_PASSWORD }}
+    steps:
+      - name: Verify latest staging commercial runtime
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const base = process.env.QA_BASE_URL.replace(/\/$/,"");
+            const login = await fetch(base + "/api/v1/auth/login", {
+              method:"POST",
+              headers:{"content-type":"application/json"},
+              body:JSON.stringify({
+                organization:process.env.QA_ORGANIZATION_SLUG,
+                email:process.env.QA_SUPER_ADMIN_EMAIL,
+                password:process.env.QA_SUPER_ADMIN_PASSWORD
+              })
+            });
+            const loginText=await login.text();
+            if(!login.ok) throw new Error("login "+login.status+" "+loginText);
+            const parsed=JSON.parse(loginText);
+            const token=parsed.data.accessToken;
+            const headers={Authorization:"Bearer "+token};
+            const plansRes=await fetch(base+"/api/v1/organization/subscription/plans",{headers});
+            const plansText=await plansRes.text();
+            if(!plansRes.ok) throw new Error("plans "+plansRes.status+" "+plansText);
+            const plans=JSON.parse(plansText).data||[];
+            const byCode=Object.fromEntries(plans.map(p=>[p.code,p]));
+            for(const code of ["ESSENTIALS","GROWTH","PROFESSIONAL","ENTERPRISE"]) {
+              if(!byCode[code]) throw new Error("Missing active commercial plan: "+code);
+            }
+            if(byCode.GROWTH.entitlements?.lms!==true) throw new Error("Growth LMS entitlement missing");
+            if(byCode.PROFESSIONAL.entitlements?.hr_payroll!==true) throw new Error("Professional HR entitlement missing");
+            if(byCode.ENTERPRISE.entitlements?.white_label!==true || byCode.ENTERPRISE.entitlements?.custom_domain!==true) {
+              throw new Error("Enterprise entitlement mismatch");
+            }
+            const entRes=await fetch(base+"/api/v1/organization/entitlements",{headers});
+            if(!entRes.ok) throw new Error("entitlements "+entRes.status+" "+await entRes.text());
+            console.log("Latest commercial runtime verified.");
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Verify staging health
+        run: |
+          base="${QA_BASE_URL%/}"
+          curl -fsSL --retry 3 --retry-delay 2 "$base/api/health/ready" | grep -F '"status":"ready"'
+
+      - name: Verify production health and SaaS public UI
+        run: |
+          html="$(curl -fsSL --retry 3 --retry-delay 2 https://beingbrilliantedu.com/)"
+          printf '%s' "$html" | grep -F "Education ERP"
+          printf '%s' "$html" | grep -F "Four engines. One source of truth."
+          curl -fsSL --retry 3 --retry-delay 2 https://beingbrilliantedu.com/api/health/ready | grep -F '"status":"ready"'
