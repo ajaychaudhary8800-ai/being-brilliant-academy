@@ -48,6 +48,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      - name: Wait for clean staging auth window
+        run: sleep 900
       - name: Authenticate all QA roles once
         run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --workers=1 --retries=0
       - name: Validate public portal selector
