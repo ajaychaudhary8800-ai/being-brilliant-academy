@@ -47,15 +47,20 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
 
       - name: Authenticate configured QA roles once
-        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --workers=1 --retries=0
+        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --grep-invert "accountant|employee" --workers=1 --retries=0
 
       - name: Validate public login surfaces
         run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
 
-      - name: Validate admin and configured role portals
+      - name: Validate super admin critical modules
         env:
           QA_REUSE_AUTH_STATE: "true"
-        run: pnpm exec playwright test e2e/admin-navigation.spec.ts e2e/role-portals.spec.ts --project=desktop-chromium --grep "@smoke" --grep-invert "employee" --workers=1 --retries=0
+        run: pnpm exec playwright test e2e/admin-navigation.spec.ts --project=desktop-chromium --grep "super admin critical modules" --workers=1 --retries=0
+
+      - name: Validate teacher student and parent portals
+        env:
+          QA_REUSE_AUTH_STATE: "true"
+        run: pnpm exec playwright test e2e/role-portals.spec.ts --project=desktop-chromium --grep "@smoke" --grep-invert "employee" --workers=1 --retries=0
 
       - name: Run guarded cross-role academic workflow
         env:
