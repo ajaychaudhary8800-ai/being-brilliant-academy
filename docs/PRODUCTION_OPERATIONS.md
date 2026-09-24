@@ -26,7 +26,9 @@ When a check fails, the scheduled workflow fails and is visible in GitHub Action
 
 ### Backup
 
-The backup service creates a PostgreSQL custom-format dump and file-storage archive, records SHA-256 checksums, removes backups older than the configured retention window, and can copy backups to S3-compatible storage when `BACKUP_S3_BUCKET` is configured.
+The backup service creates a PostgreSQL custom-format dump and file-storage archive, records SHA-256 checksums, removes local backups older than the configured retention window, and copies backups to S3-compatible off-site storage when `BACKUP_S3_BUCKET` is configured.
+
+For Cloudflare R2 use `AWS_REGION=auto` and the account-specific R2 S3 endpoint. Keep the production backup credential bucket-scoped to Object Read & Write. Configure lifecycle retention separately as a bucket-level administrative setting. See `docs/BACKUP_DR.md` for retention, verification, and isolated restore procedures.
 
 Default schedule: `0 2 * * *` in the backup container timezone.
 
@@ -35,9 +37,10 @@ Default schedule: `0 2 * * *` in the backup container timezone.
 1. Confirm production and staging uptime-monitor runs are green.
 2. Check the latest nightly staging QA result.
 3. Confirm a new backup directory exists and `SHA256SUMS` verifies.
-4. Check Coolify for unhealthy or restarting containers.
-5. Review failed uptime-monitor runs and application errors.
-6. Check disk usage and backup retention.
+4. Confirm the newest scheduled backup also verifies from off-site storage.
+5. Check Coolify for unhealthy or restarting containers.
+6. Review failed uptime-monitor runs and application errors.
+7. Check disk usage and backup retention.
 
 ## Weekly checks
 
@@ -46,9 +49,11 @@ Default schedule: `0 2 * * *` in the backup container timezone.
 3. Review authentication/rate-limit anomalies and provider delivery failures.
 4. Review dependency and security alerts.
 
-## Quarterly restore drill
+## Monthly restore drill
 
-Restore the latest backup to an isolated environment. Verify the checksum first, restore PostgreSQL and file storage, start the isolated application, then validate login and representative student, teacher, and admin records. Never test a restore against the live production database.
+Restore the latest off-site backup to an isolated environment. Verify the checksum first, restore PostgreSQL and file storage, start the isolated application, then validate login and representative student, teacher, parent, and admin records. Never test a restore against the live production database.
+
+Record measured RPO and RTO from the completed drill.
 
 ## Incident priority
 

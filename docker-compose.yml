@@ -110,7 +110,22 @@ services:
     build: { context: ./infra/backup }
     restart: unless-stopped
     init: true
-    environment: { DATABASE_URL: "${DATABASE_URL}", BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}", BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-14}", AWS_S3_BUCKET: "${BACKUP_S3_BUCKET:-}", AWS_ENDPOINT_URL: "${AWS_S3_ENDPOINT:-}", AWS_REGION: "${AWS_REGION:-}", AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}", AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}" }
+    environment:
+      DATABASE_URL: "${DATABASE_URL}"
+      BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}"
+      BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-14}"
+      BACKUP_S3_BUCKET: "${BACKUP_S3_BUCKET:-}"
+      BACKUP_S3_PREFIX: "${BACKUP_S3_PREFIX:-backups}"
+      BACKUP_S3_RETENTION_DAYS: "${BACKUP_S3_RETENTION_DAYS:-30}"
+      AWS_S3_ENDPOINT: "${AWS_S3_ENDPOINT:-}"
+      AWS_REGION: "${AWS_REGION:-}"
+      AWS_DEFAULT_REGION: "${AWS_REGION:-}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_PAGER: ""
+      AWS_REQUEST_CHECKSUM_CALCULATION: "WHEN_REQUIRED"
+      AWS_RESPONSE_CHECKSUM_VALIDATION: "WHEN_REQUIRED"
     volumes: [backups:/backups, app_storage:/data/storage]
     depends_on: { postgres: { condition: service_healthy } }
     networks: [backend]
