@@ -6,6 +6,7 @@ import { useAuth } from "../../../components/auth-provider";
 
 const templates = [
   { name: "Client information & requirements", file: "/client-kit/client-information.csv", mode: "Collection form", note: "Use before tenant provisioning." },
+  { name: "Branch / campus setup", file: "/client-kit/branches-data-collection.csv", mode: "Collection / mapping", note: "Matches branch-creation fields; review manager details before creating the branch." },
   { name: "Students", file: "/client-kit/students-import.csv", mode: "Direct import", note: "CSV/XLSX/JSON supported in Student Management after IDs are mapped." },
   { name: "Teachers", file: "/client-kit/teachers-data-collection.csv", mode: "Collection / mapping", note: "Map branch, subjects and specializations before creating records." },
   { name: "Employees / HR", file: "/client-kit/employees-import.csv", mode: "Direct import", note: "CSV/XLSX/JSON supported in HR & Payroll; tenant master IDs are required." },
@@ -16,7 +17,7 @@ const templates = [
 
 const implementation = [
   "Confirm signed scope, SaaS plan, limits and billing status.",
-  "Collect the client information sheet and authorized administrator details.",
+  "Collect the expanded client information sheet, branch/campus sheet and authorized administrator details.",
   "Provision the tenant and confirm secure administrator account activation.",
   "Create branch/campus and academic master data.",
   "Map source data to tenant-specific IDs and masters.",

@@ -23,6 +23,7 @@ test("platform implementation kit is exposed only as a platform navigation works
 test("client kit publishes the supported data templates with explicit import contracts", async () => {
   const [
     client,
+    branches,
     students,
     teachers,
     employees,
@@ -31,6 +32,7 @@ test("client kit publishes the supported data templates with explicit import con
     finance,
   ] = await Promise.all([
     readFile(new URL("../../../web/public/client-kit/client-information.csv", import.meta.url), "utf8"),
+    readFile(new URL("../../../web/public/client-kit/branches-data-collection.csv", import.meta.url), "utf8"),
     readFile(new URL("../../../web/public/client-kit/students-import.csv", import.meta.url), "utf8"),
     readFile(new URL("../../../web/public/client-kit/teachers-data-collection.csv", import.meta.url), "utf8"),
     readFile(new URL("../../../web/public/client-kit/employees-import.csv", import.meta.url), "utf8"),
@@ -39,7 +41,12 @@ test("client kit publishes the supported data templates with explicit import con
     readFile(new URL("../../../web/public/client-kit/finance-accounts-import.csv", import.meta.url), "utf8"),
   ]);
 
-  assert.match(client, /^organizationName,legalName,email,phone,/);
+  assert.match(client, /^organizationName,legalName,email,phone,administratorName,administratorEmail,institutionType,desiredWorkspaceSlug,/);
+  assert.match(client, /groupTerminology,customGroupLabel,timezone,locale,currency,academicYearStartMonth/);
+  assert.match(client, /selectedPlan,billingCycle,subscriptionStatus,trialEndsAt,subscriptionEndsAt,targetGoLiveDate/);
+  assert.match(client, /dataMigrationRequired,dataMigrationScope,sourceSystem,trainingContactName,trainingContactEmail,trainingContactPhone,trainingUsers/);
+  assert.match(client, /authorizedSignOffName,authorizedSignOffDesignation,authorizedSignOffEmail,agreedLimits,notes/);
+  assert.match(branches, /^branchCode,branchName,address,city,state,pincode,phone,email,managerName,managerEmail,openingDate,isActive/);
   assert.match(students, /^admissionNo,rollNo,name,gender,dateOfBirth,/);
   assert.match(students, /branchId,batchId,academicSession,admissionDate/);
   assert.match(employees, /^employeeCode,name,email,phone,password,branchId,departmentId,designationId,/);

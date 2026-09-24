@@ -10,18 +10,20 @@ Collect and verify before tenant provisioning:
 - Primary email and phone.
 - Primary administrator name and email.
 - Institution type.
-- Preferred academic group terminology: Section, Batch, Group, or custom.
-- Timezone, locale, currency, academic-year start month.
-- SaaS plan, billing cycle, trial/paid status, and agreed limits.
-- Logo, primary colour, secondary colour.
 - Desired shared workspace slug.
-- Whether a custom domain is required.
+- Preferred academic group terminology: Section, Batch, Group, or custom label; collect the custom label when applicable.
+- Timezone, locale, currency, academic-year start month.
+- SaaS plan, billing cycle, subscription status, applicable trial/subscription end dates, and agreed limits.
+- Logo, primary colour, secondary colour.
+- Whether a custom domain is required and the requested hostname.
 - Target go-live date.
-- Data migration scope.
-- Client training contacts.
-- Named approval/sign-off authority.
+- Whether migration is required, source system, and migration scope.
+- Client training contact details and intended training users.
+- Named approval/sign-off authority and contact details.
 
-Use `/client-kit/client-information.csv` as the collection sheet.
+Use `/client-kit/client-information.csv` as the primary collection sheet.
+
+Use `/client-kit/branches-data-collection.csv` for every branch/campus that must be created. It mirrors the current branch-creation contract: branch code/name, full address, city/state/pincode, phone/email, manager name/email, opening date, and active status.
 
 Never ask platform staff to set or retain the tenant administrator's password. Use the secure account-setup flow.
 
@@ -52,6 +54,7 @@ Important direct-import rules:
 
 These files are for client data collection and implementation mapping. They are not currently one-click bulk imports:
 
+- `/client-kit/branches-data-collection.csv`
 - `/client-kit/teachers-data-collection.csv`
 - `/client-kit/courses-data-collection.csv`
 - `/client-kit/fees-data-collection.csv`
@@ -61,23 +64,24 @@ Platform staff must map and validate these records against tenant masters before
 ## 3. Implementation sequence
 
 1. Confirm commercial plan and scope.
-2. Collect client-information sheet.
-3. Provision tenant from Platform Admin -> Organizations.
-4. Confirm tenant administrator activates the account.
-5. Create branch/campus and branch administrator where required.
-6. Configure academic session, courses/programs, batches/sections, subjects, classrooms, and staff masters.
-7. Map client data against tenant IDs/masters.
-8. Run data imports in staging or controlled production batches.
-9. Reconcile import counts and errors.
-10. Configure fees/finance as contracted.
-11. Configure LMS, examinations, communication, HR/payroll, and other entitled modules.
-12. Complete administrator/user training.
-13. Complete UAT.
-14. Configure custom domain when included in the plan.
-15. Confirm backup/monitoring state.
-16. Obtain authorized go-live sign-off.
-17. Mark the organization onboarding panel READY / 100%.
-18. Perform production smoke test after handover.
+2. Collect the client-information sheet and branch/campus sheet.
+3. Validate commercial status, dates, migration scope, training contacts, and sign-off authority.
+4. Provision tenant from Platform Admin -> Organizations.
+5. Confirm tenant administrator activates the account.
+6. Create branch/campus and branch administrator where required.
+7. Configure academic session, courses/programs, batches/sections, subjects, classrooms, and staff masters.
+8. Map client data against tenant IDs/masters.
+9. Run data imports in staging or controlled production batches.
+10. Reconcile import counts and errors.
+11. Configure fees/finance as contracted.
+12. Configure LMS, examinations, communication, HR/payroll, and other entitled modules.
+13. Complete administrator/user training.
+14. Complete UAT.
+15. Configure custom domain when included in the plan.
+16. Confirm backup/monitoring state.
+17. Obtain authorized go-live sign-off.
+18. Mark the organization onboarding panel READY / 100%.
+19. Perform production smoke test after handover.
 
 ## 4. UAT checklist
 
