@@ -126,6 +126,14 @@ app.use(
     standardHeaders: "draft-8",
     legacyHeaders: false,
     store: redisStore,
+    keyGenerator: (req) => {
+      const authorization = req.headers.authorization;
+      if (typeof authorization === "string" && authorization.startsWith("Bearer ")) {
+        const sessionKey = crypto.createHash("sha256").update(authorization.slice(7)).digest("hex").slice(0, 24);
+        return `${ipKeyGenerator(req.ip ?? "")}:session:${sessionKey}`;
+      }
+      return ipKeyGenerator(req.ip ?? "");
+    },
     skip: (req) => req.path.startsWith("/health") || req.path === "/metrics",
   }),
 );
