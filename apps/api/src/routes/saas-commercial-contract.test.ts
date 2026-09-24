@@ -261,5 +261,5 @@ test("downgraded tenants may keep stored branding while core organization edits 
   assert.match(organizations, /requireEntitledBrandingChange/);
   assert.match(organizations, /nextDomain&&nextDomain!==currentDomain/);
   assert.match(organizations, /JSON\.stringify\(nextWhiteLabel\)!==JSON\.stringify\(currentWhiteLabel\)/);
-  assert.match(organizations, /select:\{logoUrl:true,settings:true\}/);
+  assert.match(organizations, /requireEntitledBrandingChange\(organizationId,d\.settings,old\.settings\)/);
 });
