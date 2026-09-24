@@ -234,3 +234,17 @@ test("billing lifecycle reminders are deduplicated and queued for tenant super a
   assert.match(policy, /renewalRemindersQueued/);
   assert.match(server, /result\.renewalRemindersQueued/);
 });
+
+
+test("white-label and custom-domain settings are plan-gated while core institution settings remain available", async () => {
+  const [organizations, settingsPage] = await Promise.all([
+    readFile(new URL("organizations.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../../web/app/admin/organization-settings/page.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(organizations, /assertFeatureEntitled\(organizationId,"custom_domain"\)/);
+  assert.match(organizations, /assertFeatureEntitled\(organizationId,"white_label"\)/);
+  assert.match(settingsPage, /featureEnabled\("white_label"\)/);
+  assert.match(settingsPage, /featureEnabled\("custom_domain"\)/);
+  assert.match(settingsPage, /White-label branding and custom domains are not included/);
+  assert.match(settingsPage, /Core institution settings remain available/);
+});
