@@ -1,6 +1,7 @@
 name: One-time final role QA
 
-on:\n  workflow_dispatch:
+on:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -44,7 +45,7 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
 
       - name: Authenticate configured QA roles once
-        run: pnpm exec playwright test e2e/auth.setup.ts --project=desktop-chromium --workers=1 --retries=0
+        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --workers=1 --retries=0
 
       - name: Validate public login surfaces
         run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
