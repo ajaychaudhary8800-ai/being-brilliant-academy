@@ -149,4 +149,79 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
     refreshed.data.students.some((item: any) => item.attendanceTargetId === studentUserId),
     "QA teacher must see the QA student after fixture alignment",
   ).toBe(true);
+
+  let studentLms = await apiJson<any>(request, student, "/api/v1/learning/lms/me");
+  if (!studentLms.data.lessons.length) {
+    const options = await apiJson<any>(request, superAdmin, "/api/v1/admin/lms/options");
+    const courseModules = options.data.modules.filter((item: any) => item.courseId === courseId);
+    let module = courseModules[0];
+
+    if (!module) {
+      const position = Math.max(0, ...options.data.modules.filter((item: any) => item.courseId === courseId).map((item: any) => Number(item.position ?? 0))) + 1;
+      const createdModule = await apiJson<any>(
+        request,
+        superAdmin,
+        "/api/v1/admin/lms/modules",
+        {
+          method: "POST",
+          data: {
+            courseId,
+            title: "Automated QA Module",
+            position,
+          },
+        },
+      );
+      module = createdModule.data;
+    }
+
+    const existingLessons = await apiJson<any>(
+      request,
+      superAdmin,
+      `/api/v1/admin/lms/lessons?courseId=${encodeURIComponent(courseId)}&limit=100`,
+    );
+    const nextPosition = Math.max(
+      0,
+      ...existingLessons.data
+        .filter((item: any) => item.module?.id === module.id)
+        .map((item: any) => Number(item.position ?? 0)),
+    ) + 1;
+    const token = Date.now().toString(36);
+    const lesson = await apiJson<any>(
+      request,
+      superAdmin,
+      "/api/v1/admin/lms/lessons",
+      {
+        method: "POST",
+        data: {
+          title: `Automated QA Lesson ${token}`,
+          description: "Published lesson created for automated cross-role QA.",
+          moduleId: module.id,
+          branchId,
+          courseId,
+          batchId,
+          subjectId,
+          teacherId: teacherProfile.id,
+          chapter: "QA Automation",
+          videoUrl: null,
+          notes: "Synthetic LMS content used only for staging QA verification.",
+          durationSeconds: 60,
+          position: nextPosition,
+          preview: false,
+          status: "DRAFT",
+          homeworkId: null,
+          testId: null,
+        },
+      },
+    );
+    await apiJson(
+      request,
+      superAdmin,
+      `/api/v1/admin/lms/lessons/${lesson.data.id}/status`,
+      { method: "PATCH", data: { status: "PUBLISHED" } },
+    );
+
+    studentLms = await apiJson<any>(request, student, "/api/v1/learning/lms/me");
+  }
+
+  expect(studentLms.data.lessons.length, "QA student's batch must have a published LMS lesson after fixture alignment").toBeGreaterThan(0);
 });
