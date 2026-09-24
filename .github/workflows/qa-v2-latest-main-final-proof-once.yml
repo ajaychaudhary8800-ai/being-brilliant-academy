@@ -1,0 +1,134 @@
+name: V2 latest main final proof
+
+on:
+  push:
+    branches:
+      - "qa/v2-latest-main-final-proof-20260924"
+
+permissions:
+  contents: read
+
+jobs:
+  final-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      CI: "true"
+      QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
+      QA_ORGANIZATION_SLUG: ${{ secrets.QA_ORGANIZATION_SLUG }}
+      QA_SUPER_ADMIN_EMAIL: ${{ secrets.QA_SUPER_ADMIN_EMAIL }}
+      QA_SUPER_ADMIN_PASSWORD: ${{ secrets.QA_SUPER_ADMIN_PASSWORD }}
+      QA_BRANCH_ADMIN_EMAIL: ${{ secrets.QA_BRANCH_ADMIN_EMAIL }}
+      QA_BRANCH_ADMIN_PASSWORD: ${{ secrets.QA_BRANCH_ADMIN_PASSWORD }}
+      QA_ACCOUNTANT_EMAIL: ${{ secrets.QA_ACCOUNTANT_EMAIL }}
+      QA_ACCOUNTANT_PASSWORD: ${{ secrets.QA_ACCOUNTANT_PASSWORD }}
+      QA_TEACHER_EMAIL: ${{ secrets.QA_TEACHER_EMAIL }}
+      QA_TEACHER_PASSWORD: ${{ secrets.QA_TEACHER_PASSWORD }}
+      QA_STUDENT_EMAIL: ${{ secrets.QA_STUDENT_EMAIL }}
+      QA_STUDENT_PASSWORD: ${{ secrets.QA_STUDENT_PASSWORD }}
+      QA_PARENT_EMAIL: ${{ secrets.QA_PARENT_EMAIL }}
+      QA_PARENT_PASSWORD: ${{ secrets.QA_PARENT_PASSWORD }}
+      QA_EMPLOYEE_EMAIL: ${{ secrets.QA_EMPLOYEE_EMAIL }}
+      QA_EMPLOYEE_PASSWORD: ${{ secrets.QA_EMPLOYEE_PASSWORD }}
+      QA_RUN_MUTATION_TESTS: "true"
+      QA_ALLOW_MUTATIONS: "true"
+      QA_AUTH_STATE_DIR: test-results/qa-auth
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Authenticate all seven QA roles
+        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --workers=1 --retries=0
+
+      - name: Validate public portal selector
+        run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
+
+      - name: Align and verify staging fixture
+        env:
+          QA_REUSE_AUTH_STATE: "true"
+        run: pnpm exec playwright test e2e/qa-fixture.setup.spec.ts --project=desktop-chromium --grep "@fixture" --workers=1 --retries=0
+
+      - name: Run all role and module smoke QA
+        env:
+          QA_REUSE_AUTH_STATE: "true"
+        run: pnpm exec playwright test e2e/admin-navigation.spec.ts e2e/role-portals.spec.ts --grep "@smoke" --workers=1 --retries=0
+
+      - name: Run full guarded cross-role workflow
+        env:
+          QA_REUSE_AUTH_STATE: "true"
+        run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
+
+      - name: Verify deployed commercial plan catalog and entitlements
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const state = JSON.parse(fs.readFileSync("test-results/qa-auth/superAdmin.json","utf8"));
+          let token = null;
+          for (const origin of state.origins || []) {
+            for (const entry of origin.localStorage || []) {
+              if (entry.name === "bba.accessToken") token = entry.value;
+            }
+          }
+          if (!token) throw new Error("Missing super admin access token");
+          const base = process.env.QA_BASE_URL.replace(/\/$/,"");
+          async function json(path) {
+            const r = await fetch(base + path, { headers: { Authorization: "Bearer " + token }});
+            const body = await r.text();
+            if (!r.ok) throw new Error(path + " -> " + r.status + " " + body);
+            return JSON.parse(body);
+          }
+          (async()=>{
+            const plans = await json("/api/v1/organization/subscription/plans");
+            const codes = new Set((plans.data || []).map(p=>p.code));
+            for (const code of ["ESSENTIALS","GROWTH","PROFESSIONAL","ENTERPRISE"]) {
+              if (!codes.has(code)) throw new Error("Missing active commercial plan: " + code);
+            }
+            const byCode = Object.fromEntries(plans.data.map(p=>[p.code,p]));
+            if (byCode.ESSENTIALS.entitlements?.lms === true) throw new Error("Essentials LMS entitlement mismatch");
+            if (byCode.GROWTH.entitlements?.lms !== true) throw new Error("Growth LMS entitlement missing");
+            if (byCode.PROFESSIONAL.entitlements?.hr_payroll !== true) throw new Error("Professional HR entitlement missing");
+            if (byCode.ENTERPRISE.entitlements?.white_label !== true || byCode.ENTERPRISE.entitlements?.custom_domain !== true) {
+              throw new Error("Enterprise white-label/custom-domain entitlements missing");
+            }
+            const ent = await json("/api/v1/organization/entitlements");
+            if (!ent.data) throw new Error("Organization entitlement snapshot missing");
+            console.log("Commercial plan catalog and entitlement snapshot verified.");
+          })().catch(err=>{ console.error(err); process.exit(1); });
+          NODE
+
+      - name: Verify deployed staging health and SaaS public UI
+        run: |
+          set -euo pipefail
+          base="${QA_BASE_URL%/}"
+          html="$(curl -fsSL --retry 3 --retry-delay 2 "$base/")"
+          printf '%s' "$html" | grep -F "Education ERP"
+          printf '%s' "$html" | grep -F "Four engines. One source of truth."
+          curl -fsSL --retry 3 --retry-delay 2 "$base/api/health/ready" | grep -F '"status":"ready"'
+
+      - name: Verify production public UI and API health
+        run: |
+          set -euo pipefail
+          html="$(curl -fsSL --retry 3 --retry-delay 2 https://beingbrilliantedu.com/)"
+          printf '%s' "$html" | grep -F "Education ERP"
+          printf '%s' "$html" | grep -F "Four engines. One source of truth."
+          curl -fsSL --retry 3 --retry-delay 2 https://beingbrilliantedu.com/api/health/ready | grep -F '"status":"ready"'
+
+      - name: Upload final proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-latest-main-final-proof-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results
+            !test-results/qa-auth/**
+          retention-days: 14
