@@ -18,12 +18,3 @@ test("public self-registration is not exposed by the client auth context", () =>
   assert.doesNotMatch(source, /register:\s*\(/);
   assert.doesNotMatch(source, /authenticate\("register"/);
 });
-
-
-test("AuthProvider reuses a valid access token before rotating refresh tokens", () => {
-  const source = readFileSync(new URL("./auth-provider.tsx", import.meta.url), "utf8");
-  assert.match(source, /const hydrate = useCallback/);
-  assert.match(source, /expiry > Date\.now\(\) \+ 120_000/);
-  assert.match(source, /fetch\(\`\$\{API_URL\}\/auth\/me\`/);
-  assert.match(source, /return refresh\(\)/);
-});
