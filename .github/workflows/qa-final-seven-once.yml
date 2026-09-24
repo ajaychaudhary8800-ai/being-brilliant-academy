@@ -49,24 +49,23 @@ jobs:
 
       - name: Authenticate all seven QA roles
         id: auth
-        continue-on-error: true
         run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --workers=1 --retries=0
 
       - name: Validate public portal selector
         id: public
-        continue-on-error: true
+        if: always()
         run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
 
       - name: Run admin and role smoke QA
         id: smoke
-        continue-on-error: true
+        if: always()
         env:
           QA_REUSE_AUTH_STATE: "true"
         run: pnpm exec playwright test e2e/admin-navigation.spec.ts e2e/role-portals.spec.ts --grep "@smoke" --workers=1 --retries=0
 
       - name: Run guarded cross-role academic workflow
         id: workflow
-        continue-on-error: true
+        if: always()
         env:
           QA_REUSE_AUTH_STATE: "true"
         run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
@@ -81,7 +80,3 @@ jobs:
             test-results
             !test-results/qa-auth/**
           retention-days: 14
-
-      - name: Enforce final QA gate
-        if: ${{ always() && (steps.auth.outcome != 'success' || steps.public.outcome != 'success' || steps.smoke.outcome != 'success' || steps.workflow.outcome != 'success') }}
-        run: exit 1
