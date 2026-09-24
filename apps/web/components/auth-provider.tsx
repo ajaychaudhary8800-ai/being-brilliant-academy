@@ -56,7 +56,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void task.finally(() => { if (refreshInFlight.current === task) refreshInFlight.current = null; });
     return task;
   }, []);
-  useEffect(() => { void refresh().finally(() => setLoading(false)); }, [refresh]);
+  const hydrate = useCallback(async () => {
+    const token = getAccessToken();
+    const expiry = accessTokenExpiry(token);
+    if (token && expiry !== null && expiry > Date.now() + 120_000) {
+      try {
+        const me = await fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+        const meJson = await me.json().catch(() => null);
+        if (me.ok) {
+          setUser(meJson.data as AuthUser);
+          return meJson.data as AuthUser;
+        }
+      } catch {
+        // Fall back to refresh below.
+      }
+    }
+    return refresh();
+  }, [refresh]);
+  useEffect(() => { void hydrate().finally(() => setLoading(false)); }, [hydrate]);
   useEffect(() => {
     const renewIfNeeded = () => {
       const expiry = accessTokenExpiry(getAccessToken());
