@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+stamp="${1:?Usage: verify-offsite.sh TIMESTAMP}"
+: "${BACKUP_S3_BUCKET:?BACKUP_S3_BUCKET is required}"
+
+prefix="${BACKUP_S3_PREFIX:-backups}"
+prefix="${prefix#/}"
+prefix="${prefix%/}"
+remote="s3://$BACKUP_S3_BUCKET"
+if [ -n "$prefix" ]; then remote="$remote/$prefix"; fi
+remote="$remote/$stamp/"
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+aws_s3() {
+  if [ -n "${AWS_S3_ENDPOINT:-}" ]; then
+    aws --endpoint-url "$AWS_S3_ENDPOINT" s3 "$@"
+  else
+    aws s3 "$@"
+  fi
+}
+
+aws_s3 cp "$remote" "$tmp/" --recursive --only-show-errors
+( cd "$tmp" && sha256sum -c SHA256SUMS )
+pg_restore --list "$tmp/database.dump" >/dev/null
+tar -tzf "$tmp/files.tar.gz" >/dev/null
+echo "Off-site backup verified: $remote"
