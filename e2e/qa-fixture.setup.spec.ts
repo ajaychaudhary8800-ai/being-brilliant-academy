@@ -53,14 +53,51 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
     item.academicSessionId === academicSessionId,
   );
 
-  expect(
-    sameCourse,
-    "QA teacher needs at least one active subject allocation in the QA student's course/session so the staging fixture can be aligned safely",
-  ).toBeTruthy();
+  let subjectId = sameCourse?.subjectId as string | undefined;
+  let weeklyPeriods = Math.max(1, Number(sameCourse?.weeklyPeriods ?? 1));
+
+  if (!subjectId) {
+    const commonSubjects = await apiJson<any>(
+      request,
+      superAdmin,
+      `/api/v1/admin/allocation-subject-options?teacherId=${encodeURIComponent(teacherProfile.id)}&courseId=${encodeURIComponent(courseId)}`,
+    );
+    subjectId = commonSubjects.data[0]?.id;
+
+    if (!subjectId) {
+      const [course, teacherSubjects] = await Promise.all([
+        apiJson<any>(request, superAdmin, `/api/v1/admin/courses/${encodeURIComponent(courseId)}`),
+        apiJson<any>(request, superAdmin, `/api/v1/admin/teachers/${encodeURIComponent(teacherProfile.id)}/subjects`),
+      ]);
+      const eligibleCourseSubject = course.data.subjects
+        .map((item: any) => item.subject)
+        .find((subject: any) => subject?.status === "ACTIVE" && subject?.legacyReviewStatus === "CONFIRMED");
+
+      expect(
+        eligibleCourseSubject,
+        "QA student's course must have at least one active confirmed subject for automated fixture alignment",
+      ).toBeTruthy();
+
+      const preservedSubjectIds = teacherSubjects.data
+        .filter((subject: any) => subject.status === "ACTIVE" && subject.legacyReviewStatus === "CONFIRMED")
+        .map((subject: any) => subject.id);
+      const subjectIds = [...new Set([...preservedSubjectIds, eligibleCourseSubject.id])];
+
+      await apiJson(
+        request,
+        superAdmin,
+        `/api/v1/admin/teachers/${encodeURIComponent(teacherProfile.id)}/subjects`,
+        { method: "PUT", data: { subjectIds } },
+      );
+      subjectId = eligibleCourseSubject.id;
+    }
+  }
+
+  expect(subjectId, "QA fixture could not resolve a valid teacher/course subject").toBeTruthy();
 
   const alreadyAllocated = allocations.data.find((item: any) =>
     item.batchId === batchId &&
-    item.subjectId === sameCourse.subjectId &&
+    item.subjectId === subjectId &&
     item.status === "ACTIVE",
   );
 
@@ -77,8 +114,8 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
           courseId,
           batchId,
           teacherId: teacherProfile.id,
-          subjectId: sameCourse.subjectId,
-          weeklyPeriods: Math.max(1, Number(sameCourse.weeklyPeriods ?? 1)),
+          subjectId,
+          weeklyPeriods,
           effectiveFrom: new Date().toISOString().slice(0, 10),
           effectiveTo: null,
           remarks: "Automated QA fixture alignment",
