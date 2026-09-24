@@ -1,6 +1,6 @@
 import type { APIRequestContext } from "@playwright/test";
 import { account, organization, type QaRole } from "./environment";
-import { storedAuthTokens, updateStoredAuthTokens } from "./auth-state";
+import { storedAuthTokens } from "./auth-state";
 
 export type QaApiSession = {
   role: QaRole;
@@ -23,17 +23,13 @@ function accessClaims(token: string): AccessClaims {
   return JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as AccessClaims;
 }
 
-async function reusedApiSession(request: APIRequestContext, role: QaRole): Promise<QaApiSession> {
+async function reusedApiSession(role: QaRole): Promise<QaApiSession> {
   const credentials = account(role);
   const stored = storedAuthTokens(role);
-  const response = await request.post("/api/v1/auth/refresh", { data: { refreshToken: stored.refreshToken } });
-  if (!response.ok()) throw new Error(`Saved API session refresh failed for ${role}: ${await responseError(response)}`);
-  const payload = await response.json() as { data: { accessToken: string; refreshToken: string } };
-  updateStoredAuthTokens(role, payload.data.accessToken, payload.data.refreshToken);
-  const claims = accessClaims(payload.data.accessToken);
+  const claims = accessClaims(stored.accessToken);
   return {
     role,
-    ...payload.data,
+    ...stored,
     user: {
       id: claims.userId,
       name: role,
@@ -46,7 +42,7 @@ async function reusedApiSession(request: APIRequestContext, role: QaRole): Promi
 }
 
 export async function loginApi(request: APIRequestContext, role: QaRole): Promise<QaApiSession> {
-  if (process.env.QA_REUSE_AUTH_STATE === "true") return reusedApiSession(request, role);
+  if (process.env.QA_REUSE_AUTH_STATE === "true") return reusedApiSession(role);
   const credentials = account(role);
   const response = await request.post("/api/v1/auth/login", {
     data: {
