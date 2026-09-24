@@ -4,6 +4,7 @@ import test from "node:test";
 
 const schemaUrl = new URL("../../prisma/schema.prisma", import.meta.url);
 const migrationUrl = new URL("../../prisma/migrations/20260921224500_add_saas_commercial_billing/migration.sql", import.meta.url);
+const packagingMigrationUrl = new URL("../../prisma/migrations/20260924160000_align_commercial_plans/migration.sql", import.meta.url);
 
 test("commercial SaaS schema keeps platform billing separate from learner invoices", async () => {
   const schema = await readFile(schemaUrl, "utf8");
@@ -32,6 +33,26 @@ test("SaaS migration seeds compatibility-safe plans and never edits learner invo
   assert.match(migration, /Branch_saas_commercial_limit_check/);
   assert.match(migration, /User_saas_commercial_limit_check/);
   assert.match(migration, /StudentProfile_saas_commercial_limit_check/);
+});
+
+test("commercial packaging matches Essentials, Growth, Professional and Enterprise", async () => {
+  const migration = await readFile(packagingMigrationUrl, "utf8");
+  assert.match(migration, /'ESSENTIALS'/);
+  assert.match(migration, /'GROWTH'/);
+  assert.match(migration, /'PROFESSIONAL'/);
+  assert.match(migration, /WHERE "code" = 'ENTERPRISE'/);
+  assert.match(migration, /"lms":true/);
+  assert.match(migration, /"crm":true/);
+  assert.match(migration, /"communication":true/);
+  assert.match(migration, /"examinations":true/);
+  assert.match(migration, /"hr_payroll":true/);
+  assert.match(migration, /"analytics":true/);
+  assert.match(migration, /"multi_branch":true/);
+  assert.match(migration, /"white_label":true/);
+  assert.match(migration, /"custom_domain":true/);
+  assert.match(migration, /'\{"branches":1\}'::jsonb/);
+  assert.match(migration, /WHERE "code" = 'STANDARD'/);
+  assert.match(migration, /"isActive" = false/);
 });
 
 test("commercial entitlement enforcement is opt-in for existing tenants", async () => {
@@ -78,6 +99,10 @@ test("commercial feature middleware protects optional ERP modules", async () => 
     ["learning.ts", "lms"],
     ["learning-ecosystem.ts", "lms"],
     ["premium-experience.ts", "lms"],
+    ["admin-examinations.ts", "examinations"],
+    ["examination-workflow.ts", "examinations"],
+    ["admin-tests.ts", "examinations"],
+    ["exams.ts", "examinations"],
   ] as const;
   for (const [file, feature] of expected) {
     const source = await readFile(new URL(file, import.meta.url), "utf8");
@@ -123,9 +148,12 @@ test("SaaS billing UI keeps platform plans separate from tenant subscription che
   assert.match(sidebar, /SaaS Plans.*platformOnly: true/);
   assert.match(sidebar, /organization\/entitlements/);
   assert.match(sidebar, /commercialEntitlements\.entitlements\[entry\.feature\]/);
+  assert.match(sidebar, /Examinations.*feature: "examinations"/s);
   assert.match(sidebar, /Subscription & Billing.*tenantOnly: true.*superAdminOnly: true/);
   assert.match(sidebar, /SaaS Billing.*platformOnly: true/);
   assert.match(plansPage, /\/platform\/saas\/plans/);
+  assert.match(plansPage, /Module access/);
+  assert.match(plansPage, /Examinations & tests/);
   assert.match(billingPage, /\/platform\/saas\/organizations\/\$\{selectedId\}\/subscription/);
   assert.match(billingPage, /Enforce plan features & limits/);
   assert.match(subscriptionPage, /Idempotency-Key/);
