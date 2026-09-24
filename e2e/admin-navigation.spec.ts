@@ -48,7 +48,8 @@ const branchAdminPages: Array<[string, RegExp]> = [
 
 test.beforeAll(({ baseURL }) => assertSafeTarget(baseURL ?? "http://127.0.0.1:3000"));
 
-test("@smoke super admin critical modules load without server errors", async ({ page }) => {\n  test.setTimeout(120_000);
+test("@smoke super admin critical modules load without server errors", async ({ page }) => {
+  test.setTimeout(120_000);
   await login(page, "superAdmin");
   for (const [path, heading] of adminPages) {
     await test.step(path, async () => {
@@ -59,7 +60,8 @@ test("@smoke super admin critical modules load without server errors", async ({ 
 });
 
 
-test("@smoke branch admin core workspace loads", async ({ page }) => {\n  test.setTimeout(90_000);
+test("@smoke branch admin core workspace loads", async ({ page }) => {
+  test.setTimeout(90_000);
   await login(page, "branchAdmin");
   for (const [path, heading] of branchAdminPages) {
     await test.step(path, async () => {
