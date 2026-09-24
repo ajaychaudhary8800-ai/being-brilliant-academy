@@ -20,9 +20,10 @@ import { historicalCivilDate, resolveHistoricalAcademicEnrollment } from "../lib
 import { loadAuthorizedDocument, storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
 import { allowedAnswerSheetTypes, allowedDocumentTypes, assertDocumentFileExtension, decodeVerifiedUpload, type AllowedDocumentType } from "../lib/secure-upload.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
 const router = Router();
-router.use(requireAuth);
+router.use(requireAuth, requireCommercialFeature("examinations"));
 const id = z.string().cuid();
 const uploadFields = { fileName: z.string().trim().min(1).max(180), base64: z.string().min(1).max(14_000_000, "File must not exceed 10 MB"), remarks: z.string().trim().max(2000).optional() } as const;
 const questionPaperUpload = z.object({ ...uploadFields, mimeType: z.enum(allowedDocumentTypes) });
