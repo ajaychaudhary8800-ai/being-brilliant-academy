@@ -167,7 +167,7 @@ function Hr() {
   const [branches, setBranches] = useState<Obj[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [departmentForm, setDepartmentForm] = useState({ name: "", code: "" });
+  const [departmentForm, setDepartmentForm] = useState({ name: "", code: "" });\n  const [designationForm, setDesignationForm] = useState({ departmentId: "", name: "", code: "", level: "1" });
   const [employeeOpen, setEmployeeOpen] = useState(false);
   const [employeeForm, setEmployeeForm] = useState<EmployeeForm>(blankEmployee);
   const [savingEmployee, setSavingEmployee] = useState(false);
@@ -213,6 +213,26 @@ function Hr() {
       await api("/hr/departments", { method: "POST", body: JSON.stringify(departmentForm) });
       setDepartmentForm({ name: "", code: "" });
       setNotice("Department created");
+      await load();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  };
+
+  const addDesignation = async () => {
+    try {
+      setError("");
+      await api("/hr/designations", {
+        method: "POST",
+        body: JSON.stringify({
+          departmentId: designationForm.departmentId,
+          name: designationForm.name,
+          code: designationForm.code,
+          level: Number(designationForm.level),
+        }),
+      });
+      setDesignationForm({ departmentId: "", name: "", code: "", level: "1" });
+      setNotice("Designation created");
       await load();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -357,11 +377,31 @@ function Hr() {
       </div>
 
       {tab === "departments" && (
-        <section className="card mb-5 grid gap-3 p-5 sm:grid-cols-3">
-          <input className="rounded-lg border p-2 dark:bg-slate-950" placeholder="Department name" value={departmentForm.name} onChange={event => setDepartmentForm({ ...departmentForm, name: event.target.value })} />
-          <input className="rounded-lg border p-2 dark:bg-slate-950" placeholder="Code" value={departmentForm.code} onChange={event => setDepartmentForm({ ...departmentForm, code: event.target.value })} />
-          <button onClick={() => void addDepartment()} className="rounded-lg bg-brand-700 px-4 py-2 font-semibold text-white">Add department</button>
-        </section>
+        <div className="mb-5 grid gap-4 xl:grid-cols-2">
+          <section className="card p-5">
+            <h3 className="font-bold">Add department</h3>
+            <p className="mt-1 text-xs text-slate-500">Create the department first, then add its designations.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <input className="rounded-lg border p-2 dark:bg-slate-950" placeholder="Department name" value={departmentForm.name} onChange={event => setDepartmentForm({ ...departmentForm, name: event.target.value })} />
+              <input className="rounded-lg border p-2 dark:bg-slate-950" placeholder="Code" value={departmentForm.code} onChange={event => setDepartmentForm({ ...departmentForm, code: event.target.value })} />
+              <button onClick={() => void addDepartment()} className="rounded-lg bg-brand-700 px-4 py-2 font-semibold text-white">Add department</button>
+            </div>
+          </section>
+
+          <section className="card p-5">
+            <h3 className="font-bold">Add designation</h3>
+            <p className="mt-1 text-xs text-slate-500">Designations become available automatically in the Add Employee form.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <select value={designationForm.departmentId} onChange={event => setDesignationForm({ ...designationForm, departmentId: event.target.value })} className="rounded-lg border p-2 dark:bg-slate-950 lg:col-span-2">
+                <option value="">Select department</option>
+                {departments.filter(item => !item.isArchived).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+              <input className="rounded-lg border p-2 dark:bg-slate-950" placeholder="Designation" value={designationForm.name} onChange={event => setDesignationForm({ ...designationForm, name: event.target.value })} />
+              <input className="rounded-lg border p-2 dark:bg-slate-950" placeholder="Code" value={designationForm.code} onChange={event => setDesignationForm({ ...designationForm, code: event.target.value })} />
+              <button disabled={!designationForm.departmentId || !designationForm.name.trim() || !designationForm.code.trim()} onClick={() => void addDesignation()} className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900">Add designation</button>
+            </div>
+          </section>
+        </div>
       )}
 
       <Grid rows={filtered} tab={tab} />
