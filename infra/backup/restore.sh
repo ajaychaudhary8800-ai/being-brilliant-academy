@@ -26,7 +26,7 @@ restore_pg_url="$(printf '%s\n' "$restore_db" | sed \
 started="$(date +%s)"
 pg_restore --clean --if-exists --no-owner --dbname="$restore_pg_url" "$backup_dir/database.dump"
 mkdir -p "$restore_storage"
-rm -rf "$restore_storage"/*
+find "$restore_storage" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 tar -xzf "$backup_dir/files.tar.gz" -C "$restore_storage"
 table_count="$(psql "$restore_pg_url" -Atc "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public';")"
 file_count="$(find "$restore_storage" -type f | wc -l | tr -d ' ')"
