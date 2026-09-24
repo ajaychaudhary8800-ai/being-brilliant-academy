@@ -77,3 +77,10 @@ Do not treat a client as fully onboarded only because the tenant record exists. 
 - Do not enable features outside the assigned plan.
 - Do not reuse one client's custom domain, logo storage, users, or tenant data for another client.
 - Keep production client data separate from staging/QA tenants.
+
+
+## Implementation kit
+
+For requirements collection, migration templates, UAT, domain handover, support classification, security responsibilities and final sign-off, use [CLIENT_IMPLEMENTATION_KIT.md](./CLIENT_IMPLEMENTATION_KIT.md).
+
+Platform operators can also open **Admin -> Implementation Kit** for downloadable templates and the printable go-live checklist.
