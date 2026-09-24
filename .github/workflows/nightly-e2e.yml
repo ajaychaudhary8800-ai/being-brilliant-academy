@@ -115,7 +115,6 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Run guarded staging academic workflow
       - name: Align synthetic staging fixture
         run: pnpm exec playwright test e2e/qa-fixture.setup.spec.ts --project=desktop-chromium --grep "@fixture" --workers=1 --retries=0
       - name: Run cross-role workflow
