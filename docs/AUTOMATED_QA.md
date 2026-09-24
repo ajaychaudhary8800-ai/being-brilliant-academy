@@ -52,4 +52,4 @@ Staging protects `/api/v1/auth/login` with a 15-minute login rate limit. The nig
 
 The nightly commands run with one worker and zero retries around authentication so a transient assertion cannot create a login retry storm. API workflow checks refresh the saved role sessions through `/auth/refresh`, which does not consume another login attempt.
 
-For ad-hoc staging QA, prefer the same sequence: run `e2e/auth.setup.ts` once, then set `QA_REUSE_AUTH_STATE=true` for role/navigation and workflow specs. Do not run the complete legacy `@smoke` login matrix repeatedly against staging, because it can intentionally trigger the security limiter.
+For ad-hoc staging QA, prefer the same sequence: run `e2e/auth.setup.spec.ts` once, then set `QA_REUSE_AUTH_STATE=true` for role/navigation and workflow specs. Do not run the complete legacy `@smoke` login matrix repeatedly against staging, because it can intentionally trigger the security limiter.
