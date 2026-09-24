@@ -48,7 +48,7 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
 
       - name: Authenticate each QA role once
-        run: pnpm exec playwright test e2e/auth.setup.ts --project=desktop-chromium --workers=1 --retries=0
+        run: pnpm exec playwright test e2e/auth.setup.spec.ts --project=desktop-chromium --workers=1 --retries=0
 
       - name: Validate public portal selector
         run: pnpm exec playwright test e2e/public-and-auth.spec.ts --grep "portal selector" --workers=1 --retries=0
