@@ -60,3 +60,18 @@ test("tenant-specific hosts cannot be used to select another workspace", async (
   assert.match(auth, /customDomainFromSettings\(org\.settings\)/);
   assert.match(auth, /await assertRequestHostMatchesOrganization\(req, org\)/);
 });
+
+
+test("tenant custom URLs are accepted by CORS and authentication binds to browser origin", async () => {
+  const [server, corsPolicy, auth] = await Promise.all([
+    readFile(new URL("../server.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/cors-origin.ts", import.meta.url), "utf8"),
+    readFile(new URL("./auth.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(server, /isTenantCorsOriginAllowed\(origin\)/);
+  assert.match(corsPolicy, /tenantSlugFromHost\(host\)/);
+  assert.match(corsPolicy, /\["whiteLabel", "customDomain"\]/);
+  assert.match(corsPolicy, /isActive: true/);
+  assert.match(auth, /req\.get\("origin"\) \?\? req\.get\("host"\)/);
+  assert.match(auth, /WORKSPACE_HOST_MISMATCH/);
+});
