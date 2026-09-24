@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 50
     env:
       CI: "true"
-      QA_BASE_URL: "https://staging.beingbrilliantedu.com"
+      QA_BASE_URL: "https://main-staging.beingbrilliantedu.com"
       QA_ORGANIZATION_SLUG: "automated-qa-academy"
       QA_SUPER_ADMIN_EMAIL: ${{ secrets.QA_SUPER_ADMIN_EMAIL }}
       QA_SUPER_ADMIN_PASSWORD: ${{ secrets.QA_SUPER_ADMIN_PASSWORD }}
