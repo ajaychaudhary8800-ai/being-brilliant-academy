@@ -87,5 +87,15 @@ export async function login(page: Page, role: QaRole) {
 
 export async function expectHealthyPage(page: Page, heading?: RegExp) {
   await expect(page.locator("body")).not.toContainText(/unexpected error|resource not found|internal server error/i);
-  if (heading) await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
+  if (heading) {
+    const target = page.getByRole("heading", { name: heading }).first();
+    if (await target.count() === 0) {
+      console.log("QA_PAGE_DIAGNOSTIC", JSON.stringify({
+        url: page.url(),
+        headings: await page.locator("h1,h2,h3").allTextContents(),
+        body: (await page.locator("body").innerText()).slice(0, 1200),
+      }));
+    }
+    await expect(target).toBeVisible();
+  }
 }
