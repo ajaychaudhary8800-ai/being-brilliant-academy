@@ -12,4 +12,16 @@
 .high-contrast { filter:contrast(1.25); } .high-contrast .text-slate-500,.high-contrast .text-slate-600 { color:#1e293b; }
 @keyframes hero-in { from {opacity:0;transform:translateY(18px)} to {opacity:1;transform:none} } @keyframes orbit {to{transform:rotate(360deg)}} @keyframes float {50%{transform:translateY(-8px)}}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.hero-reveal,.hero-orbit,.floating-proof{animation:none!important}.card,.premium-cta{transition:none!important}}
-@media print {.pwa-bottom,.install-banner,.site-header{display:none!important}}
+@media print {
+  @page { size: A4; margin: 12mm; }
+  html,body { background:#fff!important; color:#0f172a!important; }
+  .pwa-bottom,.install-banner,.site-header,.skip-link,.admin-navigation-shell,.admin-logout,.implementation-kit-print-hide { display:none!important; }
+  .admin-workspace-main { margin-left:0!important; padding:0!important; min-height:auto!important; }
+  .implementation-kit-print { margin-top:14px!important; }
+  .implementation-kit-print .card { box-shadow:none!important; transform:none!important; }
+  .implementation-kit-print-grid { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr))!important; gap:8px!important; }
+  .implementation-kit-print-section { break-inside:auto; page-break-inside:auto; margin-top:10px!important; }
+  .implementation-kit-print-card,.implementation-kit-print-item { break-inside:avoid; page-break-inside:avoid; }
+  .implementation-kit-print h2,.implementation-kit-print h3 { break-after:avoid; page-break-after:avoid; }
+  .implementation-kit-print p,.implementation-kit-print li { orphans:3; widows:3; }
+}
