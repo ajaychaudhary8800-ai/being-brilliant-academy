@@ -13,9 +13,9 @@ The Playwright suite validates public access, authentication, role routing, admi
 
 ## Required GitHub Actions secrets
 
-`QA_BASE_URL`, `QA_ORGANIZATION_SLUG`, and email/password pairs for `SUPER_ADMIN`, `BRANCH_ADMIN`, `ACCOUNTANT`, `TEACHER`, `STUDENT`, `PARENT`, and `EMPLOYEE`.
+Store email/password pairs for `SUPER_ADMIN`, `BRANCH_ADMIN`, `ACCOUNTANT`, `TEACHER`, `STUDENT`, `PARENT`, and `EMPLOYEE` as repository Actions secrets. The nightly workflow fixes the target to `https://staging.beingbrilliantedu.com` and the dedicated synthetic organization slug to `automated-qa-academy`.
 
-The dedicated organization slug should be `automated-qa-academy`. Use synthetic names, phone numbers, fees, marks, messages, attendance and documents only.
+Use synthetic names, phone numbers, fees, marks, messages, attendance and documents only.
 
 ## Required staging fixture relationships
 
