@@ -8,7 +8,7 @@ const role = (value: unknown) => text(value).replaceAll("_", " ");
 const person = (value: any) => value?.name ? `${value.name} · ${role(value.role)}` : "—";
 const audience = (value: unknown) => value ? role(value) : "Everyone";
 const branch = (value: any) => value?.branchName ?? value?.name ?? "All branches";
-const batch = (value: any) => value?.name ?? "All batches";
+const batch = (value: any) => value?.name ?? "All groups";
 const dateTime = (value: unknown, settings: InstitutionRegionalSettings) => typeof value === "string" ? formatInstitutionDateTime(value, settings) : "—";
 const lifecycle = (publishedAt: unknown, expiresAt: unknown) => {
   const now = Date.now(), published = typeof publishedAt === "string" ? new Date(publishedAt).getTime() : 0, expires = typeof expiresAt === "string" ? new Date(expiresAt).getTime() : 0;
