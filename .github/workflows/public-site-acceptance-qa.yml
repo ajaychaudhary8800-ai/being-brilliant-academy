@@ -79,8 +79,11 @@ jobs:
             assert(await page.locator('.pwa-bottom').count() === 0, target.name + ': public PWA bottom navigation is visible before login');
             assert(await page.locator('.install-banner').count() === 0, target.name + ': public install banner is visible before login');
 
+            await page.waitForLoadState('networkidle').catch(() => {});
+            await page.waitForTimeout(750);
             const themeButton = page.getByRole('button', { name: 'Toggle colour theme' }).first();
             await themeButton.click();
+            await page.waitForFunction(() => document.documentElement.classList.contains('dark'), null, { timeout: 5000 });
             assert(await page.locator('html.dark').count() === 1, target.name + ': dark mode did not activate');
 
             await page.setViewportSize({ width: 390, height: 844 });
