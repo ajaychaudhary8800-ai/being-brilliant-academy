@@ -47,7 +47,7 @@ export async function login(page: Page, role: QaRole) {
   await page.goto(`/login/${qa.portal}`);
   await page.getByLabel("Workspace", { exact: true }).fill(organization);
   await page.getByLabel("Email address").fill(qa.email);
-  await page.getByLabel("Password").fill(qa.password);
+  await page.locator('input[type="password"]').fill(qa.password);
   await page.getByRole("button", { name: new RegExp(`Sign in to`, "i") }).click();
   await expect(page).toHaveURL(qa.expectedPath);
   await expect(page.getByText("Loading your secure workspace…")).toBeHidden();
