@@ -45,7 +45,7 @@ export function assertSafeTarget(baseURL: string, mutations = false) {
 export async function login(page: Page, role: QaRole) {
   const qa = account(role);
   await page.goto(`/login/${qa.portal}`);
-  await page.getByLabel("School workspace").fill(organization);
+  await page.getByLabel("Workspace", { exact: true }).fill(organization);
   await page.getByLabel("Email address").fill(qa.email);
   await page.getByLabel("Password").fill(qa.password);
   await page.getByRole("button", { name: new RegExp(`Sign in to`, "i") }).click();
