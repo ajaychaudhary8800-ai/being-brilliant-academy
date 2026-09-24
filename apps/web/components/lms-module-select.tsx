@@ -58,7 +58,7 @@ export function LmsModuleSelect({ courseId, value, modules, canManage, onChange,
 
   async function createModule() {
     const normalizedTitle = title.trim();
-    if (!courseId) return setError("Select a Batch / Course first.");
+    if (!courseId) return setError("Select an academic group / course first.");
     if (normalizedTitle.length < 2 || normalizedTitle.length > 150) return setError("Module title must be 2–150 characters.");
     if (!Number.isInteger(position) || position < 1) return setError("Module position must be a positive whole number.");
     setSaving(true);
@@ -136,7 +136,7 @@ export function LmsModuleSelect({ courseId, value, modules, canManage, onChange,
   }
 
   return <div>
-    <label>Module<select required disabled={!courseId} className="field" value={value} onChange={(event) => onChange(event.target.value)}><option value="">{courseId ? "Select" : "Select Batch / Course first"}</option>{available.map((item) => <option key={item.id} value={item.id}>{item.position}. {item.title}</option>)}</select></label>
+    <label>Module<select required disabled={!courseId} className="field" value={value} onChange={(event) => onChange(event.target.value)}><option value="">{courseId ? "Select" : "Select academic group / course first"}</option>{available.map((item) => <option key={item.id} value={item.id}>{item.position}. {item.title}</option>)}</select></label>
     {courseId && available.length === 0 && <p className="mt-1 text-xs text-amber-700">No Modules exist for the selected Course.</p>}
     {courseId && canManage && !creating && <button type="button" className="mt-2 text-sm font-semibold text-brand-700" onClick={() => { setCreating(true); setEditingId(null); }}>Create Module</button>}
     {courseId && !canManage && available.length === 0 && <p className="mt-1 text-xs text-slate-500">Ask an administrator to create a Module for this Course.</p>}
