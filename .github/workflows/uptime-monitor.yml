@@ -1,0 +1,121 @@
+name: External uptime monitor
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: external-uptime-monitor
+  cancel-in-progress: true
+
+jobs:
+  health:
+    name: "\${{ matrix.name }} health"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: production
+            url: https://beingbrilliantedu.com
+          - name: staging
+            url: https://staging.beingbrilliantedu.com
+
+    steps:
+      - id: check
+        name: Check readiness
+        shell: bash
+        env:
+          BASE_URL: "\${{ matrix.url }}"
+        run: |
+          set +e
+          response="$(curl --fail --silent --show-error --location --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 "$BASE_URL/api/health/ready" 2>&1)"
+          curl_status=$?
+          set -e
+
+          ok=false
+          if [ "$curl_status" -eq 0 ]; then
+            if printf '%s' "$response" | jq -e '.status == "ready" and .checks.database == true and .checks.redis == true' >/dev/null 2>&1; then
+              ok=true
+            fi
+          fi
+
+          {
+            echo "ok=$ok"
+            echo "response<<EOF"
+            printf '%s\n' "$response" | head -c 4000
+            echo
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Sync incident issue
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          ENVIRONMENT_NAME: "\${{ matrix.name }}"
+          HEALTH_URL: "\${{ matrix.url }}/api/health/ready"
+          HEALTH_OK: "\${{ steps.check.outputs.ok }}"
+          HEALTH_RESPONSE: "\${{ steps.check.outputs.response }}"
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const environment = process.env.ENVIRONMENT_NAME;
+            const title = "[uptime] " + environment + " health check failed";
+            const now = new Date().toISOString();
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: "open",
+              per_page: 100,
+            });
+            const incident = issues.find(issue => !issue.pull_request && issue.title === title);
+
+            if (process.env.HEALTH_OK !== "true") {
+              const body = [
+                "Automated readiness check failed for **" + environment + "**.",
+                "",
+                "Endpoint: " + process.env.HEALTH_URL,
+                "Detected: " + now,
+                "",
+                "Response:",
+                "~~~text",
+                (process.env.HEALTH_RESPONSE || "(no response)").slice(0, 3500),
+                "~~~",
+                "",
+                "Check Coolify deployment state, API logs, PostgreSQL, Redis, DNS/TLS, and the latest migration before closing this incident.",
+              ].join("\n");
+
+              if (incident) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: incident.number,
+                  body,
+                });
+              } else {
+                await github.rest.issues.create({ owner, repo, title, body });
+              }
+            } else if (incident) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: incident.number,
+                body: "Readiness recovered at " + now + ". Closing the automated incident.",
+              });
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: incident.number,
+                state: "closed",
+              });
+            }
+
+      - name: Fail workflow when unhealthy
+        if: steps.check.outputs.ok != 'true'
+        run: exit 1
