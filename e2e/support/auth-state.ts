@@ -37,6 +37,19 @@ export function storedAuthTokens(role: string) {
   throw new Error(`Saved QA auth state for ${role} is missing access or refresh token`);
 }
 
+export function writeStoredAuthTokens(role: string, accessToken: string, refreshToken: string, origin: string) {
+  writeState(role, {
+    cookies: [],
+    origins: [{
+      origin,
+      localStorage: [
+        { name: ACCESS_KEY, value: accessToken },
+        { name: REFRESH_KEY, value: refreshToken },
+      ],
+    }],
+  });
+}
+
 export function updateStoredAuthTokens(role: string, accessToken: string, refreshToken: string) {
   const state = readState(role);
   const origin = state.origins?.find(item => (item.localStorage ?? []).some(entry => entry.name === ACCESS_KEY || entry.name === REFRESH_KEY));
