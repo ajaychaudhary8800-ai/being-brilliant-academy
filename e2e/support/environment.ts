@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { savePageAuthState, storedAuthTokens } from "./auth-state";
+import { storedAuthTokens } from "./auth-state";
 
 export type Portal = "admin" | "teacher" | "student" | "parent" | "employee";
 export type QaRole = "superAdmin" | "branchAdmin" | "accountant" | "teacher" | "student" | "parent" | "employee";
@@ -77,7 +77,6 @@ export async function restoreLogin(page: Page, role: QaRole) {
   );
   await page.goto(qa.dashboardPath);
   await completeLogin(page, qa);
-  await savePageAuthState(page, role);
 }
 
 export async function login(page: Page, role: QaRole) {
