@@ -3,5 +3,52 @@ import "./globals.css";
 import { AuthProvider } from "../components/auth-provider";
 import { PwaShell } from "../components/pwa-shell";
 import { TenantBrandingProvider } from "../components/tenant-branding";
-export const metadata: Metadata = { title: { default: "Being Brilliant Academy", template: "%s | Being Brilliant Academy" }, description: "India's premium coaching ecosystem for CBSE, JEE, NEET and CUET.", metadataBase: new URL("https://beingbrilliant.in"), keywords:["JEE coaching","NEET coaching","CBSE classes","CUET preparation"], alternates:{canonical:"/"}, openGraph: { type: "website", siteName: "Being Brilliant Academy", title:"Being Brilliant Academy", description:"Your ambition. Made unstoppable.", url:"/" }, twitter:{card:"summary_large_image",title:"Being Brilliant Academy",description:"Premium coaching for ambitious learners."}, manifest: "/manifest.webmanifest", icons:{icon:"/icon.svg",apple:"/icon.svg"} };
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) { return <html lang="en"><body><a className="skip-link" href="#main-content">Skip to content</a><AuthProvider><TenantBrandingProvider>{children}<PwaShell/></TenantBrandingProvider></AuthProvider></body></html>; }
+
+export const metadata: Metadata = {
+  title: {
+    default: "Being Brilliant Education Platform",
+    template: "%s | Being Brilliant",
+  },
+  description: "Education ERP, LMS, CRM, finance, HR, examinations, communication and analytics for schools, coaching institutes and education groups.",
+  metadataBase: new URL("https://beingbrilliantedu.com"),
+  keywords: [
+    "education ERP",
+    "school ERP",
+    "coaching institute management software",
+    "education LMS",
+    "admissions CRM",
+    "school management software",
+    "white label education software",
+  ],
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    siteName: "Being Brilliant",
+    title: "Being Brilliant Education Platform",
+    description: "Run ERP, LMS, CRM and institutional analytics from one connected education platform.",
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Being Brilliant Education Platform",
+    description: "ERP, LMS, CRM and analytics for modern education institutions.",
+  },
+  manifest: "/manifest.webmanifest",
+  icons: { icon: "/icon.svg", apple: "/icon.svg" },
+};
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <html lang="en">
+      <body>
+        <a className="skip-link" href="#main-content">Skip to content</a>
+        <AuthProvider>
+          <TenantBrandingProvider>
+            {children}
+            <PwaShell />
+          </TenantBrandingProvider>
+        </AuthProvider>
+      </body>
+    </html>
+  );
+}
