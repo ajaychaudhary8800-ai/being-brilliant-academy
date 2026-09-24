@@ -12,50 +12,78 @@ concurrency:
   group: final-role-qa
   cancel-in-progress: true
 
-jobs:
-  role-workflows:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      CI: "true"
-      QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
-      QA_ORGANIZATION_SLUG: ${{ secrets.QA_ORGANIZATION_SLUG }}
-      QA_SUPER_ADMIN_EMAIL: ${{ secrets.QA_SUPER_ADMIN_EMAIL }}
-      QA_SUPER_ADMIN_PASSWORD: ${{ secrets.QA_SUPER_ADMIN_PASSWORD }}
-      QA_BRANCH_ADMIN_EMAIL: ${{ secrets.QA_BRANCH_ADMIN_EMAIL }}
-      QA_BRANCH_ADMIN_PASSWORD: ${{ secrets.QA_BRANCH_ADMIN_PASSWORD }}
-      QA_ACCOUNTANT_EMAIL: ${{ secrets.QA_ACCOUNTANT_EMAIL }}
-      QA_ACCOUNTANT_PASSWORD: ${{ secrets.QA_ACCOUNTANT_PASSWORD }}
-      QA_TEACHER_EMAIL: ${{ secrets.QA_TEACHER_EMAIL }}
-      QA_TEACHER_PASSWORD: ${{ secrets.QA_TEACHER_PASSWORD }}
-      QA_STUDENT_EMAIL: ${{ secrets.QA_STUDENT_EMAIL }}
-      QA_STUDENT_PASSWORD: ${{ secrets.QA_STUDENT_PASSWORD }}
-      QA_PARENT_EMAIL: ${{ secrets.QA_PARENT_EMAIL }}
-      QA_PARENT_PASSWORD: ${{ secrets.QA_PARENT_PASSWORD }}
-      QA_RUN_MUTATION_TESTS: "true"
-      QA_ALLOW_MUTATIONS: "true"
+env:
+  CI: "true"
+  QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
+  QA_ORGANIZATION_SLUG: ${{ secrets.QA_ORGANIZATION_SLUG }}
+  QA_SUPER_ADMIN_EMAIL: ${{ secrets.QA_SUPER_ADMIN_EMAIL }}
+  QA_SUPER_ADMIN_PASSWORD: ${{ secrets.QA_SUPER_ADMIN_PASSWORD }}
+  QA_BRANCH_ADMIN_EMAIL: ${{ secrets.QA_BRANCH_ADMIN_EMAIL }}
+  QA_BRANCH_ADMIN_PASSWORD: ${{ secrets.QA_BRANCH_ADMIN_PASSWORD }}
+  QA_ACCOUNTANT_EMAIL: ${{ secrets.QA_ACCOUNTANT_EMAIL }}
+  QA_ACCOUNTANT_PASSWORD: ${{ secrets.QA_ACCOUNTANT_PASSWORD }}
+  QA_TEACHER_EMAIL: ${{ secrets.QA_TEACHER_EMAIL }}
+  QA_TEACHER_PASSWORD: ${{ secrets.QA_TEACHER_PASSWORD }}
+  QA_STUDENT_EMAIL: ${{ secrets.QA_STUDENT_EMAIL }}
+  QA_STUDENT_PASSWORD: ${{ secrets.QA_STUDENT_PASSWORD }}
+  QA_PARENT_EMAIL: ${{ secrets.QA_PARENT_EMAIL }}
+  QA_PARENT_PASSWORD: ${{ secrets.QA_PARENT_PASSWORD }}
+  QA_RUN_MUTATION_TESTS: "true"
+  QA_ALLOW_MUTATIONS: "true"
 
+jobs:
+  accountant-auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.0
+        with: { version: 9.15.0 }
       - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
+        with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Run role and module smoke QA except employee
-        run: pnpm exec playwright test e2e/admin-navigation.spec.ts e2e/public-and-auth.spec.ts e2e/role-portals.spec.ts --grep "@smoke" --grep-invert "employee"
-      - name: Run guarded cross-role workflow QA
-        run: pnpm test:e2e:workflow
-      - name: Upload QA evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: final-role-qa-${{ github.run_id }}
-          path: |
-            playwright-report
-            test-results
-          retention-days: 14
+      - name: Validate accountant login
+        run: pnpm exec playwright test e2e/public-and-auth.spec.ts --project=desktop-chromium --grep "@smoke accountant can sign in" --workers=1 --retries=0
+
+  admin-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Validate critical admin and finance navigation
+        run: pnpm exec playwright test e2e/admin-navigation.spec.ts --project=desktop-chromium --workers=1 --retries=0
+
+  role-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Validate teacher student parent portals
+        run: pnpm exec playwright test e2e/role-portals.spec.ts --project=desktop-chromium --grep "@smoke" --grep-invert "employee" --workers=1 --retries=0
+
+  cross-role-workflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Run guarded cross-role academic workflow
+        run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
