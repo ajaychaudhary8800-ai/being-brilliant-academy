@@ -28,7 +28,7 @@ When a check fails, the scheduled workflow fails and is visible in GitHub Action
 
 The backup service creates a PostgreSQL custom-format dump and file-storage archive, records SHA-256 checksums, removes local backups older than the configured retention window, and copies backups to S3-compatible off-site storage when `BACKUP_S3_BUCKET` is configured.
 
-For Cloudflare R2 use `AWS_REGION=auto` and the account-specific R2 S3 endpoint. Remote lifecycle retention is configured with `/usr/local/bin/configure-retention.sh`. See `docs/BACKUP_DR.md` for verification and isolated restore procedures.
+For Cloudflare R2 use `AWS_REGION=auto` and the account-specific R2 S3 endpoint. Keep the production backup credential bucket-scoped to Object Read & Write. Configure lifecycle retention separately as a bucket-level administrative setting. See `docs/BACKUP_DR.md` for retention, verification, and isolated restore procedures.
 
 Default schedule: `0 2 * * *` in the backup container timezone.
 
