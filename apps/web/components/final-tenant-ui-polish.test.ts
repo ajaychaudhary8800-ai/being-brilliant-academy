@@ -29,6 +29,7 @@ test("tenant admin surfaces do not hard-code academy operations", async () => {
 
 test("account and settings UI respects tenant branding", async () => {
   const reset = await readFile(new URL("../app/reset-password/page.tsx", import.meta.url), "utf8");
+  const portal = await readFile(new URL("./portal-auth.tsx", import.meta.url), "utf8");
   assert.match(reset, /useTenantBranding/);
   assert.match(reset, /brand\.appName/);
   assert.doesNotMatch(reset, /Being Brilliant Academy account/);
@@ -55,9 +56,12 @@ test("password setup links preserve tenant workspace context", async () => {
   const reset = await readFile(new URL("../app/reset-password/page.tsx", import.meta.url), "utf8");
 
   assert.match(setup, /workspace=\$\{encodeURIComponent\(organization\?\.slug/);
-  assert.match(auth, /workspace=\$\{encodeURIComponent\(org\.slug\)\}/);
+  assert.match(auth, /tenantBrandFromOrganization\(org\)\.portalBaseUrl/);
+  assert.match(auth, /workspace=\$\{encodeURIComponent\(org\?\.slug/);
   assert.match(reset, /params\.get\("workspace"\)/);
   assert.match(reset, /resolveWorkspace\(workspace\)/);
+  assert.match(portal, /URLSearchParams\(window\.location\.search\)/);
+  assert.match(portal, /readOnly=\{hostBound\}/);
 });
 
 
