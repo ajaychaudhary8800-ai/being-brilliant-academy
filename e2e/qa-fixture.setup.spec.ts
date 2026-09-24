@@ -22,8 +22,6 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
   ]);
 
   const studentUserId = student.user.id;
-  if (teacherDashboard.data.students.some((item: any) => item.attendanceTargetId === studentUserId)) return;
-
   const teacherProfile = teacherDashboard.data.profile;
   const studentProfile = studentDashboard.data.profile;
   const adminStudent = adminStudents.data.find((item: any) => item.user?.id === studentUserId);
