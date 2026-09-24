@@ -25,7 +25,21 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
   expect(teacherProfile.branch.id, "QA teacher and student must belong to the same staging branch").toBe(studentProfile.branch.id);
   expect(studentProfile.course?.id, "QA student must have an active course").toBeTruthy();
   expect(studentProfile.batch?.id, "QA student must have an active batch").toBeTruthy();
-  expect(studentProfile.academicSession?.id, "QA student must have an active academic session").toBeTruthy();
+  const academicSessionName = typeof studentProfile.academicSession === "string"
+    ? studentProfile.academicSession
+    : studentProfile.academicSession?.name;
+  expect(academicSessionName, "QA student must have an active academic session").toBeTruthy();
+
+  const sessions = await apiJson<any>(
+    request,
+    superAdmin,
+    `/api/v1/admin/academic-sessions?search=${encodeURIComponent(academicSessionName)}&status=all&limit=100`,
+  );
+  const academicSession = sessions.data.find(
+    (item: any) => String(item.name).toLowerCase() === String(academicSessionName).toLowerCase(),
+  );
+  expect(academicSession?.id, "QA student's academic session must resolve through Academic Sessions").toBeTruthy();
+  const academicSessionId = academicSession.id as string;
 
   const allocations = await apiJson<any>(
     request,
@@ -36,7 +50,7 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
   const sameCourse = allocations.data.find((item: any) =>
     item.branchId === studentProfile.branch.id &&
     item.courseId === studentProfile.course.id &&
-    item.academicSessionId === studentProfile.academicSession.id,
+    item.academicSessionId === academicSessionId,
   );
 
   expect(
@@ -58,7 +72,7 @@ test("@fixture align QA teacher with QA student batch", async ({ request, baseUR
       {
         method: "POST",
         data: {
-          academicSessionId: studentProfile.academicSession.id,
+          academicSessionId: academicSessionId,
           branchId: studentProfile.branch.id,
           courseId: studentProfile.course.id,
           batchId: studentProfile.batch.id,
