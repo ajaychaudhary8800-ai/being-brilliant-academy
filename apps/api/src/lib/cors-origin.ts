@@ -1,5 +1,6 @@
 import { systemPrisma } from "./prisma.js";
 import { normalizeTenantHost, tenantSlugFromHost } from "./tenant-domain.js";
+import { commercialFeatureEnabled } from "./saas-commercial.js";
 
 export async function isTenantCorsOriginAllowed(origin: string) {
   const host = normalizeTenantHost(origin);
@@ -22,5 +23,5 @@ export async function isTenantCorsOriginAllowed(origin: string) {
     },
     select: { id: true },
   });
-  return Boolean(organization);
+  return Boolean(organization && await commercialFeatureEnabled(organization.id, "custom_domain"));
 }

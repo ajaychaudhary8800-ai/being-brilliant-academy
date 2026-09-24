@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 type DynamicLabel = "courses" | "groups" | "educators" | "assessments" | "learning";
-type CommercialFeature = "crm" | "lms" | "hr_payroll" | "finance" | "communication" | "transport" | "library" | "hostel" | "inventory" | "analytics";
+type CommercialFeature = "crm" | "lms" | "examinations" | "hr_payroll" | "finance" | "communication" | "transport" | "library" | "hostel" | "inventory" | "analytics" | "multi_branch" | "white_label" | "custom_domain";
 type MenuEntry = { name: string; href: string; icon: typeof LayoutDashboard; dynamicLabel?: DynamicLabel; superAdminOnly?: boolean; platformOnly?: boolean; tenantOnly?: boolean; feature?: CommercialFeature };
 type MenuGroup = { name: string; entries: MenuEntry[] };
 
@@ -45,9 +45,9 @@ const menuGroups: MenuGroup[] = [
     { name: "Timetable", href: "/admin/timetables", icon: CalendarDays },
     { name: "Academic Operations", href: "/admin/academic-operations", icon: CalendarClock },
     { name: "Homework", href: "/admin/homeworks", icon: NotebookPen },
-    { name: "Examinations", href: "/admin/examinations", icon: FileCheck2, dynamicLabel: "assessments" },
-    { name: "Answer Submissions", href: "/admin/examination-submissions", icon: FileCheck2 },
-    { name: "Tests", href: "/admin/tests", icon: ClipboardCheck },
+    { name: "Examinations", href: "/admin/examinations", icon: FileCheck2, dynamicLabel: "assessments", feature: "examinations" },
+    { name: "Answer Submissions", href: "/admin/examination-submissions", icon: FileCheck2, feature: "examinations" },
+    { name: "Tests", href: "/admin/tests", icon: ClipboardCheck, feature: "examinations" },
     { name: "LMS", href: "/admin/lms", icon: PlaySquare, feature: "lms" },
     { name: "Learning Resources", href: "/admin/learning-ecosystem", icon: BrainCircuit, dynamicLabel: "learning", feature: "lms" },
   ] },

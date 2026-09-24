@@ -10,6 +10,9 @@ test("public branding exposes only the sanitized tenant brand contract", async (
   assert.match(source, /where: \{ isActive: true, deletedAt: null, settings: \{ path: \["whiteLabel", "customDomain"\], equals: host \} \}/);
   assert.match(source, /if \(organization && !available\(organization\)\) organization = null/);
   assert.match(source, /tenantSlugFromHost\(host\)/);
+  assert.match(source, /commercialFeatureEnabled\(organization\.id, "white_label"\)/);
+  assert.match(source, /commercialFeatureEnabled\(organization\.id, "custom_domain"\)/);
+  assert.match(source, /matchedCustomDomain && !customDomainEnabled/);
   assert.match(source, /BRANDING_NOT_FOUND/);
   assert.doesNotMatch(source, /res\.json\(\{ data: organization \}\)/);
 });
@@ -56,6 +59,8 @@ test("tenant-specific hosts cannot be used to select another workspace", async (
   const auth = await readFile(new URL("./auth.ts", import.meta.url), "utf8");
   assert.match(auth, /assertRequestHostMatchesOrganization/);
   assert.match(auth, /WORKSPACE_HOST_MISMATCH/);
+  assert.match(auth, /commercialFeatureEnabled\(org\.id, "custom_domain"\)/);
+  assert.match(auth, /PLAN_FEATURE_REQUIRED/);
   assert.match(auth, /tenantSlugFromHost\(host\)/);
   assert.match(auth, /customDomainFromSettings\(org\.settings\)/);
   assert.match(auth, /await assertRequestHostMatchesOrganization\(req, org\)/);
@@ -72,6 +77,16 @@ test("tenant custom URLs are accepted by CORS and authentication binds to browse
   assert.match(corsPolicy, /tenantSlugFromHost\(host\)/);
   assert.match(corsPolicy, /\["whiteLabel", "customDomain"\]/);
   assert.match(corsPolicy, /isActive: true/);
+  assert.match(corsPolicy, /commercialFeatureEnabled\(organization\.id, "custom_domain"\)/);
   assert.match(auth, /req\.get\("origin"\) \?\? req\.get\("host"\)/);
   assert.match(auth, /WORKSPACE_HOST_MISMATCH/);
+});
+
+
+test("downgrading a plan revokes tenant custom-domain links and white-label identity without deleting configuration", async () => {
+  const brand = await readFile(new URL("../lib/tenant-brand.ts", import.meta.url), "utf8");
+  assert.match(brand, /commercialFeatureEnabled\(organization\.id, "white_label"\)/);
+  assert.match(brand, /commercialFeatureEnabled\(organization\.id, "custom_domain"\)/);
+  assert.match(brand, /appName: whiteLabelEnabled \? brand\.appName : organization\.name/);
+  assert.match(brand, /portalBaseUrl: customDomainEnabled && brand\.customDomain/);
 });

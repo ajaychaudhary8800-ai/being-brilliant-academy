@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { systemPrisma } from "../lib/prisma.js";
 import { customDomainFromSettings, normalizeTenantHost, tenantSlugFromHost } from "../lib/tenant-domain.js";
+import { commercialFeatureEnabled } from "../lib/saas-commercial.js";
 
 const router = Router();
 
@@ -66,9 +67,21 @@ function available(organization: { isActive: boolean; deletedAt: Date | null }) 
 
 type BrandOrganization = { id: string; slug: string; name: string; logoUrl: string | null; primaryColor: string; secondaryColor: string; settings: unknown; isActive: boolean; deletedAt: Date | null };
 
-function present(organization: BrandOrganization | null) {
+function present(organization: BrandOrganization | null, options: { whiteLabel: boolean; customDomain: boolean }) {
   if (!organization) return null;
-  const whiteLabel = whiteLabelSettings((organization as { settings?: unknown }).settings);
+  const configured = whiteLabelSettings((organization as { settings?: unknown }).settings);
+  const whiteLabel = options.whiteLabel ? { ...configured, customDomain: options.customDomain ? configured.customDomain : null } : {
+    appName: null,
+    portalName: null,
+    loginHeadline: null,
+    loginSubheadline: null,
+    supportEmail: null,
+    supportPhone: null,
+    customDomain: null,
+    faviconUrl: null,
+    accentColor: null,
+    hideVendorBranding: false,
+  };
   return {
     organizationId: organization.id,
     slug: organization.slug,
@@ -92,11 +105,13 @@ router.get("/branding", async (req, res) => {
 
   if (organization && !available(organization)) organization = null;
 
+  let matchedCustomDomain = false;
   if (!organization && host) {
     organization = await systemPrisma.organization.findFirst({
       where: { isActive: true, deletedAt: null, settings: { path: ["whiteLabel", "customDomain"], equals: host } },
       select,
     });
+    matchedCustomDomain = Boolean(organization);
   }
 
   if (!organization && host) {
@@ -111,7 +126,15 @@ router.get("/branding", async (req, res) => {
     return res.status(404).json({ error: { code: "BRANDING_NOT_FOUND", message: "Organization branding was not found" } });
   }
 
-  return res.json({ data: present(organization) });
+  const [whiteLabelEnabled, customDomainEnabled] = await Promise.all([
+    commercialFeatureEnabled(organization.id, "white_label"),
+    commercialFeatureEnabled(organization.id, "custom_domain"),
+  ]);
+  if (matchedCustomDomain && !customDomainEnabled) {
+    return res.status(404).json({ error: { code: "BRANDING_NOT_FOUND", message: "Organization branding was not found" } });
+  }
+
+  return res.json({ data: present(organization, { whiteLabel: whiteLabelEnabled, customDomain: customDomainEnabled }) });
 });
 
 export default router;

@@ -36,6 +36,23 @@ type Form = {
   isActive: boolean;
 };
 
+const featureOptions = [
+  ["lms", "LMS"],
+  ["crm", "CRM & enquiries"],
+  ["communication", "Communication"],
+  ["examinations", "Examinations & tests"],
+  ["hr_payroll", "HR & payroll"],
+  ["analytics", "Advanced analytics"],
+  ["multi_branch", "Multi-branch operations"],
+  ["white_label", "White-label branding"],
+  ["custom_domain", "Custom domain"],
+  ["finance", "Finance & accounts"],
+  ["transport", "Transport"],
+  ["library", "Library"],
+  ["hostel", "Hostel"],
+  ["inventory", "Inventory & assets"],
+] as const;
+
 const empty: Form = {
   code: "",
   name: "",
@@ -45,7 +62,7 @@ const empty: Form = {
   trialDays: "0",
   currency: "INR",
   taxPercent: "0",
-  entitlements: JSON.stringify({ "*": true }, null, 2),
+  entitlements: JSON.stringify({}, null, 2),
   limits: JSON.stringify({}, null, 2),
   isActive: true,
 };
@@ -111,6 +128,21 @@ export default function Page() {
     setError("");
   }
 
+  function entitlementMap() {
+    try {
+      const parsed = JSON.parse(form.entitlements) as Record<string, unknown>;
+      return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
+    } catch {
+      return {};
+    }
+  }
+
+  function toggleEntitlement(key: string, enabled: boolean) {
+    const next = { ...entitlementMap(), [key]: enabled };
+    if (!enabled) delete next[key];
+    setForm(current => ({ ...current, entitlements: JSON.stringify(next, null, 2) }));
+  }
+
   async function save(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -172,7 +204,17 @@ export default function Page() {
       <label className="text-sm font-semibold md:col-span-2">Description
         <textarea className="mt-1 min-h-20 w-full rounded-xl border p-3 font-normal dark:bg-slate-900" value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))}/>
       </label>
-      <label className="text-sm font-semibold">Entitlements JSON
+      <fieldset className="rounded-xl border p-4 md:col-span-2">
+        <legend className="px-2 text-sm font-semibold">Module access</legend>
+        <p className="mb-3 text-xs text-slate-500">Checked modules are available when plan enforcement is enabled for an organization. Core ERP features remain available in every plan.</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {featureOptions.map(([key, label]) => <label key={key} className="flex items-center gap-2 rounded-lg border p-3 text-sm">
+            <input type="checkbox" checked={entitlementMap()[key] === true || entitlementMap()["*"] === true} onChange={event => toggleEntitlement(key, event.target.checked)} />
+            <span>{label}</span>
+          </label>)}
+        </div>
+      </fieldset>
+      <label className="text-sm font-semibold">Advanced entitlements JSON
         <textarea className="mt-1 min-h-44 w-full rounded-xl border p-3 font-mono text-xs font-normal dark:bg-slate-900" value={form.entitlements} onChange={event => setForm(current => ({ ...current, entitlements: event.target.value }))}/>
       </label>
       <label className="text-sm font-semibold">Limits JSON
@@ -205,6 +247,7 @@ export default function Page() {
           <Metric label="Trial" value={plan.trialDays > 0 ? `${plan.trialDays} days` : "Manual/no default"} />
           <Metric label="Tax" value={`${(plan.taxRateBps / 100).toFixed(2)}%`} />
           <Metric label="Limits" value={Object.keys(plan.limits ?? {}).length ? Object.entries(plan.limits).map(([key, value]) => `${key}: ${value ?? "∞"}`).join(", ") : "Unlimited"} />
+          <Metric label="Modules" value={plan.entitlements?.["*"] === true ? "All modules" : Object.entries(plan.entitlements ?? {}).filter(([, enabled]) => enabled).map(([key]) => key.replaceAll("_", " ")).join(", ") || "Core ERP only"} />
         </div>
         <button onClick={() => openEdit(plan)} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-brand-700"><Edit3 size={16}/>Edit</button>
       </article>)}

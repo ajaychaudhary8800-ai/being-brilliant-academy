@@ -1,6 +1,7 @@
 import { env } from "../config.js";
 import { systemPrisma } from "./prisma.js";
 import { customDomainFromSettings, tenantPortalBaseUrl } from "./tenant-domain.js";
+import { commercialFeatureEnabled } from "./saas-commercial.js";
 
 type OrganizationBrandSource = {
   id?: string;
@@ -52,5 +53,15 @@ export async function loadTenantBrand(organizationId: string) {
     customDomain: null,
     portalBaseUrl: env.WEB_URL.replace(/\/$/, ""),
   };
-  return tenantBrandFromOrganization(organization);
+  const brand = tenantBrandFromOrganization(organization);
+  const [whiteLabelEnabled, customDomainEnabled] = await Promise.all([
+    commercialFeatureEnabled(organization.id, "white_label"),
+    commercialFeatureEnabled(organization.id, "custom_domain"),
+  ]);
+  return {
+    appName: whiteLabelEnabled ? brand.appName : organization.name,
+    documentPrefix: whiteLabelEnabled ? brand.documentPrefix : defaultDocumentPrefix(organization.name),
+    customDomain: customDomainEnabled ? brand.customDomain : null,
+    portalBaseUrl: customDomainEnabled && brand.customDomain ? `https://${brand.customDomain}` : env.WEB_URL.replace(/\/$/, ""),
+  };
 }

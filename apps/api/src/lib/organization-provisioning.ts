@@ -3,6 +3,7 @@ import { OrganizationSubscriptionStatus, Prisma, Role, SaaSBillingCycle } from "
 import bcrypt from "bcryptjs";
 import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
+import { customDomainFromSettings } from "./tenant-domain.js";
 
 export type TenantOrganizationProvisionInput = {
   organization: Prisma.OrganizationUncheckedCreateInput;
@@ -15,14 +16,34 @@ export type TenantOrganizationProvisionInput = {
 };
 
 export async function provisionTenantOrganization(input: TenantOrganizationProvisionInput) {
-  const planCode = String(input.organization.subscriptionPlan ?? "STANDARD").trim().toUpperCase();
+  const planCode = String(input.organization.subscriptionPlan ?? "ESSENTIALS").trim().toUpperCase();
   const plan = await systemPrisma.saaSPlan.findUnique({ where: { code: planCode } });
   if (!plan || !plan.isActive) {
     throw new AppError(422, "SAAS_PLAN_NOT_FOUND", "Select an active SaaS plan before provisioning the organization");
   }
+  const planEntitlements = plan.entitlements && typeof plan.entitlements === "object" && !Array.isArray(plan.entitlements)
+    ? plan.entitlements as Record<string, unknown>
+    : {};
+  const requestedCustomDomain = customDomainFromSettings(input.organization.settings, true);
+  if (requestedCustomDomain && planEntitlements["*"] !== true && planEntitlements.custom_domain !== true) {
+    throw new AppError(403, "PLAN_FEATURE_REQUIRED", "The selected subscription plan does not include a custom domain");
+  }
 
   const now = new Date();
   const status = input.organization.subscriptionStatus ?? OrganizationSubscriptionStatus.TRIAL;
+  const rawSettings = input.organization.settings && typeof input.organization.settings === "object" && !Array.isArray(input.organization.settings)
+    ? input.organization.settings as Record<string, unknown>
+    : {};
+  const rawCommercial = rawSettings.commercialEntitlements && typeof rawSettings.commercialEntitlements === "object" && !Array.isArray(rawSettings.commercialEntitlements)
+    ? rawSettings.commercialEntitlements as Record<string, unknown>
+    : {};
+  const settings = {
+    ...rawSettings,
+    commercialEntitlements: {
+      ...rawCommercial,
+      enforce: typeof rawCommercial.enforce === "boolean" ? rawCommercial.enforce : true,
+    },
+  } as Prisma.InputJsonValue;
   let trialEndsAt = input.organization.trialEndsAt ? new Date(input.organization.trialEndsAt) : null;
   if (status === OrganizationSubscriptionStatus.TRIAL && !trialEndsAt && plan.trialDays > 0) {
     trialEndsAt = new Date(now.getTime() + plan.trialDays * 24 * 60 * 60 * 1000);
@@ -37,6 +58,7 @@ export async function provisionTenantOrganization(input: TenantOrganizationProvi
       const organization = await tx.organization.create({
         data: {
           ...input.organization,
+          settings,
           subscriptionPlan: plan.code,
           subscriptionStatus: status,
           trialEndsAt,

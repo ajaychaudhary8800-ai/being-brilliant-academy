@@ -24,6 +24,10 @@ test("SaaS plans own configurable default trial duration", async () => {
 test("tenant provisioning atomically creates organization admin and SaaS subscription", async () => {
   const source = await readFile(new URL("../lib/organization-provisioning.ts", import.meta.url), "utf8");
   assert.match(source, /systemPrisma\.saaSPlan\.findUnique/);
+  assert.match(source, /subscriptionPlan \?\? "ESSENTIALS"/);
+  assert.match(source, /enforce: typeof rawCommercial\.enforce === "boolean" \? rawCommercial\.enforce : true/);
+  assert.match(source, /requestedCustomDomain/);
+  assert.match(source, /planEntitlements\.custom_domain !== true/);
   assert.match(source, /!plan \|\| !plan\.isActive/);
   assert.match(source, /plan\.trialDays \* 24 \* 60 \* 60 \* 1000/);
   assert.match(source, /crypto\.randomBytes\(48\)/);
@@ -47,6 +51,7 @@ test("platform organization provisioning defaults to secure setup email and supp
   assert.match(route, /\/platform\/organizations\/:id\/admin\/setup-email/);
   assert.match(route, /ORGANIZATION_ADMIN_SETUP_EMAIL_REISSUED/);
   assert.match(route, /requireUniqueCustomDomain\(data\.settings\)/);
+  assert.match(route, /default\("ESSENTIALS"\)/);
   assert.match(route, /SETUP_EMAIL_FAILED/);
 });
 
@@ -66,6 +71,8 @@ test("account setup tokens are explicitly tenant scoped and verify email on comp
 test("platform organization UI uses plan catalogue and never asks staff for tenant admin password", async () => {
   const page = await readFile(new URL("../../../web/app/admin/organizations/page.tsx", import.meta.url), "utf8");
   assert.match(page, /api\("\/platform\/saas\/plans"\)/);
+  assert.match(page, /subscriptionPlan: "ESSENTIALS"/);
+  assert.match(page, /planHas\("custom_domain"\)/);
   assert.match(page, /sendSetupEmail: true/);
   assert.match(page, /secure one-time setup link/);
   assert.match(page, /Resend setup/);
