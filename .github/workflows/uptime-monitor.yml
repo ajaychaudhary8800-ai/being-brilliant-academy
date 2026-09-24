@@ -1,0 +1,34 @@
+name: External uptime monitor
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-uptime-monitor
+  cancel-in-progress: true
+
+jobs:
+  production:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check production readiness
+        shell: bash
+        run: |
+          response="$(curl -fsS --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 https://beingbrilliantedu.com/api/health/ready)"
+          printf '%s\n' "$response"
+          printf '%s' "$response" | jq -e '.status == "ready" and .checks.database == true and .checks.redis == true' >/dev/null
+
+  staging:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check staging readiness
+        shell: bash
+        run: |
+          response="$(curl -fsS --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 https://main-staging.beingbrilliantedu.com/api/health/ready)"
+          printf '%s\n' "$response"
+          printf '%s' "$response" | jq -e '.status == "ready" and .checks.database == true and .checks.redis == true' >/dev/null
