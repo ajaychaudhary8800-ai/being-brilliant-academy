@@ -50,3 +50,13 @@ test("tenant-facing web shell consumes runtime branding rather than a fixed admi
   assert.match(portals, /readOnly=\{hostBound\}/);
   assert.match(portals, /brand\.loginHeadline/);
 });
+
+
+test("tenant-specific hosts cannot be used to select another workspace", async () => {
+  const auth = await readFile(new URL("./auth.ts", import.meta.url), "utf8");
+  assert.match(auth, /assertRequestHostMatchesOrganization/);
+  assert.match(auth, /WORKSPACE_HOST_MISMATCH/);
+  assert.match(auth, /tenantSlugFromHost\(host\)/);
+  assert.match(auth, /customDomainFromSettings\(org\.settings\)/);
+  assert.match(auth, /await assertRequestHostMatchesOrganization\(req, org\)/);
+});
