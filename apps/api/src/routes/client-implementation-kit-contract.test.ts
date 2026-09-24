@@ -79,3 +79,24 @@ test("implementation runbook distinguishes current capability from contractual p
   assert.match(runbook, /Do not promise off-site disaster recovery until off-site object storage is configured/);
   assert.match(runbook, /100% \/ READY/);
 });
+
+test("implementation kit print mode removes admin chrome and avoids broken page fragments", async () => {
+  const [page, workspace, styles] = await Promise.all([
+    readFile(new URL("../../../web/app/admin/implementation-kit/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../../web/components/admin-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../../web/app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /implementation-kit-print-hide/);
+  assert.match(page, /implementation-kit-print-grid/);
+  assert.match(page, /implementation-kit-print-card/);
+  assert.match(page, /implementation-kit-print-item/);
+  assert.match(workspace, /admin-navigation-shell/);
+  assert.match(workspace, /admin-workspace-main/);
+  assert.match(workspace, /admin-logout/);
+  assert.match(styles, /@media print/);
+  assert.match(styles, /\.skip-link,.admin-navigation-shell,.admin-logout,.implementation-kit-print-hide/);
+  assert.match(styles, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(styles, /break-inside:avoid/);
+  assert.match(styles, /@page \{ size: A4; margin: 12mm; \}/);
+});
