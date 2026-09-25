@@ -55,6 +55,9 @@ test("runtime API image packages the controlled legal sales source", async () =>
     readFile(serverUrl, "utf8"),
   ]);
   assert.match(docker, /COPY --chown=app:app docs\/legal-sales \.\/docs\/legal-sales/);
+  const route = await readFile(routeUrl, "utf8");
+  assert.match(route, /\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/docs\/legal-sales/);
+  assert.match(route, /LEGAL_SALES_SOURCE_UNAVAILABLE/);
   assert.match(server, /legal-sales-documents\.js/);
   assert.match(server, /onlyPaths\(\["\/platform\/legal-sales"\], legalSalesDocuments\)/);
 });

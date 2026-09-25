@@ -250,7 +250,7 @@ export default function Page() {
                 </span>
               </div>
             </button>)}
-            {filtered.length === 0 && <p className="py-6 text-center text-sm text-slate-500">No documents match the filter.</p>}
+            {filtered.length === 0 && <p className="py-6 text-center text-sm text-slate-500">{documents.length === 0 && error ? "Documents could not be loaded. Use Refresh to retry." : "No documents match the filter."}</p>}
           </div>
         </aside>
 
