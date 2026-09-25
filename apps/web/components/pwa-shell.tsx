@@ -15,7 +15,7 @@ export function PwaShell() {
   const { brand } = useTenantBranding();
   const { user, loading } = useAuth();
   const [install, setInstall] = useState<InstallEvent | null>(null);
-  const [workerFailed, setWorkerFailed] = useState(false);\n  const dismissedUntil = () => Number(window.localStorage.getItem("bba-pwa-install-dismissed-until") ?? "0");
+  const [workerFailed, setWorkerFailed] = useState(false);
 
   useEffect(() => {
     if (loading || !user) return;
