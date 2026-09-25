@@ -41,7 +41,7 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
-  const [creating, setCreating] = useState<"vehicle" | "type" | null>(null);
+  const [creating, setCreating] = useState<"vehicle" | "type" | "driver" | null>(null);
 
   const loadOptions = useCallback(async () => {
     try {
@@ -63,7 +63,8 @@ export default function Page() {
       setError("");
       setDashboard((await api("/transport/dashboard")).data);
       const path = tab === "vehicles" ? "/transport/vehicles" : tab === "drivers" ? "/transport/staff" : tab === "routes" ? "/transport/routes" : tab === "assignments" ? "/transport/assignments" : `/transport/reports/${tab}`;
-      const result = await api(`${path}?search=${encodeURIComponent(q)}&page=1&limit=50`);
+      const roleFilter = tab === "drivers" ? "&role=DRIVER" : "";
+      const result = await api(`${path}?search=${encodeURIComponent(q)}&page=1&limit=50${roleFilter}`);
       setRows(Array.isArray(result.data) ? result.data : []);
     } catch (cause) {
       setError(errorMessage(cause));
@@ -86,6 +87,18 @@ export default function Page() {
     { name: "gpsDeviceId", label: "GPS device ID", placeholder: "Optional" },
   ], [branches, vehicleTypes]);
 
+  const driverFields = useMemo<QuickCreateField[]>(() => [
+    { name: "branchId", label: "Branch", type: "select", required: true, options: branches.map(branch => ({ value: branch.id, label: branch.branchName ?? branch.name ?? branch.branchCode ?? branch.id })) },
+    { name: "employeeCode", label: "Employee code", required: true, placeholder: "DRV-001" },
+    { name: "name", label: "Driver name", required: true, placeholder: "Driver name" },
+    { name: "phone", label: "Phone", required: true, placeholder: "10-digit mobile number" },
+    { name: "role", label: "Role", type: "select", required: true, options: [{ value: "DRIVER", label: "Driver" }] },
+    { name: "licenseNumber", label: "Driving licence number", required: true, placeholder: "DL number" },
+    { name: "licenseExpiry", label: "Licence expiry", type: "date", required: true },
+    { name: "emergencyContact", label: "Emergency contact", required: true, placeholder: "10-digit mobile number" },
+    { name: "address", label: "Address", placeholder: "Optional address" },
+  ], [branches]);
+
   const cards = [
     [Bus, "Vehicles", dashboard.vehicles],
     [Users, "Drivers", dashboard.drivers],
@@ -100,6 +113,7 @@ export default function Page() {
         <button onClick={() => setCreating("type")} className="inline-flex items-center gap-2 rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold dark:bg-slate-900"><Plus size={17}/>New Vehicle Type</button>
         <button onClick={() => setCreating("vehicle")} className="inline-flex items-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-bold text-white"><Plus size={17}/>Add Vehicle</button>
       </>}
+      {tab === "drivers" && <button onClick={() => setCreating("driver")} className="inline-flex items-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-bold text-white"><Plus size={17}/>Add Driver</button>}
       <button onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-2 rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold disabled:opacity-60 dark:bg-slate-900"><RefreshCw size={17} className={loading ? "animate-spin" : ""}/>Refresh</button>
     </div>
     {notice && <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p>}
@@ -111,8 +125,9 @@ export default function Page() {
       <button onClick={() => void downloadReport(tab, "excel").catch(cause => setError(errorMessage(cause)))} className="flex items-center gap-2 rounded-lg border px-4"><Download size={17}/>Excel</button>
       <button onClick={() => void downloadReport(tab, "pdf").catch(cause => setError(errorMessage(cause)))} className="flex items-center gap-2 rounded-lg border px-4"><Download size={17}/>PDF</button>
     </div>
-    <div className="card divide-y dark:divide-slate-800">{rows.map((row,index) => <div className="grid gap-2 p-4 text-sm sm:grid-cols-5" key={row.id ?? index}>{Object.entries(row).filter(([,value]) => typeof value !== "object").slice(0,5).map(([key,value]) => <span key={key}><small className="block uppercase text-slate-400">{key}</small>{String(value)}</span>)}</div>)}{!rows.length && <div className="p-8 text-center text-slate-500"><p>No records found.</p>{tab === "vehicles" && <button onClick={() => setCreating("vehicle")} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-bold text-white"><Plus size={16}/>Add First Vehicle</button>}</div>}</div>
+    <div className="card divide-y dark:divide-slate-800">{rows.map((row,index) => <div className="grid gap-2 p-4 text-sm sm:grid-cols-5" key={row.id ?? index}>{Object.entries(row).filter(([,value]) => typeof value !== "object").slice(0,5).map(([key,value]) => <span key={key}><small className="block uppercase text-slate-400">{key}</small>{String(value)}</span>)}</div>)}{!rows.length && <div className="p-8 text-center text-slate-500"><p>No records found.</p>{tab === "vehicles" && <button onClick={() => setCreating("vehicle")} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-bold text-white"><Plus size={16}/>Add First Vehicle</button>}{tab === "drivers" && <button onClick={() => setCreating("driver")} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-bold text-white"><Plus size={16}/>Add First Driver</button>}</div>}</div>
     {creating === "vehicle" && <OperationsQuickCreate title="Add Vehicle" description="Register a vehicle against its branch and vehicle type." endpoint="/transport/vehicles" fields={vehicleFields} defaults={{ seatCapacity: 40 }} onClose={() => setCreating(null)} onCreated={async () => { setNotice("Vehicle created successfully."); await Promise.all([load(), loadOptions()]); }}/>}
     {creating === "type" && <OperationsQuickCreate title="New Vehicle Type" endpoint="/transport/vehicle-types" fields={[{ name: "name", label: "Type name", required: true, placeholder: "School Bus" }, { name: "code", label: "Type code", required: true, placeholder: "BUS" }, { name: "seatCapacity", label: "Maximum seats", type: "number", required: true, min: 1 }]} defaults={{ seatCapacity: 40 }} onClose={() => setCreating(null)} onCreated={async () => { setNotice("Vehicle type created."); await loadOptions(); }}/>}
+    {creating === "driver" && <OperationsQuickCreate title="Add Driver" description="Create a transport driver with a valid driving licence." endpoint="/transport/staff" fields={driverFields} defaults={{ role: "DRIVER" }} onClose={() => setCreating(null)} onCreated={async () => { setNotice("Driver created successfully."); await load(); }}/>}
   </ProtectedAdminWorkspace>;
 }
