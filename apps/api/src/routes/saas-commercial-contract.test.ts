@@ -4,7 +4,8 @@ import test from "node:test";
 
 const schemaUrl = new URL("../../prisma/schema.prisma", import.meta.url);
 const migrationUrl = new URL("../../prisma/migrations/20260921224500_add_saas_commercial_billing/migration.sql", import.meta.url);
-const packagingMigrationUrl = new URL("../../prisma/migrations/20260924160000_align_commercial_plans/migration.sql", import.meta.url);\nconst finalPricingMigrationUrl = new URL("../../prisma/migrations/20260925093000_finalize_commercial_pricing/migration.sql", import.meta.url);
+const packagingMigrationUrl = new URL("../../prisma/migrations/20260924160000_align_commercial_plans/migration.sql", import.meta.url);
+const finalPricingMigrationUrl = new URL("../../prisma/migrations/20260925093000_finalize_commercial_pricing/migration.sql", import.meta.url);
 
 test("commercial SaaS schema keeps platform billing separate from learner invoices", async () => {
   const schema = await readFile(schemaUrl, "utf8");
