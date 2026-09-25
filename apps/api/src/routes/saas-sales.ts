@@ -72,8 +72,14 @@ router.post("/public/saas-sales/leads", async (req, res) => {
       createdAt: { gte: since },
       status: { notIn: ["WON", "LOST"] },
       OR: [
-        { mobile: input.mobile },
-        ...(input.email ? [{ email: { equals: input.email, mode: "insensitive" as const } }] : []),
+        {
+          organizationName: { equals: input.organizationName, mode: "insensitive" },
+          mobile: input.mobile,
+        },
+        ...(input.email ? [{
+          organizationName: { equals: input.organizationName, mode: "insensitive" as const },
+          email: { equals: input.email, mode: "insensitive" as const },
+        }] : []),
       ],
     },
     orderBy: { createdAt: "desc" },
@@ -84,15 +90,12 @@ router.post("/public/saas-sales/leads", async (req, res) => {
     const updated = await systemPrisma.saaSSalesLead.update({
       where: { id: existing.id },
       data: {
-        organizationName: input.organizationName,
-        contactName: input.contactName,
-        email: input.email ?? existing.email,
-        institutionType: input.institutionType,
-        studentCountBand: input.studentCountBand ?? existing.studentCountBand,
-        city: input.city ?? existing.city,
-        state: input.state ?? existing.state,
-        website: input.website ?? existing.website,
-        campaign: input.campaign ?? existing.campaign,
+        email: existing.email ?? input.email,
+        studentCountBand: existing.studentCountBand ?? input.studentCountBand,
+        city: existing.city ?? input.city,
+        state: existing.state ?? input.state,
+        website: existing.website ?? input.website,
+        campaign: existing.campaign ?? input.campaign,
         requirements: input.requirements ?? undefined,
         utm: input.utm ?? undefined,
         leadScore: Math.max(existing.leadScore, leadScore),
