@@ -33,7 +33,7 @@ test("Order Form and proposal remain anchored to the approved Step 8 commercial 
   assert.match(proposal, /ESSENTIALS \/ GROWTH \/ PROFESSIONAL \/ ENTERPRISE/);
   assert.match(proposal, /COMMERCIAL_PACKAGING_PRICING\.md/);
   assert.match(order, /COMMERCIAL_PACKAGING_PRICING\.md/);
-  assert.match(order, /GST: as applicable/);
+  assert.match(order, /GST:\*\* as applicable/);
   assert.match(order, /reflected in the platform plan\/entitlement configuration/);
 });
 
