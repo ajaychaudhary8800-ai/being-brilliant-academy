@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-09-25",
+  "product": "Being Brilliant ERP + LMS + CRM",
+  "declaredStatus": "HOLD",
+  "statusRule": "GO only when every gate with blocking=true is READY.",
+  "gates": [
+    {
+      "id": "product-platform",
+      "name": "Core SaaS product and tenant isolation",
+      "blocking": true,
+      "status": "READY",
+      "evidence": [
+        "apps/api/src/middleware/auth.ts",
+        "apps/api/src/routes/organizations.ts",
+        "apps/api/src/routes/organization-provisioning.ts"
+      ],
+      "note": "Multi-tenant roles, subscription enforcement and organization provisioning are implemented and regression-tested."
+    },
+    {
+      "id": "quality-stability",
+      "name": "QA, staging and production stability",
+      "blocking": true,
+      "status": "READY",
+      "evidence": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/nightly-e2e.yml",
+        "docs/PRODUCTION_OPERATIONS.md"
+      ],
+      "note": "Protected CI, nightly seven-role staging QA and production operating controls are present."
+    },
+    {
+      "id": "client-onboarding",
+      "name": "Client onboarding and implementation",
+      "blocking": true,
+      "status": "READY",
+      "evidence": [
+        "docs/CLIENT_ONBOARDING.md",
+        "docs/CLIENT_IMPLEMENTATION_KIT.md",
+        "apps/api/src/integration/client-onboarding-dry-run.integration.test.ts"
+      ],
+      "note": "Provisioning, readiness, migration/UAT and handover procedures are defined and dry-run tested."
+    },
+    {
+      "id": "commercial-packaging",
+      "name": "Commercial packaging, pricing and billing controls",
+      "blocking": true,
+      "status": "READY",
+      "evidence": [
+        "docs/COMMERCIAL_PACKAGING_PRICING.md",
+        "apps/api/src/routes/saas-commercial-contract.test.ts"
+      ],
+      "note": "Launch plans, pricing, limits, billing and discount guardrails are controlled."
+    },
+    {
+      "id": "legal-contract-pack",
+      "name": "Sales and legal contract templates",
+      "blocking": true,
+      "status": "READY",
+      "evidence": [
+        "docs/legal-sales/README.md",
+        "apps/api/src/routes/legal-sales-docs-contract.test.ts"
+      ],
+      "note": "Proposal, order form, SaaS agreement, SOW, SLA, DPA, privacy, AUP, exit, security and handover templates exist."
+    },
+    {
+      "id": "sales-acquisition",
+      "name": "Lead generation and conversion system",
+      "blocking": true,
+      "status": "READY",
+      "evidence": [
+        "docs/SAAS_SALES_PLAYBOOK.md",
+        "apps/api/src/routes/saas-sales.ts",
+        "apps/web/app/admin/saas-sales/page.tsx"
+      ],
+      "note": "Dedicated platform B2B pipeline, lead capture, qualification, follow-up and conversion controls are implemented."
+    },
+    {
+      "id": "monitoring-operations",
+      "name": "Monitoring and incident operations",
+      "blocking": true,
+      "status": "READY",
+      "evidence": [
+        "docs/MONITORING.md",
+        "docs/INCIDENT_RESPONSE.md",
+        ".github/workflows/uptime-monitor.yml",
+        "infra/backup/healthcheck.sh"
+      ],
+      "note": "Off-host monitoring, worker health, operational metrics, backup freshness health and incident response are implemented."
+    },
+    {
+      "id": "offsite-dr",
+      "name": "Off-site backup and disaster-recovery evidence",
+      "blocking": true,
+      "status": "PENDING_DEPENDENCY",
+      "dependency": "Step 5",
+      "evidence": [
+        "docs/PRODUCTION_OPERATIONS.md",
+        "docs/MONITORING.md"
+      ],
+      "nextAction": "Configure real off-site object storage, verify scheduled upload, run an isolated restore drill and record measured RPO/RTO evidence.",
+      "note": "Local backup health is monitored, but off-site DR has not been verified."
+    },
+    {
+      "id": "legal-execution",
+      "name": "Verified corporate/legal execution particulars",
+      "blocking": true,
+      "status": "BLOCKED_EXTERNAL",
+      "dependency": "Business/legal verification",
+      "evidence": [
+        "docs/legal-sales/README.md",
+        "docs/legal-sales/LEGAL_RESEARCH_NOTES.md"
+      ],
+      "nextAction": "Verify registered office, CIN, GSTIN, authorized signatory, notices/privacy contacts, support contacts/hours and payment details; obtain Indian counsel review before first external signature.",
+      "note": "No unverified company particulars may be invented or published."
+    },
+    {
+      "id": "public-legal-pages",
+      "name": "Public Privacy/Terms/AUP publication",
+      "blocking": true,
+      "status": "PENDING_DEPENDENCY",
+      "dependency": "Verified corporate/legal execution particulars",
+      "evidence": [
+        "docs/legal-sales/07_PRIVACY_NOTICE.md",
+        "docs/legal-sales/08_ACCEPTABLE_USE_POLICY.md"
+      ],
+      "nextAction": "After verified particulars and counsel review, publish approved Privacy, Terms/SaaS terms and AUP links on the public SaaS website and demo form.",
+      "note": "The current public SaaS footer does not expose approved legal pages."
+    },
+    {
+      "id": "first-paying-client",
+      "name": "First real paying external client",
+      "blocking": true,
+      "status": "PENDING_DEPENDENCY",
+      "dependency": "Step 11",
+      "evidence": [
+        "docs/SAAS_SALES_PLAYBOOK.md",
+        "docs/CLIENT_ONBOARDING.md"
+      ],
+      "nextAction": "Convert one real institution through signed commercial acceptance, payment/activation, provisioning, onboarding, UAT and go-live.",
+      "note": "Synthetic QA and internal tenants do not satisfy this gate."
+    },
+    {
+      "id": "formal-release",
+      "name": "Formal production release",
+      "blocking": false,
+      "status": "PENDING_DEPENDENCY",
+      "dependency": "Step 12 after first-client validation",
+      "evidence": [
+        "docs/PRODUCTION_OPERATIONS.md"
+      ],
+      "nextAction": "Create the formal release version/tag and release record only after Step 11 validation and final GO decision.",
+      "note": "This is downstream of the pre-launch readiness gate rather than a blocker to implementing Step 14."
+    }
+  ]
+}
