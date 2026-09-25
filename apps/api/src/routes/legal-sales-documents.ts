@@ -26,7 +26,12 @@ const documents = [
 ] as const;
 
 type DocumentDefinition = (typeof documents)[number];
-const root = fileURLToPath(new URL("../../../../docs/legal-sales/", import.meta.url));
+const sourceRoots = [
+  // Compiled production layout: apps/api/dist/src/routes -> repository root.
+  fileURLToPath(new URL("../../../../../docs/legal-sales/", import.meta.url)),
+  // Source/test layout: apps/api/src/routes -> repository root.
+  fileURLToPath(new URL("../../../../docs/legal-sales/", import.meta.url)),
+];
 
 function requirePlatformAdmin(req: AuthRequest) {
   if (req.auth?.role !== Role.SUPER_ADMIN || req.auth.homeOrganizationId !== "org_default") {
@@ -41,7 +46,18 @@ function definition(id: string): DocumentDefinition {
 }
 
 async function source(item: DocumentDefinition) {
-  return readFile(resolve(root, item.file), "utf8");
+  for (const root of sourceRoots) {
+    try {
+      return await readFile(resolve(root, item.file), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  throw new AppError(
+    503,
+    "LEGAL_SALES_SOURCE_UNAVAILABLE",
+    "Controlled sales/legal document source is unavailable in this deployment",
+  );
 }
 
 function placeholders(content: string) {
