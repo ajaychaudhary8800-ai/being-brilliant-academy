@@ -10,7 +10,7 @@ import { RedisStore } from "rate-limit-redis";
 import { corsOrigins, env } from "./config.js";
 import { AppError, errorHandler, notFound } from "./lib/http.js";
 import { logger } from "./lib/logger.js";
-import { metricsMiddleware, metricsRegistry } from "./lib/metrics.js";
+import { metricsMiddleware, metricsRegistry, setDependencyReady, startWorkerRun } from "./lib/metrics.js";
 import { systemPrisma } from "./lib/prisma.js";
 import { ensureRedis, redis } from "./lib/redis.js";
 import { MAX_NOTIFICATION_DELIVERY_ATTEMPTS, deliverNotification, providerStatus, verifySmtp } from "./lib/notifications.js";
@@ -173,7 +173,7 @@ app.get("/health/live", (_req, res) =>
     timestamp: new Date().toISOString(),
   }),
 );
-app.get("/health/ready", async (_req, res) => {
+async function dependencyChecks() {
   const checks: Record<string, boolean> = {
     database: false,
     redis: !env.REDIS_REQUIRED,
@@ -191,8 +191,50 @@ app.get("/health/ready", async (_req, res) => {
       checks.redis = false;
     }
   }
+  for (const [dependency, ready] of Object.entries(checks)) setDependencyReady(dependency, ready);
+  return checks;
+}
+
+type WorkerHeartbeat = {
+  lastSuccessAt: Date | null;
+  lastFailureAt: Date | null;
+  lastError: string | null;
+};
+
+const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle", WorkerHeartbeat> = {
+  notificationDelivery: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
+  saasLifecycle: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
+};
+
+function workerSnapshot(name: keyof typeof workerHeartbeats, maxAgeMs: number, now = new Date()) {
+  const heartbeat = workerHeartbeats[name];
+  const healthy = Boolean(heartbeat.lastSuccessAt && now.getTime() - heartbeat.lastSuccessAt.getTime() <= maxAgeMs);
+  return {
+    healthy,
+    lastSuccessAt: heartbeat.lastSuccessAt?.toISOString() ?? null,
+    lastFailureAt: heartbeat.lastFailureAt?.toISOString() ?? null,
+  };
+}
+
+app.get("/health/ready", async (_req, res) => {
+  const checks = await dependencyChecks();
   const ready = Object.values(checks).every(Boolean);
   res.status(ready ? 200 : 503).json({ status: ready ? "ready" : "not_ready", checks });
+});
+
+app.get("/health/operational", async (_req, res) => {
+  const checks = await dependencyChecks();
+  const workers = {
+    notificationDelivery: workerSnapshot("notificationDelivery", 2 * 60_000),
+    saasLifecycle: workerSnapshot("saasLifecycle", 10 * 60_000),
+  };
+  const healthy = Object.values(checks).every(Boolean) && Object.values(workers).every(worker => worker.healthy);
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? "operational" : "degraded",
+    checks,
+    workers,
+    timestamp: new Date().toISOString(),
+  });
 });
 app.get("/health/integrations", async (_req, res) =>
   res.json({
@@ -202,10 +244,17 @@ app.get("/health/integrations", async (_req, res) =>
   }),
 );
 app.get("/metrics", async (req, res) => {
-  if (env.METRICS_TOKEN && req.headers.authorization !== `Bearer ${env.METRICS_TOKEN}`)
+  if (env.NODE_ENV === "production" && !env.METRICS_TOKEN) {
+    return res.status(503).json({
+      error: { code: "METRICS_NOT_CONFIGURED", message: "Production metrics require METRICS_TOKEN" },
+    });
+  }
+  if (env.METRICS_TOKEN && req.headers.authorization !== `Bearer ${env.METRICS_TOKEN}`) {
     return res.status(401).json({
       error: { code: "UNAUTHORIZED", message: "Metrics token required" },
     });
+  }
+  res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Type", metricsRegistry.contentType);
   return res.send(await metricsRegistry.metrics());
 });
@@ -284,7 +333,8 @@ app.use("/api/v1/exams", exams);
 app.use(notFound, errorHandler);
 
 export const server = app.listen(env.PORT, () => logger.info({ port: env.PORT }, "API listening"));
-const notificationWorker = setInterval(async () => {
+const runNotificationDeliveryWorker = async () => {
+  const finishMetric = startWorkerRun("notification_delivery");
   try {
     const now = new Date();
     const queued = await systemPrisma.notificationDelivery.findMany({
@@ -298,19 +348,38 @@ const notificationWorker = setInterval(async () => {
       orderBy: { createdAt: "asc" },
     });
     await Promise.all(queued.map(({ id }) => deliverNotification(id, now)));
+    workerHeartbeats.notificationDelivery = { lastSuccessAt: new Date(), lastFailureAt: workerHeartbeats.notificationDelivery.lastFailureAt, lastError: null };
+    finishMetric("success");
   } catch (error) {
+    workerHeartbeats.notificationDelivery = {
+      lastSuccessAt: workerHeartbeats.notificationDelivery.lastSuccessAt,
+      lastFailureAt: new Date(),
+      lastError: error instanceof Error ? error.message.slice(0, 500) : "Notification worker failed",
+    };
+    finishMetric("failure");
     logger.error({ err: error }, "Notification worker failed");
   }
-}, 30_000);
+};
+void runNotificationDeliveryWorker();
+const notificationWorker = setInterval(() => void runNotificationDeliveryWorker(), 30_000);
 notificationWorker.unref();
 
 const reconcileCommercialLifecycle = async () => {
+  const finishMetric = startWorkerRun("saas_lifecycle");
   try {
     const result = await reconcileSaaSLifecycle(new Date());
+    workerHeartbeats.saasLifecycle = { lastSuccessAt: new Date(), lastFailureAt: workerHeartbeats.saasLifecycle.lastFailureAt, lastError: null };
+    finishMetric("success");
     if (result.overdueInvoices || result.pastDue || result.cancelled || result.expiredTrialsPastDue || result.renewalRemindersQueued) {
       logger.info(result, "SaaS subscription lifecycle reconciled");
     }
   } catch (error) {
+    workerHeartbeats.saasLifecycle = {
+      lastSuccessAt: workerHeartbeats.saasLifecycle.lastSuccessAt,
+      lastFailureAt: new Date(),
+      lastError: error instanceof Error ? error.message.slice(0, 500) : "SaaS lifecycle worker failed",
+    };
+    finishMetric("failure");
     logger.error({ err: error }, "SaaS subscription lifecycle worker failed");
   }
 };
