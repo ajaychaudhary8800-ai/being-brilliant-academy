@@ -99,69 +99,79 @@ router.get("/finance/fee-assignments/:id", async (req: AuthRequest, res) => {
 router.post("/finance/fee-assignments", async (req: AuthRequest, res) => {
   const input = createInput.parse(req.body);
   const organizationId = req.auth!.organizationId;
-  const branchIds = await assignedBranchIds(req);
-  let attemptedPlan: { familyKey: string; academicSessionId: string; componentIds: string[] } | undefined;
-  try {
-    const result = await prisma.$transaction(async tx => {
-      const student = await tx.studentProfile.findFirst({
-        where: { id: input.studentId, organizationId },
-        select: { id: true, organizationId: true, branchId: true, batchId: true, academicSessionId: true, batch: { select: { id: true, organizationId: true, branchId: true, courseId: true, academicSessionId: true } } },
-      });
-      if (!student) throw new AppError(404, "STUDENT_NOT_FOUND", "Student not found");
-      if (!student.batch || student.batch.organizationId !== organizationId || student.batch.id !== student.batchId || student.batch.branchId !== student.branchId || student.batch.academicSessionId !== student.academicSessionId) {
-        throw new AppError(409, "STUDENT_SCOPE_INVALID", "Student enrollment scope is inconsistent");
-      }
-      assertFinanceBranchAccess(req.auth!.role, branchIds ?? [], student.branchId);
+  const maxSerializableAttempts = 3;
 
-      const plan = await tx.feePlan.findFirst({
-        where: { id: input.feePlanId, organizationId },
-        include: { installments: { orderBy: { sequence: "asc" }, include: { components: { orderBy: { position: "asc" } } } } },
-      });
-      if (!plan) throw new AppError(404, "FEE_PLAN_NOT_FOUND", "Fee plan not found");
-      const componentIds = expectedComponentIds(plan);
-      attemptedPlan = { familyKey: plan.familyKey, academicSessionId: plan.academicSessionId, componentIds };
-
-      const existing = await existingFamilyAssignment(tx, organizationId, student.id, plan.academicSessionId, plan.familyKey);
-      if (existing) {
-        if (existing.feePlanId !== plan.id) throw new AppError(409, "FEE_ASSIGNMENT_FAMILY_EXISTS", "The student already has an assignment from this Fee Plan family for the academic session");
-        assertComplete(existing, componentIds);
-        return { assignment: existing, created: false };
-      }
-
-      if (plan.status !== FeePlanStatus.ACTIVE) throw new AppError(409, "FEE_PLAN_NOT_ACTIVE", "Only an active Fee Plan version can be assigned");
-      if (student.academicSessionId !== plan.academicSessionId) throw new AppError(422, "FEE_PLAN_SESSION_MISMATCH", "Fee Plan academic session does not match the student");
-      if (plan.branchId && student.branchId !== plan.branchId) throw new AppError(422, "FEE_PLAN_BRANCH_MISMATCH", "Fee Plan branch does not match the student");
-      if (plan.courseId && student.batch.courseId !== plan.courseId) throw new AppError(422, "FEE_PLAN_COURSE_MISMATCH", "Fee Plan course does not match the student's batch");
-      if (plan.batchId && student.batchId !== plan.batchId) throw new AppError(422, "FEE_PLAN_BATCH_MISMATCH", "Fee Plan batch does not match the student");
-
-      const assignment = await tx.studentFeeAssignment.create({ data: { organizationId, studentId: student.id, feePlanId: plan.id, academicSessionId: student.academicSessionId, branchId: student.branchId, batchId: student.batchId, feePlanFamilyKey: plan.familyKey, assignedById: req.auth!.userId } });
-      let generatedTotalPaise = 0;
-      for (const installment of plan.installments) {
-        for (const component of installment.components) {
-          generatedTotalPaise += component.amountPaise;
-          await tx.fee.create({ data: { organizationId, studentId: student.id, branchId: student.branchId, courseId: student.batch.courseId, batchId: student.batchId, studentFeeAssignmentId: assignment.id, feePlanComponentId: component.id, feeHead: component.feeHead, totalPaise: component.amountPaise, dueDate: installment.dueDate, status: feeStatus(component.amountPaise, 0, 0, 0, installment.dueDate) } });
+  for (let attempt = 1; attempt <= maxSerializableAttempts; attempt += 1) {
+    const branchIds = await assignedBranchIds(req);
+    let attemptedPlan: { familyKey: string; academicSessionId: string; componentIds: string[] } | undefined;
+    try {
+      const result = await prisma.$transaction(async tx => {
+        const student = await tx.studentProfile.findFirst({
+          where: { id: input.studentId, organizationId },
+          select: { id: true, organizationId: true, branchId: true, batchId: true, academicSessionId: true, batch: { select: { id: true, organizationId: true, branchId: true, courseId: true, academicSessionId: true } } },
+        });
+        if (!student) throw new AppError(404, "STUDENT_NOT_FOUND", "Student not found");
+        if (!student.batch || student.batch.organizationId !== organizationId || student.batch.id !== student.batchId || student.batch.branchId !== student.branchId || student.batch.academicSessionId !== student.academicSessionId) {
+          throw new AppError(409, "STUDENT_SCOPE_INVALID", "Student enrollment scope is inconsistent");
         }
+        assertFinanceBranchAccess(req.auth!.role, branchIds ?? [], student.branchId);
+
+        const plan = await tx.feePlan.findFirst({
+          where: { id: input.feePlanId, organizationId },
+          include: { installments: { orderBy: { sequence: "asc" }, include: { components: { orderBy: { position: "asc" } } } } },
+        });
+        if (!plan) throw new AppError(404, "FEE_PLAN_NOT_FOUND", "Fee plan not found");
+        const componentIds = expectedComponentIds(plan);
+        attemptedPlan = { familyKey: plan.familyKey, academicSessionId: plan.academicSessionId, componentIds };
+
+        const existing = await existingFamilyAssignment(tx, organizationId, student.id, plan.academicSessionId, plan.familyKey);
+        if (existing) {
+          if (existing.feePlanId !== plan.id) throw new AppError(409, "FEE_ASSIGNMENT_FAMILY_EXISTS", "The student already has an assignment from this Fee Plan family for the academic session");
+          assertComplete(existing, componentIds);
+          return { assignment: existing, created: false };
+        }
+
+        if (plan.status !== FeePlanStatus.ACTIVE) throw new AppError(409, "FEE_PLAN_NOT_ACTIVE", "Only an active Fee Plan version can be assigned");
+        if (student.academicSessionId !== plan.academicSessionId) throw new AppError(422, "FEE_PLAN_SESSION_MISMATCH", "Fee Plan academic session does not match the student");
+        if (plan.branchId && student.branchId !== plan.branchId) throw new AppError(422, "FEE_PLAN_BRANCH_MISMATCH", "Fee Plan branch does not match the student");
+        if (plan.courseId && student.batch.courseId !== plan.courseId) throw new AppError(422, "FEE_PLAN_COURSE_MISMATCH", "Fee Plan course does not match the student's batch");
+        if (plan.batchId && student.batchId !== plan.batchId) throw new AppError(422, "FEE_PLAN_BATCH_MISMATCH", "Fee Plan batch does not match the student");
+
+        const assignment = await tx.studentFeeAssignment.create({ data: { organizationId, studentId: student.id, feePlanId: plan.id, academicSessionId: student.academicSessionId, branchId: student.branchId, batchId: student.batchId, feePlanFamilyKey: plan.familyKey, assignedById: req.auth!.userId } });
+        let generatedTotalPaise = 0;
+        for (const installment of plan.installments) {
+          for (const component of installment.components) {
+            generatedTotalPaise += component.amountPaise;
+            await tx.fee.create({ data: { organizationId, studentId: student.id, branchId: student.branchId, courseId: student.batch.courseId, batchId: student.batchId, studentFeeAssignmentId: assignment.id, feePlanComponentId: component.id, feeHead: component.feeHead, totalPaise: component.amountPaise, dueDate: installment.dueDate, status: feeStatus(component.amountPaise, 0, 0, 0, installment.dueDate) } });
+          }
+        }
+        await tx.auditLog.create({ data: { organizationId, actorId: req.auth!.userId, action: "STUDENT_FEE_PLAN_ASSIGNED", entity: "StudentFeeAssignment", entityId: assignment.id, metadata: safeFinanceAuditMetadata({ studentId: student.id, feePlanId: plan.id, familyKey: plan.familyKey, version: plan.version, academicSessionId: student.academicSessionId, branchId: student.branchId, generatedFeeCount: componentIds.length, generatedTotalPaise }) } });
+        const complete = await tx.studentFeeAssignment.findUnique({ where: { id: assignment.id }, include: assignmentInclude });
+        return { assignment: complete, created: true };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+      res.status(result.created ? 201 : 200).json({ created: result.created, data: payload(result.assignment) });
+      return;
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      const code = error && typeof error === "object" && "code" in error ? (error as { code?: string }).code : undefined;
+      const retryable = code === "P2002" || isSerializableConflict(error);
+      if (retryable && attemptedPlan) {
+        const existing = await existingFamilyAssignment(prisma, organizationId, input.studentId, attemptedPlan.academicSessionId, attemptedPlan.familyKey);
+        if (existing) {
+          if (existing.feePlanId !== input.feePlanId) throw new AppError(409, "FEE_ASSIGNMENT_FAMILY_EXISTS", "The student already has an assignment from this Fee Plan family for the academic session");
+          assertComplete(existing, attemptedPlan.componentIds);
+          res.status(200).json({ created: false, data: payload(existing) });
+          return;
+        }
+        if (attempt < maxSerializableAttempts) continue;
+        throw new AppError(409, "FEE_ASSIGNMENT_CONFLICT", "The fee assignment changed concurrently; retry the request");
       }
-      await tx.auditLog.create({ data: { organizationId, actorId: req.auth!.userId, action: "STUDENT_FEE_PLAN_ASSIGNED", entity: "StudentFeeAssignment", entityId: assignment.id, metadata: safeFinanceAuditMetadata({ studentId: student.id, feePlanId: plan.id, familyKey: plan.familyKey, version: plan.version, academicSessionId: student.academicSessionId, branchId: student.branchId, generatedFeeCount: componentIds.length, generatedTotalPaise }) } });
-      const complete = await tx.studentFeeAssignment.findUnique({ where: { id: assignment.id }, include: assignmentInclude });
-      return { assignment: complete, created: true };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    res.status(result.created ? 201 : 200).json({ created: result.created, data: payload(result.assignment) });
-  } catch (error) {
-    if (error instanceof AppError) throw error;
-    const code = error && typeof error === "object" && "code" in error ? (error as { code?: string }).code : undefined;
-    if ((code === "P2002" || isSerializableConflict(error)) && attemptedPlan) {
-      const existing = await existingFamilyAssignment(prisma, organizationId, input.studentId, attemptedPlan.academicSessionId, attemptedPlan.familyKey);
-      if (existing) {
-        if (existing.feePlanId !== input.feePlanId) throw new AppError(409, "FEE_ASSIGNMENT_FAMILY_EXISTS", "The student already has an assignment from this Fee Plan family for the academic session");
-        assertComplete(existing, attemptedPlan.componentIds);
-        res.status(200).json({ created: false, data: payload(existing) });
-        return;
-      }
-      throw new AppError(409, "FEE_ASSIGNMENT_CONFLICT", "The fee assignment changed concurrently; retry the request");
+      throw error;
     }
-    throw error;
   }
+
+  throw new AppError(409, "FEE_ASSIGNMENT_CONFLICT", "The fee assignment changed concurrently; retry the request");
 });
 
 export default router;
