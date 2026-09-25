@@ -74,6 +74,7 @@ import imageUploads from "./routes/image-uploads.js";
 import publicBranding from "./routes/public-branding.js";
 import saasCommercial from "./routes/saas-commercial.js";
 import saasSales from "./routes/saas-sales.js";
+import legalSalesDocuments from "./routes/legal-sales-documents.js";
 import { reconcileSaaSLifecycle } from "./lib/saas-commercial.js";
 import { isTenantCorsOriginAllowed } from "./lib/cors-origin.js";
 
@@ -265,6 +266,7 @@ app.get("/metrics", async (req, res) => {
 app.use("/api/v1/auth", auth);
 app.use("/api/v1/public", publicBranding);
 app.use("/api/v1", onlyPaths(["/public/saas-sales", "/platform/sales"], saasSales));
+app.use("/api/v1", onlyPaths(["/platform/legal-sales"], legalSalesDocuments));
 app.use("/api/v1", teacherPhotos);
 app.use("/api/v1", imageUploads);
 // These role-aware fee routers must run before broad admin routers whose
