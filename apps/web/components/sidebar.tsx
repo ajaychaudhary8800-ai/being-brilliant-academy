@@ -24,6 +24,7 @@ const menuGroups: MenuGroup[] = [
     { name: "Organizations", href: "/admin/organizations", icon: School, platformOnly: true },
     { name: "SaaS Plans", href: "/admin/saas-plans", icon: CreditCard, platformOnly: true },
     { name: "SaaS Billing", href: "/admin/saas-billing", icon: CreditCard, platformOnly: true },
+    { name: "SaaS Sales", href: "/admin/saas-sales", icon: BriefcaseBusiness, platformOnly: true },
     { name: "Implementation Kit", href: "/admin/implementation-kit", icon: FileText, platformOnly: true },
     { name: "Institution Settings", href: "/admin/organization-settings", icon: Settings },
     { name: "Branches", href: "/admin/branches", icon: Building2 },
