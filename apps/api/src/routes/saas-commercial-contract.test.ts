@@ -5,6 +5,7 @@ import test from "node:test";
 const schemaUrl = new URL("../../prisma/schema.prisma", import.meta.url);
 const migrationUrl = new URL("../../prisma/migrations/20260921224500_add_saas_commercial_billing/migration.sql", import.meta.url);
 const packagingMigrationUrl = new URL("../../prisma/migrations/20260924160000_align_commercial_plans/migration.sql", import.meta.url);
+const finalPricingMigrationUrl = new URL("../../prisma/migrations/20260925093000_finalize_commercial_pricing/migration.sql", import.meta.url);
 
 test("commercial SaaS schema keeps platform billing separate from learner invoices", async () => {
   const schema = await readFile(schemaUrl, "utf8");
@@ -53,6 +54,45 @@ test("commercial packaging matches Essentials, Growth, Professional and Enterpri
   assert.match(migration, /'\{"branches":1\}'::jsonb/);
   assert.match(migration, /WHERE "code" = 'STANDARD'/);
   assert.match(migration, /"isActive" = false/);
+});
+
+test("final commercial pricing sets sustainable prices, capacity and tax configuration", async () => {
+  const migration = await readFile(finalPricingMigrationUrl, "utf8");
+
+  assert.match(migration, /WHERE "code" = 'ESSENTIALS'/);
+  assert.match(migration, /"monthlyPricePaise" = 499900/);
+  assert.match(migration, /"annualPricePaise" = 4999000/);
+  assert.match(migration, /'\{"branches":1,"users":1000,"students":300\}'::jsonb/);
+
+  assert.match(migration, /WHERE "code" = 'GROWTH'/);
+  assert.match(migration, /"monthlyPricePaise" = 899900/);
+  assert.match(migration, /"annualPricePaise" = 8999000/);
+  assert.match(migration, /'\{"branches":1,"users":3000,"students":800\}'::jsonb/);
+
+  assert.match(migration, /WHERE "code" = 'PROFESSIONAL'/);
+  assert.match(migration, /"monthlyPricePaise" = 1499900/);
+  assert.match(migration, /"annualPricePaise" = 14999000/);
+  assert.match(migration, /"finance":true/);
+  assert.match(migration, /"library":true/);
+  assert.match(migration, /"inventory":true/);
+  assert.match(migration, /'\{"branches":5,"users":7000,"students":2000\}'::jsonb/);
+
+  assert.match(migration, /WHERE "code" = 'ENTERPRISE'/);
+  assert.match(migration, /"monthlyPricePaise" = 2999900/);
+  assert.match(migration, /"annualPricePaise" = 29999000/);
+  assert.match(migration, /"transport":true/);
+  assert.match(migration, /"hostel":true/);
+  assert.match(migration, /"white_label":true/);
+  assert.match(migration, /"custom_domain":true/);
+  assert.match(migration, /'\{"branches":20,"users":18000,"students":5000\}'::jsonb/);
+
+  assert.equal((499900 * 10), 4999000);
+  assert.equal((899900 * 10), 8999000);
+  assert.equal((1499900 * 10), 14999000);
+  assert.equal((2999900 * 10), 29999000);
+  assert.match(migration, /"taxRateBps" = 1800/g);
+  assert.match(migration, /"trialDays" = 14/g);
+  assert.match(migration, /"trialDays" = 0/);
 });
 
 test("commercial entitlement enforcement is opt-in for existing tenants", async () => {

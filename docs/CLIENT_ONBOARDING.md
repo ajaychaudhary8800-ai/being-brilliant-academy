@@ -1,6 +1,6 @@
 # Real Client Onboarding
 
-This runbook is for onboarding a paying school, coaching institute, academy, training centre, or other education organization onto the Being Brilliant SaaS platform.
+This runbook is for onboarding a paying school, coaching institute, academy, training centre, or other education organization onto the Being Brilliant SaaS platform. Use [COMMERCIAL_PACKAGING_PRICING.md](./COMMERCIAL_PACKAGING_PRICING.md) as the authoritative standard plan, pricing, capacity and feature matrix before provisioning.
 
 ## Client information to collect before provisioning
 
