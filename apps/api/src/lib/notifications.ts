@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import webPush from "web-push";
 import { env } from "../config.js";
 import { logger } from "./logger.js";
+import { recordNotificationDelivery } from "./metrics.js";
 import { systemPrisma } from "./prisma.js";
 import { notificationIsActive } from "./notification-policy.js";
 
@@ -70,11 +71,14 @@ export async function deliverNotification(deliveryId: string, now = new Date()) 
   await systemPrisma.notificationDelivery.update({ where: { id: delivery.id }, data: { status: "PROCESSING", attempts: { increment: 1 }, lastError: null } });
   try {
     const result = delivery.channel === "EMAIL" ? await sendEmail(notification.user.email, notification.title, notification.body) : delivery.channel === "SMS" ? notification.user.phone ? await sendSms(notification.user.phone, notification.body) : { skipped: true, reason: "USER_PHONE_MISSING" } as const : delivery.channel === "WHATSAPP" ? notification.user.phone ? await sendWhatsapp(notification.user.phone, notification.body) : { skipped: true, reason: "USER_PHONE_MISSING" } as const : delivery.channel === "PUSH" ? await sendPush(notification.userId, notification.title, notification.body, notification.actionUrl) : { skipped: true, reason: "UNSUPPORTED_CHANNEL" } as const;
-    await systemPrisma.notificationDelivery.update({ where: { id: delivery.id }, data: result.skipped ? { status: "SKIPPED", lastError: result.reason } : { status: "SENT", provider: result.provider, providerMessageId: result.messageId, deliveredAt: new Date() } });
+    const finalStatus = result.skipped ? "SKIPPED" : "SENT";
+    await systemPrisma.notificationDelivery.update({ where: { id: delivery.id }, data: result.skipped ? { status: finalStatus, lastError: result.reason } : { status: finalStatus, provider: result.provider, providerMessageId: result.messageId, deliveredAt: new Date() } });
+    recordNotificationDelivery(delivery.channel, finalStatus);
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 500) : "Provider delivery failed";
     const status = notificationFailureStatus(delivery.attempts);
     await systemPrisma.notificationDelivery.update({ where: { id: delivery.id }, data: { status, lastError: message } });
+    recordNotificationDelivery(delivery.channel, status);
     logger.error({ err: error, deliveryId, channel: delivery.channel, status }, "Notification delivery failed");
   }
 }

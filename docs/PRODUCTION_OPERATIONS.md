@@ -14,7 +14,7 @@ Production changes must enter `main` through a pull request and pass the require
 
 ### External uptime monitoring
 
-`.github/workflows/uptime-monitor.yml` checks production and staging every 30 minutes.
+`.github/workflows/uptime-monitor.yml` checks production and staging every 15 minutes from off-host GitHub runners.
 
 A healthy response must report:
 
@@ -22,7 +22,7 @@ A healthy response must report:
 - `checks.database=true`
 - `checks.redis=true`
 
-When a check fails, the scheduled workflow fails and is visible in GitHub Actions. Configure GitHub Actions failure notifications for off-host alert delivery.
+When a check fails, the workflow opens or updates a persistent `[monitor]` GitHub incident issue and the workflow remains failed for normal Actions notifications. Recovery is recorded automatically and closes the monitoring issue.
 
 ### Backup
 
@@ -34,7 +34,7 @@ Default schedule: `0 2 * * *` in the backup container timezone.
 
 1. Confirm production and staging uptime-monitor runs are green.
 2. Check the latest nightly staging QA result.
-3. Confirm a new backup directory exists and `SHA256SUMS` verifies.
+3. Confirm the backup container is healthy, a recent backup exists, and `SHA256SUMS` verifies.
 4. Check Coolify for unhealthy or restarting containers.
 5. Review failed uptime-monitor runs and application errors.
 6. Check disk usage and backup retention.
@@ -57,3 +57,13 @@ Restore the latest backup to an isolated environment. Verify the checksum first,
 - P3: isolated workflow defect with a workaround.
 
 For P1, stop non-essential deployments, preserve logs, verify backup state, identify the last healthy release, and use the tagged release/rollback procedure if needed.
+
+
+## Advanced monitoring references
+
+- `docs/MONITORING.md` — monitoring layers, active metrics, operational objectives and alert thresholds.
+- `docs/INCIDENT_RESPONSE.md` — P1/P2/P3 triage, rollback, data/security incident handling and recovery criteria.
+- `/health/operational` — dependency plus critical background-worker heartbeat health.
+- `/metrics` — Prometheus telemetry. Production access requires `METRICS_TOKEN`; without it the endpoint intentionally returns `METRICS_NOT_CONFIGURED`.
+
+The backup container now tracks success/failure/freshness and reports unhealthy when the configured backup job fails or becomes stale. This monitoring does not constitute completion of off-site disaster recovery.
