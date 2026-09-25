@@ -1,34 +1,134 @@
-name: External uptime monitor
+name: External production monitor
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
-  group: external-uptime-monitor
+  group: external-production-monitor
   cancel-in-progress: true
 
 jobs:
-  production:
+  endpoint-health:
+    name: ${{ matrix.name }} health
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Production
+            base_url: https://beingbrilliantedu.com
+            incident_title: "[monitor] Production health check failing"
+          - name: Staging
+            base_url: https://main-staging.beingbrilliantedu.com
+            incident_title: "[monitor] Staging health check failing"
     steps:
-      - name: Check production readiness
+      - name: Check application, dependencies, workers and integrations
+        id: check
+        continue-on-error: true
         shell: bash
+        env:
+          BASE_URL: ${{ matrix.base_url }}
         run: |
-          response="$(curl -fsS --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 https://beingbrilliantedu.com/api/health/ready)"
-          printf '%s\n' "$response"
-          printf '%s' "$response" | jq -e '.status == "ready" and .checks.database == true and .checks.redis == true' >/dev/null
+          set -uo pipefail
+          failed=0
 
-  staging:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check staging readiness
-        shell: bash
-        run: |
-          response="$(curl -fsS --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 https://main-staging.beingbrilliantedu.com/api/health/ready)"
-          printf '%s\n' "$response"
-          printf '%s' "$response" | jq -e '.status == "ready" and .checks.database == true and .checks.redis == true' >/dev/null
+          echo "## ${{ matrix.name }} monitor" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          page_result="$(curl -L -sS --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code} %{time_total}' "$BASE_URL/" || echo '000 30')"
+          page_code="$(printf '%s' "$page_result" | awk '{print $1}')"
+          page_time="$(printf '%s' "$page_result" | awk '{print $2}')"
+          echo "- Homepage: HTTP $page_code in ${page_time}s" >> "$GITHUB_STEP_SUMMARY"
+          case "$page_code" in 2??) ;; *) echo "::error::Homepage returned HTTP $page_code"; failed=1 ;; esac
+          if ! awk "BEGIN { exit !($page_time <= 8) }"; then
+            echo "::error::Homepage response exceeded 8 seconds: ${page_time}s"
+            failed=1
+          fi
+
+          ready="$(curl -fsS --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 30 "$BASE_URL/api/health/ready" || true)"
+          if ! printf '%s' "$ready" | jq -e '.status == "ready" and .checks.database == true and .checks.redis == true' >/dev/null 2>&1; then
+            echo "::error::Readiness check failed: $ready"
+            failed=1
+          else
+            echo "- Readiness: ready" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          operational="$(curl -fsS --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 30 "$BASE_URL/api/health/operational" || true)"
+          if ! printf '%s' "$operational" | jq -e '.status == "operational" and .workers.notificationDelivery.healthy == true and .workers.saasLifecycle.healthy == true' >/dev/null 2>&1; then
+            echo "::error::Operational worker check failed: $operational"
+            failed=1
+          else
+            echo "- Background workers: healthy" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          integrations="$(curl -fsS --retry 1 --retry-delay 2 --connect-timeout 10 --max-time 30 "$BASE_URL/api/health/integrations" || true)"
+          if ! printf '%s' "$integrations" | jq -e 'if .smtp.configured == true then .smtp.reachable == true else true end' >/dev/null 2>&1; then
+            echo "::error::Configured SMTP provider is not reachable: $integrations"
+            failed=1
+          else
+            echo "- Configured SMTP: reachable or not configured" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit "$failed"
+
+      - name: Open or update persistent incident
+        if: steps.check.outcome == 'failure'
+        uses: actions/github-script@v7
+        env:
+          INCIDENT_TITLE: ${{ matrix.incident_title }}
+          ENVIRONMENT_NAME: ${{ matrix.name }}
+        with:
+          script: |
+            const title = process.env.INCIDENT_TITLE;
+            const { owner, repo } = context.repo;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: "open", per_page: 100
+            });
+            const existing = issues.find(issue => !issue.pull_request && issue.title === title);
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              `Automated ${process.env.ENVIRONMENT_NAME} health monitoring failed.`,
+              "",
+              `Workflow run: ${runUrl}`,
+              `Detected: ${new Date().toISOString()}`,
+              "",
+              "Check readiness, worker health, integrations, recent deployments, container health and backups using docs/INCIDENT_RESPONSE.md."
+            ].join("\n");
+            if (existing) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body });
+            }
+
+      - name: Close recovered incident
+        if: steps.check.outcome == 'success'
+        uses: actions/github-script@v7
+        env:
+          INCIDENT_TITLE: ${{ matrix.incident_title }}
+          ENVIRONMENT_NAME: ${{ matrix.name }}
+        with:
+          script: |
+            const title = process.env.INCIDENT_TITLE;
+            const { owner, repo } = context.repo;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: "open", per_page: 100
+            });
+            const existing = issues.find(issue => !issue.pull_request && issue.title === title);
+            if (existing) {
+              const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.number,
+                body: `Automated monitoring recovered at ${new Date().toISOString()}. Workflow: ${runUrl}`
+              });
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: "closed" });
+            }
+
+      - name: Fail workflow when health check failed
+        if: steps.check.outcome == 'failure'
+        run: exit 1
