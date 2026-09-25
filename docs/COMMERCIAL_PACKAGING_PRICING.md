@@ -199,3 +199,10 @@ Review public list prices after:
 - a material infrastructure/payment-provider cost change.
 
 Price changes apply to new quotations unless an existing signed contract says otherwise.
+
+
+## 12. Contract documents
+
+All external quotations and subscriptions must use the controlled pack in [legal-sales/README.md](./legal-sales/README.md).
+
+The Order Form must state the selected plan, billing cycle, contracted capacity, implementation/add-on charges, effective date, term, and any approved exception. A verbal or email promise does not change product entitlements unless it is recorded in the executed commercial documents and reflected in the SaaS plan/configuration.
