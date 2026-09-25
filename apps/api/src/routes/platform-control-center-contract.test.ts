@@ -40,6 +40,7 @@ test("control center API is platform-only and reads controlled roadmap and launc
   assert.match(route, /PLATFORM_ADMIN_REQUIRED/);
   assert.match(route, /project-roadmap\.json/);
   assert.match(route, /launch-readiness\.json/);
+  assert.match(route, /\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/config/);
   assert.match(route, /\/platform\/control-center/);
 });
 
@@ -65,6 +66,9 @@ test("Platform Admin UI exposes the 14-step roadmap, live health and launch bloc
   assert.match(page, /\/health\/ready/);
   assert.match(page, /\/health\/operational/);
   assert.match(page, /\/health\/integrations/);
+  assert.match(page, /acceptedStatuses/);
+  assert.match(page, /\[503\]/);
+  assert.match(page, /Launch status unavailable/);
   for (const expected of [
     "/admin/organizations",
     "/admin/saas-plans",
