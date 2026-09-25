@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-09-25",
+  "product": "Being Brilliant ERP + LMS + CRM",
+  "currentMainBaseline": "d785a1e66eab63bbb1da1cfe81bb397045bfcbc6",
+  "steps": [
+    {
+      "step": 1,
+      "name": "V2.0 Release Freeze & Protection",
+      "status": "COMPLETE",
+      "summary": "V2.0 was frozen as the protected release baseline; main/release controls and required CI gates were established to prevent unsafe changes.",
+      "webRoutes": [
+        "/admin/control-center"
+      ],
+      "externalControl": "GitHub branch protection and release controls remain in GitHub by design."
+    },
+    {
+      "step": 2,
+      "name": "Production Operations & Monitoring",
+      "status": "COMPLETE",
+      "summary": "Production/staging operational checks, local checksum-verified backups, CI, uptime monitoring and full staging QA were established. Advanced monitoring was later strengthened in Step 13.",
+      "webRoutes": [
+        "/admin/control-center"
+      ],
+      "externalControl": "Infrastructure/container administration remains in Coolify/VPS."
+    },
+    {
+      "step": 3,
+      "name": "Real Client Onboarding System",
+      "status": "COMPLETE",
+      "summary": "Organization provisioning gained onboarding readiness, migration/training progress, target go-live, approval, access URLs, notes and audit tracking.",
+      "webRoutes": [
+        "/admin/organizations"
+      ]
+    },
+    {
+      "step": 4,
+      "name": "Client Go-Live Implementation Kit",
+      "status": "COMPLETE",
+      "summary": "A platform implementation workspace was added for client requirements, branch setup, migration templates, UAT, handover, custom-domain/support guidance and print-ready checklists.",
+      "webRoutes": [
+        "/admin/implementation-kit"
+      ]
+    },
+    {
+      "step": 5,
+      "name": "Off-site Backup & Disaster Recovery",
+      "status": "PENDING_EXTERNAL",
+      "summary": "R2/S3-compatible off-site backup and DR code/runbooks are prepared, but real off-site storage, scheduled upload and isolated restore evidence are still required.",
+      "webRoutes": [
+        "/admin/control-center"
+      ],
+      "externalControl": "Bucket credentials, retention and restore execution must remain in secure infrastructure tooling."
+    },
+    {
+      "step": 6,
+      "name": "Final SaaS Production Audit",
+      "status": "COMPLETE",
+      "summary": "Final production audit validated tenancy isolation, RBAC, ERP/LMS/CRM/HR/Finance, billing/entitlements, security, migrations, CI/build and health readiness.",
+      "webRoutes": [
+        "/admin/control-center"
+      ]
+    },
+    {
+      "step": 7,
+      "name": "End-to-End Client Onboarding Dry Run",
+      "status": "COMPLETE",
+      "summary": "A full synthetic client dry run proved provisioning, tenant isolation, plan alignment, onboarding readiness, branch setup, audit evidence and cleanup through READY/100%.",
+      "webRoutes": [
+        "/admin/organizations",
+        "/admin/implementation-kit"
+      ]
+    },
+    {
+      "step": 8,
+      "name": "Commercial Packaging & Pricing",
+      "status": "COMPLETE",
+      "summary": "Essentials, Growth, Professional and Enterprise pricing, limits, entitlements, billing rules, implementation fees, extras and discount guardrails were finalized.",
+      "webRoutes": [
+        "/admin/saas-plans",
+        "/admin/saas-billing"
+      ]
+    },
+    {
+      "step": 9,
+      "name": "Sales, Legal & Client Documentation",
+      "status": "COMPLETE",
+      "summary": "Proposal, quotation/order form, SaaS agreement, SOW, SLA, DPA, privacy/AUP, data exit, security and handover documents were created and are now accessible from Platform Admin.",
+      "webRoutes": [
+        "/admin/legal-sales"
+      ]
+    },
+    {
+      "step": 10,
+      "name": "Sales Lead-Generation & Acquisition System",
+      "status": "COMPLETE",
+      "summary": "Dedicated B2B SaaS sales CRM, public demo lead routing, scoring, qualification, plan recommendation, activities, follow-ups, dashboard and acquisition playbook were implemented.",
+      "webRoutes": [
+        "/admin/saas-sales"
+      ]
+    },
+    {
+      "step": 11,
+      "name": "First Real Paying Client",
+      "status": "PENDING_CLIENT",
+      "summary": "Use the SaaS Sales pipeline, legal pack, provisioning and onboarding workflow to close, activate and go live with the first real external paying institution.",
+      "webRoutes": [
+        "/admin/saas-sales",
+        "/admin/legal-sales",
+        "/admin/organizations",
+        "/admin/implementation-kit"
+      ],
+      "externalControl": "A real buyer decision, commercial acceptance and payment/activation cannot be fabricated by the platform."
+    },
+    {
+      "step": 12,
+      "name": "Formal Production Release",
+      "status": "BLOCKED_DEPENDENCY",
+      "summary": "Create the formal commercial release/tag and release record after the first-client validation and final launch GO gate pass.",
+      "webRoutes": [
+        "/admin/control-center"
+      ],
+      "dependency": "Step 11 and final GO decision",
+      "externalControl": "Git release/tag creation remains in protected source-control workflow."
+    },
+    {
+      "step": 13,
+      "name": "Advanced Monitoring & Operations",
+      "status": "COMPLETE",
+      "summary": "15-minute off-host monitoring, persistent incident issues, operational worker health, Prometheus metrics, backup freshness health and P1/P2/P3 incident response were implemented.",
+      "webRoutes": [
+        "/admin/control-center"
+      ]
+    },
+    {
+      "step": 14,
+      "name": "Final Launch Readiness",
+      "status": "COMPLETE",
+      "summary": "Machine-readable GO/HOLD launch gate, CI validation, launch-day runbook, ownership, rollback and final readiness controls were implemented. Current commercial launch decision remains HOLD until blockers are cleared.",
+      "webRoutes": [
+        "/admin/control-center"
+      ]
+    }
+  ]
+}
