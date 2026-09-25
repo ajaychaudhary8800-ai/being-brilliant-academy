@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const inventoryApi = new URL("./inventory.ts", import.meta.url);
+const transportApi = new URL("./transport.ts", import.meta.url);
 const webRoot = new URL("../../../web/", import.meta.url);
 
 async function web(path: string) {
@@ -23,6 +24,7 @@ test("operations modules expose primary web creation controls", async () => {
   assert.match(hostel, /Add Hostel/);
   assert.match(library, /Add Book/);
   assert.match(transport, /Add Vehicle/);
+  assert.match(transport, /Add Driver/);
   assert.match(finance, /Add Account/);
 });
 
@@ -61,4 +63,21 @@ test("PWA install prompt can be dismissed without blocking admin work", async ()
   const shell = await web("components/pwa-shell.tsx");
   assert.match(shell, /bba-pwa-install-dismissed-until/);
   assert.match(shell, /Dismiss install prompt/);
+});
+
+
+test("transport staff listing uses staff branch scope and supports driver filtering", async () => {
+  const source = await readFile(transportApi, "utf8");
+  const start = source.indexOf('r.get("/transport/staff"');
+  const end = source.indexOf('r.post("/transport/staff"', start);
+  const route = source.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(route, /erpBranchWhere\(sc\)/);
+  assert.match(route, /role:z\.nativeEnum\(TransportStaffRole\)\.optional\(\)/);
+  assert.doesNotMatch(route, /routeBranchWhere\(sc\)/);
+
+  const page = await web("app/admin/transport/page.tsx");
+  assert.match(page, /role=DRIVER/);
+  assert.match(page, /Driving licence number/);
+  assert.match(page, /licenseExpiry/);
 });
