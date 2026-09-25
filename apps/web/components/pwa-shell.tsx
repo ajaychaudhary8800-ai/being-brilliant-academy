@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BookOpen, Contrast, Download, Home, LayoutDashboard } from "lucide-react";
+import { BookOpen, Contrast, Download, Home, LayoutDashboard, X } from "lucide-react";
 import { useTenantBranding } from "./tenant-branding";
 import { useAuth } from "./auth-provider";
 
@@ -15,13 +15,14 @@ export function PwaShell() {
   const { brand } = useTenantBranding();
   const { user, loading } = useAuth();
   const [install, setInstall] = useState<InstallEvent | null>(null);
-  const [workerFailed, setWorkerFailed] = useState(false);
+  const [workerFailed, setWorkerFailed] = useState(false);\n  const dismissedUntil = () => Number(window.localStorage.getItem("bba-pwa-install-dismissed-until") ?? "0");
 
   useEffect(() => {
     if (loading || !user) return;
 
     const prompted = (event: Event) => {
       event.preventDefault();
+      if (dismissedUntil() > Date.now()) return;
       setInstall(event as InstallEvent);
     };
     const installed = () => setInstall(null);
@@ -71,6 +72,18 @@ export function PwaShell() {
             className="rounded-lg bg-white px-3 py-2 font-bold text-slate-950"
           >
             Install App
+          </button>
+          <button
+            type="button"
+            aria-label="Dismiss install prompt"
+            onClick={() => {
+              window.localStorage.setItem("bba-pwa-install-dismissed-until", String(Date.now() + 7 * 24 * 60 * 60 * 1000));
+              setInstall(null);
+            }}
+            className="rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white"
+            title="Not now"
+          >
+            <X size={17}/>
           </button>
         </aside>
       )}
