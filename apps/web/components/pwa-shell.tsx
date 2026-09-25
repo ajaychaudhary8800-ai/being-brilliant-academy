@@ -22,7 +22,7 @@ export function PwaShell() {
 
     const prompted = (event: Event) => {
       event.preventDefault();
-      if (dismissedUntil() > Date.now()) return;
+      if (Number(window.localStorage.getItem("bba-pwa-install-dismissed-until") ?? "0") > Date.now()) return;
       setInstall(event as InstallEvent);
     };
     const installed = () => setInstall(null);
