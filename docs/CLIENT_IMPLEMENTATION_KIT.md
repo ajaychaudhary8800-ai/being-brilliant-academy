@@ -63,7 +63,9 @@ Platform staff must map and validate these records against tenant masters before
 
 ## 3. Implementation sequence
 
-1. Confirm commercial plan and scope.
+Before provisioning, complete the controlled sales/legal documents in `docs/legal-sales/`: signed Order Form, SaaS Agreement, applicable DPA/SLA, and Implementation SOW.
+
+1. Confirm commercial plan and scope against the signed Order Form and SOW.
 2. Collect the client-information sheet and branch/campus sheet.
 3. Validate commercial status, dates, migration scope, training contacts, and sign-off authority.
 4. Provision tenant from Platform Admin -> Organizations.
