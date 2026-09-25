@@ -86,3 +86,19 @@ Do not treat a client as fully onboarded only because the tenant record exists. 
 For requirements collection, migration templates, UAT, domain handover, support classification, security responsibilities and final sign-off, use [CLIENT_IMPLEMENTATION_KIT.md](./CLIENT_IMPLEMENTATION_KIT.md).
 
 Platform operators can also open **Admin -> Implementation Kit** for downloadable templates and the printable go-live checklist.
+
+
+## Contract pack gate
+
+Before production go-live for an external paying client, confirm that the commercial/legal pack in [legal-sales/README.md](./legal-sales/README.md) has been completed for that client.
+
+At minimum:
+- signed/accepted Order Form;
+- applicable SaaS Agreement;
+- Implementation SOW;
+- DPA where Client Personal Data is processed;
+- agreed SLA/support terms;
+- approved privacy/grievance and support contacts;
+- final handover/acceptance certificate.
+
+Do not mark contractual onboarding complete merely because the technical readiness panel is READY / 100%.
