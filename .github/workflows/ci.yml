@@ -77,3 +77,5 @@ jobs:
         with: { context: ., file: apps/api/Dockerfile, push: false, tags: bba-api:ci, cache-from: type=gha, cache-to: "type=gha,mode=max" }
       - uses: docker/build-push-action@v6
         with: { context: ., file: apps/web/Dockerfile, push: false, tags: bba-web:ci, cache-from: type=gha, cache-to: "type=gha,mode=max" }
+      - uses: docker/build-push-action@v6
+        with: { context: ./infra/backup, file: infra/backup/Dockerfile, push: false, tags: bba-backup:ci, cache-from: type=gha, cache-to: "type=gha,mode=max" }
