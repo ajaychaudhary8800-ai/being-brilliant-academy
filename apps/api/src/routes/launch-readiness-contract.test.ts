@@ -78,7 +78,7 @@ test("launch documents preserve critical operational and legal no-go controls", 
     readFile(readinessDocUrl, "utf8"),
     readFile(launchDayUrl, "utf8"),
   ]);
-  assert.match(readiness, /Current launch decision:\*\* \*\*HOLD\*\*/);
+  assert.match(readiness, /\*\*Current launch decision:\*\* \*\*HOLD\*\*/);
   assert.match(readiness, /Step 5 — Off-site Backup & Disaster Recovery/);
   assert.match(readiness, /Step 11 — First Real Paying Client/);
   assert.match(readiness, /Public Privacy \/ Terms \/ AUP publication/);
