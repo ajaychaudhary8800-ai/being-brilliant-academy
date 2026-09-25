@@ -21,6 +21,7 @@ type MenuGroup = { name: string; entries: MenuEntry[] };
 const menuGroups: MenuGroup[] = [
   { name: "Overview", entries: [{ name: "Dashboard", href: "/admin", icon: LayoutDashboard }] },
   { name: "Institution", entries: [
+    { name: "SaaS Control Center", href: "/admin/control-center", icon: LayoutDashboard, platformOnly: true },
     { name: "Organizations", href: "/admin/organizations", icon: School, platformOnly: true },
     { name: "SaaS Plans", href: "/admin/saas-plans", icon: CreditCard, platformOnly: true },
     { name: "SaaS Billing", href: "/admin/saas-billing", icon: CreditCard, platformOnly: true },
