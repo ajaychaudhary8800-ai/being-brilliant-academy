@@ -1,0 +1,32 @@
+name: Launch readiness gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      enforce_go:
+        description: "Fail unless every blocking launch gate is READY"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Report current launch readiness
+        run: pnpm launch:check
+      - name: Enforce final GO gate
+        if: ${{ inputs.enforce_go }}
+        run: pnpm launch:require-go
