@@ -45,14 +45,15 @@ function scoreLead(input: z.infer<typeof publicLeadInput>) {
   if (requirements.has("analytics")) score += 5;
   if (requirements.has("white-label") || requirements.has("custom domain")) score += 10;
   if (input.source === "REFERRAL" || input.source === "PARTNER") score += 10;
+  if (input.utm?.intent === "B2B_PRODUCT_DEMO") score += 20;
   return Math.min(score, 100);
 }
 
 function recommendedPlan(input: z.infer<typeof publicLeadInput>) {
   const req = new Set((input.requirements ?? []).map(item => item.toLowerCase()));
   const band = input.studentCountBand ?? "";
-  if (req.has("white-label") || req.has("custom domain") || req.has("transport") || req.has("hostel") || band === "5,000+") return "ENTERPRISE";
-  if (req.has("hr") || req.has("payroll") || req.has("finance") || req.has("library") || req.has("inventory") || req.has("analytics") || /group|multi|chain/i.test(input.institutionType)) return "PROFESSIONAL";
+  if (req.has("white-label") || req.has("custom domain") || req.has("transport") || req.has("hostel") || band === "5,000+" || band === "2,000–5,000" || band === "2,000-5,000") return "ENTERPRISE";
+  if (band === "500–2,000" || band === "500-2,000" || req.has("hr") || req.has("payroll") || req.has("finance") || req.has("library") || req.has("inventory") || req.has("analytics") || /group|multi|chain/i.test(input.institutionType)) return "PROFESSIONAL";
   if (req.has("lms") || req.has("crm") || req.has("communication") || req.has("examinations")) return "GROWTH";
   return "ESSENTIALS";
 }
