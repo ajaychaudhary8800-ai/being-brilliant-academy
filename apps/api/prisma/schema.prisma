@@ -5511,3 +5511,57 @@ model HostelMaintenanceRequest {
 
   @@index([organizationId])
 }
+
+
+model SaaSSalesLead {
+  id                       String   @id @default(cuid())
+  organizationName         String
+  contactName              String
+  mobile                   String
+  email                    String?
+  institutionType          String
+  studentCountBand         String?
+  city                     String?
+  state                    String?
+  website                  String?
+  source                   String   @default("WEBSITE")
+  campaign                 String?
+  status                   String   @default("NEW")
+  qualification            String   @default("UNQUALIFIED")
+  leadScore                Int      @default(0)
+  recommendedPlan          String?
+  expectedAnnualValuePaise Int?
+  nextFollowUpAt           DateTime?
+  lastContactAt            DateTime?
+  ownerUserId              String?
+  notes                    String?
+  lostReason               String?
+  wonOrganizationId        String?
+  requirements             Json?
+  utm                      Json?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  activities SaaSSalesActivity[]
+
+  @@index([status, qualification, leadScore])
+  @@index([source, createdAt])
+  @@index([nextFollowUpAt, status])
+  @@index([mobile, createdAt])
+  @@index([email])
+}
+
+model SaaSSalesActivity {
+  id             String   @id @default(cuid())
+  leadId         String
+  activityType   String
+  outcome        String?
+  notes          String?
+  nextFollowUpAt DateTime?
+  createdById    String?
+  createdAt      DateTime @default(now())
+
+  lead SaaSSalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
+}

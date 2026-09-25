@@ -141,14 +141,16 @@ export function PremiumLanding() {
     }
 
     try {
-      const response = await fetch(API + "/premium/leads", {
+      const response = await fetch(API + "/public/saas-sales/leads", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          name: (contactName + (organisationName ? " — " + organisationName : "")).slice(0, 100),
+          organizationName: organisationName,
+          contactName,
           mobile,
           email,
-          trialRequested: true,
+          institutionType,
+          studentCountBand: studentCount,
           source: "WEBSITE",
           utm: {
             intent: "B2B_PRODUCT_DEMO",
