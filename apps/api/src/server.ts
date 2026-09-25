@@ -215,7 +215,7 @@ app.get("/metrics", async (req, res) => {
 // unauthenticated requests.
 app.use("/api/v1/auth", auth);
 app.use("/api/v1/public", publicBranding);
-app.use("/api/v1", saasSales);
+app.use("/api/v1", onlyPaths(["/public/saas-sales", "/platform/sales"], saasSales));
 app.use("/api/v1", teacherPhotos);
 app.use("/api/v1", imageUploads);
 // These role-aware fee routers must run before broad admin routers whose
