@@ -20,6 +20,7 @@ COPY --from=build --chown=app:app /workspace/apps/api/package.json ./apps/api/pa
 COPY --from=build --chown=app:app /workspace/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=app:app /workspace/apps/api/prisma ./apps/api/prisma
 COPY --from=build --chown=app:app /workspace/apps/api/scripts ./apps/api/scripts
+COPY --chown=app:app docs/legal-sales ./docs/legal-sales
 COPY --chmod=755 apps/api/docker-entrypoint.sh /usr/local/bin/bba-api-entrypoint
 WORKDIR /workspace/apps/api
 EXPOSE 4000
