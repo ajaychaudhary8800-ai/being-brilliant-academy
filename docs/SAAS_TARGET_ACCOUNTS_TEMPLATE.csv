@@ -1,0 +1,2 @@
+organizationName,contactName,role,mobile,email,institutionType,studentCountBand,city,state,website,source,keyNeed,currentSystem,decisionMaker,timeline,nextFollowUpAt,notes
+Example Public School,Principal / Director,,9876543210,info@example.edu,School,"500–2,000",Ghaziabad,Uttar Pradesh,https://example.edu,CBSE_DIRECTORY,"ERP + LMS + CRM",Manual/Existing ERP,Unknown,3-6 months,2026-09-28T11:00:00+05:30,"Replace this example row with researched institutional data"
