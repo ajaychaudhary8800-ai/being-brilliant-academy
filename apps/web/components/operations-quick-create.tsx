@@ -10,7 +10,7 @@ export type QuickCreateOption = { value: string; label: string };
 export type QuickCreateField = {
   name: string;
   label: string;
-  type?: "text" | "number" | "select";
+  type?: "text" | "number" | "date" | "select";
   required?: boolean;
   placeholder?: string;
   min?: number;
@@ -93,7 +93,7 @@ export function OperationsQuickCreate({
             {(field.options ?? []).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select> : <input
             required={field.required}
-            type={field.type === "number" ? "number" : "text"}
+            type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
             min={field.min}
             step={field.step}
             placeholder={field.placeholder}
