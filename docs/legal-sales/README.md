@@ -2,6 +2,10 @@
 
 This folder is the controlled commercial contracting pack for **Being Brilliant ERP + LMS + CRM**, supplied by **Adhyay Eduventure Private Limited** ("Provider").
 
+## ERP access
+
+Platform Super Admin users can access the complete controlled pack from **Sales Documents / Legal Pack** at `/admin/legal-sales`. The workspace supports source viewing, placeholder-based client working-copy generation, Markdown download and print/PDF. Generated copies never overwrite these controlled source files.
+
 ## Before first external signature
 
 Replace and verify these execution particulars against current corporate records:
