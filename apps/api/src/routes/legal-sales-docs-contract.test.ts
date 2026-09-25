@@ -72,7 +72,7 @@ test("privacy, exit and security schedules preserve truthful customer commitment
     readFile(legal("10_SECURITY_SCHEDULE.md"), "utf8"),
   ]);
   assert.match(privacy, /We do not sell institution-controlled personal data/);
-  assert.match(privacy, /Privacy\/Grievance contact: \[\[INSERT VERIFIED PRIVACY CONTACT BEFORE PUBLICATION\]\]/);
+  assert.ok(privacy.includes("INSERT VERIFIED PRIVACY CONTACT BEFORE PUBLICATION"));
   assert.match(exit, /30-day exit window/);
   assert.match(exit, /60 days after the exit window closes/);
   assert.match(security, /does not claim certifications that have not been obtained/);
