@@ -46,10 +46,13 @@ type IntegrationHealth = {
 
 const authHeaders = () => ({ Authorization: `Bearer ${getAccessToken() ?? ""}` });
 
-async function getJson(url: string, authenticated = false) {
+async function getJson(url: string, authenticated = false, acceptedStatuses: number[] = []) {
   const response = await fetch(url, { cache: "no-store", headers: authenticated ? authHeaders() : undefined });
   const json = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(json?.error?.message ?? `Request failed (${response.status})`);
+  if (json === null) throw new Error(`Invalid response from ${url}`);
+  if (!response.ok && !acceptedStatuses.includes(response.status)) {
+    throw new Error(json?.error?.message ?? `Request failed (${response.status})`);
+  }
   return json;
 }
 
@@ -87,12 +90,13 @@ export default function Page() {
       const json = await getJson(`${API}/platform/control-center`, true);
       setControl(json.data);
     } catch (cause) {
+      setControl(null);
       setError(errorMessage(cause));
     }
     const health = await Promise.allSettled([
-      getJson(`${API_ROOT}/health/ready`),
-      getJson(`${API_ROOT}/health/operational`),
-      getJson(`${API_ROOT}/health/integrations`),
+      getJson(`${API_ROOT}/health/ready`, false, [503]),
+      getJson(`${API_ROOT}/health/operational`, false, [503]),
+      getJson(`${API_ROOT}/health/integrations`, false, [503]),
     ]);
     if (health[0].status === "fulfilled") setReady(health[0].value as ReadyHealth);
     if (health[1].status === "fulfilled") setOperational(health[1].value as OperationalHealth);
@@ -107,8 +111,19 @@ export default function Page() {
     void load();
   }, [load]);
 
-  const completeCount = useMemo(() => control?.roadmap.steps.filter(step => step.status === "COMPLETE").length ?? 0, [control]);
-  const blockers = useMemo(() => control?.launch.gates.filter(gate => gate.blocking && gate.status !== "READY") ?? [], [control]);
+  const completeCount = useMemo(
+    () => control ? control.roadmap.steps.filter(step => step.status === "COMPLETE").length : null,
+    [control],
+  );
+  const blockers = useMemo(
+    () => control ? control.launch.gates.filter(gate => gate.blocking && gate.status !== "READY") : null,
+    [control],
+  );
+
+  const launchStatus = control?.launch.declaredStatus;
+  const readyTone = ready ? (ready.status === "ready" ? "good" : "warn") : "neutral";
+  const operationalTone = operational ? (operational.status === "operational" ? "good" : "warn") : "neutral";
+  const launchTone = launchStatus ? (launchStatus === "GO" ? "good" : "warn") : "neutral";
 
   return <ProtectedAdminWorkspace
     roles={["SUPER_ADMIN"]}
@@ -132,10 +147,10 @@ export default function Page() {
       {healthError && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">{healthError}</p>}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={<Target size={18}/>} label="Roadmap complete" value={`${completeCount}/14`} tone="neutral"/>
-        <MetricCard icon={control?.launch.declaredStatus === "GO" ? <CheckCircle2 size={18}/> : <AlertTriangle size={18}/>} label="Commercial launch" value={control?.launch.declaredStatus ?? "—"} tone={control?.launch.declaredStatus === "GO" ? "good" : "warn"}/>
-        <MetricCard icon={ready?.status === "ready" ? <CheckCircle2 size={18}/> : <XCircle size={18}/>} label="API readiness" value={ready?.status ?? "Unknown"} tone={ready?.status === "ready" ? "good" : "warn"}/>
-        <MetricCard icon={operational?.status === "operational" ? <Activity size={18}/> : <AlertTriangle size={18}/>} label="Operational health" value={operational?.status ?? "Unknown"} tone={operational?.status === "operational" ? "good" : "warn"}/>
+        <MetricCard icon={<Target size={18}/>} label="Roadmap complete" value={completeCount === null ? "—/14" : `${completeCount}/14`} tone="neutral"/>
+        <MetricCard icon={launchStatus === "GO" ? <CheckCircle2 size={18}/> : launchStatus === "HOLD" ? <AlertTriangle size={18}/> : <CircleDot size={18}/>} label="Commercial launch" value={launchStatus ?? "Unknown"} tone={launchTone}/>
+        <MetricCard icon={ready?.status === "ready" ? <CheckCircle2 size={18}/> : ready ? <XCircle size={18}/> : <CircleDot size={18}/>} label="API readiness" value={ready?.status ?? "Unknown"} tone={readyTone}/>
+        <MetricCard icon={operational?.status === "operational" ? <Activity size={18}/> : operational ? <AlertTriangle size={18}/> : <CircleDot size={18}/>} label="Operational health" value={operational?.status ?? "Unknown"} tone={operationalTone}/>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.8fr)]">
@@ -144,8 +159,9 @@ export default function Page() {
             <h2 className="text-lg font-bold">1–14 roadmap</h2>
             <p className="mt-1 text-sm text-slate-500">Every step shows what was done and where you control or inspect it from the website.</p>
           </div>
+          {!control ? <div className="p-5 text-sm text-slate-500">Roadmap data is temporarily unavailable. Refresh after the API deployment is healthy.</div> :
           <div className="divide-y">
-            {control?.roadmap.steps.map(step => <div key={step.step} className="p-5">
+            {control.roadmap.steps.map(step => <div key={step.step} className="p-5">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -162,7 +178,7 @@ export default function Page() {
                 </div>
               </div>
             </div>)}
-          </div>
+          </div>}
         </div>
 
         <div className="space-y-5">
@@ -172,19 +188,20 @@ export default function Page() {
               <HealthRow label="Database" ok={ready?.checks?.database}/>
               <HealthRow label="Redis" ok={ready?.checks?.redis}/>
               {Object.entries(operational?.workers ?? {}).map(([name, worker]) => <HealthRow key={name} label={name.replace(/([A-Z])/g," $1")} ok={worker.healthy} detail={worker.lastSuccessAt ? `Last success ${new Date(worker.lastSuccessAt).toLocaleString()}` : "No successful heartbeat reported"}/>)}
-              <HealthRow label="SMTP" ok={!integrations?.smtp?.configured || integrations?.smtp?.reachable === true} detail={integrations?.smtp?.configured ? integrations?.smtp?.reachable ? "Configured and reachable" : integrations?.smtp?.error || "Configured but unreachable" : "Not configured"}/>
+              <HealthRow label="SMTP" ok={integrations?.smtp?.configured ? integrations.smtp.reachable === true : undefined} detail={integrations?.smtp?.configured ? integrations?.smtp?.reachable ? "Configured and reachable" : integrations?.smtp?.error || "Configured but unreachable" : "Not configured"}/>
               {integrations?.razorpayMode && <div className="rounded-xl border p-3"><span className="font-semibold">Razorpay mode</span><span className="float-right font-bold">{integrations.razorpayMode}</span></div>}
             </div>
           </section>
 
           <section className="card p-5">
             <h2 className="text-lg font-bold">Launch blockers</h2>
-            <p className="mt-1 text-sm text-slate-500">{control?.launch.declaredStatus === "GO" ? "All blocking launch gates are ready." : "These conditions still hold the commercial launch."}</p>
+            <p className="mt-1 text-sm text-slate-500">{!control ? "Launch readiness data is temporarily unavailable." : launchStatus === "GO" ? "All blocking launch gates are ready." : "These conditions still hold the commercial launch."}</p>
             <div className="mt-4 space-y-3">
-              {blockers.map(gate => <div key={gate.id} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              {!control && <div className="rounded-xl border bg-slate-50 p-3 text-sm font-semibold text-slate-600">Launch status unavailable — refresh after API recovery.</div>}
+              {blockers?.map(gate => <div key={gate.id} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
                 <div className="flex items-start gap-2"><CircleDot className="mt-0.5 shrink-0" size={15}/><div><b>{gate.name}</b><div className="mt-1 text-xs">{gate.status}{gate.dependency ? ` · ${gate.dependency}` : ""}</div>{gate.nextAction && <p className="mt-2 text-xs leading-5">{gate.nextAction}</p>}</div></div>
               </div>)}
-              {blockers.length === 0 && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">GO — all blocking gates are ready.</div>}
+              {control && blockers?.length === 0 && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">GO — all blocking gates are ready.</div>}
             </div>
           </section>
 
