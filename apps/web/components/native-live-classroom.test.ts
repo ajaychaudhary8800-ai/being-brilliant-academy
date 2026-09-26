@@ -4,6 +4,7 @@ import test from "node:test";
 
 const source = readFileSync(new URL("./native-live-classroom.tsx", import.meta.url), "utf8");
 const learning = readFileSync(new URL("./learning-ecosystem-workspace.tsx", import.meta.url), "utf8");
+const nginx = readFileSync(new URL("../../../infra/nginx/nginx.conf", import.meta.url), "utf8");
 
 test("native classroom provides core market live-teaching controls", () => {
   for (const expected of [
@@ -49,4 +50,12 @@ test("parent observer mode is view-only and recordings remain authenticated", ()
 test("stopped classroom recordings report automatic LMS publishing", () => {
   assert.match(source, /publishedToLms/);
   assert.match(source, /published to LMS/);
+});
+
+
+test("native classroom client is permitted by CSP and cannot hang indefinitely", () => {
+  assert.match(nginx, /script-src[^"]*https:\/\/cdn\.jsdelivr\.net/);
+  assert.match(source, /Live classroom engine did not load within 15 seconds/);
+  assert.match(source, /Live classroom connection timed out/);
+  assert.match(source, /prior\.remove\(\)/);
 });
