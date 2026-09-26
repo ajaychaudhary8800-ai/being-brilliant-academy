@@ -691,8 +691,10 @@ router.post("/learning/live-classes/native/:room/recording/start", managers, asy
   const room = z.string().min(10).max(120).parse(req.params.room);
   const { live } = await nativeClassForActor(actor, room);
   if (!nativeRecordingConfigured()) throw new AppError(503, "LIVE_CLASS_RECORDING_NOT_CONFIGURED", "Recording requires LiveKit and S3-compatible storage credentials");
-  if (live.recordingEgressId && !["COMPLETE", "FAILED", "ABORTED"].includes(String(live.recordingStatus ?? "").toUpperCase())) throw new AppError(409, "RECORDING_ALREADY_ACTIVE", "A recording is already active for this class");
-  const key = `${env.LIVEKIT_RECORDING_PREFIX}/${req.auth!.organizationId}/${live.id}/{time}.mp4`;
+  const priorStatus = String(live.recordingStatus ?? "").toUpperCase();
+  const terminalRecording = ["COMPLETE", "FAILED", "ABORTED"].some(status => priorStatus.includes(status));
+  if (live.recordingEgressId && !terminalRecording) throw new AppError(409, "RECORDING_ALREADY_ACTIVE", "A recording is already active for this class");
+  const key = `${env.LIVEKIT_RECORDING_PREFIX}/${req.auth!.organizationId}/${live.id}/${Date.now()}.mp4`;
   const s3: Record<string, unknown> = {
     access_key: env.AWS_ACCESS_KEY_ID!,
     secret: env.AWS_SECRET_ACCESS_KEY!,
