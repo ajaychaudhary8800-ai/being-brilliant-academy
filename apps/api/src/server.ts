@@ -426,7 +426,7 @@ const runWorkflowAutomationWorker = async () => {
       lastFailureAt: failed.length ? new Date() : workerHeartbeats.workflowAutomation.lastFailureAt,
       lastError: failed[0]?.error ?? null,
     };
-    finishMetric(failed.length ? "partial" : "success");
+    finishMetric(failed.length ? "failure" : "success");
     if (failed.length) logger.warn({ failed: failed.length, total: results.length }, "Workflow automation worker completed with failures");
   } catch (error) {
     workerHeartbeats.workflowAutomation = {
