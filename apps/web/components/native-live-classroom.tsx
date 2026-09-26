@@ -7,6 +7,7 @@ import {
   Unlock, UserMinus, Users, Wifi,
 } from "lucide-react";
 import { errorMessage, getAccessToken, useAuth } from "./auth-provider";
+import { openAuthenticatedDocument } from "./authenticated-download";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 const LIVEKIT_SCRIPT = "https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js";
@@ -26,6 +27,7 @@ type SessionData = {
   manager: boolean;
   locked: boolean;
   recordingConfigured: boolean;
+  recordingAvailable: boolean;
   whiteboardData: Stroke[];
 };
 type Stroke = {
@@ -106,7 +108,8 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
   const drawingRef = useRef<{ surface: Stroke["surface"]; x: number; y: number } | null>(null);
 
   const manager = Boolean(session?.manager);
-  const canDraw = manager || studentDrawAllowed;
+  const observer = session?.role === "PARENT";
+  const canDraw = !observer && (manager || studentDrawAllowed);
 
   useEffect(() => {
     let cancelled = false;
@@ -445,7 +448,17 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     try {
       const result = await api(`/learning/live-classes/native/${encodeURIComponent(roomName)}/recording/stop`, { method: "POST", body: "{}" });
       setRecording(false);
-      setNotice(`Recording stopping (${result.data.status}).`);
+      setNotice(`Recording stopping (${result.data.status}). It will become downloadable after provider processing completes.`);
+    } catch (cause) { setError(errorMessage(cause)); }
+  }
+  async function downloadRecording() {
+    try {
+      await openAuthenticatedDocument({
+        url: `${API}/learning/live-classes/native/${encodeURIComponent(roomName)}/recording`,
+        token: getAccessToken() ?? "",
+        fileName: `${session?.liveClass.title ?? "live-class"}-recording.mp4`,
+        fallbackError: "Class recording is not available yet",
+      });
     } catch (cause) { setError(errorMessage(cause)); }
   }
 
@@ -467,20 +480,21 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
         <h1 className="mt-3 text-3xl font-black">{session.liveClass.title}</h1>
         <p className="mt-2 text-slate-300">{session.liveClass.description || "Interactive live class inside the learning portal."}</p>
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <Preflight label="Camera & microphone" value={deviceCheck === "ok" ? "Ready" : deviceCheck === "failed" ? "Needs attention" : "Not tested"}/>
+          <Preflight label={observer ? "Participation mode" : "Camera & microphone"} value={observer ? "Observer / view only" : deviceCheck === "ok" ? "Ready" : deviceCheck === "failed" ? "Needs attention" : "Not tested"}/>
           <Preflight label="Class duration" value={elapsed}/>
           <Preflight label="Role" value={session.role.replaceAll("_", " ")}/>
         </div>
         {error && <p className="mt-4 rounded-xl bg-red-950 p-3 text-sm text-red-200">{error}</p>}
         <div className="mt-6 flex flex-wrap gap-3">
-          <button onClick={() => void testDevices()} disabled={deviceCheck === "testing"} className="rounded-xl border border-white/20 px-4 py-3 font-semibold">{deviceCheck === "testing" ? "Testing…" : "Test camera & microphone"}</button>
-          <button onClick={() => void joinClass()} disabled={joining || locked && !manager} className="rounded-xl bg-blue-600 px-5 py-3 font-bold disabled:opacity-50">{joining ? "Joining…" : locked && !manager ? "Class locked" : "Join Classroom"}</button>
+          {!observer && <button onClick={() => void testDevices()} disabled={deviceCheck === "testing"} className="rounded-xl border border-white/20 px-4 py-3 font-semibold">{deviceCheck === "testing" ? "Testing…" : "Test camera & microphone"}</button>}
+          {session.recordingAvailable && <button onClick={() => void downloadRecording()} className="inline-flex items-center gap-2 rounded-xl border border-white/20 px-4 py-3 font-semibold"><Download size={16}/>Download recording</button>}
+          <button onClick={() => void joinClass()} disabled={joining || locked && !manager} className="rounded-xl bg-blue-600 px-5 py-3 font-bold disabled:opacity-50">{joining ? "Joining…" : locked && !manager ? "Class locked" : observer ? "Join as Observer" : "Join Classroom"}</button>
         </div>
       </section>
       <aside className="rounded-3xl border border-white/10 bg-slate-900 p-6">
         <h2 className="font-bold">Classroom capabilities</h2>
         <div className="mt-4 space-y-3 text-sm text-slate-300">
-          {["Camera & microphone","Screen sharing","Collaborative whiteboard","Screen annotations","Chat & raise hand","Automatic attendance","Teacher moderation",session.recordingConfigured?"Cloud recording enabled":"Recording requires storage configuration"].map(item=><div key={item} className="flex items-center gap-2"><Circle size={8} className="fill-current text-blue-400"/>{item}</div>)}
+          {(observer?["Live audio/video viewing","Shared screen viewing","Whiteboard viewing","Class chat viewing","Automatic attendance"]:["Camera & microphone","Screen sharing","Collaborative whiteboard","Screen annotations","Chat & raise hand","Automatic attendance","Teacher moderation",session.recordingConfigured?"Cloud recording enabled":"Recording requires storage configuration"]).map(item=><div key={item} className="flex items-center gap-2"><Circle size={8} className="fill-current text-blue-400"/>{item}</div>)}
         </div>
       </aside>
     </div>
@@ -510,6 +524,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
             <button onClick={()=>void classroomControl(locked?"UNLOCK":"LOCK")} className="inline-flex items-center gap-1 rounded-xl bg-slate-800 px-3 py-2 text-sm">{locked?<Unlock size={15}/>:<Lock size={15}/>} {locked?"Unlock":"Lock"}</button>
             <button onClick={()=>void toggleStudentDrawing()} className="rounded-xl bg-slate-800 px-3 py-2 text-sm">{studentDrawAllowed?"Disable student board":"Allow student board"}</button>
             {session.recordingConfigured && (recording?<button onClick={()=>void stopRecording()} className="inline-flex items-center gap-1 rounded-xl bg-red-700 px-3 py-2 text-sm"><Square size={14}/>Stop recording</button>:<button onClick={()=>void startRecording()} className="inline-flex items-center gap-1 rounded-xl bg-red-700 px-3 py-2 text-sm"><Radio size={14}/>Record</button>)}
+            {session.recordingAvailable && <button onClick={()=>void downloadRecording()} className="inline-flex items-center gap-1 rounded-xl bg-slate-800 px-3 py-2 text-sm"><Download size={14}/>Recording</button>}
           </div>}
         </div>
 
@@ -533,10 +548,10 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
         </section>}
 
         <div className="sticky bottom-4 z-40 mx-auto mt-4 flex w-fit flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900/95 p-2 shadow-2xl">
-          <Control active={micOn} label={micOn?"Mute":"Mic"} onClick={()=>void toggleMic()} icon={micOn?<Mic/>:<MicOff/>}/>
+          {!observer && <><Control active={micOn} label={micOn?"Mute":"Mic"} onClick={()=>void toggleMic()} icon={micOn?<Mic/>:<MicOff/>}/>
           <Control active={cameraOn} label={cameraOn?"Camera":"Camera"} onClick={()=>void toggleCamera()} icon={cameraOn?<Camera/>:<CameraOff/>}/>
           <Control active={screenOn} label="Share" onClick={()=>void toggleScreen()} icon={<MonitorUp/>}/>
-          <Control active={handRaised} label={handRaised?"Lower":"Raise hand"} onClick={()=>void toggleHand()} icon={<Hand/>}/>
+          <Control active={handRaised} label={handRaised?"Lower":"Raise hand"} onClick={()=>void toggleHand()} icon={<Hand/>}/></>}
           <button onClick={()=>void leaveClass()} className="inline-flex items-center gap-2 rounded-xl bg-red-700 px-4 py-3 text-sm font-bold"><LogOut size={17}/>Leave</button>
         </div>
       </main>
@@ -563,7 +578,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
             {chat.map(message=><div key={message.id} className={`rounded-xl p-2 text-sm ${message.self?"bg-blue-950":"bg-slate-800"}`}><b className="text-xs text-blue-300">{message.name}</b><p className="mt-1 break-words">{message.text}</p></div>)}
             {!chat.length&&<p className="text-sm text-slate-500">No messages yet.</p>}
           </div>
-          <div className="mt-3 flex gap-2"><input value={chatText} onChange={e=>setChatText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")void sendChat()}} placeholder="Message class" className="min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-800 px-3 py-2 text-sm outline-none"/><button onClick={()=>void sendChat()} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold">Send</button></div>
+          {observer?<p className="mt-3 rounded-xl bg-slate-800 p-3 text-xs text-slate-400">Observer mode: class chat is view-only.</p>:<div className="mt-3 flex gap-2"><input value={chatText} onChange={e=>setChatText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")void sendChat()}} placeholder="Message class" className="min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-800 px-3 py-2 text-sm outline-none"/><button onClick={()=>void sendChat()} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold">Send</button></div>}
         </div>
       </aside>
     </div>
