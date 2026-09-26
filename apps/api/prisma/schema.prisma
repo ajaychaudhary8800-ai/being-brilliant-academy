@@ -249,13 +249,18 @@ model LiveClass {
   startsAt        DateTime
   endsAt          DateTime
   recordingUrl    String?
+  recordingEgressId String?
+  recordingObjectKey String?
+  recordingStatus String?
   whiteboardUrl   String?
+  whiteboardData  Json?
   status          LearningStatus         @default(DRAFT)
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
   attendances     LiveClassAttendance[]
   interactions    LiveClassInteraction[]
 
+  @@unique([organizationId, meetingId])
   @@index([organizationId, batchId, startsAt])
   @@index([organizationId, teacherId, startsAt])
   @@index([organizationId, status])
@@ -1356,6 +1361,7 @@ enum StudyMaterialType {
 }
 
 enum LiveClassProvider {
+  NATIVE
   ZOOM
   GOOGLE_MEET
   JITSI
