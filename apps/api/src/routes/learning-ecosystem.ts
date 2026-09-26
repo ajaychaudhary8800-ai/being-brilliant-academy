@@ -1,5 +1,6 @@
 import { ApprovalStatus, DoubtStatus, LearningAttemptStatus, LearningStatus, LearningTestType, LiveClassProvider, QuestionType, Role, StudyMaterialType } from "@prisma/client";
 import { Router } from "express";
+import crypto from "node:crypto";
 import { z } from "zod";
 import { env } from "../config.js";
 import {
@@ -20,6 +21,8 @@ import {
 import { AppError } from "../lib/http.js";
 import { resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { prisma } from "../lib/prisma.js";
+import { getObject } from "../lib/storage.js";
+import { createLiveKitToken, livekitClientUrl, livekitConfigured, livekitEgress, livekitRoomService } from "../lib/livekit.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
@@ -427,10 +430,19 @@ router.get("/learning/materials/:id/download", async (req: AuthRequest, res) => 
   const actor = await learningActorForRequest(req);
   const row = await prisma.studyMaterial.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor), isArchived: false } });
   if (!row) throw new AppError(404, "MATERIAL_NOT_FOUND", "Material not found");
-  if (!row.fileData && row.externalUrl) return res.redirect(row.externalUrl);
-  if (!row.fileData) throw new AppError(404, "FILE_NOT_FOUND", "Material file not found");
   await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
-  res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"`, "Content-Length": String(row.fileData.length) }).send(Buffer.from(row.fileData));
+  if (row.fileData) {
+    return res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"`, "Content-Length": String(row.fileData.length) }).send(Buffer.from(row.fileData));
+  }
+  if (row.storageKey) {
+    const object = await getObject(row.storageKey);
+    if (!object || !(Symbol.asyncIterator in Object(object))) throw new AppError(404, "FILE_NOT_FOUND", "Material file not found");
+    res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"` });
+    for await (const chunk of object as AsyncIterable<Uint8Array | string>) res.write(chunk);
+    return res.end();
+  }
+  if (row.externalUrl) return res.redirect(row.externalUrl);
+  throw new AppError(404, "FILE_NOT_FOUND", "Material file not found");
 });
 
 router.post("/learning/materials/:id/bookmark", allow(Role.STUDENT, Role.PARENT), async (req: AuthRequest, res) => {
@@ -462,8 +474,82 @@ router.delete("/learning/materials/:id", managers, async (req: AuthRequest, res)
   res.status(204).send();
 });
 
-const liveShape = z.object({ title: z.string().min(3).max(180), description: z.string().max(5000).optional(), provider: z.nativeEnum(LiveClassProvider), meetingUrl: z.string().url().refine(x => x.startsWith("https://"), "Meeting URL must use HTTPS"), meetingId: z.string().max(100).optional(), meetingPassword: z.string().max(100).optional(), branchId: id, courseId: id, batchId: id, subjectId: id, teacherId: id, startsAt: z.coerce.date(), endsAt: z.coerce.date(), recordingUrl: z.string().url().optional(), whiteboardUrl: z.string().url().optional(), status: z.nativeEnum(LearningStatus).default(LearningStatus.DRAFT) });
-const liveInput = liveShape.refine(x => x.endsAt > x.startsAt, "End time must be after start time");
+const liveShape = z.object({
+  title: z.string().min(3).max(180),
+  description: z.string().max(5000).optional(),
+  provider: z.nativeEnum(LiveClassProvider),
+  meetingUrl: z.string().url().refine(x => x.startsWith("https://"), "Meeting URL must use HTTPS").optional(),
+  meetingId: z.string().max(100).optional(),
+  meetingPassword: z.string().max(100).optional(),
+  branchId: id,
+  courseId: id,
+  batchId: id,
+  subjectId: id,
+  teacherId: id,
+  startsAt: z.coerce.date(),
+  endsAt: z.coerce.date(),
+  recordingUrl: z.string().url().optional(),
+  whiteboardUrl: z.string().url().optional(),
+  status: z.nativeEnum(LearningStatus).default(LearningStatus.DRAFT),
+});
+const liveInput = liveShape.superRefine((value, context) => {
+  if (value.endsAt <= value.startsAt) context.addIssue({ code: "custom", path: ["endsAt"], message: "End time must be after start time" });
+  if (value.provider !== LiveClassProvider.NATIVE && !value.meetingUrl) context.addIssue({ code: "custom", path: ["meetingUrl"], message: "Meeting URL is required for external providers" });
+});
+const nativeManagers = new Set<Role>([Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER]);
+const isNativeManager = (role: Role) => nativeManagers.has(role);
+const nativeMeetingUrl = (room: string) => `${env.WEB_URL.replace(/\/$/, "")}/live-class/${room}`;
+const nativeRecordingConfigured = () => Boolean(
+  livekitConfigured()
+  && env.STORAGE_DRIVER === "s3"
+  && env.AWS_REGION
+  && env.AWS_S3_BUCKET
+  && env.AWS_ACCESS_KEY_ID
+  && env.AWS_SECRET_ACCESS_KEY
+);
+
+async function ensureRecordingMaterial(live: {
+  id: string; title: string; description: string | null; branchId: string; courseId: string; batchId: string;
+  subjectId: string; teacherId: string; recordingObjectKey: string | null;
+}, organizationId: string) {
+  if (!live.recordingObjectKey) return null;
+  const existing = await prisma.studyMaterial.findFirst({ where: { organizationId, sourceLiveClassId: live.id } });
+  const data = {
+    title: `Class Recording: ${live.title}`,
+    description: live.description ? `${live.description}\n\nAutomatically published from the native live classroom.` : "Automatically published from the native live classroom.",
+    type: StudyMaterialType.VIDEO,
+    branchId: live.branchId,
+    courseId: live.courseId,
+    batchId: live.batchId,
+    subjectId: live.subjectId,
+    teacherId: live.teacherId,
+    status: LearningStatus.PUBLISHED,
+    tags: ["LIVE_CLASS_RECORDING"],
+    fileName: `${live.title.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-|-$/g, "") || "live-class"}-recording.mp4`,
+    mimeType: "video/mp4",
+    storageKey: live.recordingObjectKey,
+    sourceLiveClassId: live.id,
+    isArchived: false,
+  };
+  return existing
+    ? prisma.studyMaterial.update({ where: { id: existing.id }, data: { ...data, version: { increment: 1 } } })
+    : prisma.studyMaterial.create({ data: { organizationId, ...data } });
+}
+
+async function nativeClassForActor(actor: LearningActor, room: string) {
+  const manager = isNativeManager(actor.role);
+  const live = await prisma.liveClass.findFirst({
+    where: {
+      meetingId: room,
+      provider: LiveClassProvider.NATIVE,
+      ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }),
+      ...(manager ? { status: { not: LearningStatus.ARCHIVED } } : { status: LearningStatus.PUBLISHED }),
+    },
+  });
+  if (!live) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Native live class is not available");
+  return { live, manager };
+}
+
 router.get("/learning/live-classes", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const q = pageQuery.extend({ batchId: id.optional(), subjectId: id.optional(), status: z.nativeEnum(LearningStatus).optional(), from: z.coerce.date().optional(), to: z.coerce.date().optional() }).parse(req.query);
@@ -483,10 +569,17 @@ router.post("/learning/live-classes", managers, async (req: AuthRequest, res) =>
   assertManagerResourceAccess(actor, d, { teacherOwned: true });
   const conflict = await prisma.liveClass.findFirst({ where: { teacherId: d.teacherId, status: { not: LearningStatus.ARCHIVED }, startsAt: { lt: d.endsAt }, endsAt: { gt: d.startsAt } } });
   if (conflict) throw new AppError(409, "TEACHER_SCHEDULE_CONFLICT", "Teacher already has a live class in this time slot");
-  const row = await prisma.liveClass.create({ data: d });
+  const data: any = { ...d };
+  if (d.provider === LiveClassProvider.NATIVE) {
+    const room = `class-${crypto.randomUUID()}`;
+    data.meetingId = room;
+    data.meetingUrl = nativeMeetingUrl(room);
+    data.meetingPassword = null;
+  }
+  const row = await prisma.liveClass.create({ data });
   const students = await prisma.studentProfile.findMany({ where: { batchId: d.batchId, status: "ACTIVE", user: { isActive: true } }, select: { userId: true } });
   if (d.status === LearningStatus.PUBLISHED) await Promise.all(students.map(student => notify(student.userId, "Live class scheduled", `${d.title} starts ${d.startsAt.toLocaleString("en-IN")}`, "LIVE_CLASS", row.id)));
-  await audit(req, "CREATE", "LiveClass", row.id);
+  await audit(req, "CREATE", "LiveClass", row.id, { provider: row.provider });
   res.status(201).json({ data: row });
 });
 
@@ -500,9 +593,18 @@ router.patch("/learning/live-classes/:id", managers, async (req: AuthRequest, re
   assertManagerResourceAccess(actor, target, { teacherOwned: true });
   const startsAt = d.startsAt ?? old.startsAt, endsAt = d.endsAt ?? old.endsAt;
   if (endsAt <= startsAt) throw new AppError(422, "INVALID_TIME", "End time must be after start time");
+  const provider = d.provider ?? old.provider;
+  if (provider !== LiveClassProvider.NATIVE && !d.meetingUrl && old.provider === LiveClassProvider.NATIVE) throw new AppError(422, "MEETING_URL_REQUIRED", "Meeting URL is required when switching to an external provider");
   const conflict = await prisma.liveClass.findFirst({ where: { id: { not: old.id }, teacherId: target.teacherId, status: { not: LearningStatus.ARCHIVED }, startsAt: { lt: endsAt }, endsAt: { gt: startsAt } }, select: { id: true } });
   if (conflict) throw new AppError(409, "TEACHER_SCHEDULE_CONFLICT", "Teacher already has a live class in this time slot");
-  const row = await prisma.liveClass.update({ where: { id: old.id }, data: d });
+  const data: any = { ...d };
+  if (provider === LiveClassProvider.NATIVE && old.provider !== LiveClassProvider.NATIVE) {
+    const room = `class-${crypto.randomUUID()}`;
+    data.meetingId = room;
+    data.meetingUrl = nativeMeetingUrl(room);
+    data.meetingPassword = null;
+  }
+  const row = await prisma.liveClass.update({ where: { id: old.id }, data });
   await audit(req, "UPDATE", "LiveClass", row.id);
   res.json({ data: row });
 });
@@ -511,8 +613,8 @@ router.post("/learning/live-classes/:id/join", async (req: AuthRequest, res) => 
   const actor = await learningActorForRequest(req);
   const live = await prisma.liveClass.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }), status: LearningStatus.PUBLISHED } });
   if (!live) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Live class is not available");
-  const attendance = await prisma.liveClassAttendance.upsert({ where: { liveClassId_userId: { liveClassId: live.id, userId: actor.userId } }, update: { joinedAt: new Date(), leftAt: null }, create: { liveClassId: live.id, userId: actor.userId } });
-  res.json({ data: { attendance, meetingUrl: live.meetingUrl, meetingId: live.meetingId, meetingPassword: live.meetingPassword, whiteboardUrl: live.whiteboardUrl } });
+  const attendance = await prisma.liveClassAttendance.upsert({ where: { liveClassId_userId: { liveClassId: live.id, userId: actor.userId } }, update: { joinedAt: new Date(), leftAt: null }, create: { organizationId: req.auth!.organizationId, liveClassId: live.id, userId: actor.userId } });
+  res.json({ data: { attendance, provider: live.provider, meetingUrl: live.meetingUrl, meetingId: live.meetingId, meetingPassword: live.meetingPassword, whiteboardUrl: live.whiteboardUrl } });
 });
 
 router.post("/learning/live-classes/:id/leave", async (req: AuthRequest, res) => {
@@ -521,7 +623,8 @@ router.post("/learning/live-classes/:id/leave", async (req: AuthRequest, res) =>
   const live = await prisma.liveClass.findFirst({ where: { id: liveClassId, ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }) }, select: { id: true } });
   if (!live) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Live class is not available");
   const row = await prisma.liveClassAttendance.findUnique({ where: { liveClassId_userId: { liveClassId, userId: actor.userId } } });
-  if (!row) throw new AppError(404, "ATTENDANCE_NOT_FOUND", "Join record not found");
+  if (!row) return res.status(204).send();
+  if (row.leftAt) return res.json({ data: row });
   const now = new Date(), updated = await prisma.liveClassAttendance.update({ where: { id: row.id }, data: { leftAt: now, durationSeconds: { increment: Math.max(0, Math.round((now.getTime() - row.joinedAt.getTime()) / 1000)) } } });
   res.json({ data: updated });
 });
@@ -532,8 +635,151 @@ router.post("/learning/live-classes/:id/interactions", async (req: AuthRequest, 
   const live = await prisma.liveClass.findFirst({ where: { id: liveClassId, ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }), status: LearningStatus.PUBLISHED }, select: { id: true } });
   if (!live) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Live class is not available");
   const d = z.object({ type: z.enum(["CHAT", "POLL", "POLL_RESPONSE", "RAISE_HAND", "WHITEBOARD"]), content: z.unknown().optional() }).parse(req.body);
-  const row = await prisma.liveClassInteraction.create({ data: { liveClassId, userId: actor.userId, type: d.type, content: d.content as object | undefined } });
+  const row = await prisma.liveClassInteraction.create({ data: { organizationId: req.auth!.organizationId, liveClassId, userId: actor.userId, type: d.type, content: d.content as object | undefined } });
   res.status(201).json({ data: row });
+});
+
+router.post("/learning/live-classes/native/:room/session", async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const room = z.string().min(10).max(120).parse(req.params.room);
+  const { live, manager } = await nativeClassForActor(actor, room);
+  if (!livekitConfigured()) throw new AppError(503, "LIVE_CLASS_NOT_CONFIGURED", "Native live classroom infrastructure is not configured");
+  const lock = await prisma.liveClassInteraction.findFirst({ where: { liveClassId: live.id, type: "ROOM_LOCK" }, orderBy: { createdAt: "desc" } });
+  const locked = Boolean((lock?.content as any)?.locked);
+  if (locked && !manager) throw new AppError(423, "LIVE_CLASS_LOCKED", "Teacher has locked this live classroom");
+  const user = await prisma.user.findUnique({ where: { id: actor.userId }, select: { name: true } });
+  if (!user) throw new AppError(404, "USER_NOT_FOUND", "User account not found");
+  const parent = actor.role === Role.PARENT;
+  const grant = {
+    room,
+    roomJoin: true,
+    roomAdmin: manager,
+    canSubscribe: true,
+    canPublish: !parent,
+    canPublishData: !parent,
+    canUpdateOwnMetadata: !parent,
+    ...(!parent ? { canPublishSources: manager ? ["camera", "microphone", "screen_share", "screen_share_audio"] : ["camera", "microphone"] } : {}),
+  };
+  const token = createLiveKitToken({ identity: actor.userId, name: user.name, room, grant, role: actor.role, ttlSeconds: 4 * 60 * 60 });
+  res.status(201).json({
+    data: {
+      serverUrl: livekitClientUrl(),
+      participantToken: token,
+      liveClass: { id: live.id, title: live.title, description: live.description, startsAt: live.startsAt, endsAt: live.endsAt, subjectId: live.subjectId, batchId: live.batchId, recordingStatus: live.recordingStatus },
+      role: actor.role,
+      manager,
+      locked,
+      recordingConfigured: nativeRecordingConfigured(),
+      recordingAvailable: Boolean(live.recordingObjectKey),
+      whiteboardData: live.whiteboardData ?? [],
+    },
+  });
+});
+
+router.post("/learning/live-classes/native/:room/control", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const room = z.string().min(10).max(120).parse(req.params.room);
+  const { live } = await nativeClassForActor(actor, room);
+  const d = z.object({
+    action: z.enum(["LOCK", "UNLOCK", "MUTE_TRACK", "REMOVE_PARTICIPANT", "ALLOW_SCREEN_SHARE", "REVOKE_SCREEN_SHARE"]),
+    identity: z.string().min(1).max(160).optional(),
+    trackSid: z.string().min(1).max(160).optional(),
+  }).parse(req.body);
+  if (d.action === "LOCK" || d.action === "UNLOCK") {
+    const locked = d.action === "LOCK";
+    await prisma.liveClassInteraction.create({ data: { organizationId: req.auth!.organizationId, liveClassId: live.id, userId: actor.userId, type: "ROOM_LOCK", content: { locked } } });
+    await audit(req, d.action, "LiveClass", live.id);
+    return res.json({ data: { locked } });
+  }
+  if (!d.identity) throw new AppError(422, "PARTICIPANT_REQUIRED", "Participant identity is required");
+  if (d.action === "MUTE_TRACK") {
+    if (!d.trackSid) throw new AppError(422, "TRACK_REQUIRED", "Track ID is required");
+    const result = await livekitRoomService("MutePublishedTrack", { room, identity: d.identity, track_sid: d.trackSid, muted: true }, room);
+    return res.json({ data: result });
+  }
+  if (d.action === "REMOVE_PARTICIPANT") {
+    const result = await livekitRoomService("RemoveParticipant", { room, identity: d.identity }, room);
+    return res.json({ data: result ?? { removed: true } });
+  }
+  const allowShare = d.action === "ALLOW_SCREEN_SHARE";
+  const result = await livekitRoomService("UpdateParticipant", {
+    room,
+    identity: d.identity,
+    permission: {
+      can_subscribe: true,
+      can_publish: true,
+      can_publish_data: true,
+      can_publish_sources: allowShare ? ["camera", "microphone", "screen_share", "screen_share_audio"] : ["camera", "microphone"],
+    },
+  }, room);
+  res.json({ data: result });
+});
+
+router.put("/learning/live-classes/native/:room/whiteboard", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const room = z.string().min(10).max(120).parse(req.params.room);
+  const { live } = await nativeClassForActor(actor, room);
+  const d = z.object({ strokes: z.array(z.record(z.string(), z.unknown())).max(10000) }).parse(req.body);
+  const row = await prisma.liveClass.update({ where: { id: live.id }, data: { whiteboardData: d.strokes as any } });
+  await audit(req, "SAVE_WHITEBOARD", "LiveClass", live.id, { strokes: d.strokes.length });
+  res.json({ data: { saved: true, updatedAt: row.updatedAt } });
+});
+
+router.post("/learning/live-classes/native/:room/recording/start", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const room = z.string().min(10).max(120).parse(req.params.room);
+  const { live } = await nativeClassForActor(actor, room);
+  if (!nativeRecordingConfigured()) throw new AppError(503, "LIVE_CLASS_RECORDING_NOT_CONFIGURED", "Recording requires LiveKit and S3-compatible storage credentials");
+  const priorStatus = String(live.recordingStatus ?? "").toUpperCase();
+  const terminalRecording = ["COMPLETE", "FAILED", "ABORTED"].some(status => priorStatus.includes(status));
+  if (live.recordingEgressId && !terminalRecording) throw new AppError(409, "RECORDING_ALREADY_ACTIVE", "A recording is already active for this class");
+  const key = `${env.LIVEKIT_RECORDING_PREFIX}/${req.auth!.organizationId}/${live.id}/${Date.now()}.mp4`;
+  const s3: Record<string, unknown> = {
+    access_key: env.AWS_ACCESS_KEY_ID!,
+    secret: env.AWS_SECRET_ACCESS_KEY!,
+    region: env.AWS_REGION!,
+    bucket: env.AWS_S3_BUCKET!,
+  };
+  if (env.AWS_S3_ENDPOINT) {
+    s3.endpoint = env.AWS_S3_ENDPOINT;
+    s3.force_path_style = true;
+  }
+  const result: any = await livekitEgress("StartEgress", {
+    room_name: room,
+    template: { layout: "grid" },
+    outputs: [{ file: { file_type: "MP4", filepath: key } }],
+    storage: { s3 },
+  });
+  const egressId = result.egress_id ?? result.egressId;
+  await prisma.liveClass.update({ where: { id: live.id }, data: { recordingEgressId: egressId, recordingObjectKey: key, recordingStatus: result.status ?? "STARTING" } });
+  await audit(req, "START_RECORDING", "LiveClass", live.id, { egressId });
+  res.status(201).json({ data: { egressId, status: result.status ?? "STARTING" } });
+});
+
+router.post("/learning/live-classes/native/:room/recording/stop", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const room = z.string().min(10).max(120).parse(req.params.room);
+  const { live } = await nativeClassForActor(actor, room);
+  if (!live.recordingEgressId) throw new AppError(409, "RECORDING_NOT_ACTIVE", "No active class recording was found");
+  const result: any = await livekitEgress("StopEgress", { egress_id: live.recordingEgressId });
+  const status = result.status ?? "STOPPING";
+  const updated = await prisma.liveClass.update({ where: { id: live.id }, data: { recordingStatus: status } });
+  const material = await ensureRecordingMaterial(updated, req.auth!.organizationId);
+  await audit(req, "STOP_RECORDING", "LiveClass", live.id, { egressId: live.recordingEgressId, status, materialId: material?.id });
+  res.json({ data: { egressId: live.recordingEgressId, status, materialId: material?.id ?? null, publishedToLms: Boolean(material) } });
+});
+
+router.get("/learning/live-classes/native/:room/recording", async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const room = z.string().min(10).max(120).parse(req.params.room);
+  const { live } = await nativeClassForActor(actor, room);
+  if (!live.recordingObjectKey) throw new AppError(404, "RECORDING_NOT_FOUND", "No recording is available for this class");
+  const object = await getObject(live.recordingObjectKey);
+  if (!object || !(Symbol.asyncIterator in Object(object))) throw new AppError(404, "RECORDING_NOT_FOUND", "Class recording is not available yet");
+  res.setHeader("Content-Type", "video/mp4");
+  res.setHeader("Content-Disposition", `attachment; filename="live-class-${live.id}.mp4"`);
+  for await (const chunk of object as AsyncIterable<Uint8Array | string>) res.write(chunk);
+  res.end();
 });
 
 router.get("/learning/gamification/me", allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER, Role.STUDENT), async (req: AuthRequest, res) => {

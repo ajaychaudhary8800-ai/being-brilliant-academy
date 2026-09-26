@@ -32,6 +32,10 @@ const schema = z.object({
   AI_PROVIDER_URL: optionalUrl,
   AI_API_KEY: optionalString,
   AI_MODEL: z.string().default("learning-assistant"),
+  LIVEKIT_URL: optionalUrl,
+  LIVEKIT_API_KEY: optionalString,
+  LIVEKIT_API_SECRET: optionalString,
+  LIVEKIT_RECORDING_PREFIX: z.string().default("live-class-recordings"),
   CRM_WEBHOOK_URL: optionalUrl,
   CRM_WEBHOOK_SECRET: optionalString,
   WEB_PUSH_PUBLIC_KEY: optionalString,
@@ -70,6 +74,7 @@ const schema = z.object({
     requireTogether(["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SMS_FROM"], "Twilio SMS");
     requireTogether(["WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_ACCESS_TOKEN"], "WhatsApp Cloud API");
     requireTogether(["WEB_PUSH_PUBLIC_KEY", "WEB_PUSH_PRIVATE_KEY"], "Web Push");
+    requireTogether(["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"], "LiveKit");
     requireTogether(["RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET"], "Razorpay");
   }
   if (value.RAZORPAY_KEY_ID && !value.RAZORPAY_KEY_ID.startsWith(`rzp_${value.RAZORPAY_MODE}_`)) context.addIssue({ code: "custom", path: ["RAZORPAY_KEY_ID"], message: `Razorpay key does not match ${value.RAZORPAY_MODE} mode` });

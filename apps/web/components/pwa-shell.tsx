@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { BookOpen, Contrast, Download, Home, LayoutDashboard, X } from "lucide-react";
 import { useTenantBranding } from "./tenant-branding";
 import { useAuth } from "./auth-provider";
@@ -13,6 +14,7 @@ type InstallEvent = Event & {
 
 export function PwaShell() {
   const { brand } = useTenantBranding();
+  const pathname = usePathname();
   const { user, loading } = useAuth();
   const [install, setInstall] = useState<InstallEvent | null>(null);
   const [workerFailed, setWorkerFailed] = useState(false);
@@ -39,7 +41,7 @@ export function PwaShell() {
     };
   }, [loading, user]);
 
-  if (loading || !user) return null;
+  if (loading || !user || pathname?.startsWith("/live-class/")) return null;
 
   const portalHref =
     user.role === "STUDENT" ? "/student" :
