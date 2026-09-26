@@ -208,6 +208,8 @@ model StudyMaterial {
   mimeType       String?
   fileSize       Int?
   fileData       Bytes?
+  storageKey     String?
+  sourceLiveClassId String?
   externalUrl    String?
   downloadCount  Int                     @default(0)
   isArchived     Boolean                 @default(false)
@@ -215,6 +217,7 @@ model StudyMaterial {
   updatedAt      DateTime                @updatedAt
   bookmarks      StudyMaterialBookmark[]
 
+  @@unique([organizationId, sourceLiveClassId])
   @@index([organizationId, courseId, batchId, status])
   @@index([organizationId, subjectId, chapter, type])
   @@index([organizationId, createdAt])
