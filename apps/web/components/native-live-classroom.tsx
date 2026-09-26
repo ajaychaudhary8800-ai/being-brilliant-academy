@@ -56,21 +56,35 @@ async function loadLiveKit() {
   if (typeof window === "undefined") return null;
   const existing = (window as any).LivekitClient;
   if (existing) return existing;
+
+  const prior = document.querySelector<HTMLScriptElement>(`script[src="${LIVEKIT_SCRIPT}"]`);
+  if (prior && prior.dataset.livekitLoaded !== "true") prior.remove();
+
   await new Promise<void>((resolve, reject) => {
-    const found = document.querySelector<HTMLScriptElement>(`script[src="${LIVEKIT_SCRIPT}"]`);
-    if (found) {
-      found.addEventListener("load", () => resolve(), { once: true });
-      found.addEventListener("error", () => reject(new Error("Unable to load live classroom engine")), { once: true });
-      return;
-    }
     const script = document.createElement("script");
+    const timeout = window.setTimeout(() => {
+      script.remove();
+      reject(new Error("Live classroom engine did not load within 15 seconds. Check network access and retry."));
+    }, 15_000);
     script.src = LIVEKIT_SCRIPT;
     script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Unable to load live classroom engine"));
+    script.crossOrigin = "anonymous";
+    script.onload = () => {
+      window.clearTimeout(timeout);
+      script.dataset.livekitLoaded = "true";
+      resolve();
+    };
+    script.onerror = () => {
+      window.clearTimeout(timeout);
+      script.remove();
+      reject(new Error("Unable to load the LiveKit classroom engine. Please retry."));
+    };
     document.head.appendChild(script);
   });
-  return (window as any).LivekitClient;
+
+  const client = (window as any).LivekitClient;
+  if (!client) throw new Error("Live classroom engine loaded but did not initialize.");
+  return client;
 }
 
 export function NativeLiveClassroom({ roomName }: { roomName: string }) {
@@ -300,7 +314,10 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
           setCameraOn(false);
           setScreenOn(false);
         });
-      await activeRoom.connect(session.serverUrl, session.participantToken);
+      await Promise.race([
+        activeRoom.connect(session.serverUrl, session.participantToken),
+        new Promise((_, reject) => window.setTimeout(() => reject(new Error("Live classroom connection timed out. Please retry or check your network.")), 20_000)),
+      ]);
       setRoom(activeRoom);
       setJoined(true);
       await api(`/learning/live-classes/${session.liveClass.id}/join`, { method: "POST", body: "{}" });
