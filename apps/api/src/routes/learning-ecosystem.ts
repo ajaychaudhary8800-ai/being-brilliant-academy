@@ -1,5 +1,6 @@
 import { ApprovalStatus, DoubtStatus, LearningAttemptStatus, LearningStatus, LearningTestType, LiveClassProvider, QuestionType, Role, StudyMaterialType } from "@prisma/client";
 import { Router } from "express";
+import crypto from "node:crypto";
 import { z } from "zod";
 import { env } from "../config.js";
 import {
@@ -20,6 +21,7 @@ import {
 import { AppError } from "../lib/http.js";
 import { resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { prisma } from "../lib/prisma.js";
+import { createLiveKitToken, livekitClientUrl, livekitConfigured, livekitEgress, livekitRoomService } from "../lib/livekit.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
