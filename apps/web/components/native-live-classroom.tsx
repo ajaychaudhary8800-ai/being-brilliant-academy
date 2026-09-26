@@ -328,6 +328,20 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
 
   useEffect(() => () => { room?.disconnect?.(); }, [room]);
 
+  useEffect(() => {
+    if (!joined || !session) return;
+    const closeAttendance = () => {
+      void fetch(`${API}/learning/live-classes/${session.liveClass.id}/leave`, {
+        method: "POST",
+        keepalive: true,
+        headers: { Authorization: `Bearer ${getAccessToken() ?? ""}`, "Content-Type": "application/json" },
+        body: "{}",
+      }).catch(() => undefined);
+    };
+    window.addEventListener("pagehide", closeAttendance);
+    return () => window.removeEventListener("pagehide", closeAttendance);
+  }, [joined, session]);
+
   async function toggleMic() {
     if (!room) return;
     try {
