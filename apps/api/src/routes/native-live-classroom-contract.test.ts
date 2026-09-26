@@ -34,7 +34,7 @@ test("native classroom exposes moderation, whiteboard and recording controls", a
     "StopEgress",
   ]) assert.match(source, new RegExp(expected));
   assert.match(source, /recordingObjectKey/);
-  assert.match(source, /getObject\(live\.recordingObjectKey\)/);
+  assert.match(source, /getLiveKitRecordingObject\(live\.recordingObjectKey\)/);
 });
 
 
