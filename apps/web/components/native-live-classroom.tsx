@@ -28,15 +28,37 @@ type SessionData = {
   locked: boolean;
   recordingConfigured: boolean;
   recordingAvailable: boolean;
-  whiteboardData: Stroke[];
+  whiteboardData: BoardItem[];
 };
 type Stroke = {
   surface: "whiteboard" | "annotation";
   x1: number; y1: number; x2: number; y2: number;
   color: string; width: number; mode: "pen" | "erase";
 };
+type BoardShape = {
+  surface: "whiteboard";
+  kind: "shape";
+  shape: "rectangle" | "circle" | "arrow";
+  x1: number; y1: number; x2: number; y2: number;
+  color: string; width: number;
+};
+type BoardText = {
+  surface: "whiteboard";
+  kind: "text" | "note";
+  x: number; y: number; w: number; h: number;
+  text: string; color: string;
+};
+type BoardItem = Stroke | BoardShape | BoardText;
 type Chat = { id: string; name: string; text: string; at: number; self?: boolean };
 type ParticipantRow = { identity: string; name: string; micTrackSid?: string; hand?: boolean };
+type ReactionBubble = { id: string; emoji: string; name: string };
+type PollState = {
+  id: string;
+  question: string;
+  options: Array<{ id: string; label: string; votes: number }>;
+  open: boolean;
+  voters: Record<string, string>;
+};
 
 async function api(path: string, init?: RequestInit) {
   const response = await fetch(`${API}${path}`, {
@@ -112,6 +134,10 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
   const [studentDrawAllowed, setStudentDrawAllowed] = useState(false);
   const [drawingMode, setDrawingMode] = useState<"pen" | "erase">("pen");
   const [penColor, setPenColor] = useState("#0f172a");
+  const [reactions, setReactions] = useState<ReactionBubble[]>([]);
+  const [poll, setPoll] = useState<PollState | null>(null);
+  const [timerEndsAt, setTimerEndsAt] = useState<number | null>(null);
+  const [timerNow, setTimerNow] = useState(Date.now());
   const [recording, setRecording] = useState(false);
   const [locked, setLocked] = useState(false);
   const [deviceCheck, setDeviceCheck] = useState<"idle" | "testing" | "ok" | "failed">("idle");
@@ -120,7 +146,8 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
   const audioRef = useRef<HTMLDivElement>(null);
   const whiteboardRef = useRef<HTMLCanvasElement>(null);
   const annotationRef = useRef<HTMLCanvasElement>(null);
-  const strokesRef = useRef<Stroke[]>([]);
+  const strokesRef = useRef<BoardItem[]>([]);
+  const redoRef = useRef<BoardItem[]>([]);
   const drawingRef = useRef<{ surface: Stroke["surface"]; x: number; y: number } | null>(null);
 
   const manager = Boolean(session?.manager);
@@ -152,13 +179,71 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     }
   }, []);
 
-  const drawStroke = useCallback((stroke: Stroke) => {
-    const canvas = stroke.surface === "whiteboard" ? whiteboardRef.current : annotationRef.current;
+  const drawStroke = useCallback((item: BoardItem) => {
+    const canvas = item.surface === "whiteboard" ? whiteboardRef.current : annotationRef.current;
     if (!canvas) return;
     resizeCanvas(canvas);
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.save();
+
+    if ("kind" in item && item.kind === "shape") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = item.color;
+      ctx.lineWidth = item.width;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      const x1 = item.x1 * canvas.width, y1 = item.y1 * canvas.height;
+      const x2 = item.x2 * canvas.width, y2 = item.y2 * canvas.height;
+      const width = x2 - x1, height = y2 - y1;
+      ctx.beginPath();
+      if (item.shape === "rectangle") ctx.rect(x1, y1, width, height);
+      if (item.shape === "circle") ctx.ellipse(x1 + width / 2, y1 + height / 2, Math.abs(width / 2), Math.abs(height / 2), 0, 0, Math.PI * 2);
+      if (item.shape === "arrow") {
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        const head = 14;
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - head * Math.cos(angle - Math.PI / 6), y2 - head * Math.sin(angle - Math.PI / 6));
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - head * Math.cos(angle + Math.PI / 6), y2 - head * Math.sin(angle + Math.PI / 6));
+      }
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    if ("kind" in item && (item.kind === "text" || item.kind === "note")) {
+      const x = item.x * canvas.width, y = item.y * canvas.height;
+      const w = item.w * canvas.width, h = item.h * canvas.height;
+      if (item.kind === "note") {
+        ctx.fillStyle = "#fef3c7";
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = "#f59e0b";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, w, h);
+      }
+      ctx.fillStyle = item.color;
+      ctx.font = `${item.kind === "note" ? 18 : 24}px sans-serif`;
+      ctx.textBaseline = "top";
+      const maxWidth = Math.max(60, w - 16);
+      const words = item.text.split(/\s+/);
+      let line = "", lineY = y + (item.kind === "note" ? 10 : 0);
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth && line) {
+          ctx.fillText(line, x + (item.kind === "note" ? 8 : 0), lineY);
+          line = word;
+          lineY += item.kind === "note" ? 22 : 28;
+        } else line = test;
+      }
+      if (line) ctx.fillText(line, x + (item.kind === "note" ? 8 : 0), lineY);
+      ctx.restore();
+      return;
+    }
+
+    const stroke = item as Stroke;
     ctx.globalCompositeOperation = stroke.mode === "erase" ? "destination-out" : "source-over";
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -177,7 +262,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     resizeCanvas(canvas);
     const ctx = canvas.getContext("2d");
     ctx?.clearRect(0, 0, canvas.width, canvas.height);
-    strokesRef.current.filter(stroke => stroke.surface === surface).forEach(drawStroke);
+    strokesRef.current.filter(item => item.surface === surface).forEach(drawStroke);
   }, [drawStroke, resizeCanvas]);
 
   useEffect(() => {
@@ -250,14 +335,41 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
       if (message.type === "chat") setChat(current => [...current, { id: crypto.randomUUID(), name: message.name ?? participant?.name ?? "Participant", text: String(message.text ?? ""), at: Number(message.at ?? Date.now()) }].slice(-200));
       if (message.type === "raise-hand") setHands(current => ({ ...current, [participant?.identity ?? message.identity]: Boolean(message.raised) }));
       if (message.type === "whiteboard" && message.stroke) {
-        const stroke = message.stroke as Stroke;
-        strokesRef.current.push(stroke);
-        drawStroke(stroke);
+        const item = message.stroke as BoardItem;
+        strokesRef.current.push(item);
+        drawStroke(item);
+      }
+      if (message.type === "whiteboard-state" && Array.isArray(message.items)) {
+        strokesRef.current = [
+          ...strokesRef.current.filter(item => item.surface !== "whiteboard"),
+          ...(message.items as BoardItem[]).filter(item => item.surface === "whiteboard"),
+        ];
+        redraw("whiteboard");
       }
       if (message.type === "clear-surface") {
-        strokesRef.current = strokesRef.current.filter(stroke => stroke.surface !== message.surface);
+        strokesRef.current = strokesRef.current.filter(item => item.surface !== message.surface);
         redraw(message.surface);
       }
+      if (message.type === "reaction") {
+        const reaction = { id: crypto.randomUUID(), emoji: String(message.emoji ?? "👍"), name: String(message.name ?? participant?.name ?? "Participant") };
+        setReactions(current => [...current.slice(-5), reaction]);
+        window.setTimeout(() => setReactions(current => current.filter(item => item.id !== reaction.id)), 3500);
+      }
+      if (message.type === "poll-start" && message.poll) setPoll(message.poll as PollState);
+      if (message.type === "poll-vote" && message.pollId && message.optionId) {
+        const voter = String(message.voter ?? participant?.identity ?? "");
+        setPoll(current => {
+          if (!current || current.id !== message.pollId || !current.open || !voter || current.voters[voter]) return current;
+          return {
+            ...current,
+            voters: { ...current.voters, [voter]: String(message.optionId) },
+            options: current.options.map(option => option.id === message.optionId ? { ...option, votes: option.votes + 1 } : option),
+          };
+        });
+      }
+      if (message.type === "poll-end") setPoll(current => current && current.id === message.pollId ? { ...current, open: false } : current);
+      if (message.type === "timer-start") setTimerEndsAt(Number(message.endsAt) || null);
+      if (message.type === "timer-stop") setTimerEndsAt(null);
       if (message.type === "whiteboard-permission") setStudentDrawAllowed(Boolean(message.allowed));
       if (message.type === "teacher-notice") setNotice(String(message.text ?? ""));
     } catch {
@@ -268,6 +380,17 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
   useEffect(() => {
     if (room) refreshParticipants(room);
   }, [hands, room, refreshParticipants]);
+
+  useEffect(() => {
+    if (!timerEndsAt) return;
+    const tick = () => {
+      setTimerNow(Date.now());
+      if (Date.now() >= timerEndsAt) setTimerEndsAt(null);
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [timerEndsAt]);
 
   async function testDevices() {
     setDeviceCheck("testing");
@@ -433,9 +556,70 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
   }
   function endDraw() { drawingRef.current = null; }
 
+  async function addWhiteboardItem(item: BoardItem) {
+    if (!canDraw || !joined) return;
+    strokesRef.current.push(item);
+    redoRef.current = [];
+    drawStroke(item);
+    await publish({ type: "whiteboard", stroke: item }, true);
+  }
+
+  async function insertWhiteboardText(kind: "text" | "note") {
+    const label = kind === "note" ? "Sticky note text" : "Text to place on the whiteboard";
+    const text = window.prompt(label)?.trim();
+    if (!text) return;
+    const existing = strokesRef.current.filter(item => item.surface === "whiteboard").length;
+    const offset = Math.min(0.18, (existing % 6) * 0.025);
+    await addWhiteboardItem({
+      surface: "whiteboard",
+      kind,
+      x: 0.12 + offset,
+      y: 0.18 + offset,
+      w: kind === "note" ? 0.28 : 0.5,
+      h: kind === "note" ? 0.2 : 0.14,
+      text: text.slice(0, 500),
+      color: kind === "note" ? "#111827" : penColor,
+    });
+  }
+
+  async function insertWhiteboardShape(shape: BoardShape["shape"]) {
+    const positions = {
+      rectangle: { x1: 0.25, y1: 0.25, x2: 0.62, y2: 0.52 },
+      circle: { x1: 0.32, y1: 0.24, x2: 0.58, y2: 0.52 },
+      arrow: { x1: 0.24, y1: 0.5, x2: 0.68, y2: 0.3 },
+    } as const;
+    await addWhiteboardItem({ surface: "whiteboard", kind: "shape", shape, ...positions[shape], color: penColor, width: 4 });
+  }
+
+  async function syncWhiteboardState() {
+    await publish({ type: "whiteboard-state", items: strokesRef.current.filter(item => item.surface === "whiteboard") }, true);
+  }
+
+  async function undoWhiteboard() {
+    if (!manager) return;
+    for (let index = strokesRef.current.length - 1; index >= 0; index -= 1) {
+      if (strokesRef.current[index].surface !== "whiteboard") continue;
+      const [removed] = strokesRef.current.splice(index, 1);
+      redoRef.current.push(removed);
+      redraw("whiteboard");
+      await syncWhiteboardState();
+      return;
+    }
+  }
+
+  async function redoWhiteboard() {
+    if (!manager) return;
+    const item = redoRef.current.pop();
+    if (!item) return;
+    strokesRef.current.push(item);
+    redraw("whiteboard");
+    await syncWhiteboardState();
+  }
+
   async function clearSurface(surface: Stroke["surface"]) {
     if (!manager) return;
-    strokesRef.current = strokesRef.current.filter(stroke => stroke.surface !== surface);
+    strokesRef.current = strokesRef.current.filter(item => item.surface !== surface);
+    if (surface === "whiteboard") redoRef.current = [];
     redraw(surface);
     await publish({ type: "clear-surface", surface }, true);
   }
@@ -472,6 +656,76 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     setNotice(allowed ? "Students can now use the whiteboard." : "Student whiteboard drawing disabled.");
   }
 
+  async function sendReaction(emoji: string) {
+    if (!room || observer) return;
+    const reaction = { id: crypto.randomUUID(), emoji, name: user?.name ?? "You" };
+    setReactions(current => [...current.slice(-5), reaction]);
+    window.setTimeout(() => setReactions(current => current.filter(item => item.id !== reaction.id)), 3500);
+    await publish({ type: "reaction", emoji, name: reaction.name }, false);
+  }
+
+  async function createQuickPoll() {
+    if (!manager || !session) return;
+    const question = window.prompt("Poll question")?.trim();
+    if (!question) return;
+    const raw = window.prompt("Answer options separated by commas (2–6 options)")?.trim();
+    if (!raw) return;
+    const labels = raw.split(",").map(value => value.trim()).filter(Boolean).slice(0, 6);
+    if (labels.length < 2) {
+      setNotice("A poll needs at least two answer options.");
+      return;
+    }
+    const next: PollState = {
+      id: crypto.randomUUID(),
+      question: question.slice(0, 240),
+      options: labels.map(label => ({ id: crypto.randomUUID(), label: label.slice(0, 120), votes: 0 })),
+      open: true,
+      voters: {},
+    };
+    setPoll(next);
+    await publish({ type: "poll-start", poll: next }, true);
+    void api(`/learning/live-classes/${session.liveClass.id}/interactions`, { method: "POST", body: JSON.stringify({ type: "POLL", content: { id: next.id, question: next.question, options: next.options.map(option => ({ id: option.id, label: option.label })) } }) }).catch(() => undefined);
+  }
+
+  async function votePoll(optionId: string) {
+    if (!poll || !poll.open || !session || observer) return;
+    const voter = user?.id ?? "local";
+    if (poll.voters[voter]) return;
+    setPoll(current => current ? {
+      ...current,
+      voters: { ...current.voters, [voter]: optionId },
+      options: current.options.map(option => option.id === optionId ? { ...option, votes: option.votes + 1 } : option),
+    } : current);
+    await publish({ type: "poll-vote", pollId: poll.id, optionId, voter }, true);
+    void api(`/learning/live-classes/${session.liveClass.id}/interactions`, { method: "POST", body: JSON.stringify({ type: "POLL_RESPONSE", content: { pollId: poll.id, optionId } }) }).catch(() => undefined);
+  }
+
+  async function endPoll() {
+    if (!manager || !poll) return;
+    setPoll(current => current ? { ...current, open: false } : current);
+    await publish({ type: "poll-end", pollId: poll.id }, true);
+  }
+
+  async function startClassTimer() {
+    if (!manager) return;
+    const raw = window.prompt("Countdown minutes", "5");
+    if (!raw) return;
+    const minutes = Number(raw);
+    if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 180) {
+      setNotice("Timer must be between 1 and 180 minutes.");
+      return;
+    }
+    const endsAt = Date.now() + Math.round(minutes * 60_000);
+    setTimerEndsAt(endsAt);
+    await publish({ type: "timer-start", endsAt }, true);
+  }
+
+  async function stopClassTimer() {
+    if (!manager) return;
+    setTimerEndsAt(null);
+    await publish({ type: "timer-stop" }, true);
+  }
+
   async function startRecording() {
     try {
       const result = await api(`/learning/live-classes/native/${encodeURIComponent(roomName)}/recording/start`, { method: "POST", body: "{}" });
@@ -506,6 +760,13 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     return `${minutes} min scheduled`;
   }, [session]);
 
+  const timerLabel = useMemo(() => {
+    if (!timerEndsAt) return "";
+    const seconds = Math.max(0, Math.ceil((timerEndsAt - timerNow) / 1000));
+    const minutes = Math.floor(seconds / 60);
+    return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  }, [timerEndsAt, timerNow]);
+
   if (loading) return <div className="grid min-h-screen place-items-center bg-slate-950 text-white">Loading native classroom…</div>;
   if (!session) return <div className="grid min-h-screen place-items-center bg-slate-950 p-6 text-white"><div className="max-w-lg rounded-2xl border border-red-400/30 bg-red-950/50 p-6"><h1 className="text-xl font-bold">Unable to open classroom</h1><p className="mt-2 text-sm text-red-100">{error || "Classroom session could not be created."}</p></div></div>;
 
@@ -530,7 +791,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
       <aside className="rounded-3xl border border-white/10 bg-slate-900 p-6">
         <h2 className="font-bold">Classroom capabilities</h2>
         <div className="mt-4 space-y-3 text-sm text-slate-300">
-          {(observer?["Live audio/video viewing","Shared screen viewing","Whiteboard viewing","Class chat viewing","Automatic attendance"]:["Camera & microphone","Screen sharing","Collaborative whiteboard","Screen annotations","Chat & raise hand","Automatic attendance","Teacher moderation",session.recordingConfigured?"Cloud recording enabled":"Recording requires storage configuration"]).map(item=><div key={item} className="flex items-center gap-2"><Circle size={8} className="fill-current text-blue-400"/>{item}</div>)}
+          {(observer?["Live audio/video viewing","Shared screen viewing","Whiteboard viewing","Class chat viewing","Automatic attendance"]:["Camera & microphone","Screen sharing","Collaborative whiteboard with text, shapes & sticky notes","Screen annotations","Chat, reactions & raise hand","Live polls & class timer","Automatic attendance","Teacher moderation",session.recordingConfigured?"Cloud recording enabled":"Recording requires storage configuration"]).map(item=><div key={item} className="flex items-center gap-2"><Circle size={8} className="fill-current text-blue-400"/>{item}</div>)}
         </div>
       </aside>
     </div>
@@ -559,10 +820,16 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
           {manager && <div className="flex flex-wrap gap-2">
             <button onClick={()=>void classroomControl(locked?"UNLOCK":"LOCK")} className="inline-flex items-center gap-1 rounded-xl bg-slate-800 px-3 py-2 text-sm">{locked?<Unlock size={15}/>:<Lock size={15}/>} {locked?"Unlock":"Lock"}</button>
             <button onClick={()=>void toggleStudentDrawing()} className="rounded-xl bg-slate-800 px-3 py-2 text-sm">{studentDrawAllowed?"Disable student board":"Allow student board"}</button>
+            <button onClick={()=>void createQuickPoll()} className="rounded-xl bg-slate-800 px-3 py-2 text-sm">Quick poll</button>
+            <button onClick={()=>void (timerEndsAt ? stopClassTimer() : startClassTimer())} className="rounded-xl bg-slate-800 px-3 py-2 text-sm">{timerEndsAt?`Stop timer ${timerLabel}`:"Class timer"}</button>
             {session.recordingConfigured && (recording?<button onClick={()=>void stopRecording()} className="inline-flex items-center gap-1 rounded-xl bg-red-700 px-3 py-2 text-sm"><Square size={14}/>Stop recording</button>:<button onClick={()=>void startRecording()} className="inline-flex items-center gap-1 rounded-xl bg-red-700 px-3 py-2 text-sm"><Radio size={14}/>Record</button>)}
             {session.recordingAvailable && <button onClick={()=>void downloadRecording()} className="inline-flex items-center gap-1 rounded-xl bg-slate-800 px-3 py-2 text-sm"><Download size={14}/>Recording</button>}
           </div>}
         </div>
+
+        {reactions.length > 0 && <div className="pointer-events-none absolute left-1/2 top-20 z-50 flex -translate-x-1/2 gap-2">
+          {reactions.map(reaction => <div key={reaction.id} className="animate-bounce rounded-full border border-white/10 bg-slate-900/90 px-3 py-2 text-center shadow-xl"><div className="text-2xl">{reaction.emoji}</div><div className="max-w-28 truncate text-[10px] text-slate-300">{reaction.name}</div></div>)}
+        </div>}
 
         {panel === "class" ? <div className="relative min-h-[65vh]">
           <div ref={mediaRef} className="grid gap-3 md:grid-cols-2"/>
@@ -589,13 +856,20 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
           </div>}
         </div> : <section className="relative h-[70vh] overflow-hidden rounded-2xl bg-white">
           <canvas ref={whiteboardRef} className={`h-full w-full touch-none ${canDraw?"cursor-crosshair":"cursor-not-allowed"}`} onPointerDown={e=>startDraw("whiteboard",e)} onPointerMove={e=>void moveDraw("whiteboard",e)} onPointerUp={endDraw} onPointerCancel={endDraw}/>
-          <div className="absolute left-3 top-3 z-10 flex flex-wrap gap-2 rounded-xl bg-slate-950/90 p-2">
-            <button onClick={()=>setDrawingMode("pen")} className={`rounded-lg p-2 ${drawingMode==="pen"?"bg-blue-600":"bg-slate-800"}`}><PenLine size={16}/></button>
-            <button onClick={()=>setDrawingMode("erase")} className={`rounded-lg p-2 ${drawingMode==="erase"?"bg-blue-600":"bg-slate-800"}`}><Eraser size={16}/></button>
-            <input type="color" aria-label="Pen color" value={penColor} onChange={e=>setPenColor(e.target.value)} className="h-9 w-10 rounded bg-slate-800 p-1"/>
-            {manager && <button onClick={()=>void clearSurface("whiteboard")} className="rounded-lg bg-slate-800 p-2"><RotateCcw size={16}/></button>}
-            {manager && <button onClick={()=>void saveWhiteboard()} className="rounded-lg bg-slate-800 p-2"><Save size={16}/></button>}
-            <button onClick={downloadWhiteboard} className="rounded-lg bg-slate-800 p-2"><Download size={16}/></button>
+          <div className="absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-xl bg-slate-950/95 p-2 shadow-lg">
+            <button aria-label="Whiteboard pen" title="Pen" onClick={()=>setDrawingMode("pen")} className={`rounded-lg p-2 ${drawingMode==="pen"?"bg-blue-600":"bg-slate-800"}`}><PenLine size={16}/></button>
+            <button aria-label="Whiteboard eraser" title="Eraser" onClick={()=>setDrawingMode("erase")} className={`rounded-lg p-2 ${drawingMode==="erase"?"bg-blue-600":"bg-slate-800"}`}><Eraser size={16}/></button>
+            <input type="color" aria-label="Pen color" title="Pen / object color" value={penColor} onChange={e=>setPenColor(e.target.value)} className="h-9 w-10 rounded bg-slate-800 p-1"/>
+            <span className="h-6 w-px bg-white/15"/>
+            <button onClick={()=>void insertWhiteboardText("text")} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs font-semibold">Text</button>
+            <button onClick={()=>void insertWhiteboardText("note")} className="rounded-lg bg-amber-700 px-2.5 py-2 text-xs font-semibold">Sticky</button>
+            <button onClick={()=>void insertWhiteboardShape("rectangle")} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs font-semibold">Rectangle</button>
+            <button onClick={()=>void insertWhiteboardShape("circle")} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs font-semibold">Circle</button>
+            <button onClick={()=>void insertWhiteboardShape("arrow")} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs font-semibold">Arrow</button>
+            {manager && <><span className="h-6 w-px bg-white/15"/><button title="Undo" onClick={()=>void undoWhiteboard()} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs">Undo</button><button title="Redo" onClick={()=>void redoWhiteboard()} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs">Redo</button></>}
+            {manager && <button title="Clear whiteboard" onClick={()=>void clearSurface("whiteboard")} className="rounded-lg bg-slate-800 p-2"><RotateCcw size={16}/></button>}
+            {manager && <button title="Save whiteboard" onClick={()=>void saveWhiteboard()} className="rounded-lg bg-slate-800 p-2"><Save size={16}/></button>}
+            <button title="Download PNG" onClick={downloadWhiteboard} className="rounded-lg bg-slate-800 p-2"><Download size={16}/></button>
           </div>
         </section>}
 
@@ -603,7 +877,10 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
           {!observer && <><Control active={micOn} label={micOn?"Mute":"Mic"} onClick={()=>void toggleMic()} icon={micOn?<Mic/>:<MicOff/>}/>
           <Control active={cameraOn} label={cameraOn?"Camera":"Camera"} onClick={()=>void toggleCamera()} icon={cameraOn?<Camera/>:<CameraOff/>}/>
           <Control active={screenOn} label="Share" onClick={()=>void toggleScreen()} icon={<MonitorUp/>}/>
-          <Control active={handRaised} label={handRaised?"Lower":"Raise hand"} onClick={()=>void toggleHand()} icon={<Hand/>}/></>}
+          <Control active={handRaised} label={handRaised?"Lower":"Raise hand"} onClick={()=>void toggleHand()} icon={<Hand/>}/>
+          <div className="flex items-center gap-1 rounded-xl bg-slate-800 px-2 py-2" aria-label="Class reactions">
+            {["👍","👏","❤️","🎉"].map(emoji=><button key={emoji} title={`React ${emoji}`} onClick={()=>void sendReaction(emoji)} className="rounded-lg px-1.5 py-1 text-lg hover:bg-slate-700">{emoji}</button>)}
+          </div></>}
           <button onClick={()=>void leaveClass()} className="inline-flex items-center gap-2 rounded-xl bg-red-700 px-4 py-3 text-sm font-bold"><LogOut size={17}/>Leave</button>
         </div>
       </main>
@@ -623,6 +900,22 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
             </div>)}
           </div>
         </div>
+
+        {poll && <div className="border-b border-white/10 p-4">
+          <div className="flex items-start justify-between gap-2"><div><div className="text-[10px] font-bold uppercase tracking-wider text-blue-300">Live poll</div><h2 className="mt-1 text-sm font-bold">{poll.question}</h2></div>{manager&&poll.open&&<button onClick={()=>void endPoll()} className="rounded-lg bg-slate-800 px-2 py-1 text-xs">End</button>}</div>
+          <div className="mt-3 space-y-2">
+            {poll.options.map(option=>{
+              const total=Math.max(1,poll.options.reduce((sum,item)=>sum+item.votes,0));
+              const percent=Math.round(option.votes*100/total);
+              const voted=Boolean(poll.voters[user?.id??"local"]);
+              return <button key={option.id} disabled={!poll.open||observer||voted} onClick={()=>void votePoll(option.id)} className="relative block w-full overflow-hidden rounded-lg bg-slate-800 px-3 py-2 text-left text-xs disabled:cursor-default">
+                <span className="absolute inset-y-0 left-0 bg-blue-900/60" style={{width:`${percent}%`}}/>
+                <span className="relative flex justify-between gap-2"><span>{option.label}</span><b>{option.votes}</b></span>
+              </button>;
+            })}
+          </div>
+          <div className="mt-2 text-[10px] text-slate-400">{poll.open?"Poll open":"Poll ended"} · {Object.keys(poll.voters).length} responses</div>
+        </div>}
 
         <div className="flex h-[calc(100vh-350px)] min-h-80 flex-col p-4">
           <h2 className="flex items-center gap-2 font-bold"><MessageSquare size={17}/>Class chat</h2>
