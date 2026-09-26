@@ -448,7 +448,8 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     try {
       const result = await api(`/learning/live-classes/native/${encodeURIComponent(roomName)}/recording/stop`, { method: "POST", body: "{}" });
       setRecording(false);
-      setNotice(`Recording stopping (${result.data.status}). It will become downloadable after provider processing completes.`);
+      setSession(current => current ? { ...current, recordingAvailable: Boolean(result.data.publishedToLms) || current.recordingAvailable } : current);
+      setNotice(`Recording stopping (${result.data.status}).${result.data.publishedToLms ? " The recording has been published to LMS and will become playable/downloadable after provider processing completes." : ""}`);
     } catch (cause) { setError(errorMessage(cause)); }
   }
   async function downloadRecording() {
