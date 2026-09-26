@@ -34,6 +34,7 @@ type Stroke = {
   surface: "whiteboard" | "annotation";
   x1: number; y1: number; x2: number; y2: number;
   color: string; width: number; mode: "pen" | "erase";
+  strokeId?: string;
 };
 type BoardShape = {
   surface: "whiteboard";
@@ -147,8 +148,8 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
   const whiteboardRef = useRef<HTMLCanvasElement>(null);
   const annotationRef = useRef<HTMLCanvasElement>(null);
   const strokesRef = useRef<BoardItem[]>([]);
-  const redoRef = useRef<BoardItem[]>([]);
-  const drawingRef = useRef<{ surface: Stroke["surface"]; x: number; y: number } | null>(null);
+  const redoRef = useRef<BoardItem[][]>([]);
+  const drawingRef = useRef<{ surface: Stroke["surface"]; x: number; y: number; strokeId: string } | null>(null);
 
   const manager = Boolean(session?.manager);
   const observer = session?.role === "PARENT";
@@ -540,7 +541,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     if (!canDraw || !joined) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const p = pointerPoint(event);
-    drawingRef.current = { surface, ...p };
+    drawingRef.current = { surface, ...p, strokeId: crypto.randomUUID() };
   }
   async function moveDraw(surface: Stroke["surface"], event: React.PointerEvent<HTMLCanvasElement>) {
     const prev = drawingRef.current;
@@ -548,8 +549,8 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     const p = pointerPoint(event);
     const mode = surface === "annotation" ? annotationDrawingMode : drawingMode;
     const color = surface === "annotation" ? annotationColor : penColor;
-    const stroke: Stroke = { surface, x1: prev.x, y1: prev.y, x2: p.x, y2: p.y, color, width: mode === "erase" ? 22 : surface === "annotation" ? 5 : 3, mode };
-    drawingRef.current = { surface, ...p };
+    const stroke: Stroke = { surface, x1: prev.x, y1: prev.y, x2: p.x, y2: p.y, color, width: mode === "erase" ? 22 : surface === "annotation" ? 5 : 3, mode, strokeId: prev.strokeId };
+    drawingRef.current = { surface, ...p, strokeId: prev.strokeId };
     strokesRef.current.push(stroke);
     drawStroke(stroke);
     await publish({ type: "whiteboard", stroke }, false);
@@ -600,7 +601,15 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     for (let index = strokesRef.current.length - 1; index >= 0; index -= 1) {
       if (strokesRef.current[index].surface !== "whiteboard") continue;
       const [removed] = strokesRef.current.splice(index, 1);
-      redoRef.current.push(removed);
+      const group = [removed];
+      if (!("kind" in removed) && removed.strokeId) {
+        for (let prior = index - 1; prior >= 0; prior -= 1) {
+          const candidate = strokesRef.current[prior];
+          if ("kind" in candidate || candidate.surface !== "whiteboard" || candidate.strokeId !== removed.strokeId) break;
+          group.unshift(...strokesRef.current.splice(prior, 1));
+        }
+      }
+      redoRef.current.push(group);
       redraw("whiteboard");
       await syncWhiteboardState();
       return;
@@ -609,9 +618,9 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
 
   async function redoWhiteboard() {
     if (!manager) return;
-    const item = redoRef.current.pop();
-    if (!item) return;
-    strokesRef.current.push(item);
+    const group = redoRef.current.pop();
+    if (!group?.length) return;
+    strokesRef.current.push(...group);
     redraw("whiteboard");
     await syncWhiteboardState();
   }
@@ -803,6 +812,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-950 px-3 py-1.5 text-emerald-300"><Wifi size={13}/>Connected · {quality}</span>
         <span className="rounded-full bg-slate-800 px-3 py-1.5">{participants.length} participants</span>
+        {timerEndsAt && <span className="rounded-full bg-amber-950 px-3 py-1.5 font-bold text-amber-200">Timer {timerLabel}</span>}
         {recording && <span className="inline-flex items-center gap-1 rounded-full bg-red-950 px-3 py-1.5 text-red-300"><Circle size={10} className="fill-current"/>Recording</span>}
       </div>
     </header>
