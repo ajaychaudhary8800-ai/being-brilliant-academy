@@ -107,6 +107,8 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
   const [hands, setHands] = useState<Record<string, boolean>>({});
   const [panel, setPanel] = useState<"class" | "whiteboard">("class");
   const [annotationMode, setAnnotationMode] = useState(false);
+  const [annotationDrawingMode, setAnnotationDrawingMode] = useState<"pen" | "erase">("pen");
+  const [annotationColor, setAnnotationColor] = useState("#ef4444");
   const [studentDrawAllowed, setStudentDrawAllowed] = useState(false);
   const [drawingMode, setDrawingMode] = useState<"pen" | "erase">("pen");
   const [penColor, setPenColor] = useState("#0f172a");
@@ -421,7 +423,9 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     const prev = drawingRef.current;
     if (!prev || prev.surface !== surface || !canDraw || !joined) return;
     const p = pointerPoint(event);
-    const stroke: Stroke = { surface, x1: prev.x, y1: prev.y, x2: p.x, y2: p.y, color: penColor, width: drawingMode === "erase" ? 18 : 3, mode: drawingMode };
+    const mode = surface === "annotation" ? annotationDrawingMode : drawingMode;
+    const color = surface === "annotation" ? annotationColor : penColor;
+    const stroke: Stroke = { surface, x1: prev.x, y1: prev.y, x2: p.x, y2: p.y, color, width: mode === "erase" ? 22 : surface === "annotation" ? 5 : 3, mode };
     drawingRef.current = { surface, ...p };
     strokesRef.current.push(stroke);
     drawStroke(stroke);
@@ -562,10 +566,26 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
 
         {panel === "class" ? <div className="relative min-h-[65vh]">
           <div ref={mediaRef} className="grid gap-3 md:grid-cols-2"/>
-          <canvas ref={annotationRef} className={`absolute inset-0 z-20 h-full w-full touch-none ${annotationMode&&manager?"cursor-crosshair":"pointer-events-none"}`} onPointerDown={e=>startDraw("annotation",e)} onPointerMove={e=>void moveDraw("annotation",e)} onPointerUp={endDraw} onPointerCancel={endDraw}/>
-          {manager && <div className="absolute right-3 top-3 z-30 flex gap-2 rounded-xl bg-black/70 p-2">
-            <button onClick={()=>setAnnotationMode(value=>!value)} className={`rounded-lg px-3 py-2 text-xs font-semibold ${annotationMode?"bg-blue-600":"bg-slate-800"}`}><PenLine size={14} className="inline"/> Annotate</button>
-            {annotationMode && <button onClick={()=>void clearSurface("annotation")} className="rounded-lg bg-slate-800 px-3 py-2 text-xs"><RotateCcw size={14}/></button>}
+          <canvas
+            ref={annotationRef}
+            aria-label="Screen annotation surface"
+            className={`absolute inset-0 z-20 h-full w-full touch-none select-none ${annotationMode&&manager?"pointer-events-auto cursor-crosshair":"pointer-events-none"}`}
+            style={{ touchAction: "none" }}
+            onPointerDown={e=>startDraw("annotation",e)}
+            onPointerMove={e=>void moveDraw("annotation",e)}
+            onPointerUp={endDraw}
+            onPointerCancel={endDraw}
+            onPointerLeave={endDraw}
+          />
+          {manager && <div className="absolute right-3 top-3 z-30 flex flex-wrap items-center gap-2 rounded-xl bg-black/80 p-2 shadow-lg">
+            <button onClick={()=>{setAnnotationMode(value=>!value);setAnnotationDrawingMode("pen")}} className={`rounded-lg px-3 py-2 text-xs font-semibold ${annotationMode?"bg-blue-600":"bg-slate-800"}`}><PenLine size={14} className="inline"/> {annotationMode?"Annotating":"Annotate"}</button>
+            {annotationMode && <>
+              <button aria-label="Annotation pen" onClick={()=>setAnnotationDrawingMode("pen")} className={`rounded-lg p-2 ${annotationDrawingMode==="pen"?"bg-blue-600":"bg-slate-800"}`}><PenLine size={14}/></button>
+              <button aria-label="Annotation eraser" onClick={()=>setAnnotationDrawingMode("erase")} className={`rounded-lg p-2 ${annotationDrawingMode==="erase"?"bg-blue-600":"bg-slate-800"}`}><Eraser size={14}/></button>
+              <input type="color" aria-label="Annotation color" value={annotationColor} onChange={e=>setAnnotationColor(e.target.value)} className="h-8 w-9 rounded bg-slate-800 p-1"/>
+              <button aria-label="Clear annotations" onClick={()=>void clearSurface("annotation")} className="rounded-lg bg-slate-800 p-2"><RotateCcw size={14}/></button>
+              <span className="rounded bg-red-600/90 px-2 py-1 text-[11px] font-bold">DRAW ON SCREEN</span>
+            </>}
           </div>}
         </div> : <section className="relative h-[70vh] overflow-hidden rounded-2xl bg-white">
           <canvas ref={whiteboardRef} className={`h-full w-full touch-none ${canDraw?"cursor-crosshair":"cursor-not-allowed"}`} onPointerDown={e=>startDraw("whiteboard",e)} onPointerMove={e=>void moveDraw("whiteboard",e)} onPointerUp={endDraw} onPointerCancel={endDraw}/>
