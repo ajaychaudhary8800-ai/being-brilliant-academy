@@ -1,4 +1,4 @@
-import { ApprovalStatus, DoubtStatus, LearningAttemptStatus, LearningStatus, LearningTestType, LiveClassProvider, QuestionType, Role, StudyMaterialType } from "@prisma/client";
+import { ApprovalStatus, BatchStatus, CourseStatus, DoubtStatus, LearningAttemptStatus, LearningStatus, LearningTestType, LiveClassProvider, QuestionType, Role, StudentStatus, StudyMaterialType, SubjectLegacyReviewStatus, SubjectStatus, TeacherAllocationStatus } from "@prisma/client";
 import { Router } from "express";
 import crypto from "node:crypto";
 import { z } from "zod";
@@ -50,6 +50,7 @@ async function relationCheck(data: { courseId?: string | null; batchId?: string 
 
 router.get("/learning/options", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
+  const organizationId = req.auth!.organizationId;
   const superAdmin = actor.role === Role.SUPER_ADMIN;
   const learner = actor.role === Role.STUDENT || actor.role === Role.PARENT;
   const batchIds = actor.role === Role.TEACHER
@@ -58,34 +59,91 @@ router.get("/learning/options", async (req: AuthRequest, res) => {
   const subjectIds = actor.role === Role.TEACHER
     ? [...new Set(actor.allocations.map(row => row.subjectId).filter((value): value is string => Boolean(value)))]
     : [];
+  const now = new Date();
   const [branches, courses, batches, subjects, teachers, students] = await Promise.all([
-    prisma.branch.findMany({ where: { isActive: true, ...(superAdmin ? {} : { id: { in: actor.branchIds } }) }, select: { id: true, branchName: true } }),
-    prisma.course.findMany({ where: superAdmin ? {} : { id: { in: actor.courseIds } }, select: { id: true, title: true, branchId: true } }),
+    prisma.branch.findMany({
+      where: { organizationId, isActive: true, ...(superAdmin ? {} : { id: { in: actor.branchIds } }) },
+      select: { id: true, branchName: true },
+      orderBy: { branchName: "asc" },
+    }),
+    prisma.course.findMany({
+      where: { organizationId, status: { not: CourseStatus.ARCHIVED }, ...(superAdmin ? {} : { id: { in: actor.courseIds } }) },
+      select: { id: true, title: true, branchId: true },
+      orderBy: { title: "asc" },
+    }),
     prisma.batch.findMany({
-      where: superAdmin ? {} : actor.role === Role.BRANCH_ADMIN ? { branchId: { in: actor.branchIds } } : { id: { in: batchIds } },
+      where: {
+        organizationId,
+        status: BatchStatus.ACTIVE,
+        ...(superAdmin ? {} : actor.role === Role.BRANCH_ADMIN ? { branchId: { in: actor.branchIds } } : { id: { in: batchIds } }),
+      },
       select: { id: true, name: true, courseId: true, branchId: true },
+      orderBy: { name: "asc" },
     }),
     prisma.subject.findMany({
-      where: superAdmin ? {} : actor.role === Role.TEACHER
-        ? { id: { in: subjectIds } }
-        : { courses: { some: { courseId: { in: actor.courseIds }, isActive: true } } },
-      select: { id: true, name: true },
+      where: {
+        organizationId,
+        status: SubjectStatus.ACTIVE,
+        legacyReviewStatus: SubjectLegacyReviewStatus.CONFIRMED,
+        ...(superAdmin ? {} : actor.role === Role.TEACHER
+          ? { id: { in: subjectIds } }
+          : { courses: { some: { courseId: { in: actor.courseIds }, isActive: true, organizationId } } }),
+      },
+      select: {
+        id: true,
+        name: true,
+        courses: { where: { organizationId, isActive: true }, select: { courseId: true } },
+      },
+      orderBy: { name: "asc" },
     }),
     prisma.teacherProfile.findMany({
-      where: superAdmin ? {} : actor.role === Role.BRANCH_ADMIN
-        ? { branchId: { in: actor.branchIds } }
-        : actor.role === Role.TEACHER ? { id: actor.teacherProfileId ?? { in: [] } } : { id: { in: [] } },
-      select: { id: true, userId: true, branchId: true, user: { select: { name: true } } },
+      where: {
+        organizationId,
+        user: { isActive: true },
+        ...(superAdmin ? {} : actor.role === Role.BRANCH_ADMIN
+          ? { branchId: { in: actor.branchIds } }
+          : actor.role === Role.TEACHER ? { id: actor.teacherProfileId ?? { in: [] } } : { id: { in: [] } }),
+      },
+      select: {
+        id: true,
+        userId: true,
+        branchId: true,
+        user: { select: { name: true } },
+        allocations: {
+          where: {
+            organizationId,
+            status: TeacherAllocationStatus.ACTIVE,
+            effectiveFrom: { lte: now },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+          },
+          select: { branchId: true, courseId: true, batchId: true, subjectId: true },
+        },
+      },
+      orderBy: { user: { name: "asc" } },
     }),
     prisma.studentProfile.findMany({
-      where: superAdmin ? {} : actor.role === Role.BRANCH_ADMIN
-        ? { branchId: { in: actor.branchIds } }
-        : actor.role === Role.TEACHER ? { batchId: { in: batchIds } }
-          : learner ? { userId: { in: actor.learners.map(row => row.userId) } } : { id: { in: [] } },
+      where: {
+        organizationId,
+        status: StudentStatus.ACTIVE,
+        user: { isActive: true },
+        ...(superAdmin ? {} : actor.role === Role.BRANCH_ADMIN
+          ? { branchId: { in: actor.branchIds } }
+          : actor.role === Role.TEACHER ? { batchId: { in: batchIds } }
+            : learner ? { userId: { in: actor.learners.map(row => row.userId) } } : { id: { in: [] } }),
+      },
       select: { userId: true, batchId: true, user: { select: { name: true } } },
     }),
   ]);
-  res.json({ data: { branches: branches.map(row => ({ id: row.id, name: row.branchName })), courses, batches, subjects, teachers, students } });
+  res.json({
+    data: {
+      branches: branches.map(row => ({ id: row.id, name: row.branchName })),
+      courses: courses.map(row => ({ ...row, name: row.title })),
+      batches,
+      subjects: subjects.map(row => ({ id: row.id, name: row.name, courseIds: row.courses.map(course => course.courseId) })),
+      teachers: teachers.map(row => ({ id: row.id, userId: row.userId, branchId: row.branchId, name: row.user.name, allocations: row.allocations })),
+      students,
+    },
+  });
 });
 
 router.get("/learning/dashboard", async (req: AuthRequest, res) => {
