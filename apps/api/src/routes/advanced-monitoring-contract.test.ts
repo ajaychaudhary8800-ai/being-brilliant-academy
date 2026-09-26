@@ -16,6 +16,7 @@ const backupDockerUrl = new URL("../../../../infra/backup/Dockerfile", import.me
 const composeUrl = new URL("../../../../docker-compose.yml", import.meta.url);
 const monitoringUrl = new URL("../../../../docs/MONITORING.md", import.meta.url);
 const incidentUrl = new URL("../../../../docs/INCIDENT_RESPONSE.md", import.meta.url);
+const nginxUrl = new URL("../../../../infra/nginx/nginx.conf", import.meta.url);
 
 test("Step 13 exports application, dependency, notification and worker metrics", async () => {
   const [metrics, http, notifications] = await Promise.all([
@@ -108,4 +109,23 @@ test("monitoring and incident documentation preserve SLO, severity and Step 5 bo
   assert.match(incident, /tenant-isolation/i);
   assert.match(incident, /Never restore directly over production/i);
   assert.match(incident, /Post-incident review/);
+});
+
+
+test("public reverse proxy exposes all health endpoints used by monitoring and control center", async () => {
+  const nginx = await readFile(nginxUrl, "utf8");
+  assert.match(nginx, /location = \/api\/health\/ready/);
+  assert.match(nginx, /location = \/api\/health\/operational/);
+  assert.match(nginx, /location = \/api\/health\/integrations/);
+  assert.match(nginx, /proxy_pass http:\/\/api\/health\/operational/);
+  assert.match(nginx, /proxy_pass http:\/\/api\/health\/integrations/);
+});
+
+test("native classroom media permissions are allowed for the first-party portal", async () => {
+  const nginx = await readFile(nginxUrl, "utf8");
+  assert.match(nginx, /camera=\(self\)/);
+  assert.match(nginx, /microphone=\(self\)/);
+  assert.match(nginx, /display-capture=\(self\)/);
+  assert.doesNotMatch(nginx, /camera=\(\)/);
+  assert.doesNotMatch(nginx, /microphone=\(\)/);
 });
