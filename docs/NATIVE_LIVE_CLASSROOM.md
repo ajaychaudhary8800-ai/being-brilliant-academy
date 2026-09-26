@@ -51,7 +51,11 @@ Never expose the LiveKit API secret to the browser. Participant tokens are minte
 
 ## Recommended deployment
 
-For the first commercial release, use LiveKit Cloud in a region close to the institution/student population. Self-hosting is supported by the architecture, but requires operating LiveKit plus Egress/TURN capacity and monitoring.
+For the first commercial release, use **LiveKit Cloud** in a region close to the institution/student population. The classroom remains fully inside the Being Brilliant UI; LiveKit is only the media infrastructure. This is the preferred commercial starting point because managed TURN, global media networking, upgrades and recording infrastructure reduce operational risk.
+
+Self-hosting remains supported for institutions that require infrastructure ownership. Use a **dedicated media VM**, not the ERP/API VM, for production. A production self-hosted deployment should use the official LiveKit VM generator with Caddy/TLS and TURN enabled. Required inbound connectivity is TCP 80/443/7881 and UDP 3478 plus the configured WebRTC UDP media range (normally 50000-60000). Both the primary LiveKit hostname and TURN hostname must resolve to the media VM.
+
+Self-hosted recording requires the separate LiveKit Egress service, Redis, and adequate compute. Room-composite recording is resource intensive; provision recording workers independently from the ERP workload.
 
 Cloudflare R2 or another S3-compatible bucket can be used for recordings when the configured LiveKit environment can write to that S3-compatible endpoint.
 
@@ -106,3 +110,24 @@ Large recording bytes are not copied into PostgreSQL.
 - Native classroom uses opaque room IDs and does not place student names/emails in room names.
 - Recording is disabled in the UI unless both LiveKit and S3-compatible storage configuration are present.
 - External meeting providers remain available as a fallback if native classroom infrastructure is unavailable.
+
+
+## Staging activation checklist
+
+1. Create a staging LiveKit project or dedicated staging media deployment.
+2. Set `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` on the staging **API** service.
+3. For recording, set `STORAGE_DRIVER=s3` plus the S3/R2 bucket, endpoint and credentials.
+4. Redeploy the API and Web from the same commit.
+5. Open **SaaS Control Center → Live platform health**. Native live classroom must report **Healthy** before classroom QA.
+6. Schedule a Native class, publish it, join with teacher + student, and validate camera/mic, screen share, whiteboard, annotation, chat, hand raise, lock/mute/remove and attendance.
+7. Record a short class and verify the recording reaches Learning Resources/LMS.
+8. Promote the exact tested configuration to production using a separate production LiveKit project/key pair.
+
+## Production guardrails
+
+- Never reuse staging LiveKit credentials in production.
+- Never expose `LIVEKIT_API_SECRET` or S3 credentials to the Web service or browser.
+- Use separate recording prefixes/buckets for staging and production.
+- Keep Zoom/Google Meet/Jitsi fallback available while native media infrastructure is degraded.
+- Monitor the API `/health/integrations` response; `livekit.configured`, `livekit.reachable` and `livekit.recordingConfigured` are surfaced in the SaaS Control Center.
+- Load-test expected classroom size before selling a higher participant limit.
