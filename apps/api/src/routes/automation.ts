@@ -12,12 +12,14 @@ import { erpBranchScope } from "../lib/erp-branch-access.js";
 import { AppError } from "../lib/http.js";
 import {
   automationTriggerType,
+  automationCooldownMinutes,
   feeOutstanding,
   notificationActionConfig,
   parseTriggerConfig,
   type AutomationTriggerType,
 } from "../lib/automation-rule.js";
 import { prisma } from "../lib/prisma.js";
+import { executeAutomationRule } from "../lib/automation-executor.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
@@ -38,6 +40,7 @@ const createRuleInput = z.object({
   triggerConfig: z.unknown().optional(),
   actionType: z.literal("NOTIFICATION").default("NOTIFICATION"),
   actionConfig: notificationActionConfig,
+  cooldownMinutes: automationCooldownMinutes.default(1440),
   active: z.boolean().default(false),
 }).strict();
 
@@ -46,6 +49,7 @@ const updateRuleInput = z.object({
   triggerType: automationTriggerType.optional(),
   triggerConfig: z.unknown().optional(),
   actionConfig: notificationActionConfig.optional(),
+  cooldownMinutes: automationCooldownMinutes.optional(),
   active: z.boolean().optional(),
 }).strict();
 
@@ -201,6 +205,7 @@ router.post("/automations", async (req: AuthRequest, res) => {
       triggerConfig: triggerConfig as Prisma.InputJsonValue,
       actionType: input.actionType,
       actionConfig: input.actionConfig as Prisma.InputJsonValue,
+      cooldownMinutes: input.cooldownMinutes,
       active: false,
     },
   });
@@ -221,7 +226,9 @@ router.patch("/automations/:id", async (req: AuthRequest, res) => {
   requireAdmin(req);
   const existing = await getOwnedRule(req, id.parse(req.params.id));
   const input = updateRuleInput.parse(req.body);
-  if (input.active) throw new AppError(409, "AUTOMATION_EXECUTION_DISABLED", "Automation execution is not enabled in this preview release");
+  if (input.active === true && !existing.lastPreviewAt) {
+    throw new AppError(409, "AUTOMATION_PREVIEW_REQUIRED", "Preview this automation before enabling execution");
+  }
   const triggerType = (input.triggerType ?? existing.triggerType) as AutomationTriggerType;
   const triggerConfig = input.triggerConfig !== undefined || input.triggerType
     ? parseTriggerConfig(triggerType, input.triggerConfig ?? (input.triggerType ? {} : existing.triggerConfig))
@@ -233,6 +240,7 @@ router.patch("/automations/:id", async (req: AuthRequest, res) => {
       ...(input.triggerType !== undefined ? { triggerType: input.triggerType } : {}),
       ...(triggerConfig !== existing.triggerConfig ? { triggerConfig: triggerConfig as Prisma.InputJsonValue } : {}),
       ...(input.actionConfig !== undefined ? { actionConfig: input.actionConfig as Prisma.InputJsonValue } : {}),
+      ...(input.cooldownMinutes !== undefined ? { cooldownMinutes: input.cooldownMinutes } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
     },
   });
@@ -296,6 +304,14 @@ router.post("/automations/:id/preview", async (req: AuthRequest, res) => {
     });
     throw error;
   }
+});
+
+router.post("/automations/:id/run", async (req: AuthRequest, res) => {
+  requireAdmin(req);
+  const rule = await getOwnedRule(req, id.parse(req.params.id));
+  if (!rule.active) throw new AppError(409, "AUTOMATION_PAUSED", "Enable this automation before running it");
+  const data = await executeAutomationRule(rule.id, new Date(), { actorId: req.auth!.userId, mode: "MANUAL" });
+  res.json({ data });
 });
 
 router.get("/automations/:id/runs", async (req: AuthRequest, res) => {
