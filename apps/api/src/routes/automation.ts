@@ -190,6 +190,7 @@ router.get("/automations", async (req: AuthRequest, res) => {
 router.post("/automations", async (req: AuthRequest, res) => {
   requireAdmin(req);
   const input = createRuleInput.parse(req.body);
+  if (input.active) throw new AppError(409, "AUTOMATION_EXECUTION_DISABLED", "Automation execution is not enabled in this preview release");
   const triggerConfig = parseTriggerConfig(input.triggerType, input.triggerConfig);
   const created = await prisma.automationRule.create({
     data: {
@@ -200,7 +201,7 @@ router.post("/automations", async (req: AuthRequest, res) => {
       triggerConfig: triggerConfig as Prisma.InputJsonValue,
       actionType: input.actionType,
       actionConfig: input.actionConfig as Prisma.InputJsonValue,
-      active: input.active,
+      active: false,
     },
   });
   await prisma.auditLog.create({
@@ -220,6 +221,7 @@ router.patch("/automations/:id", async (req: AuthRequest, res) => {
   requireAdmin(req);
   const existing = await getOwnedRule(req, id.parse(req.params.id));
   const input = updateRuleInput.parse(req.body);
+  if (input.active) throw new AppError(409, "AUTOMATION_EXECUTION_DISABLED", "Automation execution is not enabled in this preview release");
   const triggerType = (input.triggerType ?? existing.triggerType) as AutomationTriggerType;
   const triggerConfig = input.triggerConfig !== undefined || input.triggerType
     ? parseTriggerConfig(triggerType, input.triggerConfig ?? (input.triggerType ? {} : existing.triggerConfig))
