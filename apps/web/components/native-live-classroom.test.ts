@@ -44,3 +44,9 @@ test("parent observer mode is view-only and recordings remain authenticated", ()
   assert.match(source, /openAuthenticatedDocument/);
   assert.match(source, /\/recording/);
 });
+
+
+test("stopped classroom recordings report automatic LMS publishing", () => {
+  assert.match(source, /publishedToLms/);
+  assert.match(source, /published to LMS/);
+});
