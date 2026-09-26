@@ -43,7 +43,7 @@ function Content() {
     if(response.ok){setData(json.data);setMeta(json.meta);setError("");}else setError(json?.error?.message??"Unable to load enquiries");
     if(dashboard.ok)setDash(dashboardJson.data);
     if(insightResponse.ok)setInsights(insightJson.data);
-    if(actionResponse.ok){setActionItems(actionJson.data??[]);setActionMeta(actionJson.meta??actionMeta);}
+    if(actionResponse.ok){setActionItems(actionJson.data??[]);if(actionJson.meta)setActionMeta(actionJson.meta);}
   },[page,search,status,priority,branchId,counsellorId,sourceFilter,reminder,sortBy,sortOrder,mineOnly]);
   useEffect(()=>{void load();},[load]);
   useEffect(()=>{Promise.all([fetch(`${api}/admin/branches?limit=100`,{headers:headers()}),fetch(`${api}/admin/courses?limit=100`,{headers:headers()}),fetch(`${api}/admin/users`,{headers:headers()}),fetch(`${api}/admin/batches?limit=100`,{headers:headers()}),fetch(`${api}/organization/settings`,{headers:headers()})]).then(async responses=>Promise.all(responses.map(response=>response.json()))).then(([branchJson,courseJson,userJson,batchJson,organizationJson])=>{setBranches(branchJson.data??[]);setCourses(courseJson.data??[]);setUsers((userJson.data??[]).filter((item:Option)=>["SUPER_ADMIN","BRANCH_ADMIN"].includes(item.role??"")));setBatches(batchJson.data??[]);setSettings({timeZone:organizationJson.data?.timezone,locale:organizationJson.data?.locale});}).catch(()=>setError("Unable to load enquiry form options."));},[]);
