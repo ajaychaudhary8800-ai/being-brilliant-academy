@@ -217,7 +217,7 @@ model StudyMaterial {
   updatedAt      DateTime                @updatedAt
   bookmarks      StudyMaterialBookmark[]
 
-  @@unique([organizationId, sourceLiveClassId])
+  @@index([organizationId, sourceLiveClassId])
   @@index([organizationId, courseId, batchId, status])
   @@index([organizationId, subjectId, chapter, type])
   @@index([organizationId, createdAt])
