@@ -46,7 +46,7 @@ export async function automationBranchScopeForOwner(organizationId: string, crea
     where: { organizationId, id: createdById, isActive: true },
     select: { role: true },
   });
-  if (!owner || ![Role.SUPER_ADMIN, Role.BRANCH_ADMIN].includes(owner.role)) return [];
+  if (!owner || (owner.role !== Role.SUPER_ADMIN && owner.role !== Role.BRANCH_ADMIN)) return [];
   if (owner.role === Role.SUPER_ADMIN) {
     const branches = await systemPrisma.branch.findMany({
       where: { organizationId, isActive: true },
