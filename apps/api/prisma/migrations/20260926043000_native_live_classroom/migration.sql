@@ -8,3 +8,10 @@ ALTER TABLE "LiveClass"
 
 CREATE UNIQUE INDEX IF NOT EXISTS "LiveClass_organizationId_meetingId_key"
   ON "LiveClass"("organizationId", "meetingId");
+
+ALTER TABLE "StudyMaterial"
+  ADD COLUMN IF NOT EXISTS "storageKey" TEXT,
+  ADD COLUMN IF NOT EXISTS "sourceLiveClassId" TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "StudyMaterial_organizationId_sourceLiveClassId_key"
+  ON "StudyMaterial"("organizationId", "sourceLiveClassId");
