@@ -41,6 +41,7 @@ type OperationalHealth = {
 };
 type IntegrationHealth = {
   smtp?: { configured?: boolean; reachable?: boolean; error?: string | null };
+  livekit?: { configured?: boolean; reachable?: boolean; recordingConfigured?: boolean; error?: string | null };
   razorpayMode?: string;
 };
 
@@ -189,6 +190,15 @@ export default function Page() {
               <HealthRow label="Redis" ok={ready?.checks?.redis}/>
               {Object.entries(operational?.workers ?? {}).map(([name, worker]) => <HealthRow key={name} label={name.replace(/([A-Z])/g," $1")} ok={worker.healthy} detail={worker.lastSuccessAt ? `Last success ${new Date(worker.lastSuccessAt).toLocaleString()}` : "No successful heartbeat reported"}/>)}
               <HealthRow label="SMTP" ok={integrations?.smtp?.configured ? integrations.smtp.reachable === true : undefined} detail={integrations?.smtp?.configured ? integrations?.smtp?.reachable ? "Configured and reachable" : integrations?.smtp?.error || "Configured but unreachable" : "Not configured"}/>
+              <HealthRow
+                label="Native live classroom"
+                ok={integrations?.livekit?.configured ? integrations.livekit.reachable === true : undefined}
+                detail={!integrations?.livekit?.configured
+                  ? "LiveKit credentials not configured"
+                  : integrations.livekit.reachable
+                    ? integrations.livekit.recordingConfigured ? "Media service reachable · recording storage ready" : "Media service reachable · recording storage not configured"
+                    : integrations.livekit.error || "Configured but unreachable"}
+              />
               {integrations?.razorpayMode && <div className="rounded-xl border p-3"><span className="font-semibold">Razorpay mode</span><span className="float-right font-bold">{integrations.razorpayMode}</span></div>}
             </div>
           </section>
