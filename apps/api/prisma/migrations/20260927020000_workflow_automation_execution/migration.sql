@@ -3,6 +3,10 @@ ALTER TABLE "AutomationRule"
 ADD COLUMN "cooldownMinutes" INTEGER NOT NULL DEFAULT 1440,
 ADD COLUMN "lastRunAt" TIMESTAMP(3);
 
+-- Existing previews were created before execution semantics existed.
+-- Require a fresh preview before any rule can be enabled for real delivery.
+UPDATE "AutomationRule" SET "active" = false, "lastPreviewAt" = NULL;
+
 -- CreateTable
 CREATE TABLE "AutomationDispatch" (
     "organizationId" TEXT NOT NULL DEFAULT 'org_default',
