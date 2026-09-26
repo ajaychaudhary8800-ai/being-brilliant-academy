@@ -256,7 +256,7 @@ async function dispatchRecipient(
 }
 
 export type AutomationExecutionResult = {
-  runId: string;
+  runId: string | null;
   status: "SUCCESS" | "PARTIAL" | "FAILED";
   matchedCount: number;
   actionCount: number;
@@ -328,6 +328,24 @@ export async function executeAutomationRule(
     ? actionCount > 0 ? "PARTIAL" : "FAILED"
     : "SUCCESS";
   const finishedAt = new Date();
+
+  if ((options.mode ?? "EXECUTION") === "EXECUTION" && actionCount === 0 && errors.length === 0) {
+    await systemPrisma.automationRule.update({
+      where: { id: rule.id },
+      data: { lastRunAt: finishedAt },
+    });
+    return {
+      runId: null,
+      status,
+      matchedCount: matches.length,
+      actionCount,
+      recipientCount: allRecipientIds.length,
+      cooldownSkipped,
+      preferenceSkipped,
+      errorCount: 0,
+    };
+  }
+
   const run = await systemPrisma.automationRun.create({
     data: {
       organizationId: rule.organizationId,
