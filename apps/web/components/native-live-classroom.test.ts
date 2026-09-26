@@ -72,3 +72,38 @@ test("screen annotations use a high-contrast interactive overlay with dedicated 
   assert.match(source, /DRAW ON SCREEN/);
   assert.match(source, /surface === "annotation" \? 5 : 3/);
 });
+
+
+test("native classroom includes advanced teaching engagement tools", () => {
+  for (const expected of [
+    "Quick poll",
+    "Class timer",
+    "Live poll",
+    "Class reactions",
+    "poll-start",
+    "poll-vote",
+    "timer-start",
+    "reaction",
+  ]) assert.match(source, new RegExp(expected.replace(/[.*+?^$()|[\]\\]/g, "\\$&")));
+});
+
+test("whiteboard supports inserted teaching objects and history controls", () => {
+  for (const expected of [
+    "Sticky",
+    "Rectangle",
+    "Circle",
+    "Arrow",
+    "Undo",
+    "Redo",
+    "whiteboard-undo",
+    "insertWhiteboardText",
+    "insertWhiteboardShape",
+  ]) assert.match(source, new RegExp(expected.replace(/[.*+?^$()|[\]\\]/g, "\\$&")));
+});
+
+
+test("whiteboard history synchronization stays packet-sized instead of broadcasting full board state", () => {
+  assert.doesNotMatch(source, /type: "whiteboard-state"/);
+  assert.match(source, /type: "whiteboard-undo"/);
+  assert.match(source, /for \(const item of group\) await publish\(\{ type: "whiteboard", stroke: item \}, true\)/);
+});
