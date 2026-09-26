@@ -20,6 +20,49 @@ export function livekitConfigured() {
   return Boolean(env.LIVEKIT_URL && env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET);
 }
 
+export function livekitRecordingConfigured() {
+  return Boolean(
+    livekitConfigured()
+    && env.STORAGE_DRIVER === "s3"
+    && env.AWS_S3_BUCKET
+    && env.AWS_ACCESS_KEY_ID
+    && env.AWS_SECRET_ACCESS_KEY,
+  );
+}
+
+export async function livekitHealth() {
+  if (!livekitConfigured()) {
+    return { configured: false, reachable: false, recordingConfigured: false, error: null as string | null };
+  }
+  try {
+    const token = createLiveKitToken({
+      identity: "bba-health",
+      grant: { roomList: true },
+      ttlSeconds: 60,
+    });
+    const response = await fetch(`${livekitHttpUrl()}/twirp/livekit.RoomService/ListRooms`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(5_000),
+    });
+    const value = await response.json().catch(() => null);
+    return {
+      configured: true,
+      reachable: response.ok,
+      recordingConfigured: livekitRecordingConfigured(),
+      error: response.ok ? null : String(value?.msg ?? value?.message ?? `LiveKit returned HTTP ${response.status}`),
+    };
+  } catch (error) {
+    return {
+      configured: true,
+      reachable: false,
+      recordingConfigured: livekitRecordingConfigured(),
+      error: error instanceof Error ? error.message : "LiveKit health check failed",
+    };
+  }
+}
+
 function assertConfigured() {
   if (!livekitConfigured()) {
     throw new AppError(503, "LIVE_CLASS_NOT_CONFIGURED", "Native live classroom is not configured yet");
