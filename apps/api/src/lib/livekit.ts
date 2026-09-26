@@ -1,3 +1,4 @@
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import jwt from "jsonwebtoken";
 import { env } from "../config.js";
 import { AppError } from "./http.js";
@@ -23,11 +24,36 @@ export function livekitConfigured() {
 export function livekitRecordingConfigured() {
   return Boolean(
     livekitConfigured()
-    && env.STORAGE_DRIVER === "s3"
-    && env.AWS_S3_BUCKET
-    && env.AWS_ACCESS_KEY_ID
-    && env.AWS_SECRET_ACCESS_KEY,
+    && env.LIVEKIT_RECORDING_S3_REGION
+    && env.LIVEKIT_RECORDING_S3_BUCKET
+    && env.LIVEKIT_RECORDING_S3_ACCESS_KEY_ID
+    && env.LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY,
   );
+}
+
+export function livekitRecordingStorage() {
+  if (!livekitRecordingConfigured()) {
+    throw new AppError(503, "LIVE_CLASS_RECORDING_NOT_CONFIGURED", "Native classroom recording storage is not configured yet");
+  }
+  return {
+    region: env.LIVEKIT_RECORDING_S3_REGION!,
+    bucket: env.LIVEKIT_RECORDING_S3_BUCKET!,
+    endpoint: env.LIVEKIT_RECORDING_S3_ENDPOINT,
+    accessKeyId: env.LIVEKIT_RECORDING_S3_ACCESS_KEY_ID!,
+    secretAccessKey: env.LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY!,
+  };
+}
+
+export async function getLiveKitRecordingObject(key: string) {
+  const storage = livekitRecordingStorage();
+  const client = new S3Client({
+    region: storage.region,
+    endpoint: storage.endpoint,
+    forcePathStyle: Boolean(storage.endpoint),
+    credentials: { accessKeyId: storage.accessKeyId, secretAccessKey: storage.secretAccessKey },
+  });
+  const result = await client.send(new GetObjectCommand({ Bucket: storage.bucket, Key: key }));
+  return result.Body;
 }
 
 export async function livekitHealth() {
