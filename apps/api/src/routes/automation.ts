@@ -68,6 +68,94 @@ router.get("/automations", async (req: AuthRequest, res) => {
   res.json({ data });
 });
 
+const deliveryAuditQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  search: z.string().trim().max(100).optional(),
+  channel: z.enum(["IN_APP", "EMAIL"]).optional(),
+  status: z.enum(["CREATED", "QUEUED", "PROCESSING", "SENT", "FAILED", "DEAD_LETTER", "SKIPPED"]).optional(),
+});
+
+router.get("/automations/deliveries", async (req: AuthRequest, res) => {
+  requireAdmin(req);
+  const query = deliveryAuditQuery.parse(req.query);
+  const dispatches = await prisma.automationDispatch.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      notificationId: { not: null },
+      ...(req.auth!.role === Role.BRANCH_ADMIN ? { rule: { createdById: req.auth!.userId } } : {}),
+    },
+    include: {
+      rule: { select: { id: true, name: true, triggerType: true } },
+    },
+    orderBy: [{ lastSentAt: "desc" }, { createdAt: "desc" }],
+    take: 500,
+  });
+
+  const notificationIds = [...new Set(dispatches.flatMap(item => item.notificationId ? [item.notificationId] : []))];
+  const notifications = notificationIds.length ? await prisma.notification.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      id: { in: notificationIds },
+    },
+    include: {
+      user: { select: { id: true, name: true, email: true } },
+      deliveries: { orderBy: { createdAt: "asc" } },
+    },
+  }) : [];
+  const notificationById = new Map(notifications.map(item => [item.id, item]));
+  const search = query.search?.toLowerCase();
+
+  const data = dispatches.flatMap(dispatch => {
+    const notification = dispatch.notificationId ? notificationById.get(dispatch.notificationId) : undefined;
+    if (!notification) return [];
+    const statuses = [
+      ...(notification.channels.includes("IN_APP") ? ["CREATED"] : []),
+      ...notification.deliveries.map(delivery => delivery.status),
+    ];
+    if (query.channel && !notification.channels.includes(query.channel)) return [];
+    if (query.status && !statuses.includes(query.status)) return [];
+    if (search) {
+      const haystack = [
+        dispatch.rule.name,
+        dispatch.rule.triggerType,
+        dispatch.entityId,
+        notification.user.name,
+        notification.user.email,
+        notification.title,
+        notification.body,
+      ].join(" ").toLowerCase();
+      if (!haystack.includes(search)) return [];
+    }
+    return [{
+      dispatchId: dispatch.id,
+      ruleId: dispatch.rule.id,
+      ruleName: dispatch.rule.name,
+      triggerType: dispatch.rule.triggerType,
+      entityId: dispatch.entityId,
+      recipient: notification.user,
+      title: notification.title,
+      body: notification.body,
+      createdAt: notification.createdAt,
+      lastSentAt: dispatch.lastSentAt,
+      nextEligibleAt: dispatch.nextEligibleAt,
+      channels: notification.channels,
+      inAppStatus: notification.channels.includes("IN_APP") ? "CREATED" : null,
+      deliveries: notification.deliveries.map(delivery => ({
+        id: delivery.id,
+        channel: delivery.channel,
+        status: delivery.status,
+        attempts: delivery.attempts,
+        provider: delivery.provider,
+        lastError: delivery.lastError,
+        deliveredAt: delivery.deliveredAt,
+        createdAt: delivery.createdAt,
+      })),
+    }];
+  }).slice(0, query.limit);
+
+  res.json({ data, meta: { returned: data.length, scanned: dispatches.length } });
+});
+
 router.post("/automations", async (req: AuthRequest, res) => {
   requireAdmin(req);
   const input = createRuleInput.parse(req.body);
