@@ -3812,23 +3812,43 @@ model SupportTicket {
 }
 
 model AutomationRule {
-  organizationId String          @default("org_default")
-  id             String          @id @default(cuid())
-  name           String
-  triggerType    String
-  triggerConfig  Json
-  actionType     String          @default("NOTIFICATION")
-  actionConfig   Json
-  active         Boolean         @default(false)
-  createdById    String
-  lastPreviewAt  DateTime?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  runs           AutomationRun[]
+  organizationId  String               @default("org_default")
+  id              String               @id @default(cuid())
+  name            String
+  triggerType     String
+  triggerConfig   Json
+  actionType      String               @default("NOTIFICATION")
+  actionConfig    Json
+  active          Boolean              @default(false)
+  cooldownMinutes Int                  @default(1440)
+  createdById     String
+  lastPreviewAt   DateTime?
+  lastRunAt       DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  runs            AutomationRun[]
+  dispatches      AutomationDispatch[]
 
   @@unique([organizationId, id])
   @@unique([organizationId, name])
   @@index([organizationId, active, triggerType])
+}
+
+model AutomationDispatch {
+  organizationId String         @default("org_default")
+  id             String         @id @default(cuid())
+  ruleId         String
+  entityId       String
+  recipientId    String
+  notificationId String?
+  nextEligibleAt DateTime
+  lastSentAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  rule           AutomationRule @relation(fields: [organizationId, ruleId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, ruleId, entityId, recipientId])
+  @@index([organizationId, ruleId, nextEligibleAt])
 }
 
 model AutomationRun {
