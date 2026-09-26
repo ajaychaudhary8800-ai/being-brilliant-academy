@@ -59,3 +59,16 @@ test("native classroom client is permitted by CSP and cannot hang indefinitely",
   assert.match(source, /Live classroom connection timed out/);
   assert.match(source, /prior\.remove\(\)/);
 });
+
+
+test("screen annotations use a high-contrast interactive overlay with dedicated tools", () => {
+  assert.match(source, /annotationColor.*#ef4444/);
+  assert.match(source, /annotationDrawingMode/);
+  assert.match(source, /pointer-events-auto cursor-crosshair/);
+  assert.match(source, /Annotation pen/);
+  assert.match(source, /Annotation eraser/);
+  assert.match(source, /Annotation color/);
+  assert.match(source, /Clear annotations/);
+  assert.match(source, /DRAW ON SCREEN/);
+  assert.match(source, /surface === "annotation" \? 5 : 3/);
+});
