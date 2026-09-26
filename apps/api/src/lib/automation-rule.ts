@@ -3,6 +3,8 @@ import { z } from "zod";
 export const automationTriggerType = z.enum(["FEE_OVERDUE", "HOMEWORK_DUE_SOON", "ENQUIRY_FOLLOW_UP_DUE"]);
 export type AutomationTriggerType = z.infer<typeof automationTriggerType>;
 
+export const automationCooldownMinutes = z.coerce.number().int().min(5).max(43_200).default(1440);
+
 const feeConfig = z.object({
   daysOverdue: z.coerce.number().int().min(0).max(365).default(0),
   minBalancePaise: z.coerce.number().int().min(0).max(100_000_000).default(0),
