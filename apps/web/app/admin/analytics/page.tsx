@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { BarChart3, BrainCircuit, Building2, IndianRupee, RefreshCw, Send, TrendingUp, Users } from "lucide-react";
 import { ProtectedAdminWorkspace } from "../../../components/admin-workspace";
 import { errorMessage, getAccessToken } from "../../../components/auth-provider";
+import { AnalyticsSavedReports } from "../../../components/analytics-saved-reports";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 type Row = Record<string, unknown>;
@@ -132,5 +133,6 @@ export default function Page() {
       {(tab === "students" || tab === "teachers" || tab === "comparison") && <section className="mt-5 card overflow-x-auto p-5"><h2 className="font-semibold">{tabs.find(item => item.id === tab)?.label}</h2><p className="mt-1 text-xs text-slate-500">{meta?.total ?? rows.length} records</p><table className="mt-4 w-full text-left text-sm"><thead><tr className="border-b"><th className="p-2">Name</th><th className="p-2">{tab === "students" ? "Risk" : tab === "teachers" ? "Performance" : "Students"}</th><th className="p-2">{tab === "students" ? "Attendance" : tab === "teachers" ? "Workload" : "Fees collected"}</th></tr></thead><tbody>{rows.map((row, index) => <tr className="border-b last:border-0" key={String(row.id ?? index)}><td className="p-2">{String((row.student as any)?.user?.name ?? (row.teacher as any)?.user?.name ?? row.name ?? "Unknown")}</td><td className="p-2">{tab === "students" ? String(row.riskLevel ?? "—") : tab === "teachers" ? percent(row.performanceScore) : String(row.students ?? 0)}</td><td className="p-2">{tab === "students" ? percent(row.attendanceRate) : tab === "teachers" ? percent(row.workloadScore) : rupees(row.feeCollectedPaise)}</td></tr>)}</tbody></table>{rows.length === 0 && <p className="py-5 text-sm text-slate-500">No records in this view.</p>}{meta?.total !== undefined && meta.total > page * 20 && <button className="mt-4 rounded-lg border px-3 py-2 text-sm" onClick={() => setPage(value => value + 1)}>Next page</button>}{page > 1 && <button className="ml-2 mt-4 rounded-lg border px-3 py-2 text-sm" onClick={() => setPage(value => value - 1)}>Previous page</button>}</section>}
       {tab === "executive" && data?.generatedAt && <p className="mt-3 text-xs text-slate-500">Updated {new Date(data.generatedAt).toLocaleString()} {meta?.cached ? "· cached up to 60 seconds" : ""}</p>}
     </>}
+    <AnalyticsSavedReports />
   </ProtectedAdminWorkspace>;
 }
