@@ -624,6 +624,7 @@ router.post("/learning/live-classes/:id/leave", async (req: AuthRequest, res) =>
   if (!live) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Live class is not available");
   const row = await prisma.liveClassAttendance.findUnique({ where: { liveClassId_userId: { liveClassId, userId: actor.userId } } });
   if (!row) return res.status(204).send();
+  if (row.leftAt) return res.json({ data: row });
   const now = new Date(), updated = await prisma.liveClassAttendance.update({ where: { id: row.id }, data: { leftAt: now, durationSeconds: { increment: Math.max(0, Math.round((now.getTime() - row.joinedAt.getTime()) / 1000)) } } });
   res.json({ data: updated });
 });
