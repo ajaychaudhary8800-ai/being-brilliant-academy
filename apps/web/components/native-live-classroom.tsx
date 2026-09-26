@@ -315,7 +315,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     const items = strokesRef.current.filter(item => item.surface === surface);
     items.filter(item => "kind" in item && item.kind === "background").forEach(drawStroke);
     items.filter(item => !("kind" in item && item.kind === "background")).forEach(drawStroke);
-  }, [drawStroke, resizeCanvas]);
+  }, [resizeCanvas]);
 
   useEffect(() => {
     const onResize = () => { redraw("whiteboard"); redraw("annotation"); };
