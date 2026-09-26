@@ -75,3 +75,18 @@ test("manager AI learning plan requires an explicit student target and reloads s
   assert.match(source, /dashboard\$\{manager&&planStudentId/);
   assert.match(source, /Generate student plan/);
 });
+
+
+test("Live Class selectors expose loading errors, retry and dependent filtering", () => {
+  assert.match(source, /optionsLoading/);
+  assert.match(source, /optionsError/);
+  assert.match(source, /Reload options/);
+  assert.match(source, /No active branches/);
+  assert.match(source, /Select branch first/);
+  assert.match(source, /No active batches for this course/);
+  assert.match(source, /No confirmed subjects for this course/);
+  assert.match(source, /No active teacher allocation matches this class/);
+  assert.match(source, /x\.branchId===v\.branchId/);
+  assert.match(source, /x\.courseIds\.includes\(v\.courseId\)/);
+  assert.match(source, /a\.subjectId===v\.subjectId/);
+});

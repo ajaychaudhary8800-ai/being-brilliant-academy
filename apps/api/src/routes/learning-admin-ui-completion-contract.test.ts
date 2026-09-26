@@ -42,3 +42,20 @@ test("academic operations is a complete operational workspace instead of a spars
   ]) assert.ok(source.includes(expected), expected);
   assert.match(source, /checked=\{period\.isActive\}/);
 });
+
+
+test("learning selector options are tenant-scoped and return active scheduling relationships", async () => {
+  const source = await readFile(route, "utf8");
+  const start = source.indexOf('router.get("/learning/options"');
+  const end = source.indexOf('router.get("/learning/dashboard"', start);
+  const options = source.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(options, /const organizationId = req\.auth!\.organizationId/);
+  assert.match(options, /organizationId, isActive: true/);
+  assert.match(options, /status: BatchStatus\.ACTIVE/);
+  assert.match(options, /status: SubjectStatus\.ACTIVE/);
+  assert.match(options, /legacyReviewStatus: SubjectLegacyReviewStatus\.CONFIRMED/);
+  assert.match(options, /status: TeacherAllocationStatus\.ACTIVE/);
+  assert.match(options, /courseIds: row\.courses\.map/);
+  assert.match(options, /allocations: row\.allocations/);
+});
