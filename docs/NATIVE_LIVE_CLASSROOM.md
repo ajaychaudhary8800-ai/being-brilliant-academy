@@ -35,17 +35,18 @@ LIVEKIT_API_KEY=<api-key>
 LIVEKIT_API_SECRET=<api-secret>
 ```
 
-For production recording, object storage is also required:
+For production recording, use a **dedicated** S3-compatible bucket and credentials so classroom video storage is isolated from general ERP uploads and backup storage:
 
 ```
-STORAGE_DRIVER=s3
-AWS_REGION=<region>
-AWS_S3_BUCKET=<bucket>
-AWS_S3_ENDPOINT=<optional S3-compatible endpoint such as R2>
-AWS_ACCESS_KEY_ID=<access-key>
-AWS_SECRET_ACCESS_KEY=<secret>
+LIVEKIT_RECORDING_S3_REGION=<region; use auto for Cloudflare R2>
+LIVEKIT_RECORDING_S3_BUCKET=<recording-bucket>
+LIVEKIT_RECORDING_S3_ENDPOINT=<S3-compatible endpoint such as R2>
+LIVEKIT_RECORDING_S3_ACCESS_KEY_ID=<bucket-scoped access-key>
+LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY=<bucket-scoped secret>
 LIVEKIT_RECORDING_PREFIX=live-class-recordings
 ```
+
+Do not change `STORAGE_DRIVER` merely to enable classroom recording. General ERP storage, database/file backups and live-class recordings have separate security and lifecycle requirements.
 
 Never expose the LiveKit API secret to the browser. Participant tokens are minted by the API and are short-lived.
 
@@ -116,7 +117,7 @@ Large recording bytes are not copied into PostgreSQL.
 
 1. Create a staging LiveKit project or dedicated staging media deployment.
 2. Set `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` on the staging **API** service.
-3. For recording, set `STORAGE_DRIVER=s3` plus the S3/R2 bucket, endpoint and credentials.
+3. For recording, set the dedicated `LIVEKIT_RECORDING_S3_*` variables for the S3/R2 recording bucket. Leave the general ERP `STORAGE_DRIVER` unchanged unless you intentionally want to migrate all application uploads.
 4. Redeploy the API and Web from the same commit.
 5. Open **SaaS Control Center → Live platform health**. Native live classroom must report **Healthy** before classroom QA.
 6. Schedule a Native class, publish it, join with teacher + student, and validate camera/mic, screen share, whiteboard, annotation, chat, hand raise, lock/mute/remove and attendance.
