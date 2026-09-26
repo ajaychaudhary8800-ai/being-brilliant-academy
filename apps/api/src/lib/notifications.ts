@@ -28,9 +28,9 @@ export async function verifySmtp() {
   catch (error) { logger.warn({ err: error }, "SMTP verification failed"); return { configured: true, reachable: false }; }
 }
 
-export async function sendEmail(to: string, subject: string, body: string) {
+export async function sendEmail(to: string, subject: string, body: string, attachment?: { filename: string; content: Buffer; contentType: string }) {
   if (!transporter) return { skipped: true, reason: "SMTP_NOT_CONFIGURED" } as const;
-  const result = await transporter.sendMail({ from: env.EMAIL_FROM!, to, subject, text: body, html: `<div style="font-family:system-ui,sans-serif;line-height:1.6">${escapeHtml(body).replace(/\n/g, "<br>")}</div>` });
+  const result = await transporter.sendMail({ from: env.EMAIL_FROM!, to, subject, text: body, html: `<div style="font-family:system-ui,sans-serif;line-height:1.6">${escapeHtml(body).replace(/\n/g, "<br>")}</div>`, ...(attachment ? { attachments: [attachment] } : {}) });
   return { skipped: false, provider: "SMTP", messageId: result.messageId } as const;
 }
 

@@ -15,6 +15,7 @@ import { systemPrisma } from "./lib/prisma.js";
 import { ensureRedis, redis } from "./lib/redis.js";
 import { MAX_NOTIFICATION_DELIVERY_ATTEMPTS, deliverNotification, providerStatus, verifySmtp } from "./lib/notifications.js";
 import { activeNotificationConstraints } from "./lib/notification-policy.js";
+import { deliverScheduledAnalyticsReports } from "./lib/analytics-report-scheduler.js";
 import { onlyPaths } from "./lib/scoped-router.js";
 import auth from "./routes/auth.js";
 import courses from "./routes/courses.js";
@@ -394,10 +395,24 @@ void reconcileCommercialLifecycle();
 const saasLifecycleWorker = setInterval(() => void reconcileCommercialLifecycle(), 5 * 60_000);
 saasLifecycleWorker.unref();
 
+let analyticsReportWorkerRunning = false;
+const runAnalyticsReportWorker = async () => {
+  if (analyticsReportWorkerRunning) return;
+  analyticsReportWorkerRunning = true;
+  const finishMetric = startWorkerRun("analytics_report_delivery");
+  try { await deliverScheduledAnalyticsReports(); finishMetric("success"); }
+  catch (error) { finishMetric("failure"); logger.error({ err: error }, "Analytics report worker failed"); }
+  finally { analyticsReportWorkerRunning = false; }
+};
+void runAnalyticsReportWorker();
+const analyticsReportWorker = setInterval(() => void runAnalyticsReportWorker(), 60_000);
+analyticsReportWorker.unref();
+
 async function shutdown(signal: string) {
   logger.info({ signal }, "Graceful shutdown started");
   clearInterval(notificationWorker);
   clearInterval(saasLifecycleWorker);
+  clearInterval(analyticsReportWorker);
   server.close(async () => {
     await Promise.allSettled([systemPrisma.$disconnect(), redis?.quit() ?? Promise.resolve()]);
     process.exit(0);
