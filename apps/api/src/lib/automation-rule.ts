@@ -24,7 +24,16 @@ export const notificationActionConfig = z.object({
   body: z.string().trim().min(1).max(1000),
 }).strict();
 
-export function parseTriggerConfig(type: AutomationTriggerType, input: unknown) {
+type FeeAutomationConfig = z.infer<typeof feeConfig>;
+type HomeworkAutomationConfig = z.infer<typeof homeworkConfig>;
+type EnquiryAutomationConfig = z.infer<typeof enquiryConfig>;
+export type AutomationTriggerConfig = FeeAutomationConfig | HomeworkAutomationConfig | EnquiryAutomationConfig;
+
+export function parseTriggerConfig(type: "FEE_OVERDUE", input: unknown): FeeAutomationConfig;
+export function parseTriggerConfig(type: "HOMEWORK_DUE_SOON", input: unknown): HomeworkAutomationConfig;
+export function parseTriggerConfig(type: "ENQUIRY_FOLLOW_UP_DUE", input: unknown): EnquiryAutomationConfig;
+export function parseTriggerConfig(type: AutomationTriggerType, input: unknown): AutomationTriggerConfig;
+export function parseTriggerConfig(type: AutomationTriggerType, input: unknown): AutomationTriggerConfig {
   if (type === "FEE_OVERDUE") return feeConfig.parse(input ?? {});
   if (type === "HOMEWORK_DUE_SOON") return homeworkConfig.parse(input ?? {});
   return enquiryConfig.parse(input ?? {});
