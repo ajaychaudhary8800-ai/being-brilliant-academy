@@ -78,6 +78,7 @@ import legalSalesDocuments from "./routes/legal-sales-documents.js";
 import platformControlCenter from "./routes/platform-control-center.js";
 import { reconcileSaaSLifecycle } from "./lib/saas-commercial.js";
 import { isTenantCorsOriginAllowed } from "./lib/cors-origin.js";
+import { livekitHealth } from "./lib/livekit.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -238,13 +239,15 @@ app.get("/health/operational", async (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
-app.get("/health/integrations", async (_req, res) =>
+app.get("/health/integrations", async (_req, res) => {
+  const [smtp, livekit] = await Promise.all([verifySmtp(), livekitHealth()]);
   res.json({
     providers: providerStatus(),
-    smtp: await verifySmtp(),
+    smtp,
+    livekit,
     razorpayMode: env.RAZORPAY_MODE,
-  }),
-);
+  });
+});
 app.get("/metrics", async (req, res) => {
   if (env.NODE_ENV === "production" && !env.METRICS_TOKEN) {
     return res.status(503).json({
