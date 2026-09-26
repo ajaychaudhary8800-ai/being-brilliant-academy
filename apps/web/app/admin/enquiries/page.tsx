@@ -20,7 +20,7 @@ type CrmInsights = {
   unassigned:number;
 };
 type CrmActionItem = Enquiry & { flags:string[]; urgency:number };
-type CrmActionMeta = { overdue:number; dueSoon:number; unscheduled:number; unassigned:number; stale:number; total:number; mine:boolean };
+type CrmActionMeta = { overdue:number; dueSoon:number; unscheduled:number; unassigned:number; stale:number; total:number; mine:boolean; mineAvailable:boolean };
 const statuses = ["NEW", "CONTACTED", "FOLLOW_UP", "INTERESTED", "NOT_INTERESTED", "CONVERTED", "CLOSED", "ARCHIVED"];
 const editableStatuses = statuses.filter((value) => value !== "CONVERTED");
 const priorities = ["LOW", "MEDIUM", "HIGH", "URGENT"];
@@ -31,7 +31,7 @@ function Content() {
   const [branches,setBranches]=useState<Option[]>([]), [courses,setCourses]=useState<Option[]>([]), [users,setUsers]=useState<Option[]>([]), [batches,setBatches]=useState<(Option & {branch:{id:string}})[]>([]);
   const [settings,setSettings]=useState<InstitutionRegionalSettings>({}), [dash,setDash]=useState({total:0,new:0,followUps:0,interested:0,converted:0,archived:0,reminders:0,overdue:0,conversionRate:0});
   const [insights,setInsights]=useState<CrmInsights>({pipeline:[],sources:[],counsellors:[],leadAging:[],needsScheduling:0,unassigned:0});
-  const [actionItems,setActionItems]=useState<CrmActionItem[]>([]), [actionMeta,setActionMeta]=useState<CrmActionMeta>({overdue:0,dueSoon:0,unscheduled:0,unassigned:0,stale:0,total:0,mine:false}), [mineOnly,setMineOnly]=useState(false);
+  const [actionItems,setActionItems]=useState<CrmActionItem[]>([]), [actionMeta,setActionMeta]=useState<CrmActionMeta>({overdue:0,dueSoon:0,unscheduled:0,unassigned:0,stale:0,total:0,mine:false,mineAvailable:true}), [mineOnly,setMineOnly]=useState(false);
   const [search,setSearch]=useState(""), [status,setStatus]=useState(""), [priority,setPriority]=useState(""), [branchId,setBranchId]=useState(""), [counsellorId,setCounsellorId]=useState(""), [sourceFilter,setSourceFilter]=useState(""), [reminder,setReminder]=useState(""), [sortBy,setSortBy]=useState("createdAt"), [sortOrder,setSortOrder]=useState<"asc"|"desc">("desc"), [page,setPage]=useState(1), [meta,setMeta]=useState({total:0,totalPages:1}), [error,setError]=useState(""), [notice,setNotice]=useState("");
   const headers = () => ({ "Content-Type":"application/json", Authorization:`Bearer ${getAccessToken() ?? ""}` });
   const fail = async (response:Response) => { const json=await response.json().catch(()=>null); throw Error(json?.error?.message ?? "Request failed"); };
@@ -78,7 +78,7 @@ function Content() {
 <section aria-label="CRM follow-up action center" className="mt-6 rounded-xl border bg-white p-5">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
     <div><h2 className="text-xl font-bold">Follow-up Action Center</h2><p className="text-sm text-slate-500">Prioritised leads that need attention now.</p></div>
-    <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={mineOnly} onChange={event=>setMineOnly(event.target.checked)}/>My assigned leads only</label>
+    {actionMeta.mineAvailable ? <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={mineOnly} onChange={event=>setMineOnly(event.target.checked)}/>My assigned leads only</label> : <span className="text-xs text-slate-500">Platform admin view · use the Counsellor filter below for staff-specific leads</span>}
   </div>
   <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
     {[["Overdue",actionMeta.overdue],["Due soon",actionMeta.dueSoon],["Unscheduled",actionMeta.unscheduled],["Unassigned",actionMeta.unassigned],["Stale 7+ days",actionMeta.stale]].map(([label,value])=><div key={String(label)} className="rounded-lg bg-slate-50 p-3"><span className="block text-xs text-slate-500">{label}</span><b className="text-lg">{value}</b></div>)}
