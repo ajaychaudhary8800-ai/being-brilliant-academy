@@ -65,6 +65,7 @@ import communication from "./routes/communication.js";
 import noticeBoard from "./routes/notice-board.js";
 import inventory from "./routes/inventory.js";
 import analytics from "./routes/analytics.js";
+import automation from "./routes/automation.js";
 import organizations from "./routes/organizations.js";
 import organizationProvisioning from "./routes/organization-provisioning.js";
 import learningEcosystem from "./routes/learning-ecosystem.js";
@@ -310,6 +311,7 @@ app.use("/api/v1", onlyPaths(["/finance/payments", "/finance/payment-offsets"], 
 app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations));
 app.use("/api/v1", saasCommercial);
 app.use("/api/v1", onlyPaths(["/analytics"], analytics));
+app.use("/api/v1", onlyPaths(["/automations"], automation));
 app.use("/api/v1", onlyPaths(["/inventory"], inventory));
 app.use("/api/v1", onlyPaths(["/communication"], communication));
 app.use("/api/v1", onlyPaths(["/hostel"], hostel));

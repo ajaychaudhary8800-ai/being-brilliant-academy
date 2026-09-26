@@ -70,6 +70,7 @@ const menuGroups: MenuGroup[] = [
   ] },
   { name: "Communication", entries: [
     { name: "Communication", href: "/admin/communication", icon: Bell, feature: "communication" },
+    { name: "Workflow Automation", href: "/admin/automations", icon: CalendarClock, feature: "communication" },
     { name: "Notice Board", href: "/admin/notices", icon: Bell, feature: "communication" },
   ] },
   { name: "Operations", entries: [

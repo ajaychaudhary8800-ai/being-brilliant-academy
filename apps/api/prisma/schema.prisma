@@ -3811,6 +3811,45 @@ model SupportTicket {
   @@index([organizationId])
 }
 
+model AutomationRule {
+  organizationId String          @default("org_default")
+  id             String          @id @default(cuid())
+  name           String
+  triggerType    String
+  triggerConfig  Json
+  actionType     String          @default("NOTIFICATION")
+  actionConfig   Json
+  active         Boolean         @default(false)
+  createdById    String
+  lastPreviewAt  DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  runs           AutomationRun[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, name])
+  @@index([organizationId, active, triggerType])
+}
+
+model AutomationRun {
+  organizationId String         @default("org_default")
+  id             String         @id @default(cuid())
+  ruleId         String
+  mode           String         @default("PREVIEW")
+  status         String
+  triggerKey     String?
+  matchedCount   Int            @default(0)
+  actionCount    Int            @default(0)
+  details        Json?
+  error          String?
+  startedAt      DateTime       @default(now())
+  finishedAt     DateTime?
+  rule           AutomationRule @relation(fields: [organizationId, ruleId], references: [organizationId, id], onDelete: Cascade)
+
+  @@index([organizationId, ruleId, startedAt])
+  @@index([status, startedAt])
+}
+
 model AuditLog {
   organizationId String   @default("org_default")
   id             String   @id @default(cuid())
