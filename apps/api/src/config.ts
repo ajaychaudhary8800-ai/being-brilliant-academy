@@ -36,6 +36,11 @@ const schema = z.object({
   LIVEKIT_API_KEY: optionalString,
   LIVEKIT_API_SECRET: optionalString,
   LIVEKIT_RECORDING_PREFIX: z.string().default("live-class-recordings"),
+  LIVEKIT_RECORDING_S3_REGION: optionalString,
+  LIVEKIT_RECORDING_S3_BUCKET: optionalString,
+  LIVEKIT_RECORDING_S3_ENDPOINT: optionalUrl,
+  LIVEKIT_RECORDING_S3_ACCESS_KEY_ID: optionalString,
+  LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY: optionalString,
   CRM_WEBHOOK_URL: optionalUrl,
   CRM_WEBHOOK_SECRET: optionalString,
   WEB_PUSH_PUBLIC_KEY: optionalString,
@@ -69,6 +74,7 @@ const schema = z.object({
     const configured = keys.filter((key) => Boolean(value[key]));
     if (configured.length && configured.length !== keys.length) context.addIssue({ code: "custom", path: [keys[0]], message: `${label} requires ${keys.join(", ")}` });
   };
+  requireTogether(["LIVEKIT_RECORDING_S3_REGION", "LIVEKIT_RECORDING_S3_BUCKET", "LIVEKIT_RECORDING_S3_ACCESS_KEY_ID", "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY"], "LiveKit recording storage");
   if (value.NODE_ENV === "production") {
     requireTogether(["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM"], "SMTP");
     requireTogether(["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SMS_FROM"], "Twilio SMS");

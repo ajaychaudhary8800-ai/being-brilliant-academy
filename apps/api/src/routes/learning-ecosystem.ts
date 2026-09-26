@@ -22,7 +22,7 @@ import { AppError } from "../lib/http.js";
 import { resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { prisma } from "../lib/prisma.js";
 import { getObject } from "../lib/storage.js";
-import { createLiveKitToken, livekitClientUrl, livekitConfigured, livekitEgress, livekitRoomService } from "../lib/livekit.js";
+import { createLiveKitToken, getLiveKitRecordingObject, livekitClientUrl, livekitConfigured, livekitEgress, livekitRecordingConfigured, livekitRecordingStorage, livekitRoomService } from "../lib/livekit.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
@@ -499,14 +499,7 @@ const liveInput = liveShape.superRefine((value, context) => {
 const nativeManagers = new Set<Role>([Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER]);
 const isNativeManager = (role: Role) => nativeManagers.has(role);
 const nativeMeetingUrl = (room: string) => `${env.WEB_URL.replace(/\/$/, "")}/live-class/${room}`;
-const nativeRecordingConfigured = () => Boolean(
-  livekitConfigured()
-  && env.STORAGE_DRIVER === "s3"
-  && env.AWS_REGION
-  && env.AWS_S3_BUCKET
-  && env.AWS_ACCESS_KEY_ID
-  && env.AWS_SECRET_ACCESS_KEY
-);
+const nativeRecordingConfigured = () => livekitRecordingConfigured();
 
 async function ensureRecordingMaterial(live: {
   id: string; title: string; description: string | null; branchId: string; courseId: string; batchId: string;
@@ -734,14 +727,15 @@ router.post("/learning/live-classes/native/:room/recording/start", managers, asy
   const terminalRecording = ["COMPLETE", "FAILED", "ABORTED"].some(status => priorStatus.includes(status));
   if (live.recordingEgressId && !terminalRecording) throw new AppError(409, "RECORDING_ALREADY_ACTIVE", "A recording is already active for this class");
   const key = `${env.LIVEKIT_RECORDING_PREFIX}/${req.auth!.organizationId}/${live.id}/${Date.now()}.mp4`;
+  const recordingStorage = livekitRecordingStorage();
   const s3: Record<string, unknown> = {
-    access_key: env.AWS_ACCESS_KEY_ID!,
-    secret: env.AWS_SECRET_ACCESS_KEY!,
-    region: env.AWS_REGION!,
-    bucket: env.AWS_S3_BUCKET!,
+    access_key: recordingStorage.accessKeyId,
+    secret: recordingStorage.secretAccessKey,
+    region: recordingStorage.region,
+    bucket: recordingStorage.bucket,
   };
-  if (env.AWS_S3_ENDPOINT) {
-    s3.endpoint = env.AWS_S3_ENDPOINT;
+  if (recordingStorage.endpoint) {
+    s3.endpoint = recordingStorage.endpoint;
     s3.force_path_style = true;
   }
   const result: any = await livekitEgress("StartEgress", {
@@ -774,7 +768,7 @@ router.get("/learning/live-classes/native/:room/recording", async (req: AuthRequ
   const room = z.string().min(10).max(120).parse(req.params.room);
   const { live } = await nativeClassForActor(actor, room);
   if (!live.recordingObjectKey) throw new AppError(404, "RECORDING_NOT_FOUND", "No recording is available for this class");
-  const object = await getObject(live.recordingObjectKey);
+  const object = await getLiveKitRecordingObject(live.recordingObjectKey);
   if (!object || !(Symbol.asyncIterator in Object(object))) throw new AppError(404, "RECORDING_NOT_FOUND", "Class recording is not available yet");
   res.setHeader("Content-Type", "video/mp4");
   res.setHeader("Content-Disposition", `attachment; filename="live-class-${live.id}.mp4"`);

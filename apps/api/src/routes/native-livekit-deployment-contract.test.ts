@@ -12,6 +12,11 @@ test("production compose passes native classroom configuration to API containers
     "LIVEKIT_API_KEY",
     "LIVEKIT_API_SECRET",
     "LIVEKIT_RECORDING_PREFIX",
+    "LIVEKIT_RECORDING_S3_REGION",
+    "LIVEKIT_RECORDING_S3_BUCKET",
+    "LIVEKIT_RECORDING_S3_ENDPOINT",
+    "LIVEKIT_RECORDING_S3_ACCESS_KEY_ID",
+    "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY",
   ]) assert.match(compose, new RegExp(key));
 });
 
@@ -24,6 +29,9 @@ test("environment examples document native classroom credentials", async () => {
     assert.match(source, /LIVEKIT_URL=/);
     assert.match(source, /LIVEKIT_API_KEY=/);
     assert.match(source, /LIVEKIT_API_SECRET=/);
+    assert.match(source, /LIVEKIT_RECORDING_S3_BUCKET=/);
+    assert.match(source, /LIVEKIT_RECORDING_S3_ACCESS_KEY_ID=/);
+    assert.match(source, /LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY=/);
   }
 });
 
@@ -39,4 +47,21 @@ test("integration health and SaaS control center expose native classroom readine
   assert.match(livekit, /recordingConfigured/);
   assert.match(control, /Native live classroom/);
   assert.match(control, /recording storage ready/);
+});
+
+
+test("native classroom recording storage is isolated from general application storage", async () => {
+  const [config, livekit, route] = await Promise.all([
+    readFile(new URL("../config.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/livekit.ts", import.meta.url), "utf8"),
+    readFile(new URL("./learning-ecosystem.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(config, /LIVEKIT_RECORDING_S3_BUCKET/);
+  assert.match(livekit, /getLiveKitRecordingObject/);
+  assert.match(livekit, /LIVEKIT_RECORDING_S3_ACCESS_KEY_ID/);
+  assert.match(route, /livekitRecordingStorage\(\)/);
+  assert.match(route, /getLiveKitRecordingObject\(live\.recordingObjectKey\)/);
+  const recordingStart = route.slice(route.indexOf('recording/start'), route.indexOf('recording/stop'));
+  assert.doesNotMatch(recordingStart, /env\.AWS_S3_BUCKET/);
+  assert.doesNotMatch(recordingStart, /env\.AWS_ACCESS_KEY_ID/);
 });
