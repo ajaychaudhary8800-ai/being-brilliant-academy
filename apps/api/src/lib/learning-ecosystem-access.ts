@@ -173,6 +173,30 @@ export function learningResourceWhere(actor: LearningActor, options: { teacherOw
   throw denied();
 }
 
+/** LiveClass has required branch, batch and subject fields, unlike other learning resources. */
+export function learningLiveClassWhere(actor: LearningActor, options: { teacherOwned?: boolean } = {}): Record<string, any> {
+  if (actor.role === Role.SUPER_ADMIN) return {};
+  if (actor.role === Role.BRANCH_ADMIN) return { branchId: { in: actor.branchIds } };
+  if (actor.role === Role.TEACHER) return {
+    ...(options.teacherOwned ? { teacherId: actor.teacherProfileId ?? { in: [] as string[] } } : {}),
+    OR: actor.allocations.map(context => ({
+      branchId: context.branchId,
+      courseId: context.courseId,
+      batchId: context.batchId,
+      subjectId: context.subjectId ?? { in: [] as string[] },
+    })),
+  };
+  if (actor.role === Role.STUDENT || actor.role === Role.PARENT) return {
+    OR: actor.learners.map(context => ({
+      status: "PUBLISHED",
+      branchId: context.branchId,
+      courseId: context.courseId,
+      batchId: context.batchId,
+    })),
+  };
+  throw denied();
+}
+
 export function learningQuestionWhere(actor: LearningActor): Record<string, any> {
   if (actor.role === Role.SUPER_ADMIN) return {};
   if (actor.role === Role.BRANCH_ADMIN) return { courseId: { in: actor.courseIds } };
