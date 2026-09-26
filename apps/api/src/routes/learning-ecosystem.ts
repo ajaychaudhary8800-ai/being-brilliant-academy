@@ -13,6 +13,7 @@ import {
   learningAttemptStudentWhere,
   learningDenied,
   learningDoubtWhere,
+  learningLiveClassWhere,
   learningQuestionWhere,
   learningResourceWhere,
   type LearningActor,
@@ -161,7 +162,7 @@ router.get("/learning/dashboard", async (req: AuthRequest, res) => {
     ? { courseId: { in: actor.courseIds } }
     : learningQuestionWhere(actor);
   const contentScope = learningResourceWhere(actor);
-  const classScope = learningResourceWhere(actor, { teacherOwned: role === Role.TEACHER });
+  const classScope = learningLiveClassWhere(actor, { teacherOwned: role === Role.TEACHER });
   const attemptScope = query.userId ? { studentId: query.userId } : learningAttemptStudentWhere(actor);
   const [doubts, questions, tests, materials, classes, attempts, recommendations, goals, game, fees, homework, attendance] = await Promise.all([
     prisma.doubtThread.count({ where: doubtScope }),
@@ -593,7 +594,7 @@ async function nativeClassForActor(actor: LearningActor, room: string) {
     where: {
       meetingId: room,
       provider: LiveClassProvider.NATIVE,
-      ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }),
+      ...learningLiveClassWhere(actor, { teacherOwned: actor.role === Role.TEACHER }),
       ...(manager ? { status: { not: LearningStatus.ARCHIVED } } : { status: LearningStatus.PUBLISHED }),
     },
   });
@@ -605,7 +606,7 @@ router.get("/learning/live-classes", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const q = pageQuery.extend({ batchId: id.optional(), subjectId: id.optional(), status: z.nativeEnum(LearningStatus).optional(), from: z.coerce.date().optional(), to: z.coerce.date().optional() }).parse(req.query);
   const learner = actor.role === Role.STUDENT || actor.role === Role.PARENT;
-  const where: any = { ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }), ...(learner ? { status: LearningStatus.PUBLISHED } : q.status ? { status: q.status } : {}), ...(q.batchId ? { batchId: q.batchId } : {}), ...(q.subjectId ? { subjectId: q.subjectId } : {}), ...(q.from || q.to ? { startsAt: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) } } : {}), ...(q.search ? { title: { contains: q.search, mode: "insensitive" } } : {}) };
+  const where: any = { ...learningLiveClassWhere(actor, { teacherOwned: actor.role === Role.TEACHER }), ...(learner ? { status: LearningStatus.PUBLISHED } : q.status ? { status: q.status } : {}), ...(q.batchId ? { batchId: q.batchId } : {}), ...(q.subjectId ? { subjectId: q.subjectId } : {}), ...(q.from || q.to ? { startsAt: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) } } : {}), ...(q.search ? { title: { contains: q.search, mode: "insensitive" } } : {}) };
   const [total, data] = await prisma.$transaction([
     prisma.liveClass.count({ where }),
     prisma.liveClass.findMany({ where, include: { _count: { select: { attendances: true, interactions: true } } }, skip: (q.page - 1) * q.limit, take: q.limit, orderBy: { startsAt: q.sortOrder } }),
@@ -636,7 +637,7 @@ router.post("/learning/live-classes", managers, async (req: AuthRequest, res) =>
 
 router.patch("/learning/live-classes/:id", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
-  const old = await prisma.liveClass.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }) } });
+  const old = await prisma.liveClass.findFirst({ where: { id: String(req.params.id), ...learningLiveClassWhere(actor, { teacherOwned: actor.role === Role.TEACHER }) } });
   if (!old) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Live class not found");
   const d = liveShape.partial().parse(req.body);
   const target = { branchId: d.branchId ?? old.branchId, courseId: d.courseId ?? old.courseId, batchId: d.batchId ?? old.batchId, subjectId: d.subjectId ?? old.subjectId, teacherId: d.teacherId ?? old.teacherId };
@@ -662,7 +663,7 @@ router.patch("/learning/live-classes/:id", managers, async (req: AuthRequest, re
 
 router.post("/learning/live-classes/:id/join", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
-  const live = await prisma.liveClass.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }), status: LearningStatus.PUBLISHED } });
+  const live = await prisma.liveClass.findFirst({ where: { id: String(req.params.id), ...learningLiveClassWhere(actor, { teacherOwned: actor.role === Role.TEACHER }), status: LearningStatus.PUBLISHED } });
   if (!live) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Live class is not available");
   const attendance = await prisma.liveClassAttendance.upsert({ where: { liveClassId_userId: { liveClassId: live.id, userId: actor.userId } }, update: { joinedAt: new Date(), leftAt: null }, create: { organizationId: req.auth!.organizationId, liveClassId: live.id, userId: actor.userId } });
   res.json({ data: { attendance, provider: live.provider, meetingUrl: live.meetingUrl, meetingId: live.meetingId, meetingPassword: live.meetingPassword, whiteboardUrl: live.whiteboardUrl } });
@@ -671,7 +672,7 @@ router.post("/learning/live-classes/:id/join", async (req: AuthRequest, res) => 
 router.post("/learning/live-classes/:id/leave", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const liveClassId = String(req.params.id);
-  const live = await prisma.liveClass.findFirst({ where: { id: liveClassId, ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }) }, select: { id: true } });
+  const live = await prisma.liveClass.findFirst({ where: { id: liveClassId, ...learningLiveClassWhere(actor, { teacherOwned: actor.role === Role.TEACHER }) }, select: { id: true } });
   if (!live) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Live class is not available");
   const row = await prisma.liveClassAttendance.findUnique({ where: { liveClassId_userId: { liveClassId, userId: actor.userId } } });
   if (!row) return res.status(204).send();
@@ -683,7 +684,7 @@ router.post("/learning/live-classes/:id/leave", async (req: AuthRequest, res) =>
 router.post("/learning/live-classes/:id/interactions", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const liveClassId = String(req.params.id);
-  const live = await prisma.liveClass.findFirst({ where: { id: liveClassId, ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }), status: LearningStatus.PUBLISHED }, select: { id: true } });
+  const live = await prisma.liveClass.findFirst({ where: { id: liveClassId, ...learningLiveClassWhere(actor, { teacherOwned: actor.role === Role.TEACHER }), status: LearningStatus.PUBLISHED }, select: { id: true } });
   if (!live) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Live class is not available");
   const d = z.object({ type: z.enum(["CHAT", "POLL", "POLL_RESPONSE", "RAISE_HAND", "WHITEBOARD"]), content: z.unknown().optional() }).parse(req.body);
   const row = await prisma.liveClassInteraction.create({ data: { organizationId: req.auth!.organizationId, liveClassId, userId: actor.userId, type: d.type, content: d.content as object | undefined } });
@@ -888,10 +889,11 @@ router.patch("/learning/recommendations/:id/complete", allow(Role.STUDENT), asyn
 router.get("/learning/faculty-insights", allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER), async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const resourceScope = learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER });
+  const classScope = learningLiveClassWhere(actor, { teacherOwned: actor.role === Role.TEACHER });
   const doubtScope = learningDoubtWhere(actor);
   const attemptScope = learningAttemptStudentWhere(actor);
   const [classes, materials, doubts, tests] = await Promise.all([
-    prisma.liveClass.findMany({ where: resourceScope, include: { _count: { select: { attendances: true, interactions: true } } }, take: 20, orderBy: { startsAt: "desc" } }),
+    prisma.liveClass.findMany({ where: classScope, include: { _count: { select: { attendances: true, interactions: true } } }, take: 20, orderBy: { startsAt: "desc" } }),
     prisma.studyMaterial.count({ where: resourceScope }),
     prisma.doubtThread.count({ where: { ...doubtScope, status: DoubtStatus.ESCALATED } }),
     prisma.learningTestAttempt.aggregate({ where: { ...attemptScope, test: learningResourceWhere(actor), status: LearningAttemptStatus.EVALUATED }, _avg: { percentage: true }, _count: true }),

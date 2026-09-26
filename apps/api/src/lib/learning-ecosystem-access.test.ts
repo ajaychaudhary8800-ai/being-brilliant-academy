@@ -7,6 +7,7 @@ import {
   assertManagerQuestionAccess,
   assertManagerResourceAccess,
   learningDoubtWhere,
+  learningLiveClassWhere,
   learningQuestionWhere,
   learningResourceWhere,
   type LearningActor,
@@ -46,6 +47,24 @@ test("Student and Parent scopes are learner-context-only and content remains pub
   assert.doesNotThrow(() => assertLearnerContentAccess(parent, { ...allocation, status: "PUBLISHED" }));
   assert.throws(() => assertLearnerContentAccess(student, { ...allocation, courseId: "course-b", status: "PUBLISHED" }));
   assert.throws(() => assertLearnerContentAccess(parent, { ...allocation, status: "DRAFT" }));
+});
+
+test("Live classes use required allocation fields and published learner batches", () => {
+  const teacher = base(Role.TEACHER, { teacherProfileId: "teacher-profile-a", allocations: [allocation] });
+  const scoped = learningLiveClassWhere(teacher, { teacherOwned: true });
+  assert.deepEqual(scoped, {
+    teacherId: "teacher-profile-a",
+    OR: [{ branchId: "branch-a", courseId: "course-a", batchId: "batch-a", subjectId: "subject-a" }],
+  });
+  assert.deepEqual(learningLiveClassWhere(base(Role.TEACHER, { allocations: [{ ...allocation, subjectId: undefined }] })).OR, [
+    { branchId: "branch-a", courseId: "course-a", batchId: "batch-a", subjectId: { in: [] } },
+  ]);
+  for (const role of [Role.STUDENT, Role.PARENT]) {
+    assert.deepEqual(learningLiveClassWhere(base(role, { learners: [learner] })), {
+      OR: [{ status: "PUBLISHED", branchId: "branch-a", courseId: "course-a", batchId: "batch-a" }],
+    });
+    assert.deepEqual(learningLiveClassWhere(base(role)), { OR: [] });
+  }
 });
 
 test("Question and doubt scopes never grant students answer-bank or organization-wide access", () => {
