@@ -16,6 +16,7 @@ import { ensureRedis, redis } from "./lib/redis.js";
 import { MAX_NOTIFICATION_DELIVERY_ATTEMPTS, deliverNotification, providerStatus, verifySmtp } from "./lib/notifications.js";
 import { activeNotificationConstraints } from "./lib/notification-policy.js";
 import { deliverScheduledAnalyticsReports } from "./lib/analytics-report-scheduler.js";
+import { executeActiveAutomations } from "./lib/automation-executor.js";
 import { onlyPaths } from "./lib/scoped-router.js";
 import auth from "./routes/auth.js";
 import courses from "./routes/courses.js";
@@ -206,9 +207,10 @@ type WorkerHeartbeat = {
   lastError: string | null;
 };
 
-const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle", WorkerHeartbeat> = {
+const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation", WorkerHeartbeat> = {
   notificationDelivery: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   saasLifecycle: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
+  workflowAutomation: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
 };
 
 function workerSnapshot(name: keyof typeof workerHeartbeats, maxAgeMs: number, now = new Date()) {
@@ -232,6 +234,7 @@ app.get("/health/operational", async (_req, res) => {
   const workers = {
     notificationDelivery: workerSnapshot("notificationDelivery", 2 * 60_000),
     saasLifecycle: workerSnapshot("saasLifecycle", 10 * 60_000),
+    workflowAutomation: workerSnapshot("workflowAutomation", 10 * 60_000),
   };
   const healthy = Object.values(checks).every(Boolean) && Object.values(workers).every(worker => worker.healthy);
   res.status(healthy ? 200 : 503).json({
@@ -410,11 +413,43 @@ void runAnalyticsReportWorker();
 const analyticsReportWorker = setInterval(() => void runAnalyticsReportWorker(), 60_000);
 analyticsReportWorker.unref();
 
+let workflowAutomationWorkerRunning = false;
+const runWorkflowAutomationWorker = async () => {
+  if (workflowAutomationWorkerRunning) return;
+  workflowAutomationWorkerRunning = true;
+  const finishMetric = startWorkerRun("workflow_automation");
+  try {
+    const results = await executeActiveAutomations(new Date());
+    const failed = results.filter(result => !result.ok);
+    workerHeartbeats.workflowAutomation = {
+      lastSuccessAt: new Date(),
+      lastFailureAt: failed.length ? new Date() : workerHeartbeats.workflowAutomation.lastFailureAt,
+      lastError: failed[0]?.error ?? null,
+    };
+    finishMetric(failed.length ? "partial" : "success");
+    if (failed.length) logger.warn({ failed: failed.length, total: results.length }, "Workflow automation worker completed with failures");
+  } catch (error) {
+    workerHeartbeats.workflowAutomation = {
+      lastSuccessAt: workerHeartbeats.workflowAutomation.lastSuccessAt,
+      lastFailureAt: new Date(),
+      lastError: error instanceof Error ? error.message.slice(0, 500) : "Workflow automation worker failed",
+    };
+    finishMetric("failure");
+    logger.error({ err: error }, "Workflow automation worker failed");
+  } finally {
+    workflowAutomationWorkerRunning = false;
+  }
+};
+void runWorkflowAutomationWorker();
+const workflowAutomationWorker = setInterval(() => void runWorkflowAutomationWorker(), 5 * 60_000);
+workflowAutomationWorker.unref();
+
 async function shutdown(signal: string) {
   logger.info({ signal }, "Graceful shutdown started");
   clearInterval(notificationWorker);
   clearInterval(saasLifecycleWorker);
   clearInterval(analyticsReportWorker);
+  clearInterval(workflowAutomationWorker);
   server.close(async () => {
     await Promise.allSettled([systemPrisma.$disconnect(), redis?.quit() ?? Promise.resolve()]);
     process.exit(0);
