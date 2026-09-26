@@ -508,6 +508,34 @@ const nativeRecordingConfigured = () => Boolean(
   && env.AWS_SECRET_ACCESS_KEY
 );
 
+async function ensureRecordingMaterial(live: {
+  id: string; title: string; description: string | null; branchId: string; courseId: string; batchId: string;
+  subjectId: string; teacherId: string; recordingObjectKey: string | null;
+}, organizationId: string) {
+  if (!live.recordingObjectKey) return null;
+  const existing = await prisma.studyMaterial.findFirst({ where: { organizationId, sourceLiveClassId: live.id } });
+  const data = {
+    title: `Class Recording: ${live.title}`,
+    description: live.description ? `${live.description}\n\nAutomatically published from the native live classroom.` : "Automatically published from the native live classroom.",
+    type: StudyMaterialType.VIDEO,
+    branchId: live.branchId,
+    courseId: live.courseId,
+    batchId: live.batchId,
+    subjectId: live.subjectId,
+    teacherId: live.teacherId,
+    status: LearningStatus.PUBLISHED,
+    tags: ["LIVE_CLASS_RECORDING"],
+    fileName: `${live.title.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-|-$/g, "") || "live-class"}-recording.mp4`,
+    mimeType: "video/mp4",
+    storageKey: live.recordingObjectKey,
+    sourceLiveClassId: live.id,
+    isArchived: false,
+  };
+  return existing
+    ? prisma.studyMaterial.update({ where: { id: existing.id }, data: { ...data, version: { increment: 1 } } })
+    : prisma.studyMaterial.create({ data: { organizationId, ...data } });
+}
+
 async function nativeClassForActor(actor: LearningActor, room: string) {
   const manager = isNativeManager(actor.role);
   const live = await prisma.liveClass.findFirst({
@@ -734,9 +762,10 @@ router.post("/learning/live-classes/native/:room/recording/stop", managers, asyn
   if (!live.recordingEgressId) throw new AppError(409, "RECORDING_NOT_ACTIVE", "No active class recording was found");
   const result: any = await livekitEgress("StopEgress", { egress_id: live.recordingEgressId });
   const status = result.status ?? "STOPPING";
-  await prisma.liveClass.update({ where: { id: live.id }, data: { recordingStatus: status } });
-  await audit(req, "STOP_RECORDING", "LiveClass", live.id, { egressId: live.recordingEgressId, status });
-  res.json({ data: { egressId: live.recordingEgressId, status } });
+  const updated = await prisma.liveClass.update({ where: { id: live.id }, data: { recordingStatus: status } });
+  const material = await ensureRecordingMaterial(updated, req.auth!.organizationId);
+  await audit(req, "STOP_RECORDING", "LiveClass", live.id, { egressId: live.recordingEgressId, status, materialId: material?.id });
+  res.json({ data: { egressId: live.recordingEgressId, status, materialId: material?.id ?? null, publishedToLms: Boolean(material) } });
 });
 
 router.get("/learning/live-classes/native/:room/recording", async (req: AuthRequest, res) => {
