@@ -37,6 +37,31 @@ type Run = {
   startedAt: string;
   finishedAt?: string | null;
 };
+type DeliveryAudit = {
+  dispatchId: string;
+  ruleId: string;
+  ruleName: string;
+  triggerType: TriggerType;
+  entityId: string;
+  recipient: { id: string; name: string; email: string };
+  title: string;
+  body: string;
+  createdAt: string;
+  lastSentAt?: string | null;
+  nextEligibleAt: string;
+  channels: string[];
+  inAppStatus?: string | null;
+  deliveries: Array<{
+    id: string;
+    channel: string;
+    status: string;
+    attempts: number;
+    provider?: string | null;
+    lastError?: string | null;
+    deliveredAt?: string | null;
+    createdAt: string;
+  }>;
+};
 
 async function api(path: string, init?: RequestInit) {
   const response = await fetch(`${API}${path}`, {
@@ -72,6 +97,11 @@ export default function Page() {
   const [email, setEmail] = useState(true);
   const [previews, setPreviews] = useState<Record<string, Preview>>({});
   const [runs, setRuns] = useState<Record<string, Run[]>>({});
+  const [deliveries, setDeliveries] = useState<DeliveryAudit[]>([]);
+  const [deliverySearch, setDeliverySearch] = useState("");
+  const [deliveryChannel, setDeliveryChannel] = useState("");
+  const [deliveryStatus, setDeliveryStatus] = useState("");
+  const [deliveryBusy, setDeliveryBusy] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -82,6 +112,23 @@ export default function Page() {
     catch (cause) { setError(errorMessage(cause)); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+
+  const loadDeliveries = useCallback(async () => {
+    setDeliveryBusy(true);
+    try {
+      const params = new URLSearchParams({ limit: "50" });
+      if (deliverySearch.trim()) params.set("search", deliverySearch.trim());
+      if (deliveryChannel) params.set("channel", deliveryChannel);
+      if (deliveryStatus) params.set("status", deliveryStatus);
+      setDeliveries((await api(`/automations/deliveries?${params.toString()}`)).data ?? []);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setDeliveryBusy(false);
+    }
+  }, [deliverySearch, deliveryChannel, deliveryStatus]);
+
+  useEffect(() => { void loadDeliveries(); }, [loadDeliveries]);
 
   function triggerConfig() {
     if (triggerType === "FEE_OVERDUE") return {
@@ -222,6 +269,60 @@ export default function Page() {
               <span className="ml-2 text-slate-500">{run.matchedCount} matches · {run.actionCount} notifications</span>
               {run.error ? <p className="mt-1 text-red-600">{run.error}</p> : null}
             </div>)}</div>}
+          </div>}
+        </article>)}
+      </div>
+    </section>
+
+    <section className="mt-6 card p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">Automation delivery audit</h2>
+          <p className="mt-1 text-sm text-slate-500">Administrator view of recipients, channels, delivery status, attempts, errors and timestamps.</p>
+        </div>
+        <button disabled={deliveryBusy} onClick={() => void loadDeliveries()} className="flex items-center gap-1 rounded-lg border px-3 py-2 text-sm disabled:opacity-50"><RefreshCw size={15} />Refresh</button>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <input value={deliverySearch} onChange={event => setDeliverySearch(event.target.value)} className="field w-full" placeholder="Search rule, recipient, email or title" />
+        <select value={deliveryChannel} onChange={event => setDeliveryChannel(event.target.value)} className="field w-full">
+          <option value="">All channels</option>
+          <option value="IN_APP">In-app</option>
+          <option value="EMAIL">Email</option>
+        </select>
+        <select value={deliveryStatus} onChange={event => setDeliveryStatus(event.target.value)} className="field w-full">
+          <option value="">All statuses</option>
+          <option value="CREATED">In-app created</option>
+          <option value="QUEUED">Queued</option>
+          <option value="PROCESSING">Processing</option>
+          <option value="SENT">Sent</option>
+          <option value="FAILED">Failed</option>
+          <option value="DEAD_LETTER">Dead letter</option>
+          <option value="SKIPPED">Skipped</option>
+        </select>
+      </div>
+
+      <div className="mt-4 divide-y dark:divide-slate-800">
+        {deliveryBusy && deliveries.length === 0 && <p className="py-4 text-sm text-slate-500">Loading delivery audit…</p>}
+        {!deliveryBusy && deliveries.length === 0 && <p className="py-4 text-sm text-slate-500">No automation deliveries match this view.</p>}
+        {deliveries.map(item => <article key={item.dispatchId} className="py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="font-semibold">{item.recipient.name} <span className="font-normal text-slate-500">· {item.recipient.email}</span></div>
+              <p className="mt-1 text-sm">{item.title}</p>
+              <p className="mt-1 text-xs text-slate-500">{item.ruleName} · {labels[item.triggerType]} · created {new Date(item.createdAt).toLocaleString()}</p>
+              <p className="mt-1 text-xs text-slate-500">Entity {item.entityId} · cooldown eligible again {new Date(item.nextEligibleAt).toLocaleString()}</p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              {item.inAppStatus && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">IN_APP · {item.inAppStatus}</span>}
+              {item.deliveries.map(delivery => <span key={delivery.id} className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">{delivery.channel} · {delivery.status}</span>)}
+            </div>
+          </div>
+          {item.deliveries.length > 0 && <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-xs">
+              <thead className="text-slate-500"><tr><th className="pb-2 pr-4">Channel</th><th className="pb-2 pr-4">Status</th><th className="pb-2 pr-4">Attempts</th><th className="pb-2 pr-4">Provider</th><th className="pb-2 pr-4">Delivered</th><th className="pb-2">Error</th></tr></thead>
+              <tbody>{item.deliveries.map(delivery => <tr key={delivery.id} className="border-t dark:border-slate-800"><td className="py-2 pr-4">{delivery.channel}</td><td className="py-2 pr-4">{delivery.status}</td><td className="py-2 pr-4">{delivery.attempts}</td><td className="py-2 pr-4">{delivery.provider || "—"}</td><td className="py-2 pr-4">{delivery.deliveredAt ? new Date(delivery.deliveredAt).toLocaleString() : "—"}</td><td className="py-2">{delivery.lastError || "—"}</td></tr>)}</tbody>
+            </table>
           </div>}
         </article>)}
       </div>
