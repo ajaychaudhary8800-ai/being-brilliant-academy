@@ -430,10 +430,19 @@ router.get("/learning/materials/:id/download", async (req: AuthRequest, res) => 
   const actor = await learningActorForRequest(req);
   const row = await prisma.studyMaterial.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor), isArchived: false } });
   if (!row) throw new AppError(404, "MATERIAL_NOT_FOUND", "Material not found");
-  if (!row.fileData && row.externalUrl) return res.redirect(row.externalUrl);
-  if (!row.fileData) throw new AppError(404, "FILE_NOT_FOUND", "Material file not found");
   await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
-  res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"`, "Content-Length": String(row.fileData.length) }).send(Buffer.from(row.fileData));
+  if (row.fileData) {
+    return res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"`, "Content-Length": String(row.fileData.length) }).send(Buffer.from(row.fileData));
+  }
+  if (row.storageKey) {
+    const object = await getObject(row.storageKey);
+    if (!object || !(Symbol.asyncIterator in Object(object))) throw new AppError(404, "FILE_NOT_FOUND", "Material file not found");
+    res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"` });
+    for await (const chunk of object as AsyncIterable<Uint8Array | string>) res.write(chunk);
+    return res.end();
+  }
+  if (row.externalUrl) return res.redirect(row.externalUrl);
+  throw new AppError(404, "FILE_NOT_FOUND", "Material file not found");
 });
 
 router.post("/learning/materials/:id/bookmark", allow(Role.STUDENT, Role.PARENT), async (req: AuthRequest, res) => {
