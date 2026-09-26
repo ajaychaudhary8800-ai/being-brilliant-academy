@@ -605,7 +605,7 @@ router.get("/learning/live-classes", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const q = pageQuery.extend({ batchId: id.optional(), subjectId: id.optional(), status: z.nativeEnum(LearningStatus).optional(), from: z.coerce.date().optional(), to: z.coerce.date().optional() }).parse(req.query);
   const learner = actor.role === Role.STUDENT || actor.role === Role.PARENT;
-  const where: any = { ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }), ...(learner ? {} : q.status ? { status: q.status } : {}), ...(q.batchId ? { batchId: q.batchId } : {}), ...(q.subjectId ? { subjectId: q.subjectId } : {}), ...(q.from || q.to ? { startsAt: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) } } : {}), ...(q.search ? { title: { contains: q.search, mode: "insensitive" } } : {}) };
+  const where: any = { ...learningResourceWhere(actor, { teacherOwned: actor.role === Role.TEACHER }), ...(learner ? { status: LearningStatus.PUBLISHED } : q.status ? { status: q.status } : {}), ...(q.batchId ? { batchId: q.batchId } : {}), ...(q.subjectId ? { subjectId: q.subjectId } : {}), ...(q.from || q.to ? { startsAt: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) } } : {}), ...(q.search ? { title: { contains: q.search, mode: "insensitive" } } : {}) };
   const [total, data] = await prisma.$transaction([
     prisma.liveClass.count({ where }),
     prisma.liveClass.findMany({ where, include: { _count: { select: { attendances: true, interactions: true } } }, skip: (q.page - 1) * q.limit, take: q.limit, orderBy: { startsAt: q.sortOrder } }),
