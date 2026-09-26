@@ -39,6 +39,7 @@ type Stroke = {
 type BoardShape = {
   surface: "whiteboard";
   kind: "shape";
+  itemId: string;
   shape: "rectangle" | "circle" | "arrow";
   x1: number; y1: number; x2: number; y2: number;
   color: string; width: number;
@@ -46,6 +47,7 @@ type BoardShape = {
 type BoardText = {
   surface: "whiteboard";
   kind: "text" | "note";
+  itemId: string;
   x: number; y: number; w: number; h: number;
   text: string; color: string;
 };
@@ -163,7 +165,12 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
         if (cancelled) return;
         setSession(result.data);
         setLocked(Boolean(result.data.locked));
-        strokesRef.current = Array.isArray(result.data.whiteboardData) ? result.data.whiteboardData : [];
+        strokesRef.current = Array.isArray(result.data.whiteboardData)
+          ? (result.data.whiteboardData as BoardItem[]).map((item, index) => {
+              if ("kind" in item) return { ...item, itemId: item.itemId || `legacy-item-${index}` };
+              return { ...item, strokeId: item.strokeId || `legacy-stroke-${index}` };
+            })
+          : [];
       })
       .catch(cause => !cancelled && setError(errorMessage(cause)))
       .finally(() => !cancelled && setLoading(false));
@@ -340,11 +347,14 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
         strokesRef.current.push(item);
         drawStroke(item);
       }
-      if (message.type === "whiteboard-state" && Array.isArray(message.items)) {
-        strokesRef.current = [
-          ...strokesRef.current.filter(item => item.surface !== "whiteboard"),
-          ...(message.items as BoardItem[]).filter(item => item.surface === "whiteboard"),
-        ];
+      if (message.type === "whiteboard-undo") {
+        const strokeId = message.strokeId ? String(message.strokeId) : "";
+        const itemId = message.itemId ? String(message.itemId) : "";
+        strokesRef.current = strokesRef.current.filter(item => {
+          if (item.surface !== "whiteboard") return true;
+          if ("kind" in item) return !itemId || item.itemId !== itemId;
+          return !strokeId || item.strokeId !== strokeId;
+        });
         redraw("whiteboard");
       }
       if (message.type === "clear-surface") {
@@ -574,6 +584,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     await addWhiteboardItem({
       surface: "whiteboard",
       kind,
+      itemId: crypto.randomUUID(),
       x: 0.12 + offset,
       y: 0.18 + offset,
       w: kind === "note" ? 0.28 : 0.5,
@@ -589,11 +600,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
       circle: { x1: 0.32, y1: 0.24, x2: 0.58, y2: 0.52 },
       arrow: { x1: 0.24, y1: 0.5, x2: 0.68, y2: 0.3 },
     } as const;
-    await addWhiteboardItem({ surface: "whiteboard", kind: "shape", shape, ...positions[shape], color: penColor, width: 4 });
-  }
-
-  async function syncWhiteboardState() {
-    await publish({ type: "whiteboard-state", items: strokesRef.current.filter(item => item.surface === "whiteboard") }, true);
+    await addWhiteboardItem({ surface: "whiteboard", kind: "shape", itemId: crypto.randomUUID(), shape, ...positions[shape], color: penColor, width: 4 });
   }
 
   async function undoWhiteboard() {
@@ -611,7 +618,8 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
       }
       redoRef.current.push(group);
       redraw("whiteboard");
-      await syncWhiteboardState();
+      if ("kind" in removed) await publish({ type: "whiteboard-undo", itemId: removed.itemId }, true);
+      else await publish({ type: "whiteboard-undo", strokeId: removed.strokeId }, true);
       return;
     }
   }
@@ -622,7 +630,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     if (!group?.length) return;
     strokesRef.current.push(...group);
     redraw("whiteboard");
-    await syncWhiteboardState();
+    for (const item of group) await publish({ type: "whiteboard", stroke: item }, true);
   }
 
   async function clearSurface(surface: Stroke["surface"]) {
