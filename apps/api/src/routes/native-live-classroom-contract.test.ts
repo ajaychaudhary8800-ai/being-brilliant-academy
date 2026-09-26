@@ -48,3 +48,9 @@ test("completed native recordings publish to LMS without copying large video byt
   assert.match(source, /publishedToLms/);
   assert.match(source, /row\.storageKey/);
 });
+
+
+test("attendance close is idempotent for explicit leave and browser-exit retries", async () => {
+  const source = await readFile(route, "utf8");
+  assert.match(source, /if \(row\.leftAt\) return res\.json\(\{ data: row \}\)/);
+});
