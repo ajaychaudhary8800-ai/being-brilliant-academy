@@ -40,9 +40,15 @@ type BoardShape = {
   surface: "whiteboard";
   kind: "shape";
   itemId: string;
-  shape: "rectangle" | "circle" | "arrow";
+  shape: "rectangle" | "circle" | "arrow" | "line";
   x1: number; y1: number; x2: number; y2: number;
   color: string; width: number;
+};
+type BoardBackground = {
+  surface: "whiteboard";
+  kind: "background";
+  itemId: string;
+  style: "ruled" | "grid" | "axes";
 };
 type BoardText = {
   surface: "whiteboard";
@@ -51,7 +57,7 @@ type BoardText = {
   x: number; y: number; w: number; h: number;
   text: string; color: string;
 };
-type BoardItem = Stroke | BoardShape | BoardText;
+type BoardItem = Stroke | BoardShape | BoardText | BoardBackground;
 type Chat = { id: string; name: string; text: string; at: number; self?: boolean };
 type ParticipantRow = { identity: string; name: string; micTrackSid?: string; hand?: boolean };
 type ReactionBubble = { id: string; emoji: string; name: string };
@@ -148,6 +154,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
   const mediaRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLDivElement>(null);
   const whiteboardRef = useRef<HTMLCanvasElement>(null);
+  const whiteboardShellRef = useRef<HTMLElement>(null);
   const annotationRef = useRef<HTMLCanvasElement>(null);
   const strokesRef = useRef<BoardItem[]>([]);
   const redoRef = useRef<BoardItem[][]>([]);
@@ -195,6 +202,40 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     if (!ctx) return;
     ctx.save();
 
+    if ("kind" in item && item.kind === "background") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = item.style === "axes" ? "#94a3b8" : "#dbeafe";
+      ctx.lineWidth = item.style === "axes" ? 1.5 : 1;
+      const step = item.style === "ruled" ? 34 : 28;
+      if (item.style === "ruled") {
+        for (let y = step; y < canvas.height; y += step) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+        ctx.strokeStyle = "#fecaca";
+        ctx.beginPath(); ctx.moveTo(56, 0); ctx.lineTo(56, canvas.height); ctx.stroke();
+      } else {
+        for (let x = step; x < canvas.width; x += step) {
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for (let y = step; y < canvas.height; y += step) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+        if (item.style === "axes") {
+          const cx = canvas.width / 2, cy = canvas.height / 2;
+          ctx.strokeStyle = "#334155";
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(canvas.width, cy); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, canvas.height); ctx.stroke();
+          ctx.fillStyle = "#334155";
+          ctx.font = "14px sans-serif";
+          ctx.fillText("x", canvas.width - 18, cy - 8);
+          ctx.fillText("y", cx + 8, 16);
+        }
+      }
+      ctx.restore();
+      return;
+    }
+
     if ("kind" in item && item.kind === "shape") {
       ctx.globalCompositeOperation = "source-over";
       ctx.strokeStyle = item.color;
@@ -207,6 +248,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
       ctx.beginPath();
       if (item.shape === "rectangle") ctx.rect(x1, y1, width, height);
       if (item.shape === "circle") ctx.ellipse(x1 + width / 2, y1 + height / 2, Math.abs(width / 2), Math.abs(height / 2), 0, 0, Math.PI * 2);
+      if (item.shape === "line") { ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); }
       if (item.shape === "arrow") {
         ctx.moveTo(x1, y1);
         ctx.lineTo(x2, y2);
@@ -270,7 +312,9 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     resizeCanvas(canvas);
     const ctx = canvas.getContext("2d");
     ctx?.clearRect(0, 0, canvas.width, canvas.height);
-    strokesRef.current.filter(item => item.surface === surface).forEach(drawStroke);
+    const items = strokesRef.current.filter(item => item.surface === surface);
+    items.filter(item => "kind" in item && item.kind === "background").forEach(drawStroke);
+    items.filter(item => !("kind" in item && item.kind === "background")).forEach(drawStroke);
   }, [drawStroke, resizeCanvas]);
 
   useEffect(() => {
@@ -345,7 +389,12 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
       if (message.type === "whiteboard" && message.stroke) {
         const item = message.stroke as BoardItem;
         strokesRef.current.push(item);
-        drawStroke(item);
+        redraw(item.surface);
+      }
+      if (message.type === "whiteboard-background") {
+        strokesRef.current = strokesRef.current.filter(item => !(item.surface === "whiteboard" && "kind" in item && item.kind === "background"));
+        if (message.background) strokesRef.current.unshift(message.background as BoardBackground);
+        redraw("whiteboard");
       }
       if (message.type === "whiteboard-undo") {
         const strokeId = message.strokeId ? String(message.strokeId) : "";
@@ -575,6 +624,16 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     await publish({ type: "whiteboard", stroke: item }, true);
   }
 
+  async function setWhiteboardBackground(style: "blank" | BoardBackground["style"]) {
+    if (!manager) return;
+    strokesRef.current = strokesRef.current.filter(item => !(item.surface === "whiteboard" && "kind" in item && item.kind === "background"));
+    const background: BoardBackground | null = style === "blank" ? null : { surface: "whiteboard", kind: "background", itemId: crypto.randomUUID(), style };
+    if (background) strokesRef.current.unshift(background);
+    redoRef.current = [];
+    redraw("whiteboard");
+    await publish({ type: "whiteboard-background", background }, true);
+  }
+
   async function insertWhiteboardText(kind: "text" | "note") {
     const label = kind === "note" ? "Sticky note text" : "Text to place on the whiteboard";
     const text = window.prompt(label)?.trim();
@@ -598,15 +657,45 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
     const positions = {
       rectangle: { x1: 0.25, y1: 0.25, x2: 0.62, y2: 0.52 },
       circle: { x1: 0.32, y1: 0.24, x2: 0.58, y2: 0.52 },
+      line: { x1: 0.24, y1: 0.5, x2: 0.68, y2: 0.5 },
       arrow: { x1: 0.24, y1: 0.5, x2: 0.68, y2: 0.3 },
     } as const;
     await addWhiteboardItem({ surface: "whiteboard", kind: "shape", itemId: crypto.randomUUID(), shape, ...positions[shape], color: penColor, width: 4 });
+  }
+
+  async function insertEquation() {
+    const text = window.prompt("Equation / formula (Unicode supported, e.g. F = ma, v² = u² + 2as, ∑F = 0)")?.trim();
+    if (!text) return;
+    await addWhiteboardItem({
+      surface: "whiteboard",
+      kind: "text",
+      itemId: crypto.randomUUID(),
+      x: 0.16,
+      y: 0.14,
+      w: 0.68,
+      h: 0.16,
+      text: text.slice(0, 500),
+      color: penColor,
+    });
+  }
+
+  async function toggleWhiteboardFullscreen() {
+    const shell = whiteboardShellRef.current;
+    if (!shell) return;
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await shell.requestFullscreen();
+      window.setTimeout(() => redraw("whiteboard"), 100);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Fullscreen is unavailable in this browser.");
+    }
   }
 
   async function undoWhiteboard() {
     if (!manager) return;
     for (let index = strokesRef.current.length - 1; index >= 0; index -= 1) {
       if (strokesRef.current[index].surface !== "whiteboard") continue;
+      if ("kind" in strokesRef.current[index] && strokesRef.current[index].kind === "background") continue;
       const [removed] = strokesRef.current.splice(index, 1);
       const group = [removed];
       if (!("kind" in removed) && removed.strokeId) {
@@ -872,7 +961,7 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
               <span className="rounded bg-red-600/90 px-2 py-1 text-[11px] font-bold">DRAW ON SCREEN</span>
             </>}
           </div>}
-        </div> : <section className="relative h-[70vh] overflow-hidden rounded-2xl bg-white">
+        </div> : <section ref={whiteboardShellRef} className="relative h-[70vh] overflow-hidden rounded-2xl bg-white fullscreen:h-screen fullscreen:w-screen">
           <canvas ref={whiteboardRef} className={`h-full w-full touch-none ${canDraw?"cursor-crosshair":"cursor-not-allowed"}`} onPointerDown={e=>startDraw("whiteboard",e)} onPointerMove={e=>void moveDraw("whiteboard",e)} onPointerUp={endDraw} onPointerCancel={endDraw}/>
           <div className="absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-xl bg-slate-950/95 p-2 shadow-lg">
             <button aria-label="Whiteboard pen" title="Pen" onClick={()=>setDrawingMode("pen")} className={`rounded-lg p-2 ${drawingMode==="pen"?"bg-blue-600":"bg-slate-800"}`}><PenLine size={16}/></button>
@@ -881,9 +970,18 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
             <span className="h-6 w-px bg-white/15"/>
             <button onClick={()=>void insertWhiteboardText("text")} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs font-semibold">Text</button>
             <button onClick={()=>void insertWhiteboardText("note")} className="rounded-lg bg-amber-700 px-2.5 py-2 text-xs font-semibold">Sticky</button>
+            <button onClick={()=>void insertEquation()} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs font-semibold">Equation</button>
+            <button onClick={()=>void insertWhiteboardShape("line")} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs font-semibold">Line</button>
             <button onClick={()=>void insertWhiteboardShape("rectangle")} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs font-semibold">Rectangle</button>
             <button onClick={()=>void insertWhiteboardShape("circle")} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs font-semibold">Circle</button>
             <button onClick={()=>void insertWhiteboardShape("arrow")} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs font-semibold">Arrow</button>
+            {manager && <select aria-label="Whiteboard background" title="Board background / teaching template" defaultValue="blank" onChange={e=>void setWhiteboardBackground(e.target.value as "blank" | BoardBackground["style"])} className="h-9 rounded-lg border border-white/10 bg-slate-800 px-2 text-xs font-semibold text-white">
+              <option value="blank">Blank board</option>
+              <option value="ruled">Ruled board</option>
+              <option value="grid">Graph grid</option>
+              <option value="axes">Coordinate axes</option>
+            </select>}
+            <button title="Fullscreen whiteboard" onClick={()=>void toggleWhiteboardFullscreen()} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs">Fullscreen</button>
             {manager && <><span className="h-6 w-px bg-white/15"/><button title="Undo" onClick={()=>void undoWhiteboard()} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs">Undo</button><button title="Redo" onClick={()=>void redoWhiteboard()} className="rounded-lg bg-slate-800 px-2.5 py-2 text-xs">Redo</button></>}
             {manager && <button title="Clear whiteboard" onClick={()=>void clearSurface("whiteboard")} className="rounded-lg bg-slate-800 p-2"><RotateCcw size={16}/></button>}
             {manager && <button title="Save whiteboard" onClick={()=>void saveWhiteboard()} className="rounded-lg bg-slate-800 p-2"><Save size={16}/></button>}
