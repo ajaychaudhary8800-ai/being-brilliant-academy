@@ -31,3 +31,11 @@ test("Live Class form preserves local datetime editing and does not offer archiv
   assert.match(source, /initial&&<option>ARCHIVED<\/option>/);
   assert.match(source, /editingResource\?"\/learning\/live-classes\/"\+editingResource\.id:"\/learning\/live-classes"/);
 });
+
+
+test("published Live Classes expose an operational start action and Jitsi room generation", () => {
+  assert.match(source, /Start \/ Open Class/);
+  assert.match(source, /openLiveClass/);
+  assert.match(source, /Generate Jitsi Room/);
+  assert.match(source, /https:\/\/meet\.jit\.si\//);
+});
