@@ -66,3 +66,12 @@ test("Question editor exposes assessment metadata and the builder supports rando
   assert.match(source, /Random 10/);
   assert.match(source, /courseId:v\.courseId/);
 });
+
+
+test("manager AI learning plan requires an explicit student target and reloads scoped dashboard data", () => {
+  assert.match(source, /planStudentId/);
+  assert.match(source, /Select student/);
+  assert.match(source, /userId:planStudentId/);
+  assert.match(source, /dashboard\$\{manager&&planStudentId/);
+  assert.match(source, /Generate student plan/);
+});

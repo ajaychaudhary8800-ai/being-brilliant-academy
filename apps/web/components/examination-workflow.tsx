@@ -210,10 +210,16 @@ export function ExaminationWorkflowContent({ teacherView = false }: { teacherVie
                 <input disabled={paperBusy} className="hidden" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => void uploadPaper(event.target.files?.[0] ?? null)} />
               </label>
               {exam?.questionPaper && (
-                <button disabled={paperBusy} className="btn text-red-600" onClick={() => void removePaper()}>
-                  <Trash2 size={16} />
-                  Remove
-                </button>
+                <>
+                  <button disabled={paperBusy} className="btn" onClick={() => void download(`/examinations/${exam.id}/question-paper`, exam.questionPaper!.fileName)}>
+                    <Download size={16} />
+                    Download Paper
+                  </button>
+                  <button disabled={paperBusy} className="btn text-red-600" onClick={() => void removePaper()}>
+                    <Trash2 size={16} />
+                    Remove
+                  </button>
+                </>
               )}
             </div>
             {exam?.questionPaper && (
@@ -240,7 +246,8 @@ export function ExaminationWorkflowContent({ teacherView = false }: { teacherVie
             ) : (
               <div className="py-16 text-center text-slate-500">
                 <FileCheck2 className="mx-auto mb-2" />
-                No answer sheets submitted.
+                <p className="font-semibold">No answer sheets submitted.</p>
+                <p className="mt-2 text-sm">When students submit answers, each file will appear here with a Download Answer Sheet action, marks, feedback and finalization controls.</p>
               </div>
             )}
           </section>
@@ -288,7 +295,7 @@ function Evaluation({ sheet, maximum, save, download }: { sheet: Sheet; maximum:
         </p>
         <button onClick={download} className="mt-2 inline-flex items-center gap-1 text-sm text-brand-700">
           <Download size={15} />
-          Open answer sheet
+          Download Answer Sheet
         </button>
       </div>
       <label>
