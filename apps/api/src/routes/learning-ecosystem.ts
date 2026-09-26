@@ -88,7 +88,11 @@ router.get("/learning/options", async (req: AuthRequest, res) => {
 router.get("/learning/dashboard", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const userId = actor.userId, role = actor.role;
-  const audience = role === Role.STUDENT || role === Role.PARENT ? actor.learners.map(row => row.userId) : undefined;
+  const query = z.object({ userId: id.optional() }).parse(req.query);
+  if (query.userId && role !== Role.STUDENT && role !== Role.PARENT) await assertStudentTargetAccess(actor, query.userId);
+  const audience = role === Role.STUDENT || role === Role.PARENT
+    ? actor.learners.map(row => row.userId)
+    : query.userId ? [query.userId] : undefined;
   const doubtScope = role === Role.PARENT
     ? { studentId: { in: audience ?? [] } }
     : learningDoubtWhere(actor);
@@ -97,7 +101,7 @@ router.get("/learning/dashboard", async (req: AuthRequest, res) => {
     : learningQuestionWhere(actor);
   const contentScope = learningResourceWhere(actor);
   const classScope = learningResourceWhere(actor, { teacherOwned: role === Role.TEACHER });
-  const attemptScope = learningAttemptStudentWhere(actor);
+  const attemptScope = query.userId ? { studentId: query.userId } : learningAttemptStudentWhere(actor);
   const [doubts, questions, tests, materials, classes, attempts, recommendations, goals, game, fees, homework, attendance] = await Promise.all([
     prisma.doubtThread.count({ where: doubtScope }),
     prisma.questionBankItem.count({ where: { ...questionScope, approvalStatus: ApprovalStatus.APPROVED, isArchived: false } }),
@@ -105,7 +109,7 @@ router.get("/learning/dashboard", async (req: AuthRequest, res) => {
     prisma.studyMaterial.count({ where: { ...contentScope, ...(audience ? { status: LearningStatus.PUBLISHED } : {}), isArchived: false } }),
     prisma.liveClass.count({ where: { ...classScope, ...(audience ? { status: LearningStatus.PUBLISHED } : {}), endsAt: { gte: new Date() } } }),
     prisma.learningTestAttempt.findMany({ where: { ...attemptScope, test: contentScope, status: LearningAttemptStatus.EVALUATED }, select: { score: true, percentage: true, submittedAt: true }, take: 20, orderBy: { submittedAt: "desc" } }),
-    audience ? prisma.learningRecommendation.findMany({ where: { userId: { in: audience }, completedAt: null }, take: 10, orderBy: { priority: "desc" } }) : [], audience ? prisma.dailyLearningGoal.findMany({ where: { userId: { in: audience } }, take: 7, orderBy: { date: "desc" } }) : [], role === Role.STUDENT ? prisma.gamificationProfile.findUnique({ where: { userId } }) : null,
+    audience ? prisma.learningRecommendation.findMany({ where: { userId: { in: audience }, completedAt: null }, take: 10, orderBy: { priority: "desc" } }) : [], audience ? prisma.dailyLearningGoal.findMany({ where: { userId: { in: audience } }, take: 7, orderBy: { date: "desc" } }) : [], (role === Role.STUDENT || query.userId) ? prisma.gamificationProfile.findUnique({ where: { userId: query.userId ?? userId } }) : null,
     role === Role.STUDENT ? prisma.fee.findMany({ where: { student: { userId } }, select: { status: true, totalPaise: true, amountPaidPaise: true }, take: 20 }) : [], role === Role.STUDENT ? prisma.homework.findMany({ where: { batch: { students: { some: { userId } } } }, select: { id: true, title: true, dueDate: true, status: true }, take: 10, orderBy: { dueDate: "asc" } }) : [], role === Role.STUDENT ? prisma.attendance.findMany({ where: { studentId: userId }, select: { status: true, date: true }, take: 30, orderBy: { date: "desc" } }) : []
   ]);
   const average = attempts.length ? Math.round(attempts.reduce((sum, x) => sum + Number(x.percentage ?? 0), 0) / attempts.length) : 0;
