@@ -17,8 +17,9 @@ const enquiryConfig = z.object({
 }).strict();
 
 export const notificationActionConfig = z.object({
-  channels: z.array(z.enum(["IN_APP", "EMAIL"])).min(1).max(2)
-    .transform(values => [...new Set(values)]),
+  channels: z.array(z.enum(["IN_APP", "EMAIL"])).min(1).max(4)
+    .transform(values => [...new Set(values)])
+    .refine(values => values.length <= 2, "Choose no more than two delivery channels"),
   title: z.string().trim().min(2).max(120),
   body: z.string().trim().min(1).max(1000),
 }).strict();
