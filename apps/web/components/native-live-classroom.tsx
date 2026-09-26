@@ -445,6 +445,9 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
           if (!participant || participant === activeRoom.localParticipant) setQuality(String(value ?? "unknown"));
         })
         .on(lk.RoomEvent.Disconnected, () => {
+          // A removed participant or lost connection must close attendance too.
+          void api(`/learning/live-classes/${session.liveClass.id}/leave`, { method: "POST", body: "{}" }).catch(() => undefined);
+          setRoom(null);
           setJoined(false);
           setMicOn(false);
           setCameraOn(false);
@@ -454,9 +457,14 @@ export function NativeLiveClassroom({ roomName }: { roomName: string }) {
         activeRoom.connect(session.serverUrl, session.participantToken),
         new Promise((_, reject) => window.setTimeout(() => reject(new Error("Live classroom connection timed out. Please retry or check your network.")), 20_000)),
       ]);
+      try {
+        await api(`/learning/live-classes/${session.liveClass.id}/join`, { method: "POST", body: "{}" });
+      } catch (cause) {
+        activeRoom.disconnect();
+        throw cause;
+      }
       setRoom(activeRoom);
       setJoined(true);
-      await api(`/learning/live-classes/${session.liveClass.id}/join`, { method: "POST", body: "{}" });
       window.setTimeout(() => {
         rebuildMedia(activeRoom);
         redraw("whiteboard");
