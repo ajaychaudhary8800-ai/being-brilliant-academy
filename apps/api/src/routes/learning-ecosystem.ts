@@ -632,6 +632,7 @@ router.post("/learning/live-classes/native/:room/session", async (req: AuthReque
       manager,
       locked,
       recordingConfigured: nativeRecordingConfigured(),
+      recordingAvailable: Boolean(live.recordingObjectKey),
       whiteboardData: live.whiteboardData ?? [],
     },
   });
