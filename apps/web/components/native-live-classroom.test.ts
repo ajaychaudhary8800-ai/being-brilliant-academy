@@ -35,3 +35,12 @@ test("live-class creation defaults to the Being Brilliant native classroom", () 
   assert.match(learning, /Native Being Brilliant Classroom/);
   assert.match(learning, /Students stay inside the Being Brilliant portal/);
 });
+
+
+test("parent observer mode is view-only and recordings remain authenticated", () => {
+  assert.match(source, /session\?\.role === "PARENT"/);
+  assert.match(source, /Observer \/ view only/);
+  assert.match(source, /class chat is view-only/);
+  assert.match(source, /openAuthenticatedDocument/);
+  assert.match(source, /\/recording/);
+});
