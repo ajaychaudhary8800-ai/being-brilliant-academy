@@ -95,8 +95,15 @@ test("whiteboard supports inserted teaching objects and history controls", () =>
     "Arrow",
     "Undo",
     "Redo",
-    "whiteboard-state",
+    "whiteboard-undo",
     "insertWhiteboardText",
     "insertWhiteboardShape",
   ]) assert.match(source, new RegExp(expected.replace(/[.*+?^$()|[\]\\]/g, "\\$&")));
+});
+
+
+test("whiteboard history synchronization stays packet-sized instead of broadcasting full board state", () => {
+  assert.doesNotMatch(source, /type: "whiteboard-state"/);
+  assert.match(source, /type: "whiteboard-undo"/);
+  assert.match(source, /for \(const item of group\) await publish\(\{ type: "whiteboard", stroke: item \}, true\)/);
 });
