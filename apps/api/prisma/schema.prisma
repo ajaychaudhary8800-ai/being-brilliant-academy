@@ -266,6 +266,7 @@ model LiveClass {
   @@unique([organizationId, meetingId])
   @@index([organizationId, batchId, startsAt])
   @@index([organizationId, teacherId, startsAt])
+  @@unique([examinationId, version])
   @@index([organizationId, status])
 }
 
@@ -2404,7 +2405,7 @@ model Examination {
   results           ExaminationResult[]
   questionPaper     ExaminationQuestionPaper?
   answerSheets      ExaminationAnswerSheet[]
-  aiExaminerRubric  AIExaminerRubric?
+  aiExaminerRubrics AIExaminerRubric[]
 
   @@unique([organizationId, code])
   @@index([branchId])
@@ -2500,7 +2501,7 @@ model ExaminationAnswerSheet {
 model AIExaminerRubric {
   organizationId String                   @default("org_default")
   id             String                   @id @default(cuid())
-  examinationId  String                   @unique
+  examinationId  String
   version        Int                      @default(1)
   status         AIExaminerRubricStatus   @default(DRAFT)
   instructions   String?                  @db.Text
