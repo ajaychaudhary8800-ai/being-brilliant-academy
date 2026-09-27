@@ -1413,6 +1413,7 @@ model User {
   teacherProfile           TeacherProfile?
   assignedEnquiries        Enquiry[]                  @relation("EnquiryCounsellor")
   enquiryFollowUps         EnquiryFollowUp[]          @relation("FollowUpCreator")
+  enquiryCommunications    EnquiryCommunication[]     @relation("EnquiryCommunicationCreator")
   issuedCertificates       Certificate[]              @relation("CertificateIssuer")
   parentChildren           ParentStudent[]            @relation("ParentLinks")
   sentMessages             PortalMessage[]            @relation("MessageSender")
@@ -2793,6 +2794,7 @@ model Enquiry {
   counsellor         User?             @relation("EnquiryCounsellor", fields: [counsellorId], references: [id])
   convertedStudent   StudentProfile?   @relation(fields: [convertedStudentId], references: [id])
   followUps          EnquiryFollowUp[]
+  communications     EnquiryCommunication[]
 
   @@index([branchId])
   @@index([courseId])
@@ -2802,6 +2804,30 @@ model Enquiry {
   @@index([mobile])
   @@index([email])
   @@index([organizationId])
+}
+
+model EnquiryCommunication {
+  organizationId    String   @default("org_default")
+  id                String   @id @default(cuid())
+  enquiryId         String
+  channel           String   @default("EMAIL")
+  direction         String   @default("OUTBOUND")
+  recipient         String
+  subject           String?
+  body              String   @db.Text
+  status            String   @default("PENDING")
+  provider          String?
+  providerMessageId String?
+  lastError         String?
+  createdById       String?
+  sentAt            DateTime?
+  createdAt         DateTime @default(now())
+  enquiry           Enquiry  @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+  createdBy         User?    @relation("EnquiryCommunicationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([enquiryId, createdAt])
+  @@index([organizationId])
+  @@index([status, createdAt])
 }
 
 model EnquiryFollowUp {
