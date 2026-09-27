@@ -266,7 +266,6 @@ model LiveClass {
   @@unique([organizationId, meetingId])
   @@index([organizationId, batchId, startsAt])
   @@index([organizationId, teacherId, startsAt])
-  @@unique([examinationId, version])
   @@index([organizationId, status])
 }
 
@@ -2517,6 +2516,7 @@ model AIExaminerRubric {
   approvedBy     User?                    @relation("AIExaminerRubricApprover", fields: [approvedById], references: [id], onDelete: Restrict)
   evaluations    AIExaminerEvaluation[]
 
+  @@unique([examinationId, version])
   @@index([organizationId, status])
 }
 
