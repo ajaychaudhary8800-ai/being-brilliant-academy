@@ -61,9 +61,9 @@ router.get("/enquiries/counsellors",async(req:AuthRequest,res)=>{
 router.get("/enquiries/action-center",async(req:AuthRequest,res)=>{
   const q=z.object({mine:z.enum(["true","false"]).optional(),limit:z.coerce.number().int().min(1).max(100).default(25)}).parse(req.query);
   const ids=await scope(req),organizationId=req.auth!.organizationId,now=new Date(),dueSoon=new Date(now.getTime()+24*60*60*1000),staleBefore=new Date(now.getTime()-7*24*60*60*1000);
-  const isCrossTenantPlatformAdmin=req.auth!.role===Role.SUPER_ADMIN&&req.auth!.homeOrganizationId!==organizationId;
-  const localCounsellor=isCrossTenantPlatformAdmin?null:await prisma.user.findFirst({where:{organizationId,id:req.auth!.userId,isActive:true,role:{in:[Role.SUPER_ADMIN,Role.BRANCH_ADMIN]}},select:{id:true}});
-  const mineAvailable=!isCrossTenantPlatformAdmin&&Boolean(localCounsellor);
+  const isPlatformAdmin=req.auth!.role===Role.SUPER_ADMIN&&req.auth!.homeOrganizationId==="org_default";
+  const localCounsellor=isPlatformAdmin?null:await prisma.user.findFirst({where:{organizationId,id:req.auth!.userId,isActive:true,role:{in:[Role.SUPER_ADMIN,Role.BRANCH_ADMIN]}},select:{id:true}});
+  const mineAvailable=!isPlatformAdmin&&Boolean(localCounsellor);
   const mine=q.mine==="true"&&mineAvailable;
   const activeStatuses=[EnquiryStatus.NEW,EnquiryStatus.CONTACTED,EnquiryStatus.FOLLOW_UP,EnquiryStatus.INTERESTED,EnquiryStatus.NOT_INTERESTED];
   const base={organizationId,status:{in:activeStatuses},...(ids?{branchId:{in:ids}}:{}),...(mine?{counsellorId:req.auth!.userId}:{})};
