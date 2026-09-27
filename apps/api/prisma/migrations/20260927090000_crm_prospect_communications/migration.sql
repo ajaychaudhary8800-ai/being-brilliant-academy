@@ -31,3 +31,9 @@ ALTER TABLE "EnquiryCommunication"
 ADD CONSTRAINT "EnquiryCommunication_enquiryId_fkey"
 FOREIGN KEY ("enquiryId") REFERENCES "Enquiry"("id")
 ON DELETE CASCADE ON UPDATE CASCADE;
+
+
+ALTER TABLE "EnquiryCommunication"
+ADD CONSTRAINT "EnquiryCommunication_createdById_fkey"
+FOREIGN KEY ("createdById") REFERENCES "User"("id")
+ON DELETE SET NULL ON UPDATE CASCADE;
