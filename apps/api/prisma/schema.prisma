@@ -1413,6 +1413,7 @@ model User {
   teacherProfile           TeacherProfile?
   assignedEnquiries        Enquiry[]                  @relation("EnquiryCounsellor")
   enquiryFollowUps         EnquiryFollowUp[]          @relation("FollowUpCreator")
+  enquiryCommunications    EnquiryCommunication[]     @relation("EnquiryCommunicationCreator")
   issuedCertificates       Certificate[]              @relation("CertificateIssuer")
   parentChildren           ParentStudent[]            @relation("ParentLinks")
   sentMessages             PortalMessage[]            @relation("MessageSender")
@@ -2822,6 +2823,7 @@ model EnquiryCommunication {
   sentAt            DateTime?
   createdAt         DateTime @default(now())
   enquiry           Enquiry  @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+  createdBy         User?    @relation("EnquiryCommunicationCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([enquiryId, createdAt])
   @@index([organizationId])
