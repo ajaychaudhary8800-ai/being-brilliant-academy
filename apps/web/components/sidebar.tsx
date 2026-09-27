@@ -51,6 +51,7 @@ const menuGroups: MenuGroup[] = [
     { name: "Homework", href: "/admin/homeworks", icon: NotebookPen },
     { name: "Examinations", href: "/admin/examinations", icon: FileCheck2, dynamicLabel: "assessments", feature: "examinations" },
     { name: "Answer Submissions", href: "/admin/examination-submissions", icon: FileCheck2, feature: "examinations" },
+    { name: "Ranpal AI Examiner", href: "/admin/ai-examiner", icon: BrainCircuit, feature: "examinations" },
     { name: "Tests", href: "/admin/tests", icon: ClipboardCheck, feature: "examinations" },
     { name: "LMS", href: "/admin/lms", icon: PlaySquare, feature: "lms" },
     { name: "Learning Resources", href: "/admin/learning-ecosystem", icon: BrainCircuit, dynamicLabel: "learning", feature: "lms" },
