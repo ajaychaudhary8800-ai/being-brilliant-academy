@@ -11,7 +11,7 @@ export function assertEnquiryCounsellorEligible(
   counsellor: EnquiryCounsellorCandidate | null,
   branchId: string,
 ) {
-  if (!counsellor || !counsellor.isActive || ![Role.SUPER_ADMIN, Role.BRANCH_ADMIN].includes(counsellor.role)) {
+  if (!counsellor || !counsellor.isActive || (counsellor.role !== Role.SUPER_ADMIN && counsellor.role !== Role.BRANCH_ADMIN)) {
     throw new AppError(422, "INVALID_COUNSELLOR", "Select an active admin counsellor");
   }
   if (counsellor.role === Role.BRANCH_ADMIN && !counsellor.branchIds.includes(branchId)) {
