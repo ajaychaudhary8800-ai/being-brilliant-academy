@@ -64,7 +64,7 @@ CREATE TABLE "AIExaminerQuestionEvaluation" (
   CONSTRAINT "AIExaminerQuestionEvaluation_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "AIExaminerRubric_examinationId_key" ON "AIExaminerRubric"("examinationId");
+CREATE UNIQUE INDEX "AIExaminerRubric_examinationId_version_key" ON "AIExaminerRubric"("examinationId", "version");
 CREATE INDEX "AIExaminerRubric_organizationId_status_idx" ON "AIExaminerRubric"("organizationId", "status");
 
 CREATE UNIQUE INDEX "AIExaminerEvaluation_answerSheetId_revision_key" ON "AIExaminerEvaluation"("answerSheetId", "revision");
