@@ -52,6 +52,14 @@ async function sendWhatsapp(to: string, body: string) {
   return { skipped: false, provider: "META_WHATSAPP", messageId: result.messages?.[0]?.id } as const;
 }
 
+export type ExternalMessageChannel = "EMAIL" | "SMS" | "WHATSAPP";
+
+export async function sendExternalMessage(channel: ExternalMessageChannel, to: string, subject: string | null, body: string) {
+  if (channel === "EMAIL") return sendEmail(to, subject ?? "Message", body);
+  if (channel === "SMS") return sendSms(to, body);
+  return sendWhatsapp(to, body);
+}
+
 async function sendPush(userId: string, title: string, body: string, actionUrl?: string | null) {
   if (!providerStatus().push) return { skipped: true, reason: "PUSH_NOT_CONFIGURED" } as const;
   const subscriptions = await systemPrisma.pushSubscription.findMany({ where: { userId, isActive: true } });
