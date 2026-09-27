@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("Ranpal AI Examiner foundation owns versioned rubrics and reviewable evaluation records", async () => {
-  const [schema,migration,route,server,policy,page,sidebar,workflow] = await Promise.all([
+  const [schema,migration,route,server,policy,page,sidebar,workflow,adminPage,teacherPage] = await Promise.all([
     readFile(new URL("../../prisma/schema.prisma", import.meta.url), "utf8"),
     readFile(new URL("../../prisma/migrations/20260927150000_ai_examiner_foundation/migration.sql", import.meta.url), "utf8"),
     readFile(new URL("ai-examiner.ts", import.meta.url), "utf8"),
@@ -12,6 +12,8 @@ test("Ranpal AI Examiner foundation owns versioned rubrics and reviewable evalua
     readFile(new URL("../../../web/components/ai-examiner-foundation.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../../web/components/sidebar.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../../web/components/examination-workflow.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../../web/app/admin/ai-examiner/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../../web/app/teacher/ai-examiner/page.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(schema, /model AIExaminerRubric/);
@@ -51,4 +53,7 @@ test("Ranpal AI Examiner foundation owns versioned rubrics and reviewable evalua
   assert.match(sidebar, /Ranpal AI Examiner/);
   assert.match(sidebar, /\/admin\/ai-examiner/);
   assert.match(workflow, /\/teacher\/ai-examiner/);
+  assert.match(adminPage, /SUPER_ADMIN/);
+  assert.match(adminPage, /BRANCH_ADMIN/);
+  assert.match(teacherPage, /TEACHER/);
 });
