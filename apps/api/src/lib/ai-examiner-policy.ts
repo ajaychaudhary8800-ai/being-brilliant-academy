@@ -39,7 +39,7 @@ export function assertAIExaminerEvaluationReady(input: {
 }
 
 export function assertAIExaminerReviewable(status: AIExaminerEvaluationStatus) {
-  if (![AIExaminerEvaluationStatus.REVIEW_REQUIRED, AIExaminerEvaluationStatus.APPROVED].includes(status)) {
+  if (status !== AIExaminerEvaluationStatus.REVIEW_REQUIRED && status !== AIExaminerEvaluationStatus.APPROVED) {
     throw new AppError(409, "AI_EXAMINER_REVIEW_UNAVAILABLE", "This AI evaluation is not ready for teacher review");
   }
 }
