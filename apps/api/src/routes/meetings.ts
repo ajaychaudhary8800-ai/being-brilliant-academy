@@ -2,6 +2,7 @@ import {
   MeetingActionPriority,
   MeetingActionStatus,
   MeetingAgendaStatus,
+  MeetingAttendanceStatus,
   MeetingAudienceType,
   MeetingCalendarProvider,
   MeetingInvitationStatus,
@@ -333,7 +334,7 @@ async function syncInternalCalendar(req: AuthRequest, meeting: { id: string; bra
   return event.id;
 }
 
-const meetingInput = z.object({
+const meetingShape = z.object({
   title: z.string().trim().min(3).max(180),
   description: z.string().trim().max(10000).nullable().optional(),
   type: z.nativeEnum(MeetingType).default(MeetingType.GENERAL),
@@ -367,7 +368,8 @@ const meetingInput = z.object({
   allowParticipantCamera: z.boolean().default(true),
   joinBeforeMinutes: z.number().int().min(0).max(240).default(15),
   lockAfterStart: z.boolean().default(false),
-}).superRefine((value, ctx) => {
+});
+const meetingInput = meetingShape.superRefine((value, ctx) => {
   if (value.endsAt <= value.startsAt) ctx.addIssue({ code: "custom", path: ["endsAt"], message: "Meeting end time must be after start time" });
   try { new Intl.DateTimeFormat("en", { timeZone: value.timezone }).format(new Date()); } catch { ctx.addIssue({ code: "custom", path: ["timezone"], message: "Invalid IANA timezone" }); }
   if (value.recordingRequired && !value.allowRecording) ctx.addIssue({ code: "custom", path: ["recordingRequired"], message: "Required recording needs allowRecording enabled" });
@@ -402,13 +404,17 @@ router.get("/meetings", async (req: AuthRequest, res) => {
     search: z.string().trim().max(120).optional(),
   }).parse(req.query);
   const where: any = {
-    ...visibleMeetingWhere(scope),
-    ...(q.status ? { status: q.status } : {}),
-    ...(q.type ? { type: q.type } : {}),
-    ...(q.branchId ? { branchId: q.branchId } : {}),
-    ...(q.departmentId ? { departmentId: q.departmentId } : {}),
-    ...(q.from || q.to ? { startsAt: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) } } : {}),
-    ...(q.search ? { OR: [{ title: { contains: q.search, mode: "insensitive" } }, { description: { contains: q.search, mode: "insensitive" } }] } : {}),
+    AND: [
+      visibleMeetingWhere(scope),
+      {
+        ...(q.status ? { status: q.status } : {}),
+        ...(q.type ? { type: q.type } : {}),
+        ...(q.branchId ? { branchId: q.branchId } : {}),
+        ...(q.departmentId ? { departmentId: q.departmentId } : {}),
+        ...(q.from || q.to ? { startsAt: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) } } : {}),
+      },
+      ...(q.search ? [{ OR: [{ title: { contains: q.search, mode: "insensitive" } }, { description: { contains: q.search, mode: "insensitive" } }] }] : []),
+    ],
   };
   const [data, total] = await Promise.all([
     prisma.meeting.findMany({
@@ -561,7 +567,7 @@ router.patch("/meetings/:id", async (req: AuthRequest, res) => {
   const { meeting, scope } = await meetingForActor(req, String(req.params.id));
   requireMeetingManager(scope, meeting);
   if ([MeetingStatus.CANCELLED, MeetingStatus.CLOSED].includes(meeting.status)) throw new AppError(409, "MEETING_IMMUTABLE", "Cancelled or closed meetings cannot be edited");
-  const patch = meetingInput.partial().omit({ participantUserIds: true, coHostUserIds: true, presenterUserIds: true, audiences: true, agenda: true, recurrenceRule: true, recurrenceEnd: true }).parse(req.body);
+  const patch = meetingShape.partial().omit({ participantUserIds: true, coHostUserIds: true, presenterUserIds: true, audiences: true, agenda: true, recurrenceRule: true, recurrenceEnd: true }).parse(req.body);
   await assertScopeTarget(scope, patch.branchId ?? meeting.branchId, patch.departmentId ?? meeting.departmentId);
   if (patch.endsAt && patch.startsAt && patch.endsAt <= patch.startsAt) throw new AppError(422, "MEETING_TIME_INVALID", "Meeting end time must be after start time");
   if (patch.endsAt && !patch.startsAt && patch.endsAt <= meeting.startsAt) throw new AppError(422, "MEETING_TIME_INVALID", "Meeting end time must be after start time");
@@ -748,8 +754,12 @@ router.post("/meetings/:id/end", async (req: AuthRequest, res) => {
   const durationSeconds = Math.max(1, Math.floor((meeting.endsAt.getTime() - meeting.startsAt.getTime()) / 1000));
   const attendance = await prisma.meetingAttendance.findMany({ where: { meetingId: meeting.id } });
   for (const row of attendance) {
-    const status = row.totalDurationSeconds >= durationSeconds * 0.8 ? "PRESENT" : row.totalDurationSeconds > 0 ? "PARTIAL" : "ABSENT";
-    await prisma.meetingAttendance.update({ where: { id: row.id }, data: { status: status as any } });
+    const status = row.totalDurationSeconds >= durationSeconds * 0.8
+      ? MeetingAttendanceStatus.PRESENT
+      : row.totalDurationSeconds > 0
+        ? MeetingAttendanceStatus.PARTIAL
+        : MeetingAttendanceStatus.ABSENT;
+    await prisma.meetingAttendance.update({ where: { id: row.id }, data: { status } });
   }
   await audit(req, meeting.id, "END", "Meeting", meeting.id);
   res.json({ data: updated });
@@ -888,7 +898,7 @@ router.post("/meetings/:id/attendance/join", async (req: AuthRequest, res) => {
   const now = new Date();
   const session = await prisma.$transaction(async tx => {
     const created = await tx.meetingAttendanceSession.create({ data: { organizationId: scope.organizationId, attendanceId: attendance.id, joinedAt: now } });
-    await tx.meetingAttendance.update({ where: { id: attendance.id }, data: { firstJoinedAt: attendance.firstJoinedAt ?? now, joinCount: { increment: 1 }, status: "PARTIAL" } });
+    await tx.meetingAttendance.update({ where: { id: attendance.id }, data: { firstJoinedAt: attendance.firstJoinedAt ?? now, joinCount: { increment: 1 }, status: MeetingAttendanceStatus.PARTIAL } });
     return created;
   });
   res.status(201).json({ data: session });
@@ -906,7 +916,7 @@ router.post("/meetings/:id/attendance/leave", async (req: AuthRequest, res) => {
   const seconds = Math.max(0, Math.floor((now.getTime() - session.joinedAt.getTime()) / 1000));
   await prisma.$transaction([
     prisma.meetingAttendanceSession.update({ where: { id: session.id }, data: { leftAt: now, durationSeconds: seconds } }),
-    prisma.meetingAttendance.update({ where: { id: attendance.id }, data: { lastLeftAt: now, totalDurationSeconds: { increment: seconds }, status: "PARTIAL" } }),
+    prisma.meetingAttendance.update({ where: { id: attendance.id }, data: { lastLeftAt: now, totalDurationSeconds: { increment: seconds }, status: MeetingAttendanceStatus.PARTIAL } }),
   ]);
   res.json({ data: { leftAt: now, durationSeconds: seconds } });
 });
