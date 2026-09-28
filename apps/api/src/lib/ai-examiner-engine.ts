@@ -249,16 +249,16 @@ function extractProviderText(json: any) {
 }
 
 export function aiExaminerProviderConfigured() {
-  return Boolean(env.AI_PROVIDER_URL && env.AI_API_KEY);
+  return Boolean(env.AI_EXAMINER_PROVIDER_URL && env.AI_EXAMINER_API_KEY && env.AI_EXAMINER_MODEL);
 }
 
 export function aiExaminerProviderMode() {
-  if (!env.AI_PROVIDER_URL) return "UNCONFIGURED" as const;
-  return /\/responses\/?(?:\?|$)/i.test(env.AI_PROVIDER_URL) ? "RESPONSES" as const : "CHAT_COMPLETIONS" as const;
+  if (!env.AI_EXAMINER_PROVIDER_URL) return "UNCONFIGURED" as const;
+  return /\/responses\/?(?:\?|$)/i.test(env.AI_EXAMINER_PROVIDER_URL) ? "RESPONSES" as const : "CHAT_COMPLETIONS" as const;
 }
 
 export async function evaluateWithAIProvider(input: AIExaminerProviderInput): Promise<AIExaminerProviderResult> {
-  if (!env.AI_PROVIDER_URL || !env.AI_API_KEY) {
+  if (!env.AI_EXAMINER_PROVIDER_URL || !env.AI_EXAMINER_API_KEY || !env.AI_EXAMINER_MODEL) {
     throw new AIExaminerProviderError("AI_EXAMINER_PROVIDER_NOT_CONFIGURED", "AI provider is not configured");
   }
 
@@ -267,7 +267,7 @@ export async function evaluateWithAIProvider(input: AIExaminerProviderInput): Pr
   let body: unknown;
   if (mode === "RESPONSES") {
     body = {
-      model: env.AI_MODEL,
+      model: env.AI_EXAMINER_MODEL,
       input: [
         {
           role: "system",
@@ -287,7 +287,7 @@ export async function evaluateWithAIProvider(input: AIExaminerProviderInput): Pr
     };
   } else {
     body = {
-      model: env.AI_MODEL,
+      model: env.AI_EXAMINER_MODEL,
       messages: [
         {
           role: "system",
@@ -311,10 +311,10 @@ export async function evaluateWithAIProvider(input: AIExaminerProviderInput): Pr
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), env.AI_EXAMINER_TIMEOUT_MS);
   try {
-    const response = await fetch(env.AI_PROVIDER_URL, {
+    const response = await fetch(env.AI_EXAMINER_PROVIDER_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${env.AI_API_KEY}`,
+        Authorization: `Bearer ${env.AI_EXAMINER_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
