@@ -1,6 +1,7 @@
 import {
   EmployeeStatus,
   MeetingAudienceType,
+  MeetingActionStatus,
   MeetingInvitationStatus,
   MeetingParticipantKind,
   MeetingParticipantRole,
@@ -209,7 +210,7 @@ export async function scheduleMeetingNotifications(input: {
           category: "MEETING",
           sourceModule: "MEETINGS",
           sourceEntityId: input.meetingId,
-          actionUrl: `/admin/meetings/${input.meetingId}`,
+          actionUrl: `/meetings/${input.meetingId}`,
           priority: kind.startsWith("REMINDER_10") ? "HIGH" : "NORMAL",
           channels,
           scheduledAt,
@@ -311,7 +312,7 @@ export async function sendMeetingNotification(input: {
     category: "MEETING",
     sourceModule: "MEETINGS",
     sourceEntityId: input.meetingId,
-    actionUrl: `/admin/meetings/${input.meetingId}`,
+    actionUrl: `/meetings/${input.meetingId}`,
     priority: input.priority ?? "NORMAL",
     channels,
   }});
@@ -327,7 +328,7 @@ export async function scheduleDueMeetingActionNotifications(now = new Date()) {
   const horizon = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   const actions = await prisma.meetingActionItem.findMany({
     where: {
-      status: { in: ["OPEN", "IN_PROGRESS", "BLOCKED"] },
+      status: { in: [MeetingActionStatus.OPEN, MeetingActionStatus.IN_PROGRESS, MeetingActionStatus.BLOCKED] },
       dueAt: { not: null, lte: horizon },
     },
     include: { meeting: { select: { id: true, title: true } } },
@@ -360,7 +361,7 @@ export async function scheduleDueMeetingActionNotifications(now = new Date()) {
       category,
       sourceModule: "MEETING_ACTIONS",
       sourceEntityId: action.id,
-      actionUrl: `/admin/meetings/${action.meeting.id}`,
+      actionUrl: `/meetings/${action.meeting.id}`,
       priority: overdue ? "HIGH" : "NORMAL",
       channels,
     }});
