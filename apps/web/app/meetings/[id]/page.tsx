@@ -35,7 +35,8 @@ function Content(){
   const closed=["CANCELLED","CLOSED","MINUTES_PUBLISHED"].includes(meeting?.status??"");
   const attendees=useMemo(()=>meeting?.participants.filter(p=>!p.removedAt)??[],[meeting]);
 
-  useEffect(()=>{if(!meeting||!manager)return;if(tab==="attendance")api(`/meetings/${meeting.id}/attendance`).then(r=>setAttendance(r.data??[])).catch(c=>setError(errorMessage(c)));if(tab==="audit")api(`/meetings/${meeting.id}/audit`).then(r=>setAudit(r.data??[])).catch(c=>setError(errorMessage(c)))},[tab,meeting?.id,manager]);
+  const currentMeetingId=meeting?.id;
+  useEffect(()=>{if(!currentMeetingId||!manager)return;if(tab==="attendance")api(`/meetings/${currentMeetingId}/attendance`).then(r=>setAttendance(r.data??[])).catch(c=>setError(errorMessage(c)));if(tab==="audit")api(`/meetings/${currentMeetingId}/audit`).then(r=>setAudit(r.data??[])).catch(c=>setError(errorMessage(c)))},[tab,currentMeetingId,manager]);
 
   const mutate=async(path:string,body:any={})=>{setBusy(true);setError("");setNotice("");try{const result=await api(path,{method:"POST",body:JSON.stringify(body)});await load();return result}catch(cause){setError(errorMessage(cause));throw cause}finally{setBusy(false)}};
   const start=async()=>{try{await mutate(`/meetings/${id}/start`);router.push(`/meetings/${id}/live`)}catch{}};
