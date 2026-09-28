@@ -368,6 +368,109 @@ async function syncInternalCalendar(req: AuthRequest, meeting: { id: string; bra
   return event.id;
 }
 
+type ZonedParts = { year: number; month: number; day: number; hour: number; minute: number; second: number };
+
+function zonedParts(date: Date, timeZone: string): ZonedParts {
+  const formatter = new Intl.DateTimeFormat("en-US-u-ca-gregory", {
+    timeZone,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hourCycle: "h23",
+  });
+  const values = Object.fromEntries(formatter.formatToParts(date).filter(part => part.type !== "literal").map(part => [part.type, Number(part.value)]));
+  return { year: values.year, month: values.month, day: values.day, hour: values.hour, minute: values.minute, second: values.second };
+}
+
+function zonedDate(parts: ZonedParts, timeZone: string) {
+  const wanted = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+  let candidate = wanted;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const actual = zonedParts(new Date(candidate), timeZone);
+    const represented = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute, actual.second);
+    const correction = wanted - represented;
+    if (Math.abs(correction) < 1000) break;
+    candidate += correction;
+  }
+  return new Date(candidate);
+}
+
+function shiftLocalDays(base: ZonedParts, days: number): ZonedParts {
+  const value = new Date(Date.UTC(base.year, base.month - 1, base.day + days, base.hour, base.minute, base.second));
+  return { year: value.getUTCFullYear(), month: value.getUTCMonth() + 1, day: value.getUTCDate(), hour: base.hour, minute: base.minute, second: base.second };
+}
+
+function parseUntil(value?: string) {
+  if (!value) return null;
+  const compact = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(value);
+  if (compact) return new Date(Date.UTC(Number(compact[1]), Number(compact[2]) - 1, Number(compact[3]), Number(compact[4]), Number(compact[5]), Number(compact[6])));
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function recurrenceOccurrences(start: Date, timeZone: string, rule: string | null | undefined, recurrenceEnd?: Date | null) {
+  if (!rule) return [start];
+  const tokens = Object.fromEntries(rule.split(";").map(token => token.split("=", 2).map(part => part.trim().toUpperCase())).filter(parts => parts.length === 2));
+  const frequency = tokens.FREQ;
+  if (!["DAILY", "WEEKLY", "MONTHLY"].includes(frequency)) throw new AppError(422, "MEETING_RECURRENCE_FREQ", "Recurring meetings support DAILY, WEEKLY or MONTHLY frequency");
+  const interval = Number(tokens.INTERVAL ?? "1");
+  if (!Number.isInteger(interval) || interval < 1 || interval > 12) throw new AppError(422, "MEETING_RECURRENCE_INTERVAL", "Recurrence interval must be between 1 and 12");
+  const requestedCount = tokens.COUNT ? Number(tokens.COUNT) : null;
+  if (requestedCount !== null && (!Number.isInteger(requestedCount) || requestedCount < 2 || requestedCount > 52)) {
+    throw new AppError(422, "MEETING_RECURRENCE_COUNT", "Recurring meeting series must contain between 2 and 52 occurrences");
+  }
+  const until = recurrenceEnd ?? parseUntil(tokens.UNTIL);
+  if (!requestedCount && !until) throw new AppError(422, "MEETING_RECURRENCE_BOUND", "Recurring meetings require COUNT or a recurrence end date");
+  if (until && until <= start) throw new AppError(422, "MEETING_RECURRENCE_END", "Recurrence end must be after the first meeting");
+  const targetCount = requestedCount ?? 52;
+  const base = zonedParts(start, timeZone);
+  const output = [start];
+  const push = (parts: ZonedParts) => {
+    const occurrence = zonedDate(parts, timeZone);
+    if (occurrence <= start) return false;
+    if (until && occurrence > until) return true;
+    output.push(occurrence);
+    return output.length >= targetCount;
+  };
+  if (frequency === "DAILY") {
+    for (let n = 1; n < 3700 && output.length < targetCount; n += 1) {
+      if (n % interval !== 0) continue;
+      if (push(shiftLocalDays(base, n))) break;
+    }
+  } else if (frequency === "WEEKLY") {
+    const dayCodes = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+    const configured = (tokens.BYDAY?.split(",").filter(code => dayCodes.includes(code)) ?? []);
+    const baseNaive = new Date(Date.UTC(base.year, base.month - 1, base.day));
+    const baseDow = baseNaive.getUTCDay();
+    const baseWeekStart = new Date(baseNaive);
+    baseWeekStart.setUTCDate(baseWeekStart.getUTCDate() - ((baseDow + 6) % 7));
+    const allowed = new Set(configured.length ? configured : [dayCodes[baseDow]]);
+    for (let dayOffset = 1; dayOffset < 3700 && output.length < targetCount; dayOffset += 1) {
+      const parts = shiftLocalDays(base, dayOffset);
+      const naive = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+      const dow = naive.getUTCDay();
+      if (!allowed.has(dayCodes[dow])) continue;
+      const weekStart = new Date(naive);
+      weekStart.setUTCDate(weekStart.getUTCDate() - ((dow + 6) % 7));
+      const weeks = Math.round((weekStart.getTime() - baseWeekStart.getTime()) / (7 * 86400000));
+      if (weeks % interval !== 0) continue;
+      if (push(parts)) break;
+    }
+  } else {
+    const requestedDay = tokens.BYMONTHDAY ? Number(tokens.BYMONTHDAY) : base.day;
+    if (!Number.isInteger(requestedDay) || requestedDay < 1 || requestedDay > 31) throw new AppError(422, "MEETING_RECURRENCE_MONTHDAY", "BYMONTHDAY must be between 1 and 31");
+    for (let step = interval; step < interval * 240 && output.length < targetCount; step += interval) {
+      const absoluteMonth = base.year * 12 + (base.month - 1) + step;
+      const year = Math.floor(absoluteMonth / 12);
+      const month = absoluteMonth % 12 + 1;
+      const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      if (requestedDay > lastDay) continue;
+      if (push({ year, month, day: requestedDay, hour: base.hour, minute: base.minute, second: base.second })) break;
+    }
+  }
+  if (output.length < 2) throw new AppError(422, "MEETING_RECURRENCE_EMPTY", "The recurrence rule does not produce another meeting in the selected range");
+  return output;
+}
+
 const meetingShape = z.object({
   title: z.string().trim().min(3).max(180),
   description: z.string().trim().max(10000).nullable().optional(),
