@@ -301,7 +301,7 @@ async function audienceUsers(req: AuthRequest, scope: ActorScope, audiences: z.i
   return [...ids];
 }
 
-async function queueNotification(req: AuthRequest, userId: string, title: string, body: string, meetingId: string, scheduledAt?: Date) {
+async function queueNotification(req: AuthRequest, userId: string, title: string, body: string, meetingId: string, scheduledAt?: Date, sourceEntityId = meetingId) {
   const notification = await prisma.notification.create({
     data: {
       organizationId: organizationId(req),
@@ -310,8 +310,8 @@ async function queueNotification(req: AuthRequest, userId: string, title: string
       body,
       category: "MEETINGS",
       sourceModule: "MEETINGS",
-      sourceEntityId: meetingId,
-      actionUrl: "/admin/meetings/" + meetingId,
+      sourceEntityId,
+      actionUrl: "/meetings/" + meetingId,
       priority: "NORMAL",
       channels: ["IN_APP", "EMAIL"],
       scheduledAt,
@@ -321,6 +321,47 @@ async function queueNotification(req: AuthRequest, userId: string, title: string
     data: { organizationId: organizationId(req), notificationId: notification.id, channel: "EMAIL", status: "QUEUED" },
   });
   return notification;
+}
+
+async function cancelFutureMeetingNotifications(req: AuthRequest, sourceEntityIds: string[]) {
+  if (!sourceEntityIds.length) return 0;
+  const notifications = await prisma.notification.findMany({
+    where: {
+      organizationId: organizationId(req),
+      sourceModule: "MEETINGS",
+      sourceEntityId: { in: sourceEntityIds },
+      scheduledAt: { gt: new Date() },
+      deletedAt: null,
+    },
+    select: { id: true },
+  });
+  if (!notifications.length) return 0;
+  const ids = notifications.map(item => item.id);
+  await prisma.$transaction([
+    prisma.notification.updateMany({ where: { id: { in: ids } }, data: { deletedAt: new Date() } }),
+    prisma.notificationDelivery.updateMany({ where: { notificationId: { in: ids }, status: { in: ["QUEUED", "FAILED"] } }, data: { status: "CANCELLED" } }),
+  ]);
+  return ids.length;
+}
+
+async function scheduleActionReminders(
+  req: AuthRequest,
+  meetingId: string,
+  action: { id: string; title: string; assigneeUserId: string; dueAt: Date | null; status: MeetingActionStatus },
+) {
+  if (!action.dueAt || [MeetingActionStatus.COMPLETED, MeetingActionStatus.CANCELLED].includes(action.status)) return;
+  const now = Date.now();
+  const reminders = [
+    { at: new Date(action.dueAt.getTime() - 24 * 60 * 60_000), title: "Meeting action due tomorrow", body: "Action due tomorrow: " + action.title },
+    { at: new Date(action.dueAt.getTime() - 60 * 60_000), title: "Meeting action due soon", body: "Action due in one hour: " + action.title },
+    { at: action.dueAt, title: "Meeting action due", body: "Action is due now: " + action.title },
+    { at: new Date(action.dueAt.getTime() + 24 * 60 * 60_000), title: "Meeting action overdue", body: "Action is overdue: " + action.title },
+  ];
+  for (const reminder of reminders) {
+    if (reminder.at.getTime() > now) {
+      await queueNotification(req, action.assigneeUserId, reminder.title, reminder.body, meetingId, reminder.at, action.id);
+    }
+  }
 }
 
 async function scheduleMeetingNotifications(req: AuthRequest, meeting: { id: string; title: string; startsAt: Date }, participantIds: string[], sendInvitation = true) {
