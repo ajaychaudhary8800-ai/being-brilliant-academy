@@ -31,6 +31,7 @@ test("meeting API derives room authority server-side and preserves scope", async
   assert.match(route, /visibility: MeetingVisibility\.BRANCH, branchId: \{ in: scope\.branchIds \}/);
   assert.match(route, /visibility: MeetingVisibility\.DEPARTMENT, departmentId: \{ in: scope\.departmentIds \}/);
   assert.match(route, /meetingManagerRoles\.has\(participant\.meetingRole\)/);
+  assert.match(route, /MEETING_ORGANIZATION_VISIBILITY_DENIED/);
   assert.match(route, /createLiveKitToken\(\{/);
   assert.match(route, /role: participant\.meetingRole/);
   assert.doesNotMatch(route, /req\.body\.role.*createLiveKitToken/s);
