@@ -10,6 +10,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { assertErpBranchAccess, erpBranchScope } from "../lib/erp-branch-access.js";
 import { AppError } from "../lib/http.js";
+import { deleteObject, getObject, putObject } from "../lib/storage.js";
 import { sendMeetingNotification, staffKind } from "../lib/meeting-scheduling.js";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -65,6 +66,79 @@ async function audit(req: AuthRequest, meetingId: string, action: string, entity
     organizationId: org(req), meetingId, actorUserId: actor(req), action, entityType, entityId,
     metadata: metadata as object | undefined, ipAddress: req.ip, userAgent: req.header("user-agent"),
   }});
+}
+
+const attachmentInput = z.object({
+  name: z.string().trim().min(1).max(180),
+  mimeType: z.enum(["application/pdf","image/png","image/jpeg","text/plain","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.openxmlformats-officedocument.presentationml.presentation"]),
+  base64: z.string().min(1),
+  agendaItemId: id.nullable().optional(),
+  visibility: z.enum(["PARTICIPANTS","MANAGEMENT"]).default("PARTICIPANTS"),
+});
+
+router.get("/meetings/:id/attachments", async (req: AuthRequest, res) => {
+  const meeting = await loadMeeting(req, String(req.params.id));
+  await assertView(req, meeting);
+  const manager = req.auth!.role === Role.SUPER_ADMIN || req.auth!.role === Role.BRANCH_ADMIN
+    || meeting.participants.some(p => p.userId === actor(req) && (p.meetingRole === MeetingParticipantRole.HOST || p.meetingRole === MeetingParticipantRole.CO_HOST));
+  const rows = await prisma.meetingAttachment.findMany({
+    where: { organizationId: org(req), meetingId: meeting.id, ...(manager ? {} : { visibility: "PARTICIPANTS" }) },
+    orderBy: { createdAt: "desc" },
+  });
+  res.json({ data: rows.map(({ storageKey: _storageKey, ...row }) => row) });
+});
+
+router.post("/meetings/:id/attachments", async (req: AuthRequest, res) => {
+  const meeting = await loadMeeting(req, String(req.params.id));
+  await assertManage(req, meeting);
+  const data = attachmentInput.parse(req.body);
+  if (data.agendaItemId && !meeting.agendaItems.some(a => a.id === data.agendaItemId)) throw new AppError(422, "MEETING_AGENDA_INVALID", "Attachment agenda item does not belong to this meeting");
+  const body = Buffer.from(data.base64.replace(/^data:[^;]+;base64,/, ""), "base64");
+  if (!body.length || body.length > 10 * 1024 * 1024) throw new AppError(422, "MEETING_ATTACHMENT_SIZE", "Meeting attachments must be between 1 byte and 10 MB");
+  const extension = data.name.includes(".") ? data.name.slice(data.name.lastIndexOf(".")).replace(/[^a-zA-Z0-9.]/g, "") : "";
+  const key = `meetings/${org(req)}/${meeting.id}/attachments/${Date.now()}-${cryptoSafeName(data.name)}`;
+  await putObject(key, body, data.mimeType);
+  try {
+    const row = await prisma.meetingAttachment.create({ data: {
+      organizationId: org(req), meetingId: meeting.id, agendaItemId: data.agendaItemId, name: data.name,
+      mimeType: data.mimeType, sizeBytes: body.length, storageKey: key, visibility: data.visibility, uploadedById: actor(req),
+    }});
+    await audit(req, meeting.id, "UPLOAD_ATTACHMENT", "MeetingAttachment", row.id, { name: row.name, sizeBytes: row.sizeBytes });
+    const { storageKey: _storageKey, ...safe } = row;
+    res.status(201).json({ data: safe });
+  } catch (error) {
+    await deleteObject(key).catch(() => undefined);
+    throw error;
+  }
+});
+
+router.get("/meetings/:id/attachments/:attachmentId/download", async (req: AuthRequest, res) => {
+  const meeting = await loadMeeting(req, String(req.params.id));
+  await assertView(req, meeting);
+  const attachment = await prisma.meetingAttachment.findFirst({ where: { organizationId: org(req), id: String(req.params.attachmentId), meetingId: meeting.id } });
+  if (!attachment) throw new AppError(404, "MEETING_ATTACHMENT_NOT_FOUND", "Meeting attachment not found");
+  if (attachment.visibility === "MANAGEMENT") await assertManage(req, meeting);
+  const object = await getObject(attachment.storageKey);
+  res.setHeader("Content-Type", attachment.mimeType);
+  res.setHeader("Content-Disposition", `attachment; filename="${attachment.name.replace(/["\\]/g, "_")}"`);
+  for await (const chunk of object as AsyncIterable<Uint8Array | string>) res.write(chunk);
+  res.end();
+});
+
+router.delete("/meetings/:id/attachments/:attachmentId", async (req: AuthRequest, res) => {
+  const meeting = await loadMeeting(req, String(req.params.id));
+  await assertManage(req, meeting);
+  const attachment = await prisma.meetingAttachment.findFirst({ where: { organizationId: org(req), id: String(req.params.attachmentId), meetingId: meeting.id } });
+  if (!attachment) throw new AppError(404, "MEETING_ATTACHMENT_NOT_FOUND", "Meeting attachment not found");
+  await prisma.meetingAttachment.delete({ where: { id: attachment.id } });
+  await deleteObject(attachment.storageKey).catch(() => undefined);
+  await audit(req, meeting.id, "DELETE_ATTACHMENT", "MeetingAttachment", attachment.id, { name: attachment.name });
+  res.status(204).send();
+});
+
+function cryptoSafeName(name: string) {
+  const clean = name.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120);
+  return clean || "attachment";
 }
 
 router.get("/meetings/:id/audit", async (req: AuthRequest, res) => {
