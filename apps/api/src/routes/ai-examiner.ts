@@ -91,6 +91,18 @@ async function examinationForManager(req: AuthRequest, examinationId: string) {
   return exam;
 }
 
+async function answerSheetForManager(req: AuthRequest, answerSheetId: string) {
+  const sheet = await prisma.examinationAnswerSheet.findFirst({
+    where: { id: answerSheetId, organizationId: req.auth!.organizationId },
+    include: {
+      student: { select: { id: true, admissionNo: true, rollNo: true, user: { select: { name: true } } } },
+    },
+  });
+  if (!sheet) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
+  const exam = await examinationForManager(req, sheet.examinationId);
+  return { sheet, exam };
+}
+
 function rubricMarks(rubric: unknown) {
   const parsed = z.object({ questions: z.array(z.object({ maxMarks: z.coerce.number() })) }).safeParse(rubric);
   return parsed.success ? parsed.data.questions.reduce((sum, question) => sum + question.maxMarks, 0) : 0;
@@ -208,6 +220,238 @@ router.post("/examinations/:examinationId/rubrics/:rubricId/activate", async (re
     return value;
   });
   res.json({ data: activated });
+});
+
+router.post("/answer-sheets/:answerSheetId/evaluate", async (req: AuthRequest, res) => {
+  if (!aiExaminerProviderConfigured()) throw new AppError(503, "AI_EXAMINER_PROVIDER_NOT_CONFIGURED", "Configure the AI provider before starting an evaluation");
+  const answerSheetId = cuid.parse(req.params.answerSheetId);
+  const { sheet, exam } = await answerSheetForManager(req, answerSheetId);
+  const activeRubric = exam.aiExaminerRubrics.find(rubric => rubric.status === AIExaminerRubricStatus.ACTIVE) ?? null;
+  assertAIExaminerEvaluationReady({
+    examinationStatus: exam.status,
+    questionPaperPublished: Boolean(exam.questionPaper?.publishedAt),
+    rubricStatus: activeRubric?.status ?? null,
+    finalizedAt: sheet.finalizedAt,
+  });
+  if (!activeRubric) throw new AppError(409, "AI_EXAMINER_ACTIVE_RUBRIC_REQUIRED", "Activate a marking rubric before AI evaluation");
+  if (![AnswerSheetStatus.SUBMITTED, AnswerSheetStatus.LATE_SUBMITTED].includes(sheet.status)) {
+    throw new AppError(409, "AI_EXAMINER_ANSWER_ALREADY_IN_REVIEW", "Only a submitted answer sheet can start a new AI evaluation");
+  }
+
+  const active = await prisma.aIExaminerEvaluation.findFirst({
+    where: {
+      organizationId: req.auth!.organizationId,
+      answerSheetId,
+      status: { in: [AIExaminerEvaluationStatus.QUEUED, AIExaminerEvaluationStatus.PROCESSING, AIExaminerEvaluationStatus.REVIEW_REQUIRED] },
+    },
+    select: { id: true, status: true, revision: true },
+    orderBy: { revision: "desc" },
+  });
+  if (active) throw new AppError(409, "AI_EXAMINER_EVALUATION_ACTIVE", "This answer sheet already has an AI evaluation awaiting completion or review");
+
+  const latest = await prisma.aIExaminerEvaluation.findFirst({
+    where: { organizationId: req.auth!.organizationId, answerSheetId },
+    select: { revision: true },
+    orderBy: { revision: "desc" },
+  });
+  const revision = (latest?.revision ?? 0) + 1;
+  const queued = await prisma.$transaction(async tx => {
+    const locked = await tx.examinationAnswerSheet.updateMany({
+      where: {
+        id: answerSheetId,
+        organizationId: req.auth!.organizationId,
+        finalizedAt: null,
+        status: { in: [AnswerSheetStatus.SUBMITTED, AnswerSheetStatus.LATE_SUBMITTED] },
+      },
+      data: { status: AnswerSheetStatus.UNDER_REVIEW },
+    });
+    if (locked.count !== 1) throw new AppError(409, "AI_EXAMINER_ANSWER_ALREADY_IN_REVIEW", "Answer sheet review has already started");
+    const evaluation = await tx.aIExaminerEvaluation.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        answerSheetId,
+        rubricId: activeRubric.id,
+        revision,
+        status: AIExaminerEvaluationStatus.QUEUED,
+        engineVersion: AI_EXAMINER_ENGINE_VERSION,
+        provider: env.AI_PROVIDER_URL ? new URL(env.AI_PROVIDER_URL).hostname : null,
+        model: env.AI_MODEL,
+        requestedById: req.auth!.userId,
+      },
+      select: { id: true, revision: true, status: true, engineVersion: true, provider: true, model: true, createdAt: true },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_EXAMINER_EVALUATION_QUEUED",
+        entity: "AIExaminerEvaluation",
+        entityId: evaluation.id,
+        metadata: { answerSheetId, examinationId: exam.id, rubricId: activeRubric.id, revision },
+      },
+    });
+    return evaluation;
+  });
+  res.status(202).json({ data: queued });
+});
+
+router.get("/evaluations/:evaluationId", async (req: AuthRequest, res) => {
+  const evaluationId = cuid.parse(req.params.evaluationId);
+  const row = await prisma.aIExaminerEvaluation.findFirst({
+    where: { id: evaluationId, organizationId: req.auth!.organizationId },
+    include: {
+      questions: { orderBy: { createdAt: "asc" } },
+      rubric: { select: { id: true, version: true, status: true, instructions: true, rubric: true, modelAnswer: true } },
+      answerSheet: {
+        select: {
+          id: true, examinationId: true, fileName: true, mimeType: true, status: true, isLate: true, marksObtained: true, finalizedAt: true,
+          student: { select: { id: true, admissionNo: true, rollNo: true, user: { select: { name: true } } } },
+        },
+      },
+    },
+  });
+  if (!row) throw new AppError(404, "AI_EXAMINER_EVALUATION_NOT_FOUND", "AI evaluation not found");
+  await examinationForManager(req, row.answerSheet.examinationId);
+  res.json({ data: row });
+});
+
+router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) => {
+  const evaluationId = cuid.parse(req.params.evaluationId);
+  const body = z.object({
+    questions: z.array(z.object({
+      questionKey: z.string().trim().min(1).max(40),
+      finalMarks: z.coerce.number().min(0).max(10000),
+      teacherComment: z.string().trim().max(5000).nullable().optional(),
+    })).min(1).max(200),
+    teacherRemarks: z.string().trim().max(5000).nullable().optional(),
+  }).parse(req.body);
+
+  const evaluation = await prisma.aIExaminerEvaluation.findFirst({
+    where: { id: evaluationId, organizationId: req.auth!.organizationId },
+    include: {
+      questions: true,
+      answerSheet: { select: { id: true, examinationId: true, studentId: true, finalizedAt: true, status: true } },
+    },
+  });
+  if (!evaluation) throw new AppError(404, "AI_EXAMINER_EVALUATION_NOT_FOUND", "AI evaluation not found");
+  assertAIExaminerReviewable(evaluation.status);
+  if (evaluation.status !== AIExaminerEvaluationStatus.REVIEW_REQUIRED) {
+    throw new AppError(409, "AI_EXAMINER_ALREADY_APPROVED", "This AI evaluation has already been approved");
+  }
+  const exam = await examinationForManager(req, evaluation.answerSheet.examinationId);
+  if (exam.status !== ExaminationStatus.COMPLETED) throw new AppError(409, "AI_EXAMINER_EVALUATION_CLOSED", "Examination is no longer open for evaluation");
+  if (evaluation.answerSheet.finalizedAt) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet has already been finalized");
+
+  const byKey = new Map(body.questions.map(row => [row.questionKey.toLowerCase(), row]));
+  if (byKey.size !== evaluation.questions.length || body.questions.length !== evaluation.questions.length) {
+    throw new AppError(422, "AI_EXAMINER_REVIEW_INCOMPLETE", "Teacher must explicitly review every AI-evaluated question before approval");
+  }
+
+  let total = 0;
+  for (const question of evaluation.questions) {
+    const reviewed = byKey.get(question.questionKey.toLowerCase());
+    if (!reviewed) throw new AppError(422, "AI_EXAMINER_REVIEW_INCOMPLETE", `Missing teacher review for ${question.questionKey}`);
+    const maximum = Number(question.maxMarks);
+    if (reviewed.finalMarks > maximum + 0.001) throw new AppError(422, "AI_EXAMINER_MARKS_EXCEED_MAXIMUM", `Marks for ${question.questionKey} cannot exceed ${maximum}`);
+    total += reviewed.finalMarks;
+  }
+  if (total > exam.maximumMarks + 0.001) throw new AppError(422, "AI_EXAMINER_TOTAL_EXCEEDS_MAXIMUM", "Reviewed marks exceed examination maximum marks");
+
+  const now = new Date();
+  const teacherRemarks = body.teacherRemarks ?? evaluation.feedback ?? null;
+  const approved = await prisma.$transaction(async tx => {
+    const locked = await tx.aIExaminerEvaluation.updateMany({
+      where: { id: evaluation.id, organizationId: req.auth!.organizationId, status: AIExaminerEvaluationStatus.REVIEW_REQUIRED },
+      data: { status: AIExaminerEvaluationStatus.APPROVED, reviewedById: req.auth!.userId, reviewedAt: now },
+    });
+    if (locked.count !== 1) throw new AppError(409, "AI_EXAMINER_REVIEW_CHANGED", "AI evaluation review state changed; refresh before approving");
+
+    for (const question of evaluation.questions) {
+      const reviewed = byKey.get(question.questionKey.toLowerCase())!;
+      await tx.aIExaminerQuestionEvaluation.update({
+        where: { id: question.id },
+        data: { finalMarks: reviewed.finalMarks, teacherComment: reviewed.teacherComment ?? null, reviewRequired: false },
+      });
+    }
+
+    const answer = await tx.examinationAnswerSheet.updateMany({
+      where: {
+        id: evaluation.answerSheet.id,
+        organizationId: req.auth!.organizationId,
+        examinationId: exam.id,
+        studentId: evaluation.answerSheet.studentId,
+        finalizedAt: null,
+        status: AnswerSheetStatus.UNDER_REVIEW,
+      },
+      data: {
+        marksObtained: total,
+        teacherRemarks,
+        internalNotes: `Ranpal AI Examiner evaluation ${evaluation.id}; engine ${evaluation.engineVersion}; teacher-approved.`,
+        evaluatedById: req.auth!.userId,
+        evaluatedAt: now,
+        status: evaluationStatus(true),
+        finalizedAt: now,
+      },
+    });
+    if (answer.count !== 1) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet review state changed before approval");
+
+    const result = examinationResultFor(total, exam.maximumMarks, exam.passingMarks, now);
+    await tx.examinationResult.upsert({
+      where: { examinationId_studentId: { examinationId: exam.id, studentId: evaluation.answerSheet.studentId } },
+      update: { ...result, remarks: teacherRemarks },
+      create: { organizationId: req.auth!.organizationId, examinationId: exam.id, studentId: evaluation.answerSheet.studentId, ...result, remarks: teacherRemarks },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_EXAMINER_EVALUATION_APPROVED",
+        entity: "AIExaminerEvaluation",
+        entityId: evaluation.id,
+        metadata: {
+          answerSheetId: evaluation.answerSheet.id,
+          examinationId: exam.id,
+          aiSuggestedMarks: evaluation.suggestedMarks == null ? null : Number(evaluation.suggestedMarks),
+          teacherApprovedMarks: total,
+          finalized: true,
+        },
+      },
+    });
+    return tx.aIExaminerEvaluation.findUniqueOrThrow({
+      where: { id: evaluation.id },
+      include: { questions: { orderBy: { createdAt: "asc" } } },
+    });
+  });
+  res.json({ data: approved, meta: { finalMarks: total, finalized: true } });
+});
+
+router.post("/evaluations/:evaluationId/cancel", async (req: AuthRequest, res) => {
+  const evaluationId = cuid.parse(req.params.evaluationId);
+  const evaluation = await prisma.aIExaminerEvaluation.findFirst({
+    where: { id: evaluationId, organizationId: req.auth!.organizationId },
+    include: { answerSheet: { select: { id: true, examinationId: true, isLate: true, finalizedAt: true } } },
+  });
+  if (!evaluation) throw new AppError(404, "AI_EXAMINER_EVALUATION_NOT_FOUND", "AI evaluation not found");
+  await examinationForManager(req, evaluation.answerSheet.examinationId);
+  if (![AIExaminerEvaluationStatus.QUEUED, AIExaminerEvaluationStatus.REVIEW_REQUIRED, AIExaminerEvaluationStatus.FAILED].includes(evaluation.status)) {
+    throw new AppError(409, "AI_EXAMINER_CANCEL_UNAVAILABLE", "This AI evaluation cannot be cancelled in its current state");
+  }
+  const cancelled = await prisma.$transaction(async tx => {
+    const value = await tx.aIExaminerEvaluation.update({
+      where: { id: evaluation.id },
+      data: { status: AIExaminerEvaluationStatus.CANCELLED, reviewedById: req.auth!.userId, reviewedAt: new Date() },
+      select: { id: true, status: true, reviewedAt: true },
+    });
+    if (!evaluation.answerSheet.finalizedAt) {
+      await tx.examinationAnswerSheet.updateMany({
+        where: { id: evaluation.answerSheet.id, organizationId: req.auth!.organizationId, status: AnswerSheetStatus.UNDER_REVIEW, finalizedAt: null },
+        data: { status: evaluation.answerSheet.isLate ? AnswerSheetStatus.LATE_SUBMITTED : AnswerSheetStatus.SUBMITTED },
+      });
+    }
+    await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "AI_EXAMINER_EVALUATION_CANCELLED", entity: "AIExaminerEvaluation", entityId: evaluation.id } });
+    return value;
+  });
+  res.json({ data: cancelled });
 });
 
 router.get("/answer-sheets/:answerSheetId/evaluations", async (req: AuthRequest, res) => {
