@@ -5707,6 +5707,28 @@ enum MeetingSyncStatus {
   FAILED
 }
 
+enum MeetingDepartmentAuthorityRole {
+  HOD
+  MEETING_COORDINATOR
+}
+
+model MeetingDepartmentAuthority {
+  organizationId String                         @default("org_default")
+  id             String                         @id @default(cuid())
+  departmentId   String
+  userId         String
+  authorityRole  MeetingDepartmentAuthorityRole @default(HOD)
+  isActive       Boolean                        @default(true)
+  createdById    String
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+
+  @@unique([organizationId, departmentId, userId])
+  @@unique([organizationId, id])
+  @@index([organizationId, userId, isActive])
+  @@index([organizationId, departmentId, isActive])
+}
+
 model MeetingSeries {
   organizationId String    @default("org_default")
   id             String    @id @default(cuid())
