@@ -129,7 +129,11 @@ router.post("/meetings/native/:room/session", async (req: AuthRequest, res) => {
       allowScreenShare: meeting.allowScreenShare, allowParticipantMic: meeting.allowParticipantMic, allowParticipantCamera: meeting.allowParticipantCamera,
     },
     recordingConfigured: meeting.allowRecording && livekitRecordingConfigured(),
-    recordingAvailable: meeting.recordings.some(r => r.status === MeetingRecordingStatus.AVAILABLE && Boolean(r.storageKey)),
+    recordingAvailable: meeting.recordings.some(r => r.status !== MeetingRecordingStatus.DELETED && Boolean(r.storageKey)),
+    recordings: meeting.recordings.filter(r => r.status !== MeetingRecordingStatus.DELETED).map(r => ({
+      id: r.id, status: r.status, startedAt: r.startedAt, stoppedAt: r.stoppedAt,
+      durationSeconds: r.durationSeconds, available: Boolean(r.storageKey),
+    })),
     whiteboardData: meeting.whiteboardData ?? [],
   }});
 });
