@@ -323,10 +323,10 @@ async function queueNotification(req: AuthRequest, userId: string, title: string
   return notification;
 }
 
-async function scheduleMeetingNotifications(req: AuthRequest, meeting: { id: string; title: string; startsAt: Date }, participantIds: string[]) {
+async function scheduleMeetingNotifications(req: AuthRequest, meeting: { id: string; title: string; startsAt: Date }, participantIds: string[], sendInvitation = true) {
   const now = Date.now();
   for (const userId of participantIds) {
-    await queueNotification(req, userId, "Meeting invitation: " + meeting.title, "You have been invited to a staff/management meeting.", meeting.id);
+    if (sendInvitation) await queueNotification(req, userId, "Meeting invitation: " + meeting.title, "You have been invited to a staff/management meeting.", meeting.id);
     for (const minutes of [1440, 60, 10]) {
       const at = new Date(meeting.startsAt.getTime() - minutes * 60_000);
       if (at.getTime() > now) {
