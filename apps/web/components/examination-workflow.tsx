@@ -177,9 +177,10 @@ export function ExaminationWorkflowContent({ teacherView = false }: { teacherVie
         <div className="mx-auto max-w-6xl">
           <header>
             {teacherView && (
-              <Link href="/teacher" className="mb-4 inline-block font-bold text-brand-700">
-                ← Teacher portal
-              </Link>
+              <div className="mb-4 flex flex-wrap gap-4">
+                <Link href="/teacher" className="font-bold text-brand-700">← Teacher portal</Link>
+                <Link href="/teacher/ai-examiner" className="font-bold text-brand-700">Ranpal AI Examiner</Link>
+              </div>
             )}
             <p className="text-sm font-bold text-brand-700">{terms.assessments.toUpperCase()}</p>
             <h1 className="text-3xl font-bold">Question Papers & Answer Sheets</h1>

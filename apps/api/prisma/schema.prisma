@@ -1129,6 +1129,21 @@ enum AnswerSheetStatus {
   RETURNED
 }
 
+enum AIExaminerRubricStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum AIExaminerEvaluationStatus {
+  QUEUED
+  PROCESSING
+  REVIEW_REQUIRED
+  APPROVED
+  FAILED
+  CANCELLED
+}
+
 enum LmsContentStatus {
   DRAFT
   PUBLISHED
@@ -1456,6 +1471,10 @@ model User {
   challengeProgress        ChallengeProgress[]
   uploadedQuestionPapers   ExaminationQuestionPaper[] @relation("QuestionPaperUploader")
   evaluatedAnswerSheets    ExaminationAnswerSheet[] @relation("AnswerSheetEvaluator")
+  aiExaminerRubricsCreated AIExaminerRubric[] @relation("AIExaminerRubricCreator")
+  aiExaminerRubricsApproved AIExaminerRubric[] @relation("AIExaminerRubricApprover")
+  aiExaminerEvaluationsRequested AIExaminerEvaluation[] @relation("AIExaminerEvaluationRequester")
+  aiExaminerEvaluationsReviewed AIExaminerEvaluation[] @relation("AIExaminerEvaluationReviewer")
   learningRecommendations  LearningRecommendation[]
   dailyLearningGoals       DailyLearningGoal[]
   teacherAllocationsCreated TeacherAllocation[] @relation("TeacherAllocationCreatedBy")
@@ -2385,6 +2404,7 @@ model Examination {
   results           ExaminationResult[]
   questionPaper     ExaminationQuestionPaper?
   answerSheets      ExaminationAnswerSheet[]
+  aiExaminerRubrics AIExaminerRubric[]
 
   @@unique([organizationId, code])
   @@index([branchId])
@@ -2469,11 +2489,92 @@ model ExaminationAnswerSheet {
   questionPaper  ExaminationQuestionPaper? @relation(fields: [questionPaperId], references: [id], onDelete: Restrict)
   student        StudentProfile @relation(fields: [studentId], references: [id], onDelete: Restrict)
   evaluatedBy    User? @relation("AnswerSheetEvaluator", fields: [evaluatedById], references: [id], onDelete: Restrict)
+  aiEvaluations  AIExaminerEvaluation[]
 
   @@unique([examinationId, studentId])
   @@index([organizationId, status, submittedAt])
   @@index([studentId, submittedAt])
   @@index([evaluatedById])
+}
+
+model AIExaminerRubric {
+  organizationId String                   @default("org_default")
+  id             String                   @id @default(cuid())
+  examinationId  String
+  version        Int                      @default(1)
+  status         AIExaminerRubricStatus   @default(DRAFT)
+  instructions   String?                  @db.Text
+  rubric         Json
+  modelAnswer    Json?
+  createdById    String
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  examination    Examination              @relation(fields: [examinationId], references: [id], onDelete: Restrict)
+  createdBy      User                     @relation("AIExaminerRubricCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy     User?                    @relation("AIExaminerRubricApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  evaluations    AIExaminerEvaluation[]
+
+  @@unique([examinationId, version])
+  @@index([organizationId, status])
+}
+
+model AIExaminerEvaluation {
+  organizationId String                     @default("org_default")
+  id             String                     @id @default(cuid())
+  answerSheetId  String
+  rubricId       String
+  revision       Int                        @default(1)
+  status         AIExaminerEvaluationStatus @default(QUEUED)
+  engineVersion  String                     @default("v1")
+  provider       String?
+  model          String?
+  extractedText  String?                    @db.Text
+  suggestedMarks Decimal?                   @db.Decimal(8, 2)
+  confidence     Decimal?                   @db.Decimal(5, 4)
+  feedback       String?                    @db.Text
+  diagnostics    Json?
+  errorCode      String?
+  errorMessage   String?                    @db.Text
+  requestedById  String
+  reviewedById   String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  reviewedAt     DateTime?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+  answerSheet    ExaminationAnswerSheet     @relation(fields: [answerSheetId], references: [id], onDelete: Restrict)
+  rubric         AIExaminerRubric           @relation(fields: [rubricId], references: [id], onDelete: Restrict)
+  requestedBy    User                       @relation("AIExaminerEvaluationRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewedBy     User?                      @relation("AIExaminerEvaluationReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  questions      AIExaminerQuestionEvaluation[]
+
+  @@unique([answerSheetId, revision])
+  @@index([organizationId, status, createdAt])
+  @@index([rubricId])
+}
+
+model AIExaminerQuestionEvaluation {
+  organizationId  String              @default("org_default")
+  id              String              @id @default(cuid())
+  evaluationId    String
+  questionKey     String
+  maxMarks        Decimal             @db.Decimal(8, 2)
+  suggestedMarks  Decimal?            @db.Decimal(8, 2)
+  finalMarks      Decimal?            @db.Decimal(8, 2)
+  confidence      Decimal?            @db.Decimal(5, 4)
+  rubricBreakdown Json?
+  feedback        String?             @db.Text
+  extractedAnswer String?             @db.Text
+  reviewRequired  Boolean             @default(true)
+  teacherComment  String?             @db.Text
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  evaluation      AIExaminerEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+
+  @@unique([evaluationId, questionKey])
+  @@index([organizationId, reviewRequired])
 }
 
 model Attendance {
