@@ -23,12 +23,12 @@ test("meeting API enforces tenant, branch and commercial boundaries", () => {
   assert.match(route, /erpBranchScope\(req\)/);
   assert.match(route, /assertErpBranchAccess/);
   assert.match(route, /MEETING_PARTICIPANT_BRANCH_FORBIDDEN/);
-  assert.match(server, /onlyPaths\(\["\/meetings"\], meetings\)/);
+  assert.match(server, /onlyPaths\(\["\/meetings", "\/meeting-series", "\/meeting-teams"\], meetings\)/);
 });
 
 test("meeting room identity is opaque and server generated", () => {
   assert.match(route, /crypto\.randomUUID\(\)/);
-  assert.match(route, /livekitRoomName: roomName/);
+  assert.match(route, /livekitRoomName:\s*`mtg_\$\{crypto\.randomUUID\(\)\.replaceAll\("-", ""\)\}`/);
   assert.doesNotMatch(route, /req\.body\.livekitRoomName/);
 });
 
