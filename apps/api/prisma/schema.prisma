@@ -5690,6 +5690,9 @@ model MeetingSeries {
   recurrenceRule String
   recurrenceStart DateTime
   recurrenceEnd  DateTime?
+  template       Json
+  lastGeneratedAt DateTime?
+  generationHorizon DateTime?
   isActive       Boolean  @default(true)
   createdById    String
   createdAt      DateTime @default(now())
@@ -5704,6 +5707,7 @@ model Meeting {
   organizationId String            @default("org_default")
   id             String            @id @default(cuid())
   seriesId       String?
+  occurrenceIndex Int?
   branchId       String?
   departmentId   String?
   title          String
@@ -5743,14 +5747,45 @@ model Meeting {
   decisions      MeetingDecision[]
   actionItems    MeetingActionItem[]
   recordings     MeetingRecording[]
+  invites        MeetingInvite[]
   auditLogs      MeetingAuditLog[]
 
   @@unique([organizationId, livekitRoomName])
+  @@unique([seriesId, occurrenceIndex])
   @@index([organizationId, startsAt])
   @@index([organizationId, branchId, startsAt])
   @@index([organizationId, departmentId, startsAt])
   @@index([organizationId, status])
   @@index([organizationId, hostUserId, startsAt])
+}
+
+model MeetingTeam {
+  organizationId String   @default("org_default")
+  id             String   @id @default(cuid())
+  branchId       String?
+  departmentId   String?
+  name           String
+  description    String?  @db.Text
+  isActive       Boolean  @default(true)
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  members        MeetingTeamMember[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, branchId, departmentId, isActive])
+}
+
+model MeetingTeamMember {
+  organizationId String      @default("org_default")
+  teamId         String
+  userId         String
+  addedById      String
+  createdAt      DateTime    @default(now())
+  team           MeetingTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([organizationId, userId])
 }
 
 model MeetingAudience {
@@ -5921,6 +5956,24 @@ model MeetingRecording {
 
   @@index([organizationId, meetingId, createdAt])
   @@index([organizationId, status])
+}
+
+model MeetingInvite {
+  organizationId String   @default("org_default")
+  id             String   @id @default(cuid())
+  meetingId      String
+  participantId  String
+  notificationId String?
+  kind           String
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  status         String   @default("PENDING")
+  createdAt      DateTime @default(now())
+  meeting        Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, participantId, kind])
+  @@index([organizationId, scheduledAt, status])
+  @@index([organizationId, meetingId])
 }
 
 model MeetingAuditLog {
