@@ -320,6 +320,7 @@ router.post("/meeting-series", async (req: AuthRequest, res) => {
       }));
     }
   } catch (error) {
+    await prisma.meeting.deleteMany({ where: { organizationId: org(req), seriesId: series.id } }).catch(() => {});
     await prisma.meetingSeries.delete({ where: { id: series.id } }).catch(() => {});
     throw error;
   }
@@ -389,10 +390,11 @@ router.patch("/meetings/:id", async (req: AuthRequest, res) => {
   if (meeting.status === MeetingStatus.ENDED || meeting.status === MeetingStatus.CLOSED || meeting.status === MeetingStatus.CANCELLED) throw new AppError(409, "MEETING_IMMUTABLE", "Meeting is no longer editable");
   const data = meetingBaseInput.omit({ participants: true, audiences: true, agenda: true, hostUserId: true }).partial().parse(req.body);
   if (req.auth!.role === Role.BRANCH_ADMIN && data.branchId === null) throw new AppError(403, "MEETING_BRANCH_REQUIRED", "Branch administrators cannot convert a branch meeting to organization-wide scope");
+  if (!managementRoles.has(req.auth!.role) && (data.branchId !== undefined || data.departmentId !== undefined)) throw new AppError(403, "MEETING_SCOPE_CHANGE_FORBIDDEN", "Only management can change meeting branch or department scope");
   const startsAt = data.startsAt ?? meeting.startsAt;
   const endsAt = data.endsAt ?? meeting.endsAt;
   if (endsAt <= startsAt) throw new AppError(422, "MEETING_TIME_INVALID", "End time must follow start time");
-  await validateScope(req, data.branchId === undefined ? meeting.branchId : data.branchId, data.departmentId === undefined ? meeting.departmentId : data.departmentId);
+  if (managementRoles.has(req.auth!.role)) await validateScope(req, data.branchId === undefined ? meeting.branchId : data.branchId, data.departmentId === undefined ? meeting.departmentId : data.departmentId);
   const updated = await prisma.meeting.update({ where: { id: meeting.id }, data });
   if (data.startsAt || data.endsAt || data.timezone || data.title) {
     await invalidateFutureMeetingNotifications(org(req), meeting.id);
