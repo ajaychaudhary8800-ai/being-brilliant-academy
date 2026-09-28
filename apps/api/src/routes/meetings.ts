@@ -130,6 +130,19 @@ async function assertScopeTarget(scope: ActorScope, branchId?: string | null, de
   }
 }
 
+function assertVisibilityScope(scope: ActorScope, visibility: MeetingVisibility, branchId?: string | null, departmentId?: string | null) {
+  if (visibility === MeetingVisibility.ORGANIZATION && scope.role !== Role.SUPER_ADMIN) {
+    throw new AppError(403, "MEETING_ORGANIZATION_VISIBILITY_DENIED", "Organization-wide meeting visibility requires organization administrator access");
+  }
+  if (visibility === MeetingVisibility.BRANCH && !branchId) {
+    throw new AppError(422, "MEETING_VISIBILITY_BRANCH_REQUIRED", "Branch-visible meetings require a branch");
+  }
+  if (visibility === MeetingVisibility.DEPARTMENT && !departmentId) {
+    throw new AppError(422, "MEETING_VISIBILITY_DEPARTMENT_REQUIRED", "Department-visible meetings require a department");
+  }
+}
+
+
 async function meetingForActor(req: AuthRequest, meetingId: string) {
   const scope = await actorScope(req);
   const meeting = await prisma.meeting.findFirst({
@@ -498,6 +511,7 @@ router.post("/meetings", async (req: AuthRequest, res) => {
   }
   const data = meetingInput.parse(req.body);
   await assertScopeTarget(scope, data.branchId ?? null, data.departmentId ?? null);
+  assertVisibilityScope(scope, data.visibility, data.branchId ?? null, data.departmentId ?? null);
   const hostUserId = data.hostUserId ?? scope.userId;
   const expanded = await audienceUsers(req, scope, data.audiences);
   const allUserIds = [...new Set([hostUserId, ...data.participantUserIds, ...data.coHostUserIds, ...data.presenterUserIds, ...expanded])];
@@ -647,7 +661,11 @@ router.patch("/meetings/:id", async (req: AuthRequest, res) => {
   requireMeetingManager(scope, meeting);
   if ([MeetingStatus.CANCELLED, MeetingStatus.CLOSED].includes(meeting.status)) throw new AppError(409, "MEETING_IMMUTABLE", "Cancelled or closed meetings cannot be edited");
   const patch = meetingShape.partial().omit({ participantUserIds: true, coHostUserIds: true, presenterUserIds: true, audiences: true, agenda: true, recurrenceRule: true, recurrenceEnd: true }).parse(req.body);
-  await assertScopeTarget(scope, patch.branchId ?? meeting.branchId, patch.departmentId ?? meeting.departmentId);
+  const finalBranchId = patch.branchId === undefined ? meeting.branchId : patch.branchId;
+  const finalDepartmentId = patch.departmentId === undefined ? meeting.departmentId : patch.departmentId;
+  const finalVisibility = patch.visibility ?? meeting.visibility;
+  await assertScopeTarget(scope, finalBranchId, finalDepartmentId);
+  assertVisibilityScope(scope, finalVisibility, finalBranchId, finalDepartmentId);
   if (patch.endsAt && patch.startsAt && patch.endsAt <= patch.startsAt) throw new AppError(422, "MEETING_TIME_INVALID", "Meeting end time must be after start time");
   if (patch.endsAt && !patch.startsAt && patch.endsAt <= meeting.startsAt) throw new AppError(422, "MEETING_TIME_INVALID", "Meeting end time must be after start time");
   if (patch.startsAt && !patch.endsAt && meeting.endsAt <= patch.startsAt) throw new AppError(422, "MEETING_TIME_INVALID", "Meeting end time must be after start time");
