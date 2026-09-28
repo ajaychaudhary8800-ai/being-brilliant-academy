@@ -246,3 +246,48 @@ export async function scheduleMeetingNotifications(input: {
     });
   }
 }
+
+
+export async function scheduleDueMeetingReminders(now = new Date()) {
+  const horizon = new Date(now.getTime() + 25 * 60 * 60 * 1000);
+  const meetings = await prisma.meeting.findMany({
+    where: {
+      status: { in: ["SCHEDULED", "OPEN_FOR_JOIN"] },
+      startsAt: { gt: now, lte: horizon },
+    },
+    include: { participants: { where: { removedAt: null }, select: { id: true, userId: true } } },
+    take: 250,
+    orderBy: { startsAt: "asc" },
+  });
+  let processed = 0;
+  for (const meeting of meetings) {
+    await scheduleMeetingNotifications({
+      organizationId: meeting.organizationId,
+      meetingId: meeting.id,
+      title: meeting.title,
+      startsAt: meeting.startsAt,
+      timezone: meeting.timezone,
+      participants: meeting.participants,
+      invitation: false,
+    });
+    processed += 1;
+  }
+  return { processed };
+}
+
+export async function invalidateFutureMeetingNotifications(organizationId: string, meetingId: string, now = new Date()) {
+  const reminders = await prisma.meetingInvite.findMany({
+    where: { organizationId, meetingId, kind: { startsWith: "REMINDER_" }, scheduledAt: { gt: now } },
+    select: { id: true, notificationId: true },
+  });
+  const notificationIds = reminders.map(x => x.notificationId).filter((x): x is string => Boolean(x));
+  if (notificationIds.length) {
+    await prisma.notification.updateMany({
+      where: { organizationId, id: { in: notificationIds } },
+      data: { deletedAt: now },
+    });
+  }
+  await prisma.meetingInvite.deleteMany({
+    where: { organizationId, id: { in: reminders.map(x => x.id) } },
+  });
+}
