@@ -67,6 +67,23 @@ async function audit(req: AuthRequest, meetingId: string, action: string, entity
   }});
 }
 
+router.get("/meetings/:id/audit", async (req: AuthRequest, res) => {
+  const meeting = await loadMeeting(req, String(req.params.id));
+  await assertManage(req, meeting);
+  const rows = await prisma.meetingAuditLog.findMany({
+    where: { organizationId: org(req), meetingId: meeting.id },
+    orderBy: { createdAt: "desc" },
+    take: 500,
+  });
+  const actorIds = [...new Set(rows.map(row => row.actorUserId))];
+  const users = actorIds.length ? await prisma.user.findMany({
+    where: { organizationId: org(req), id: { in: actorIds } },
+    select: { id: true, name: true, email: true },
+  }) : [];
+  const userMap = new Map(users.map(user => [user.id, user]));
+  res.json({ data: rows.map(row => ({ ...row, actor: userMap.get(row.actorUserId) ?? null })) });
+});
+
 router.get("/meetings/:id/attendance", async (req: AuthRequest, res) => {
   const meeting = await loadMeeting(req, String(req.params.id));
   await assertView(req, meeting);
