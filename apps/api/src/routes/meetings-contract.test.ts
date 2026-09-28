@@ -37,3 +37,31 @@ test("host and co-host management are explicit meeting roles", () => {
   assert.match(route, /MeetingParticipantRole\.HOST/);
   assert.match(route, /MeetingParticipantRole\.CO_HOST/);
 });
+
+
+test("recurring meetings keep a durable series template and occurrence identity", () => {
+  assert.match(schema, /model MeetingSeries \{[\s\S]*?template\s+Json/);
+  assert.match(schema, /occurrenceIndex\s+Int\?/);
+  assert.match(schema, /@@unique\(\[seriesId, occurrenceIndex\]\)/);
+  assert.match(route, /router\.post\("\/meeting-series"/);
+  assert.match(route, /generateMeetingOccurrences/);
+});
+
+test("department and reusable team audiences are first-class meeting concepts", () => {
+  assert.match(schema, /model MeetingTeam \{/);
+  assert.match(schema, /model MeetingTeamMember \{/);
+  assert.match(route, /router\.post\("\/meeting-teams"/);
+  assert.match(route, /audiences: z\.array\(audienceInput\)/);
+  assert.match(route, /resolveMeetingParticipants/);
+});
+
+test("meeting invitations use the existing notification infrastructure", async () => {
+  const scheduling = await readFile(new URL("../lib/meeting-scheduling.ts", import.meta.url), "utf8");
+  assert.match(schema, /model MeetingInvite \{/);
+  assert.match(scheduling, /prisma\.notification\.create/);
+  assert.match(scheduling, /prisma\.notificationDelivery\.createMany/);
+  assert.match(scheduling, /REMINDER_1440/);
+  assert.match(scheduling, /REMINDER_60/);
+  assert.match(scheduling, /REMINDER_10/);
+  assert.match(server, /meetingReminders/);
+});
