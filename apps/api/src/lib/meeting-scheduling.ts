@@ -321,3 +321,54 @@ export async function sendMeetingNotification(input: {
   });
   return notification;
 }
+
+
+export async function scheduleDueMeetingActionNotifications(now = new Date()) {
+  const horizon = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const actions = await prisma.meetingActionItem.findMany({
+    where: {
+      status: { in: ["OPEN", "IN_PROGRESS", "BLOCKED"] },
+      dueAt: { not: null, lte: horizon },
+    },
+    include: { meeting: { select: { id: true, title: true } } },
+    take: 500,
+    orderBy: { dueAt: "asc" },
+  });
+  let queued = 0;
+  for (const action of actions) {
+    if (!action.dueAt) continue;
+    const overdue = action.dueAt < now;
+    const category = overdue ? "MEETING_ACTION_OVERDUE" : "MEETING_ACTION_DUE";
+    const exists = await prisma.notification.findFirst({
+      where: {
+        organizationId: action.organizationId,
+        userId: action.assigneeUserId,
+        category,
+        sourceModule: "MEETING_ACTIONS",
+        sourceEntityId: action.id,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (exists) continue;
+    const channels = await notificationChannels(action.organizationId, action.assigneeUserId);
+    const notification = await prisma.notification.create({ data: {
+      organizationId: action.organizationId,
+      userId: action.assigneeUserId,
+      title: overdue ? `Overdue meeting action: ${action.title}` : `Meeting action due soon: ${action.title}`,
+      body: `${action.meeting.title} · Due ${action.dueAt.toISOString()}`,
+      category,
+      sourceModule: "MEETING_ACTIONS",
+      sourceEntityId: action.id,
+      actionUrl: `/admin/meetings/${action.meeting.id}`,
+      priority: overdue ? "HIGH" : "NORMAL",
+      channels,
+    }});
+    const deliveries = channels.filter(channel => channel !== "IN_APP");
+    if (deliveries.length) await prisma.notificationDelivery.createMany({
+      data: deliveries.map(channel => ({ organizationId: action.organizationId, notificationId: notification.id, channel, status: "QUEUED" })),
+    });
+    queued += 1;
+  }
+  return { queued };
+}
