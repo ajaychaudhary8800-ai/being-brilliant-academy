@@ -210,6 +210,51 @@ async function createOccurrence(input: {
   });
 }
 
+router.get("/meetings/options", async (req: AuthRequest, res) => {
+  if (!managementRoles.has(req.auth!.role)) throw new AppError(403, "MEETING_OPTIONS_FORBIDDEN", "Meeting scheduling options require management access");
+  const scope = await allowedBranches(req);
+  const branchWhere = scope ? { id: { in: scope } } : {};
+  const [branches, departments, users, teams] = await Promise.all([
+    prisma.branch.findMany({
+      where: { organizationId: org(req), isActive: true, ...branchWhere },
+      select: { id: true, branchName: true, branchCode: true },
+      orderBy: { branchName: "asc" },
+    }),
+    prisma.department.findMany({
+      where: { organizationId: org(req), isArchived: false },
+      select: { id: true, name: true, code: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.user.findMany({
+      where: {
+        organizationId: org(req),
+        isActive: true,
+        role: { in: [Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.ACCOUNTANT, Role.TEACHER, Role.EMPLOYEE] },
+        ...(scope ? {
+          OR: [
+            { teacherProfile: { branchId: { in: scope } } },
+            { employee: { branchId: { in: scope } } },
+            { branchAssignments: { some: { branchId: { in: scope } } } },
+          ],
+        } : {}),
+      },
+      select: {
+        id: true, name: true, email: true, role: true,
+        teacherProfile: { select: { branchId: true } },
+        employee: { select: { branchId: true, departmentId: true, employeeCode: true } },
+        branchAssignments: { select: { branchId: true } },
+      },
+      orderBy: { name: "asc" },
+    }),
+    prisma.meetingTeam.findMany({
+      where: { organizationId: org(req), isActive: true, ...(scope ? { OR: [{ branchId: null }, { branchId: { in: scope } }] } : {}) },
+      include: { members: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  res.json({ data: { branches, departments, users, teams } });
+});
+
 router.get("/meeting-teams", async (req: AuthRequest, res) => {
   if (!managementRoles.has(req.auth!.role)) throw new AppError(403, "MEETING_TEAM_FORBIDDEN", "Meeting team administration requires management access");
   const scope = await allowedBranches(req);
