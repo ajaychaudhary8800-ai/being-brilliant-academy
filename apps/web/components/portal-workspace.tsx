@@ -1911,7 +1911,7 @@ function Workspace({ role }: { role: PortalRole }) {
   useEffect(() => {
     void load();
   }, [load]);
-  const tabs = role === "TEACHER" ? ["overview", "classes", "learning", "live-classes", "students", "homework", "attendance", "examinations", "notifications", "announcements", "messages", "leave", "profile"] : role === "STUDENT" ? ["overview", "learning", "live-classes", "homework", "timetable", "attendance", "examinations", "fees", "notifications", "announcements", "messages", "leave", "profile"] : ["overview", "notifications", "announcements", "messages", "leave", "profile"];
+  const tabs = role === "TEACHER" ? ["overview", "classes", "learning", "live-classes", "meetings", "students", "homework", "attendance", "examinations", "notifications", "announcements", "messages", "leave", "profile"] : role === "STUDENT" ? ["overview", "learning", "live-classes", "homework", "timetable", "attendance", "examinations", "fees", "notifications", "announcements", "messages", "leave", "profile"] : ["overview", "notifications", "announcements", "messages", "leave", "profile"];
   async function markRead(notificationId: string) {
     await portalRequest(`/notifications/${notificationId}/read`, {
       method: "PATCH",
@@ -1943,6 +1943,10 @@ function Workspace({ role }: { role: PortalRole }) {
             tab === "live-classes" ? (
               <Link key={tab} href="/learning-hub?tab=live-classes" className="whitespace-nowrap rounded-full border bg-white px-4 py-2 text-sm font-bold dark:bg-slate-900">
                 Live Classes
+              </Link>
+            ) : tab === "meetings" ? (
+              <Link key={tab} href="/meetings" className="whitespace-nowrap rounded-full border bg-white px-4 py-2 text-sm font-bold dark:bg-slate-900">
+                Staff Meetings
               </Link>
             ) : (
               <button key={tab} onClick={() => setActive(tab)} className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold ${active === tab ? "bg-brand-700 text-white" : "border bg-white dark:bg-slate-900"}`}>
