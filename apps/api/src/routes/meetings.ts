@@ -90,7 +90,7 @@ const participantInput = z.object({
   meetingRole: z.nativeEnum(MeetingParticipantRole).default(MeetingParticipantRole.PARTICIPANT),
 });
 
-const meetingInput = z.object({
+const meetingBaseInput = z.object({
   title: z.string().trim().min(3).max(220),
   description: z.string().max(10000).nullable().optional(),
   type: z.nativeEnum(MeetingType).default(MeetingType.GENERAL),
@@ -112,7 +112,9 @@ const meetingInput = z.object({
   joinBeforeMinutes: z.number().int().min(0).max(120).default(10),
   lockAfterStart: z.boolean().default(false),
   participants: z.array(participantInput).max(500).default([]),
-}).superRefine((value, ctx) => {
+});
+
+const meetingInput = meetingBaseInput.superRefine((value, ctx) => {
   if (value.endsAt <= value.startsAt) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["endsAt"], message: "End time must follow start time" });
   if (value.recordingRequired && !value.allowRecording) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["recordingRequired"], message: "Required recording needs recording enabled" });
 });
@@ -179,7 +181,7 @@ router.patch("/meetings/:id", async (req: AuthRequest, res) => {
   const meeting = await getMeeting(req, String(req.params.id));
   await canManage(req, meeting);
   if ([MeetingStatus.ENDED, MeetingStatus.CLOSED, MeetingStatus.CANCELLED].includes(meeting.status)) throw new AppError(409, "MEETING_IMMUTABLE", "Meeting is no longer editable");
-  const data = meetingInput.omit({ participants: true, hostUserId: true }).partial().parse(req.body);
+  const data = meetingBaseInput.omit({ participants: true, hostUserId: true }).partial().parse(req.body);
   const startsAt = data.startsAt ?? meeting.startsAt;
   const endsAt = data.endsAt ?? meeting.endsAt;
   if (endsAt <= startsAt) throw new AppError(422, "MEETING_TIME_INVALID", "End time must follow start time");
