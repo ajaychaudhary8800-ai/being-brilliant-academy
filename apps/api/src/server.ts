@@ -82,7 +82,7 @@ import meetingWorkflow from "./routes/meeting-workflow.js";
 import { reconcileSaaSLifecycle } from "./lib/saas-commercial.js";
 import { isTenantCorsOriginAllowed } from "./lib/cors-origin.js";
 import { livekitHealth } from "./lib/livekit.js";
-import { scheduleDueMeetingReminders } from "./lib/meeting-scheduling.js";
+import { scheduleDueMeetingActionNotifications, scheduleDueMeetingReminders } from "./lib/meeting-scheduling.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -406,10 +406,12 @@ saasLifecycleWorker.unref();
 const runMeetingReminderWorker = async () => {
   const finishMetric = startWorkerRun("meeting_reminders");
   try {
-    const result = await scheduleDueMeetingReminders(new Date());
+    const now = new Date();
+    const [reminders, actions] = await Promise.all([scheduleDueMeetingReminders(now), scheduleDueMeetingActionNotifications(now)]);
+    const result = { processed: reminders.processed, actionNotifications: actions.queued };
     workerHeartbeats.meetingReminders = { lastSuccessAt: new Date(), lastFailureAt: workerHeartbeats.meetingReminders.lastFailureAt, lastError: null };
     finishMetric("success");
-    if (result.processed) logger.info(result, "Meeting reminders reconciled");
+    if (result.processed || result.actionNotifications) logger.info(result, "Meeting reminders reconciled");
   } catch (error) {
     workerHeartbeats.meetingReminders = {
       lastSuccessAt: workerHeartbeats.meetingReminders.lastSuccessAt,
