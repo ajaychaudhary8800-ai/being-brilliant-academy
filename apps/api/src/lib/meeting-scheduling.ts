@@ -292,3 +292,32 @@ export async function invalidateFutureMeetingNotifications(organizationId: strin
     where: { organizationId, id: { in: reminders.map(x => x.id) } },
   });
 }
+
+
+export async function sendMeetingNotification(input: {
+  organizationId: string;
+  userId: string;
+  meetingId: string;
+  title: string;
+  body: string;
+  priority?: "LOW" | "NORMAL" | "HIGH" | "URGENT";
+}) {
+  const channels = await notificationChannels(input.organizationId, input.userId);
+  const notification = await prisma.notification.create({ data: {
+    organizationId: input.organizationId,
+    userId: input.userId,
+    title: input.title,
+    body: input.body,
+    category: "MEETING",
+    sourceModule: "MEETINGS",
+    sourceEntityId: input.meetingId,
+    actionUrl: `/admin/meetings/${input.meetingId}`,
+    priority: input.priority ?? "NORMAL",
+    channels,
+  }});
+  const deliveries = channels.filter(channel => channel !== "IN_APP");
+  if (deliveries.length) await prisma.notificationDelivery.createMany({
+    data: deliveries.map(channel => ({ organizationId: input.organizationId, notificationId: notification.id, channel, status: "QUEUED" })),
+  });
+  return notification;
+}
