@@ -335,3 +335,10 @@ ALTER TABLE "MeetingInvite" ADD CONSTRAINT "MeetingInvite_meetingId_fkey" FOREIG
 ALTER TABLE "MeetingInvite" ADD CONSTRAINT "MeetingInvite_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "MeetingParticipant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "MeetingCalendarLink" ADD CONSTRAINT "MeetingCalendarLink_meetingId_fkey" FOREIGN KEY ("meetingId") REFERENCES "Meeting"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "MeetingAuditLog" ADD CONSTRAINT "MeetingAuditLog_meetingId_fkey" FOREIGN KEY ("meetingId") REFERENCES "Meeting"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+
+-- Preserve existing tenant access while exposing explicit commercial controls.
+-- Future plan packaging can disable these keys per plan from the SaaS control center.
+UPDATE "SaaSPlan"
+SET "entitlements" = COALESCE("entitlements", '{}'::jsonb)
+  || '{"meetings": true, "meetings_recording": true}'::jsonb;
