@@ -77,6 +77,7 @@ import saasSales from "./routes/saas-sales.js";
 import legalSalesDocuments from "./routes/legal-sales-documents.js";
 import platformControlCenter from "./routes/platform-control-center.js";
 import meetings from "./routes/meetings.js";
+import meetingLive from "./routes/meeting-live.js";
 import { reconcileSaaSLifecycle } from "./lib/saas-commercial.js";
 import { isTenantCorsOriginAllowed } from "./lib/cors-origin.js";
 import { livekitHealth } from "./lib/livekit.js";
@@ -313,6 +314,7 @@ app.use("/api/v1", onlyPaths(["/finance/payments", "/finance/payment-offsets"], 
 app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations));
 app.use("/api/v1", saasCommercial);
 app.use("/api/v1", onlyPaths(["/analytics"], analytics));
+app.use("/api/v1", onlyPaths(["/meetings/native"], meetingLive));
 app.use("/api/v1", onlyPaths(["/meetings", "/meeting-series", "/meeting-teams"], meetings));
 app.use("/api/v1", onlyPaths(["/inventory"], inventory));
 app.use("/api/v1", onlyPaths(["/communication"], communication));
