@@ -5,10 +5,12 @@ import {
   MeetingInvitationStatus,
   MeetingParticipantKind,
   MeetingParticipantRole,
+  MeetingRecordingStatus,
   MeetingStatus,
   Role,
 } from "@prisma/client";
 import { AppError } from "./http.js";
+import { deleteLiveKitRecordingObject } from "./livekit.js";
 import { prisma } from "./prisma.js";
 
 const staffRoles = [Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.ACCOUNTANT, Role.TEACHER, Role.EMPLOYEE] as const;
@@ -372,4 +374,44 @@ export async function scheduleDueMeetingActionNotifications(now = new Date()) {
     queued += 1;
   }
   return { queued };
+}
+
+
+export async function purgeExpiredMeetingRecordings(now = new Date()) {
+  const rows = await prisma.meetingRecording.findMany({
+    where: {
+      retentionUntil: { lte: now },
+      status: { not: MeetingRecordingStatus.DELETED },
+      storageKey: { not: null },
+    },
+    select: { id: true, organizationId: true, meetingId: true, storageKey: true },
+    take: 100,
+    orderBy: { retentionUntil: "asc" },
+  });
+  let purged = 0;
+  for (const row of rows) {
+    if (!row.storageKey) continue;
+    try {
+      await deleteLiveKitRecordingObject(row.storageKey);
+      await prisma.meetingRecording.update({
+        where: { id: row.id },
+        data: { status: MeetingRecordingStatus.DELETED, storageKey: null },
+      });
+      await prisma.meetingAuditLog.create({
+        data: {
+          organizationId: row.organizationId,
+          meetingId: row.meetingId,
+          actorUserId: "system",
+          action: "RETENTION_DELETE_RECORDING",
+          entityType: "MeetingRecording",
+          entityId: row.id,
+          metadata: { retentionPurgedAt: now.toISOString() },
+        },
+      });
+      purged += 1;
+    } catch {
+      // Retention is retried on the next worker cycle.
+    }
+  }
+  return { purged };
 }
