@@ -865,7 +865,8 @@ router.post("/meetings/:id/join-token", async (req: AuthRequest, res) => {
       roomAdmin: manager,
       canSubscribe: true,
       canPublish: publish,
-      canPublishData: meeting.allowChat || meeting.allowWhiteboard,
+      // Data channel remains available for raise-hand/reactions even when chat or whiteboard is disabled.
+      canPublishData: publish,
       canUpdateOwnMetadata: true,
       ...(publish ? { canPublishSources: sources } : {}),
     },
@@ -881,13 +882,14 @@ router.post("/meetings/:id/join-token", async (req: AuthRequest, res) => {
       settings: {
         allowChat: meeting.allowChat,
         allowWhiteboard: meeting.allowWhiteboard,
+        allowRecording: meeting.allowRecording,
         allowAnnotation: meeting.allowAnnotation,
         allowScreenShare: meeting.allowScreenShare,
         allowParticipantMic: meeting.allowParticipantMic,
         allowParticipantCamera: meeting.allowParticipantCamera,
       },
       recordingConfigured: livekitRecordingConfigured(),
-      recordingAvailable: meeting.recordings.some(recording => recording.status === MeetingRecordingStatus.AVAILABLE),
+      recordingAvailable: meeting.recordings.some(recording => recording.status !== MeetingRecordingStatus.DELETED),
       whiteboardData: meeting.whiteboardData ?? [],
     },
   });
