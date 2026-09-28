@@ -32,6 +32,12 @@ const schema = z.object({
   AI_PROVIDER_URL: optionalUrl,
   AI_API_KEY: optionalString,
   AI_MODEL: z.string().default("learning-assistant"),
+  AI_EXAMINER_PROVIDER_URL: optionalUrl,
+  AI_EXAMINER_API_KEY: optionalString,
+  AI_EXAMINER_MODEL: optionalString,
+  AI_EXAMINER_REVIEW_THRESHOLD: z.coerce.number().min(0.5).max(1).default(0.85),
+  AI_EXAMINER_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(120_000),
+  AI_EXAMINER_WORKER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(60_000).default(5_000),
   LIVEKIT_URL: optionalUrl,
   LIVEKIT_API_KEY: optionalString,
   LIVEKIT_API_SECRET: optionalString,
@@ -75,6 +81,7 @@ const schema = z.object({
     if (configured.length && configured.length !== keys.length) context.addIssue({ code: "custom", path: [keys[0]], message: `${label} requires ${keys.join(", ")}` });
   };
   requireTogether(["LIVEKIT_RECORDING_S3_REGION", "LIVEKIT_RECORDING_S3_BUCKET", "LIVEKIT_RECORDING_S3_ACCESS_KEY_ID", "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY"], "LiveKit recording storage");
+  requireTogether(["AI_EXAMINER_PROVIDER_URL", "AI_EXAMINER_API_KEY", "AI_EXAMINER_MODEL"], "AI Examiner provider");
   if (value.NODE_ENV === "production") {
     requireTogether(["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM"], "SMTP");
     requireTogether(["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SMS_FROM"], "Twilio SMS");
