@@ -81,7 +81,7 @@ async function canManage(req: AuthRequest, meeting: Awaited<ReturnType<typeof ge
     return;
   }
   const membership = meeting.participants.find(p => p.userId === actor(req));
-  if (membership && [MeetingParticipantRole.HOST, MeetingParticipantRole.CO_HOST].includes(membership.meetingRole)) return;
+  if (membership && (membership.meetingRole === MeetingParticipantRole.HOST || membership.meetingRole === MeetingParticipantRole.CO_HOST)) return;
   throw new AppError(403, "MEETING_MANAGE_FORBIDDEN", "Meeting management access denied");
 }
 
@@ -145,6 +145,7 @@ router.get("/meetings/:id", async (req: AuthRequest, res) => {
 router.post("/meetings", async (req: AuthRequest, res) => {
   if (!managementRoles.has(req.auth!.role)) throw new AppError(403, "MEETING_CREATE_FORBIDDEN", "Only management can schedule meetings");
   const data = meetingInput.parse(req.body);
+  if (req.auth!.role === Role.BRANCH_ADMIN && !data.branchId) throw new AppError(403, "MEETING_BRANCH_REQUIRED", "Branch administrators can schedule meetings only within an assigned branch");
   if (data.branchId) await assertErpBranchTarget(await erpBranchScope(req), data.branchId);
   await assertParticipantTarget(req, data.hostUserId, data.branchId);
 
@@ -180,8 +181,9 @@ router.post("/meetings", async (req: AuthRequest, res) => {
 router.patch("/meetings/:id", async (req: AuthRequest, res) => {
   const meeting = await getMeeting(req, String(req.params.id));
   await canManage(req, meeting);
-  if ([MeetingStatus.ENDED, MeetingStatus.CLOSED, MeetingStatus.CANCELLED].includes(meeting.status)) throw new AppError(409, "MEETING_IMMUTABLE", "Meeting is no longer editable");
+  if (meeting.status === MeetingStatus.ENDED || meeting.status === MeetingStatus.CLOSED || meeting.status === MeetingStatus.CANCELLED) throw new AppError(409, "MEETING_IMMUTABLE", "Meeting is no longer editable");
   const data = meetingBaseInput.omit({ participants: true, hostUserId: true }).partial().parse(req.body);
+  if (req.auth!.role === Role.BRANCH_ADMIN && data.branchId === null) throw new AppError(403, "MEETING_BRANCH_REQUIRED", "Branch administrators cannot convert a branch meeting to organization-wide scope");
   const startsAt = data.startsAt ?? meeting.startsAt;
   const endsAt = data.endsAt ?? meeting.endsAt;
   if (endsAt <= startsAt) throw new AppError(422, "MEETING_TIME_INVALID", "End time must follow start time");
