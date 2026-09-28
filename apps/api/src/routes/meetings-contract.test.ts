@@ -10,7 +10,7 @@ const migrationUrl = new URL("../../prisma/migrations/20260928164500_add_enterpr
 test("staff meetings are a separate enterprise domain from LiveClass", async () => {
   const schema = await readFile(schemaUrl, "utf8");
   for (const model of [
-    "MeetingSeries", "Meeting", "MeetingAudience", "MeetingParticipant", "MeetingAgendaItem",
+    "MeetingDepartmentAuthority", "MeetingSeries", "Meeting", "MeetingAudience", "MeetingParticipant", "MeetingAgendaItem",
     "MeetingAttachment", "MeetingAttendance", "MeetingAttendanceSession", "MeetingMinutes",
     "MeetingDecision", "MeetingActionItem", "MeetingRecording", "MeetingInvite",
     "MeetingCalendarLink", "MeetingAuditLog",
@@ -32,6 +32,10 @@ test("meeting API derives room authority server-side and preserves scope", async
   assert.match(route, /visibility: MeetingVisibility\.DEPARTMENT, departmentId: \{ in: scope\.departmentIds \}/);
   assert.match(route, /meetingManagerRoles\.has\(participant\.meetingRole\)/);
   assert.match(route, /MEETING_ORGANIZATION_VISIBILITY_DENIED/);
+  assert.match(route, /MEETING_BRANCH_VISIBILITY_DENIED/);
+  assert.match(route, /MEETING_DEPARTMENT_VISIBILITY_DENIED/);
+  assert.match(route, /managedDepartmentIds/);
+  assert.match(route, /MeetingDepartmentAuthorityRole/);
   assert.match(route, /createLiveKitToken\(\{/);
   assert.match(route, /role: participant\.meetingRole/);
   assert.doesNotMatch(route, /req\.body\.role.*createLiveKitToken/s);
@@ -46,6 +50,7 @@ test("meeting search composes visibility and text filters instead of replacing a
 test("meeting lifecycle covers collaboration, governance and accountability", async () => {
   const route = await readFile(routeUrl, "utf8");
   for (const path of [
+    "/meetings/department-authorities",
     "/meetings/:id/join-token",
     "/meetings/:id/control",
     "/meetings/:id/whiteboard",
