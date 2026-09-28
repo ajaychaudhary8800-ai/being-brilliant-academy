@@ -130,7 +130,8 @@ export function generateMeetingOccurrences(input: {
       const p=addLocalDays(startLocal,dayOffset);
       const instant=localToUtc(p,input.timezone);
       if(instant>horizon || parsed.until&&instant>parsed.until) break;
-      const weekOffset=Math.floor((localDateSerial(p)-localDateSerial(startLocal))/7);
+      const startWeekSerial=localDateSerial(startLocal)-((localDayOfWeek(startLocal)+6)%7);
+      const weekOffset=Math.floor((localDateSerial(p)-startWeekSerial)/7);
       if(weekOffset<0 || weekOffset%parsed.interval!==0 || !selected.includes(localDayOfWeek(p))) continue;
       if(!accept(p)) break;
     }
