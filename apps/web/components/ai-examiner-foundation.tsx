@@ -146,12 +146,12 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
             <StatusCard label="Question paper" ok={Boolean(readiness.questionPaper?.publishedAt)} value={readiness.questionPaper?.publishedAt?"Published":"Required"}/>
             <StatusCard label="Active rubric" ok={Boolean(readiness.activeRubric)} value={readiness.activeRubric?`Version ${readiness.activeRubric.version}`:"Required"}/>
             <StatusCard label="Answer sheets" ok={readiness.answerSheets.total>0} value={String(readiness.answerSheets.total)}/>
-            <StatusCard label="Evaluation setup" ok={readiness.setupReady} value={readiness.setupReady?"Ready":"Blocked"}/>
+            <StatusCard label="Assessment prerequisites" ok={readiness.setupReady} value={readiness.setupReady?"Ready":"Blocked"}/>
           </section>
           <section className="mt-5 rounded-2xl border bg-white p-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div><h2 className="text-xl font-bold">{readiness.examination.name}</h2><p className="text-sm text-slate-500">{readiness.examination.subject.name} · {readiness.examination.batch.name} · Maximum {maximum} marks</p></div>
-              <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm"><b>Engine:</b> {readiness.engine.providerConfigured?"AI provider configured":"AI provider not configured"}<br/><span className="text-slate-500">Evaluation runner is intentionally disabled in this foundation phase.</span></div>
+              <div className={`rounded-xl px-4 py-3 text-sm ${readiness.engine.providerConfigured&&readiness.engine.evaluationExecutionAvailable?"bg-emerald-50 text-emerald-800":"bg-amber-50 text-amber-900"}`}><b>AI execution:</b> {readiness.engine.providerConfigured&&readiness.engine.evaluationExecutionAvailable?"Ready":"Not ready"}<br/><span>{readiness.engine.providerConfigured?"AI provider configured":"AI provider not configured"} · {readiness.engine.evaluationExecutionAvailable?"evaluation runner enabled":"evaluation runner disabled"}</span></div>
             </div>
             {readiness.blockers.length>0&&<div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><b>Readiness blockers</b><ul className="mt-2 list-disc space-y-1 pl-5">{readiness.blockers.map(item=><li key={item}>{item}</li>)}</ul></div>}
           </section>
