@@ -164,8 +164,8 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
         data: {
           status: AIExaminerEvaluationStatus.REVIEW_REQUIRED,
           engineVersion: AI_EXAMINER_ENGINE_VERSION,
-          provider: new URL(env.AI_PROVIDER_URL!).hostname,
-          model: env.AI_MODEL,
+          provider: new URL(env.AI_EXAMINER_PROVIDER_URL!).hostname,
+          model: env.AI_EXAMINER_MODEL,
           extractedText: result.extractedText ?? null,
           suggestedMarks: total,
           confidence,
