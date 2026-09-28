@@ -720,8 +720,11 @@ router.post("/meetings", async (req: AuthRequest, res) => {
   await assertParticipantScope(scope, users);
   const host = users.find(user => user.id === hostUserId);
   if (!host) throw new AppError(422, "MEETING_HOST_INVALID", "Host must be an active staff user");
+
+  const occurrenceStarts = recurrenceOccurrences(data.startsAt, data.timezone, data.recurrenceRule, data.recurrenceEnd);
+  const durationMs = data.endsAt.getTime() - data.startsAt.getTime();
   const now = new Date();
-  const result = await prisma.$transaction(async tx => {
+  const meetings = await prisma.$transaction(async tx => {
     const series = data.recurrenceRule ? await tx.meetingSeries.create({
       data: {
         organizationId: scope.organizationId,
@@ -730,109 +733,149 @@ router.post("/meetings", async (req: AuthRequest, res) => {
         departmentId: data.departmentId ?? null,
         timezone: data.timezone,
         recurrenceRule: data.recurrenceRule,
-        recurrenceStart: data.startsAt,
-        recurrenceEnd: data.recurrenceEnd ?? null,
+        recurrenceStart: occurrenceStarts[0],
+        recurrenceEnd: data.recurrenceEnd ?? occurrenceStarts.at(-1) ?? null,
         createdById: scope.userId,
       },
     }) : null;
-    const meeting = await tx.meeting.create({
+
+    const created = [];
+    for (const startsAt of occurrenceStarts) {
+      const meeting = await tx.meeting.create({
+        data: {
+          organizationId: scope.organizationId,
+          seriesId: series?.id,
+          title: data.title,
+          description: data.description ?? null,
+          type: data.type,
+          branchId: data.branchId ?? null,
+          departmentId: data.departmentId ?? null,
+          startsAt,
+          endsAt: new Date(startsAt.getTime() + durationMs),
+          timezone: data.timezone,
+          status: data.status,
+          visibility: data.visibility,
+          hostUserId,
+          allowRecording: data.allowRecording,
+          recordingRequired: data.recordingRequired,
+          allowChat: data.allowChat,
+          allowWhiteboard: data.allowWhiteboard,
+          allowAnnotation: data.allowAnnotation,
+          allowScreenShare: data.allowScreenShare,
+          allowParticipantMic: data.allowParticipantMic,
+          allowParticipantCamera: data.allowParticipantCamera,
+          joinBeforeMinutes: data.joinBeforeMinutes,
+          lockAfterStart: data.lockAfterStart,
+          createdById: scope.userId,
+        },
+      });
+      if (data.audiences.length) {
+        await tx.meetingAudience.createMany({
+          data: data.audiences.map(audience => ({
+            organizationId: scope.organizationId,
+            meetingId: meeting.id,
+            type: audience.type,
+            branchId: audience.branchId ?? null,
+            departmentId: audience.departmentId ?? null,
+            teamKey: audience.teamKey ?? null,
+            role: audience.role ?? null,
+          })),
+        });
+      }
+      await tx.meetingParticipant.createMany({
+        data: users.map(user => {
+          const role = user.id === hostUserId
+            ? MeetingParticipantRole.HOST
+            : data.coHostUserIds.includes(user.id)
+              ? MeetingParticipantRole.CO_HOST
+              : data.presenterUserIds.includes(user.id)
+                ? MeetingParticipantRole.PRESENTER
+                : MeetingParticipantRole.PARTICIPANT;
+          return {
+            organizationId: scope.organizationId,
+            meetingId: meeting.id,
+            userId: user.id,
+            participantType: staffParticipantType(user),
+            meetingRole: role,
+            invitationStatus: MeetingInvitationStatus.SENT,
+            responseStatus: user.id === hostUserId ? MeetingResponseStatus.ACCEPTED : MeetingResponseStatus.PENDING,
+            addedById: scope.userId,
+            invitedAt: now,
+            acceptedAt: user.id === hostUserId ? now : null,
+          };
+        }),
+      });
+      const participants = await tx.meetingParticipant.findMany({ where: { meetingId: meeting.id }, select: { id: true, userId: true } });
+      if (participants.length) {
+        await tx.meetingAttendance.createMany({
+          data: participants.map(participant => ({ organizationId: scope.organizationId, meetingId: meeting.id, participantId: participant.id })),
+        });
+        await tx.meetingInvite.createMany({
+          data: participants.filter(participant => participant.userId !== hostUserId).flatMap(participant => ["IN_APP", "EMAIL"].map(channel => ({
+            organizationId: scope.organizationId,
+            meetingId: meeting.id,
+            participantId: participant.id,
+            channel,
+            status: MeetingInvitationStatus.SENT,
+            sentAt: now,
+          }))),
+        });
+      }
+      if (data.agenda.length) {
+        await tx.meetingAgendaItem.createMany({
+          data: data.agenda.map((item, index) => ({
+            organizationId: scope.organizationId,
+            meetingId: meeting.id,
+            title: item.title,
+            description: item.description ?? null,
+            sequence: index + 1,
+            presenterUserId: item.presenterUserId ?? null,
+            plannedMinutes: item.plannedMinutes ?? null,
+          })),
+        });
+      }
+      created.push(meeting);
+    }
+    return created;
+  }, { timeout: 30_000 });
+
+  const primary = meetings[0];
+  if (!primary) throw new AppError(500, "MEETING_CREATE_FAILED", "Meeting series did not create an occurrence");
+  let sideEffectFailures = 0;
+  for (const [index, meeting] of meetings.entries()) {
+    try {
+      await scheduleMeetingNotifications(req, meeting, allUserIds.filter(userId => userId !== scope.userId), index === 0);
+      await syncInternalCalendar(req, meeting, allUserIds);
+    } catch {
+      sideEffectFailures += 1;
+    }
+    await audit(req, meeting.id, index === 0 ? "CREATE" : "SERIES_OCCURRENCE_CREATE", "Meeting", meeting.id, {
+      participantCount: allUserIds.length,
+      recurring: Boolean(data.recurrenceRule),
+      seriesId: meeting.seriesId,
+      occurrence: index + 1,
+      occurrenceCount: meetings.length,
+    });
+  }
+  if (sideEffectFailures) {
+    await prisma.auditLog.create({
       data: {
         organizationId: scope.organizationId,
-        seriesId: series?.id,
-        title: data.title,
-        description: data.description ?? null,
-        type: data.type,
-        branchId: data.branchId ?? null,
-        departmentId: data.departmentId ?? null,
-        startsAt: data.startsAt,
-        endsAt: data.endsAt,
-        timezone: data.timezone,
-        status: data.status,
-        visibility: data.visibility,
-        hostUserId,
-        allowRecording: data.allowRecording,
-        recordingRequired: data.recordingRequired,
-        allowChat: data.allowChat,
-        allowWhiteboard: data.allowWhiteboard,
-        allowAnnotation: data.allowAnnotation,
-        allowScreenShare: data.allowScreenShare,
-        allowParticipantMic: data.allowParticipantMic,
-        allowParticipantCamera: data.allowParticipantCamera,
-        joinBeforeMinutes: data.joinBeforeMinutes,
-        lockAfterStart: data.lockAfterStart,
-        createdById: scope.userId,
+        actorId: scope.userId,
+        action: "MEETING_SERIES_SIDE_EFFECT_PARTIAL",
+        entity: "MeetingSeries",
+        entityId: primary.seriesId ?? primary.id,
+        metadata: { failedOccurrences: sideEffectFailures, occurrenceCount: meetings.length },
       },
     });
-    if (data.audiences.length) {
-      await tx.meetingAudience.createMany({
-        data: data.audiences.map(audience => ({
-          organizationId: scope.organizationId,
-          meetingId: meeting.id,
-          type: audience.type,
-          branchId: audience.branchId ?? null,
-          departmentId: audience.departmentId ?? null,
-          teamKey: audience.teamKey ?? null,
-          role: audience.role ?? null,
-        })),
-      });
-    }
-    const participantRows = users.map(user => {
-      const role = user.id === hostUserId
-        ? MeetingParticipantRole.HOST
-        : data.coHostUserIds.includes(user.id)
-          ? MeetingParticipantRole.CO_HOST
-          : data.presenterUserIds.includes(user.id)
-            ? MeetingParticipantRole.PRESENTER
-            : MeetingParticipantRole.PARTICIPANT;
-      return {
-        organizationId: scope.organizationId,
-        meetingId: meeting.id,
-        userId: user.id,
-        participantType: staffParticipantType(user),
-        meetingRole: role,
-        invitationStatus: MeetingInvitationStatus.SENT,
-        responseStatus: user.id === hostUserId ? MeetingResponseStatus.ACCEPTED : MeetingResponseStatus.PENDING,
-        addedById: scope.userId,
-        invitedAt: now,
-        acceptedAt: user.id === hostUserId ? now : null,
-      };
-    });
-    await tx.meetingParticipant.createMany({ data: participantRows });
-    const participants = await tx.meetingParticipant.findMany({ where: { meetingId: meeting.id }, select: { id: true, userId: true } });
-    if (participants.length) {
-      await tx.meetingAttendance.createMany({
-        data: participants.map(participant => ({ organizationId: scope.organizationId, meetingId: meeting.id, participantId: participant.id })),
-      });
-      await tx.meetingInvite.createMany({
-        data: participants.filter(p => p.userId !== hostUserId).flatMap(participant => ["IN_APP", "EMAIL"].map(channel => ({
-          organizationId: scope.organizationId,
-          meetingId: meeting.id,
-          participantId: participant.id,
-          channel,
-          status: MeetingInvitationStatus.SENT,
-          sentAt: now,
-        }))),
-      });
-    }
-    if (data.agenda.length) {
-      await tx.meetingAgendaItem.createMany({
-        data: data.agenda.map((item, index) => ({
-          organizationId: scope.organizationId,
-          meetingId: meeting.id,
-          title: item.title,
-          description: item.description ?? null,
-          sequence: index + 1,
-          presenterUserId: item.presenterUserId ?? null,
-          plannedMinutes: item.plannedMinutes ?? null,
-        })),
-      });
-    }
-    return meeting;
+  }
+  res.status(201).json({
+    data: await prisma.meeting.findUnique({
+      where: { id: primary.id },
+      include: { participants: true, audiences: true, agendaItems: { orderBy: { sequence: "asc" } } },
+    }),
+    meta: { seriesId: primary.seriesId, occurrenceCount: meetings.length, sideEffectFailures },
   });
-  await scheduleMeetingNotifications(req, result, allUserIds.filter(userId => userId !== scope.userId));
-  await syncInternalCalendar(req, result, allUserIds);
-  await audit(req, result.id, "CREATE", "Meeting", result.id, { participantCount: allUserIds.length, recurring: Boolean(data.recurrenceRule) });
-  res.status(201).json({ data: await prisma.meeting.findUnique({ where: { id: result.id }, include: { participants: true, audiences: true, agendaItems: { orderBy: { sequence: "asc" } } } }) });
 });
 
 router.get("/meetings/:id", async (req: AuthRequest, res) => {
