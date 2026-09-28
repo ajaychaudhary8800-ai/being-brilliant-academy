@@ -4,6 +4,7 @@ import {
   MeetingInvitationStatus,
   MeetingParticipantKind,
   MeetingParticipantRole,
+  MeetingStatus,
   Role,
 } from "@prisma/client";
 import { AppError } from "./http.js";
@@ -252,7 +253,7 @@ export async function scheduleDueMeetingReminders(now = new Date()) {
   const horizon = new Date(now.getTime() + 25 * 60 * 60 * 1000);
   const meetings = await prisma.meeting.findMany({
     where: {
-      status: { in: ["SCHEDULED", "OPEN_FOR_JOIN"] },
+      status: { in: [MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN] },
       startsAt: { gt: now, lte: horizon },
     },
     include: { participants: { where: { removedAt: null }, select: { id: true, userId: true } } },
