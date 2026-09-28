@@ -957,7 +957,16 @@ router.patch("/meetings/:id", async (req: AuthRequest, res) => {
   const updated = await prisma.meeting.update({ where: { id: meeting.id }, data: patch as any });
   const calendarIds = (await prisma.meetingCalendarLink.findMany({ where: { meetingId: meeting.id, provider: MeetingCalendarProvider.INTERNAL }, select: { externalEventId: true } })).map(x => x.externalEventId).filter((x): x is string => Boolean(x));
   if (calendarIds.length) await prisma.calendarEvent.updateMany({ where: { id: { in: calendarIds } }, data: { title: updated.title, description: updated.description, startsAt: updated.startsAt, endsAt: updated.endsAt, branchId: updated.branchId } });
-  await audit(req, meeting.id, "UPDATE", "Meeting", meeting.id, { fields: Object.keys(patch) });
+  const scheduleChanged = ["title", "startsAt", "endsAt", "timezone"].some(field => field in patch);
+  if (scheduleChanged) {
+    await cancelFutureMeetingNotifications(req, [meeting.id]);
+    const recipients = meeting.participants.filter(participant => !participant.removedAt).map(participant => participant.userId);
+    for (const userId of recipients) {
+      await queueNotification(req, userId, "Meeting updated: " + updated.title, "The meeting schedule or details have changed. Review the updated meeting.", meeting.id);
+    }
+    await scheduleMeetingNotifications(req, updated, recipients, false);
+  }
+  await audit(req, meeting.id, "UPDATE", "Meeting", meeting.id, { fields: Object.keys(patch), remindersRebuilt: scheduleChanged });
   res.json({ data: updated });
 });
 
@@ -971,7 +980,7 @@ router.post("/meetings/:id/cancel", async (req: AuthRequest, res) => {
   const links = await prisma.meetingCalendarLink.findMany({ where: { meetingId: meeting.id, provider: MeetingCalendarProvider.INTERNAL }, select: { externalEventId: true } });
   const calendarIds = links.map(x => x.externalEventId).filter((x): x is string => Boolean(x));
   if (calendarIds.length) await prisma.calendarEvent.updateMany({ where: { id: { in: calendarIds } }, data: { status: "CANCELLED" } });
-  await prisma.notification.updateMany({ where: { sourceModule: "MEETINGS", sourceEntityId: meeting.id, scheduledAt: { gt: new Date() } }, data: { deletedAt: new Date() } });
+  await cancelFutureMeetingNotifications(req, [meeting.id, ...meeting.actionItems.map(action => action.id)]);
   for (const participant of meeting.participants.filter(p => !p.removedAt)) await queueNotification(req, participant.userId, "Meeting cancelled: " + meeting.title, reason || "The meeting has been cancelled.", meeting.id);
   await audit(req, meeting.id, "CANCEL", "Meeting", meeting.id, { reason });
   res.json({ data: updated });
@@ -1390,6 +1399,7 @@ router.post("/meetings/:id/actions", async (req: AuthRequest, res) => {
   if (data.decisionId && !meeting.decisions.some(d => d.id === data.decisionId)) throw new AppError(422, "MEETING_DECISION_INVALID", "Decision does not belong to this meeting");
   const row = await prisma.meetingActionItem.create({ data: { organizationId: scope.organizationId, meetingId: meeting.id, decisionId: data.decisionId ?? null, title: data.title, description: data.description ?? null, assigneeUserId: data.assigneeUserId, assignedById: scope.userId, dueAt: data.dueAt ?? null, priority: data.priority } });
   await queueNotification(req, data.assigneeUserId, "Meeting action assigned: " + data.title, "A meeting action item has been assigned to you.", meeting.id);
+  await scheduleActionReminders(req, meeting.id, row);
   await audit(req, meeting.id, "ASSIGN_ACTION", "MeetingActionItem", row.id, { assigneeUserId: data.assigneeUserId, dueAt: data.dueAt });
   res.status(201).json({ data: row });
 });
@@ -1423,7 +1433,15 @@ router.patch("/meeting-actions/:id", async (req: AuthRequest, res) => {
     if (forbidden) throw new AppError(403, "MEETING_ACTION_EDIT_DENIED", "Assignees may only update action status and completion notes");
   }
   const updated = await prisma.meetingActionItem.update({ where: { id: action.id }, data: { ...data, ...(data.status === MeetingActionStatus.COMPLETED ? { completedAt: new Date() } : data.status ? { completedAt: null } : {}) } as any });
-  await audit(req, action.meetingId, "UPDATE_ACTION", "MeetingActionItem", action.id, { fields: Object.keys(data) });
+  const reminderChanged = ["title", "assigneeUserId", "dueAt", "status"].some(field => field in data);
+  if (reminderChanged) {
+    await cancelFutureMeetingNotifications(req, [action.id]);
+    await scheduleActionReminders(req, action.meetingId, updated);
+  }
+  if (data.assigneeUserId && data.assigneeUserId !== action.assigneeUserId) {
+    await queueNotification(req, data.assigneeUserId, "Meeting action assigned: " + updated.title, "A meeting action item has been reassigned to you.", action.meetingId);
+  }
+  await audit(req, action.meetingId, "UPDATE_ACTION", "MeetingActionItem", action.id, { fields: Object.keys(data), remindersRebuilt: reminderChanged });
   res.json({ data: updated });
 });
 
@@ -1434,6 +1452,7 @@ router.post("/meeting-actions/:id/complete", async (req: AuthRequest, res) => {
   if (action.assigneeUserId !== scope.userId && !canManageMeeting(scope, action.meeting)) throw new AppError(403, "MEETING_ACTION_DENIED", "Only the assignee or meeting manager can complete this action");
   const completionNote = z.object({ completionNote: z.string().trim().max(10000).nullable().optional() }).parse(req.body).completionNote ?? null;
   const row = await prisma.meetingActionItem.update({ where: { id: action.id }, data: { status: MeetingActionStatus.COMPLETED, completedAt: new Date(), completionNote } });
+  await cancelFutureMeetingNotifications(req, [action.id]);
   if (action.assignedById !== scope.userId) await queueNotification(req, action.assignedById, "Meeting action completed: " + action.title, "The assigned action item has been completed.", action.meetingId);
   await audit(req, action.meetingId, "COMPLETE_ACTION", "MeetingActionItem", action.id);
   res.json({ data: row });
@@ -1445,6 +1464,8 @@ router.post("/meeting-actions/:id/reopen", async (req: AuthRequest, res) => {
   if (!action) throw new AppError(404, "MEETING_ACTION_NOT_FOUND", "Action item not found");
   requireMeetingManager(scope, action.meeting);
   const row = await prisma.meetingActionItem.update({ where: { id: action.id }, data: { status: MeetingActionStatus.IN_PROGRESS, completedAt: null } });
+  await cancelFutureMeetingNotifications(req, [action.id]);
+  await scheduleActionReminders(req, action.meetingId, row);
   await queueNotification(req, action.assigneeUserId, "Meeting action reopened: " + action.title, "A completed action item has been reopened.", action.meetingId);
   await audit(req, action.meetingId, "REOPEN_ACTION", "MeetingActionItem", action.id);
   res.json({ data: row });
