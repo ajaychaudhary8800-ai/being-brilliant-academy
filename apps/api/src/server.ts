@@ -17,6 +17,7 @@ import { MAX_NOTIFICATION_DELIVERY_ATTEMPTS, deliverNotification, providerStatus
 import { activeNotificationConstraints } from "./lib/notification-policy.js";
 import { deliverScheduledAnalyticsReports } from "./lib/analytics-report-scheduler.js";
 import { executeActiveAutomations } from "./lib/automation-executor.js";
+import { processQueuedAIExaminerEvaluations } from "./lib/ai-examiner-worker.js";
 import { onlyPaths } from "./lib/scoped-router.js";
 import auth from "./routes/auth.js";
 import courses from "./routes/courses.js";
@@ -208,10 +209,11 @@ type WorkerHeartbeat = {
   lastError: string | null;
 };
 
-const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation", WorkerHeartbeat> = {
+const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation" | "aiExaminer", WorkerHeartbeat> = {
   notificationDelivery: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   saasLifecycle: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   workflowAutomation: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
+  aiExaminer: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
 };
 
 function workerSnapshot(name: keyof typeof workerHeartbeats, maxAgeMs: number, now = new Date()) {
@@ -236,6 +238,7 @@ app.get("/health/operational", async (_req, res) => {
     notificationDelivery: workerSnapshot("notificationDelivery", 2 * 60_000),
     saasLifecycle: workerSnapshot("saasLifecycle", 10 * 60_000),
     workflowAutomation: workerSnapshot("workflowAutomation", 10 * 60_000),
+    aiExaminer: workerSnapshot("aiExaminer", Math.max(60_000, env.AI_EXAMINER_WORKER_INTERVAL_MS * 12)),
   };
   const healthy = Object.values(checks).every(Boolean) && Object.values(workers).every(worker => worker.healthy);
   res.status(healthy ? 200 : 503).json({
@@ -446,12 +449,44 @@ void runWorkflowAutomationWorker();
 const workflowAutomationWorker = setInterval(() => void runWorkflowAutomationWorker(), 5 * 60_000);
 workflowAutomationWorker.unref();
 
+let aiExaminerWorkerRunning = false;
+const runAIExaminerWorker = async () => {
+  if (aiExaminerWorkerRunning) return;
+  aiExaminerWorkerRunning = true;
+  const finishMetric = startWorkerRun("ai_examiner");
+  try {
+    const results = await processQueuedAIExaminerEvaluations(2);
+    const failed = results.filter(result => "failed" in result && result.failed);
+    workerHeartbeats.aiExaminer = {
+      lastSuccessAt: new Date(),
+      lastFailureAt: failed.length ? new Date() : workerHeartbeats.aiExaminer.lastFailureAt,
+      lastError: failed[0] && "error" in failed[0] ? failed[0].error?.message ?? null : null,
+    };
+    finishMetric(failed.length ? "failure" : "success");
+    if (failed.length) logger.warn({ failed: failed.length, total: results.length }, "AI Examiner worker completed with evaluation failures");
+  } catch (error) {
+    workerHeartbeats.aiExaminer = {
+      lastSuccessAt: workerHeartbeats.aiExaminer.lastSuccessAt,
+      lastFailureAt: new Date(),
+      lastError: error instanceof Error ? error.message.slice(0, 500) : "AI Examiner worker failed",
+    };
+    finishMetric("failure");
+    logger.error({ err: error }, "AI Examiner worker failed");
+  } finally {
+    aiExaminerWorkerRunning = false;
+  }
+};
+void runAIExaminerWorker();
+const aiExaminerWorker = setInterval(() => void runAIExaminerWorker(), env.AI_EXAMINER_WORKER_INTERVAL_MS);
+aiExaminerWorker.unref();
+
 async function shutdown(signal: string) {
   logger.info({ signal }, "Graceful shutdown started");
   clearInterval(notificationWorker);
   clearInterval(saasLifecycleWorker);
   clearInterval(analyticsReportWorker);
   clearInterval(workflowAutomationWorker);
+  clearInterval(aiExaminerWorker);
   server.close(async () => {
     await Promise.allSettled([systemPrisma.$disconnect(), redis?.quit() ?? Promise.resolve()]);
     process.exit(0);
