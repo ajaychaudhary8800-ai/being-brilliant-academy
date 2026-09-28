@@ -622,7 +622,24 @@ router.post("/meetings", async (req: AuthRequest, res) => {
 
 router.get("/meetings/:id", async (req: AuthRequest, res) => {
   const { meeting } = await meetingForActor(req, String(req.params.id));
-  res.json({ data: meeting });
+  const userIds = [...new Set([
+    meeting.hostUserId,
+    ...meeting.participants.map(participant => participant.userId),
+    ...meeting.actionItems.map(action => action.assigneeUserId),
+  ])];
+  const users = await prisma.user.findMany({
+    where: { organizationId: organizationId(req), id: { in: userIds } },
+    select: { id: true, name: true, email: true, role: true },
+  });
+  const directory = new Map(users.map(user => [user.id, user]));
+  res.json({
+    data: {
+      ...meeting,
+      host: directory.get(meeting.hostUserId) ?? null,
+      participants: meeting.participants.map(participant => ({ ...participant, user: directory.get(participant.userId) ?? null })),
+      actionItems: meeting.actionItems.map(action => ({ ...action, assignee: directory.get(action.assigneeUserId) ?? null })),
+    },
+  });
 });
 
 router.patch("/meetings/:id", async (req: AuthRequest, res) => {
@@ -993,7 +1010,12 @@ router.get("/meetings/:id/attendance", async (req: AuthRequest, res) => {
     include: { participant: true, sessions: { orderBy: { joinedAt: "asc" } } },
     orderBy: { firstJoinedAt: "asc" },
   });
-  res.json({ data: rows });
+  const users = await prisma.user.findMany({
+    where: { organizationId: scope.organizationId, id: { in: rows.map(row => row.participant.userId) } },
+    select: { id: true, name: true, email: true, role: true },
+  });
+  const directory = new Map(users.map(user => [user.id, user]));
+  res.json({ data: rows.map(row => ({ ...row, user: directory.get(row.participant.userId) ?? null })) });
 });
 
 router.put("/meetings/:id/minutes", async (req: AuthRequest, res) => {
