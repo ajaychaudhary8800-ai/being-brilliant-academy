@@ -5721,6 +5721,7 @@ model Meeting {
   hostUserId     String
   livekitRoomName String
   roomLocked     Boolean           @default(false)
+  whiteboardData Json?
   allowRecording Boolean           @default(false)
   recordingRequired Boolean        @default(false)
   allowChat      Boolean           @default(true)
@@ -5747,6 +5748,7 @@ model Meeting {
   decisions      MeetingDecision[]
   actionItems    MeetingActionItem[]
   recordings     MeetingRecording[]
+  interactions   MeetingInteraction[]
   invites        MeetingInvite[]
   auditLogs      MeetingAuditLog[]
 
@@ -5934,6 +5936,20 @@ model MeetingActionItem {
 
   @@index([organizationId, assigneeUserId, status, dueAt])
   @@index([organizationId, meetingId])
+}
+
+model MeetingInteraction {
+  organizationId String   @default("org_default")
+  id             String   @id @default(cuid())
+  meetingId      String
+  userId         String
+  type           String
+  content        Json?
+  createdAt      DateTime @default(now())
+  meeting        Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, meetingId, createdAt])
+  @@index([organizationId, userId, createdAt])
 }
 
 model MeetingRecording {
