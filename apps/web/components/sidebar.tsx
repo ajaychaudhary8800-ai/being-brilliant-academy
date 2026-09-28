@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 type DynamicLabel = "courses" | "groups" | "educators" | "assessments" | "learning";
-type CommercialFeature = "crm" | "lms" | "examinations" | "hr_payroll" | "finance" | "communication" | "transport" | "library" | "hostel" | "inventory" | "analytics" | "multi_branch" | "white_label" | "custom_domain";
+type CommercialFeature = "crm" | "lms" | "examinations" | "hr_payroll" | "finance" | "communication" | "meetings" | "transport" | "library" | "hostel" | "inventory" | "analytics" | "multi_branch" | "white_label" | "custom_domain";
 type MenuEntry = { name: string; href: string; icon: typeof LayoutDashboard; dynamicLabel?: DynamicLabel; superAdminOnly?: boolean; platformOnly?: boolean; tenantOnly?: boolean; feature?: CommercialFeature };
 type MenuGroup = { name: string; entries: MenuEntry[] };
 
@@ -71,6 +71,7 @@ const menuGroups: MenuGroup[] = [
   { name: "Communication", entries: [
     { name: "Communication", href: "/admin/communication", icon: Bell, feature: "communication" },
     { name: "Notice Board", href: "/admin/notices", icon: Bell, feature: "communication" },
+    { name: "Staff & Management Meetings", href: "/meetings", icon: Users, feature: "meetings" },
   ] },
   { name: "Operations", entries: [
     { name: "Transport", href: "/admin/transport", icon: Bus, feature: "transport" },

@@ -11,8 +11,8 @@ const answerSheetTypes = Object.fromEntries(
   Object.entries(questionPaperTypes).filter(([mimeType]) => ["application/pdf", "image/jpeg", "image/png"].includes(mimeType)),
 );
 
-export function validateDocumentFile(file: File, purpose: "question-paper" | "answer-sheet" | "leave-attachment" | "homework") {
-  const acceptsOfficeDocument = purpose === "question-paper" || purpose === "homework";
+export function validateDocumentFile(file: File, purpose: "question-paper" | "answer-sheet" | "leave-attachment" | "homework" | "meeting-attachment") {
+  const acceptsOfficeDocument = purpose === "question-paper" || purpose === "homework" || purpose === "meeting-attachment";
   const allowed = acceptsOfficeDocument ? questionPaperTypes : answerSheetTypes;
   const extension = file.name.toLowerCase().split(".").pop() ?? "";
   if (!allowed[file.type] || !allowed[file.type].includes(extension)) {

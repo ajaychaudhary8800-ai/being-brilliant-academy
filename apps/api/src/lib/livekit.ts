@@ -1,4 +1,4 @@
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import jwt from "jsonwebtoken";
 import { env } from "../config.js";
 import { AppError } from "./http.js";
@@ -44,16 +44,40 @@ export function livekitRecordingStorage() {
   };
 }
 
-export async function getLiveKitRecordingObject(key: string) {
+function liveKitRecordingClient() {
   const storage = livekitRecordingStorage();
-  const client = new S3Client({
-    region: storage.region,
-    endpoint: storage.endpoint,
-    forcePathStyle: Boolean(storage.endpoint),
-    credentials: { accessKeyId: storage.accessKeyId, secretAccessKey: storage.secretAccessKey },
-  });
+  return {
+    storage,
+    client: new S3Client({
+      region: storage.region,
+      endpoint: storage.endpoint,
+      forcePathStyle: Boolean(storage.endpoint),
+      credentials: { accessKeyId: storage.accessKeyId, secretAccessKey: storage.secretAccessKey },
+    }),
+  };
+}
+
+export async function getLiveKitRecordingObject(key: string) {
+  const { storage, client } = liveKitRecordingClient();
   const result = await client.send(new GetObjectCommand({ Bucket: storage.bucket, Key: key }));
   return result.Body;
+}
+
+export async function headLiveKitRecordingObject(key: string) {
+  const { storage, client } = liveKitRecordingClient();
+  try {
+    const result = await client.send(new HeadObjectCommand({ Bucket: storage.bucket, Key: key }));
+    return { sizeBytes: result.ContentLength ?? null, contentType: result.ContentType ?? null, lastModified: result.LastModified ?? null };
+  } catch (error) {
+    const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+    if (status === 404) return null;
+    throw error;
+  }
+}
+
+export async function deleteLiveKitRecordingObject(key: string) {
+  const { storage, client } = liveKitRecordingClient();
+  await client.send(new DeleteObjectCommand({ Bucket: storage.bucket, Key: key }));
 }
 
 export async function livekitHealth() {

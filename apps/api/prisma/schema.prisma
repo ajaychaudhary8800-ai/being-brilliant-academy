@@ -5574,3 +5574,479 @@ model SaaSSalesActivity {
 
   @@index([leadId, createdAt])
 }
+
+// Enterprise staff & management meetings. This domain deliberately does not
+// reuse LiveClass; it only shares the underlying LiveKit collaboration engine.
+
+enum MeetingType {
+  MANAGEMENT
+  STAFF
+  DEPARTMENT
+  HOD
+  TEACHER_COORDINATION
+  TRAINING
+  INTERVIEW
+  COMMITTEE
+  GENERAL
+  CUSTOM
+}
+
+enum MeetingStatus {
+  DRAFT
+  SCHEDULED
+  OPEN_FOR_JOIN
+  LIVE
+  ENDED
+  MINUTES_PENDING
+  MINUTES_PUBLISHED
+  CLOSED
+  CANCELLED
+}
+
+enum MeetingVisibility {
+  INVITE_ONLY
+  ORGANIZATION
+  BRANCH
+  DEPARTMENT
+}
+
+enum MeetingAudienceType {
+  ORGANIZATION
+  BRANCH
+  DEPARTMENT
+  TEAM
+  ROLE
+  INDIVIDUAL
+}
+
+enum MeetingParticipantType {
+  EMPLOYEE
+  TEACHER
+  MANAGEMENT
+  EXTERNAL_GUEST
+}
+
+enum MeetingParticipantRole {
+  HOST
+  CO_HOST
+  PRESENTER
+  PARTICIPANT
+  OBSERVER
+}
+
+enum MeetingInvitationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum MeetingResponseStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  TENTATIVE
+}
+
+enum MeetingAgendaStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+enum MeetingAttendanceStatus {
+  PRESENT
+  PARTIAL
+  ABSENT
+  EXCUSED
+}
+
+enum MeetingMinutesStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  PUBLISHED
+}
+
+enum MeetingActionStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
+enum MeetingActionPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum MeetingRecordingStatus {
+  STARTING
+  RECORDING
+  PROCESSING
+  AVAILABLE
+  FAILED
+  DELETED
+}
+
+enum MeetingCalendarProvider {
+  INTERNAL
+  GOOGLE
+  MICROSOFT
+  ICAL
+}
+
+enum MeetingSyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+}
+
+enum MeetingDepartmentAuthorityRole {
+  HOD
+  MEETING_COORDINATOR
+}
+
+model MeetingDepartmentAuthority {
+  organizationId String                         @default("org_default")
+  id             String                         @id @default(cuid())
+  departmentId   String
+  userId         String
+  authorityRole  MeetingDepartmentAuthorityRole @default(HOD)
+  isActive       Boolean                        @default(true)
+  createdById    String
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+
+  @@unique([organizationId, departmentId, userId])
+  @@unique([organizationId, id])
+  @@index([organizationId, userId, isActive])
+  @@index([organizationId, departmentId, isActive])
+}
+
+model MeetingSeries {
+  organizationId String    @default("org_default")
+  id             String    @id @default(cuid())
+  title          String
+  branchId       String?
+  departmentId   String?
+  timezone       String
+  recurrenceRule String
+  recurrenceStart DateTime?
+  recurrenceEnd  DateTime?
+  status         String    @default("ACTIVE")
+  createdById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  meetings       Meeting[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, status])
+  @@index([organizationId, branchId, departmentId])
+}
+
+model Meeting {
+  organizationId        String                 @default("org_default")
+  id                    String                 @id @default(cuid())
+  seriesId              String?
+  title                 String
+  description           String?                @db.Text
+  type                  MeetingType            @default(GENERAL)
+  branchId              String?
+  departmentId          String?
+  startsAt              DateTime
+  endsAt                DateTime
+  timezone              String
+  status                MeetingStatus          @default(DRAFT)
+  visibility            MeetingVisibility      @default(INVITE_ONLY)
+  hostUserId            String
+  livekitRoomName       String?                @unique
+  roomStatus            String                 @default("NOT_STARTED")
+  allowRecording        Boolean                @default(false)
+  recordingRequired     Boolean                @default(false)
+  allowChat             Boolean                @default(true)
+  allowWhiteboard       Boolean                @default(true)
+  allowAnnotation       Boolean                @default(true)
+  allowScreenShare      Boolean                @default(true)
+  allowParticipantMic   Boolean                @default(true)
+  allowParticipantCamera Boolean               @default(true)
+  joinBeforeMinutes     Int                    @default(15)
+  lockAfterStart        Boolean                @default(false)
+  roomLocked            Boolean                @default(false)
+  whiteboardData        Json?
+  createdById           String
+  cancelledAt           DateTime?
+  endedAt               DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  series                MeetingSeries?         @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  audiences             MeetingAudience[]
+  participants          MeetingParticipant[]
+  agendaItems           MeetingAgendaItem[]
+  attachments           MeetingAttachment[]
+  attendances           MeetingAttendance[]
+  minutes               MeetingMinutes?
+  decisions             MeetingDecision[]
+  actionItems           MeetingActionItem[]
+  recordings            MeetingRecording[]
+  invites               MeetingInvite[]
+  calendarLinks         MeetingCalendarLink[]
+  auditLogs             MeetingAuditLog[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, startsAt, status])
+  @@index([organizationId, branchId, startsAt])
+  @@index([organizationId, departmentId, startsAt])
+  @@index([organizationId, hostUserId, startsAt])
+}
+
+model MeetingAudience {
+  organizationId String              @default("org_default")
+  id             String              @id @default(cuid())
+  meetingId      String
+  type           MeetingAudienceType
+  branchId       String?
+  departmentId   String?
+  teamKey        String?
+  role           Role?
+  createdAt      DateTime            @default(now())
+  meeting        Meeting             @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, meetingId])
+  @@index([organizationId, branchId, departmentId])
+}
+
+model MeetingParticipant {
+  organizationId  String                   @default("org_default")
+  id              String                   @id @default(cuid())
+  meetingId       String
+  userId          String
+  participantType MeetingParticipantType
+  meetingRole     MeetingParticipantRole   @default(PARTICIPANT)
+  invitationStatus MeetingInvitationStatus @default(PENDING)
+  responseStatus  MeetingResponseStatus    @default(PENDING)
+  addedById       String
+  invitedAt       DateTime?
+  acceptedAt      DateTime?
+  declinedAt      DateTime?
+  removedAt       DateTime?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  meeting         Meeting                  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  attendance      MeetingAttendance?
+  invites         MeetingInvite[]
+
+  @@unique([meetingId, userId])
+  @@index([organizationId, userId, meetingRole])
+  @@index([organizationId, meetingId, responseStatus])
+}
+
+model MeetingAgendaItem {
+  organizationId  String              @default("org_default")
+  id              String              @id @default(cuid())
+  meetingId       String
+  title           String
+  description     String?             @db.Text
+  sequence        Int
+  presenterUserId String?
+  plannedMinutes  Int?
+  status          MeetingAgendaStatus @default(PENDING)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  meeting         Meeting             @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  decisions       MeetingDecision[]
+
+  @@unique([meetingId, sequence])
+  @@index([organizationId, meetingId])
+}
+
+model MeetingAttachment {
+  organizationId String   @default("org_default")
+  id             String   @id @default(cuid())
+  meetingId      String
+  agendaItemId   String?
+  name           String
+  mimeType       String
+  size           Int
+  storageKey     String?
+  data           Bytes?
+  visibility     String   @default("PARTICIPANTS")
+  uploadedById   String
+  createdAt      DateTime @default(now())
+  meeting        Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, meetingId])
+  @@index([organizationId, agendaItemId])
+}
+
+model MeetingAttendance {
+  organizationId      String                  @default("org_default")
+  id                  String                  @id @default(cuid())
+  meetingId           String
+  participantId       String                  @unique
+  firstJoinedAt       DateTime?
+  lastLeftAt          DateTime?
+  totalDurationSeconds Int                    @default(0)
+  joinCount           Int                     @default(0)
+  status              MeetingAttendanceStatus @default(ABSENT)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  meeting             Meeting                 @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  participant         MeetingParticipant      @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  sessions            MeetingAttendanceSession[]
+
+  @@index([organizationId, meetingId, status])
+}
+
+model MeetingAttendanceSession {
+  organizationId String            @default("org_default")
+  id             String            @id @default(cuid())
+  attendanceId   String
+  joinedAt       DateTime          @default(now())
+  leftAt         DateTime?
+  durationSeconds Int              @default(0)
+  source         String            @default("LIVEKIT")
+  attendance     MeetingAttendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, attendanceId, joinedAt])
+}
+
+model MeetingMinutes {
+  organizationId String               @default("org_default")
+  id             String               @id @default(cuid())
+  meetingId      String               @unique
+  summary        String               @db.Text
+  notes          Json?
+  status         MeetingMinutesStatus @default(DRAFT)
+  preparedById   String
+  approvedById   String?
+  preparedAt     DateTime             @default(now())
+  approvedAt     DateTime?
+  publishedAt    DateTime?
+  updatedAt      DateTime             @updatedAt
+  meeting        Meeting              @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+}
+
+model MeetingDecision {
+  organizationId String             @default("org_default")
+  id             String             @id @default(cuid())
+  meetingId      String
+  agendaItemId   String?
+  decision       String             @db.Text
+  rationale      String?            @db.Text
+  recordedById   String
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  meeting        Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  agendaItem     MeetingAgendaItem? @relation(fields: [agendaItemId], references: [id], onDelete: SetNull)
+  actionItems    MeetingActionItem[]
+
+  @@index([organizationId, meetingId])
+}
+
+model MeetingActionItem {
+  organizationId String                @default("org_default")
+  id             String                @id @default(cuid())
+  meetingId      String
+  decisionId     String?
+  title          String
+  description    String?               @db.Text
+  assigneeUserId String
+  assignedById   String
+  dueAt          DateTime?
+  priority       MeetingActionPriority @default(NORMAL)
+  status         MeetingActionStatus   @default(OPEN)
+  completedAt    DateTime?
+  completionNote String?               @db.Text
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  meeting        Meeting               @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  decision       MeetingDecision?      @relation(fields: [decisionId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, assigneeUserId, status, dueAt])
+  @@index([organizationId, meetingId, status])
+}
+
+model MeetingRecording {
+  organizationId String                 @default("org_default")
+  id             String                 @id @default(cuid())
+  meetingId      String
+  provider       String                 @default("LIVEKIT")
+  providerRecordingId String?
+  egressId       String?
+  objectKey      String?
+  status         MeetingRecordingStatus @default(STARTING)
+  startedAt      DateTime?
+  stoppedAt      DateTime?
+  durationSeconds Int?
+  sizeBytes      BigInt?
+  initiatedById  String
+  retentionUntil DateTime?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  meeting        Meeting                @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, meetingId, createdAt])
+  @@index([organizationId, status])
+}
+
+model MeetingInvite {
+  organizationId String                   @default("org_default")
+  id             String                   @id @default(cuid())
+  meetingId      String
+  participantId  String
+  channel        String
+  status         MeetingInvitationStatus  @default(PENDING)
+  sentAt         DateTime?
+  readAt         DateTime?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  meeting        Meeting                  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  participant    MeetingParticipant       @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, meetingId, status])
+  @@index([organizationId, participantId])
+}
+
+model MeetingCalendarLink {
+  organizationId String                  @default("org_default")
+  id             String                  @id @default(cuid())
+  meetingId      String
+  userId         String
+  provider       MeetingCalendarProvider @default(INTERNAL)
+  externalEventId String?
+  syncStatus     MeetingSyncStatus       @default(PENDING)
+  lastSyncedAt   DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  meeting        Meeting                 @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, userId, provider])
+  @@index([organizationId, userId, syncStatus])
+}
+
+model MeetingAuditLog {
+  organizationId String   @default("org_default")
+  id             String   @id @default(cuid())
+  meetingId      String
+  actorUserId    String
+  action         String
+  entityType     String
+  entityId       String?
+  metadata       Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+  meeting        Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, meetingId, createdAt])
+  @@index([organizationId, actorUserId, createdAt])
+}
+
