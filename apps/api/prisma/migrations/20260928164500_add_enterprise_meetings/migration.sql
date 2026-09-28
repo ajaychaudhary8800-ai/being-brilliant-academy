@@ -337,6 +337,26 @@ ALTER TABLE "MeetingCalendarLink" ADD CONSTRAINT "MeetingCalendarLink_meetingId_
 ALTER TABLE "MeetingAuditLog" ADD CONSTRAINT "MeetingAuditLog_meetingId_fkey" FOREIGN KEY ("meetingId") REFERENCES "Meeting"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 
+
+CREATE TYPE "MeetingDepartmentAuthorityRole" AS ENUM ('HOD','MEETING_COORDINATOR');
+
+CREATE TABLE "MeetingDepartmentAuthority" (
+  "organizationId" TEXT NOT NULL DEFAULT 'org_default',
+  "id" TEXT NOT NULL,
+  "departmentId" TEXT NOT NULL,
+  "userId" TEXT NOT NULL,
+  "authorityRole" "MeetingDepartmentAuthorityRole" NOT NULL DEFAULT 'HOD',
+  "isActive" BOOLEAN NOT NULL DEFAULT true,
+  "createdById" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "MeetingDepartmentAuthority_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX "MeetingDepartmentAuthority_organizationId_departmentId_userId_key" ON "MeetingDepartmentAuthority"("organizationId","departmentId","userId");
+CREATE UNIQUE INDEX "MeetingDepartmentAuthority_organizationId_id_key" ON "MeetingDepartmentAuthority"("organizationId","id");
+CREATE INDEX "MeetingDepartmentAuthority_organizationId_userId_isActive_idx" ON "MeetingDepartmentAuthority"("organizationId","userId","isActive");
+CREATE INDEX "MeetingDepartmentAuthority_organizationId_departmentId_isActive_idx" ON "MeetingDepartmentAuthority"("organizationId","departmentId","isActive");
+
 -- Preserve existing tenant access while exposing explicit commercial controls.
 -- Future plan packaging can disable these keys per plan from the SaaS control center.
 UPDATE "SaaSPlan"
