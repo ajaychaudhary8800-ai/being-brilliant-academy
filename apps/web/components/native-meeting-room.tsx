@@ -155,7 +155,7 @@ export function NativeMeetingRoom({ meetingId }: { meetingId: string }) {
   const drawingRef = useRef<{ surface: Stroke["surface"]; x: number; y: number; strokeId: string } | null>(null);
 
   const manager = Boolean(session?.manager);
-  const observer = session?.role === "PARENT";
+  const observer = session?.meetingRole === "OBSERVER";
   const canDraw = !observer && Boolean(session?.settings.allowWhiteboard) && (manager || participantDrawAllowed);
   const chatAllowed = Boolean(session?.settings.allowChat);
   const whiteboardAllowed = Boolean(session?.settings.allowWhiteboard);
@@ -712,7 +712,6 @@ export function NativeMeetingRoom({ meetingId }: { meetingId: string }) {
     };
     setPoll(next);
     await publish({ type: "poll-start", poll: next }, true);
-    void api(`/learning/live-classes/${session.meeting.id}/interactions`, { method: "POST", body: JSON.stringify({ type: "POLL", content: { id: next.id, question: next.question, options: next.options.map(option => ({ id: option.id, label: option.label })) } }) }).catch(() => undefined);
   }
 
   async function votePoll(optionId: string) {
@@ -725,7 +724,6 @@ export function NativeMeetingRoom({ meetingId }: { meetingId: string }) {
       options: current.options.map(option => option.id === optionId ? { ...option, votes: option.votes + 1 } : option),
     } : current);
     await publish({ type: "poll-vote", pollId: poll.id, optionId, voter }, true);
-    void api(`/learning/live-classes/${session.meeting.id}/interactions`, { method: "POST", body: JSON.stringify({ type: "POLL_RESPONSE", content: { pollId: poll.id, optionId } }) }).catch(() => undefined);
   }
 
   async function endPoll() {
