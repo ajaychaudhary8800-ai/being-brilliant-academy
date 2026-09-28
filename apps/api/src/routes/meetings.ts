@@ -181,8 +181,13 @@ async function createOccurrence(input: {
 }) {
   const { req, data, participants } = input;
   return prisma.$transaction(async tx => {
+    const calendarEvent = await tx.calendarEvent.create({ data: {
+      organizationId: org(req), branchId: data.branchId, title: data.title, description: data.description,
+      type: "MEETING", startsAt: input.startsAt, endsAt: input.endsAt, location: "Online",
+      reminders: [1440, 60, 10], status: "SCHEDULED",
+    }});
     const meeting = await tx.meeting.create({ data: {
-      organizationId: org(req), seriesId: input.seriesId, occurrenceIndex: input.occurrenceIndex,
+      organizationId: org(req), seriesId: input.seriesId, occurrenceIndex: input.occurrenceIndex, calendarEventId: calendarEvent.id,
       title: data.title, description: data.description, type: data.type, branchId: data.branchId, departmentId: data.departmentId,
       startsAt: input.startsAt, endsAt: input.endsAt, timezone: data.timezone, visibility: data.visibility,
       hostUserId: data.hostUserId, livekitRoomName: `mtg_${crypto.randomUUID().replaceAll("-", "")}`,
@@ -197,6 +202,9 @@ async function createOccurrence(input: {
     await tx.meetingParticipant.createMany({ data: participants.map(p => ({
       organizationId: org(req), meetingId: meeting.id, userId: p.userId, participantKind: p.participantKind,
       meetingRole: p.meetingRole, addedById: actor(req),
+    }))});
+    if (participants.length) await tx.calendarEventRsvp.createMany({ data: participants.map(p => ({
+      organizationId: org(req), eventId: calendarEvent.id, userId: p.userId, response: "PENDING",
     }))});
     return meeting;
   });
@@ -320,7 +328,10 @@ router.post("/meeting-series", async (req: AuthRequest, res) => {
       }));
     }
   } catch (error) {
+    const partial = await prisma.meeting.findMany({ where: { organizationId: org(req), seriesId: series.id }, select: { calendarEventId: true } }).catch(() => []);
     await prisma.meeting.deleteMany({ where: { organizationId: org(req), seriesId: series.id } }).catch(() => {});
+    const eventIds = partial.map(x => x.calendarEventId).filter((x): x is string => Boolean(x));
+    if (eventIds.length) await prisma.calendarEvent.deleteMany({ where: { organizationId: org(req), id: { in: eventIds } } }).catch(() => {});
     await prisma.meetingSeries.delete({ where: { id: series.id } }).catch(() => {});
     throw error;
   }
@@ -395,7 +406,20 @@ router.patch("/meetings/:id", async (req: AuthRequest, res) => {
   const endsAt = data.endsAt ?? meeting.endsAt;
   if (endsAt <= startsAt) throw new AppError(422, "MEETING_TIME_INVALID", "End time must follow start time");
   if (managementRoles.has(req.auth!.role)) await validateScope(req, data.branchId === undefined ? meeting.branchId : data.branchId, data.departmentId === undefined ? meeting.departmentId : data.departmentId);
-  const updated = await prisma.meeting.update({ where: { id: meeting.id }, data });
+  const updated = await prisma.$transaction(async tx => {
+    const row = await tx.meeting.update({ where: { id: meeting.id }, data });
+    if (meeting.calendarEventId) await tx.calendarEvent.updateMany({
+      where: { organizationId: org(req), id: meeting.calendarEventId },
+      data: {
+        ...(data.title !== undefined ? { title: data.title } : {}),
+        ...(data.description !== undefined ? { description: data.description } : {}),
+        ...(data.branchId !== undefined ? { branchId: data.branchId } : {}),
+        ...(data.startsAt !== undefined ? { startsAt: data.startsAt } : {}),
+        ...(data.endsAt !== undefined ? { endsAt: data.endsAt } : {}),
+      },
+    });
+    return row;
+  });
   if (data.startsAt || data.endsAt || data.timezone || data.title) {
     await invalidateFutureMeetingNotifications(org(req), meeting.id);
     const participants = await prisma.meetingParticipant.findMany({ where: { organizationId: org(req), meetingId: meeting.id, removedAt: null }, select: { id: true, userId: true } });
@@ -413,7 +437,11 @@ router.post("/meetings/:id/cancel", async (req: AuthRequest, res) => {
   await canManage(req, meeting);
   if (meeting.status === MeetingStatus.ENDED || meeting.status === MeetingStatus.CLOSED) throw new AppError(409, "MEETING_ALREADY_ENDED", "Ended meetings cannot be cancelled");
   await invalidateFutureMeetingNotifications(org(req), meeting.id);
-  const data = await prisma.meeting.update({ where: { id: meeting.id }, data: { status: MeetingStatus.CANCELLED, cancelledAt: new Date() } });
+  const data = await prisma.$transaction(async tx => {
+    const row = await tx.meeting.update({ where: { id: meeting.id }, data: { status: MeetingStatus.CANCELLED, cancelledAt: new Date() } });
+    if (meeting.calendarEventId) await tx.calendarEvent.updateMany({ where: { organizationId: org(req), id: meeting.calendarEventId }, data: { status: "CANCELLED" } });
+    return row;
+  });
   await audit(req, meeting.id, "CANCEL", "Meeting", meeting.id);
   res.json({ data });
 });
@@ -424,11 +452,19 @@ router.post("/meetings/:id/respond", async (req: AuthRequest, res) => {
   if (!participant) throw new AppError(403, "MEETING_INVITE_REQUIRED", "You are not invited to this meeting");
   const response = z.nativeEnum(MeetingResponseStatus).refine(value => value !== MeetingResponseStatus.PENDING).parse(req.body.response);
   const now = new Date();
-  const row = await prisma.meetingParticipant.update({ where: { id: participant.id }, data: {
-    responseStatus: response,
-    acceptedAt: response === MeetingResponseStatus.ACCEPTED ? now : null,
-    declinedAt: response === MeetingResponseStatus.DECLINED ? now : null,
-  }});
+  const row = await prisma.$transaction(async tx => {
+    const updated = await tx.meetingParticipant.update({ where: { id: participant.id }, data: {
+      responseStatus: response,
+      acceptedAt: response === MeetingResponseStatus.ACCEPTED ? now : null,
+      declinedAt: response === MeetingResponseStatus.DECLINED ? now : null,
+    }});
+    if (meeting.calendarEventId) await tx.calendarEventRsvp.upsert({
+      where: { eventId_userId: { eventId: meeting.calendarEventId, userId: actor(req) } },
+      create: { organizationId: org(req), eventId: meeting.calendarEventId, userId: actor(req), response },
+      update: { response, respondedAt: now },
+    });
+    return updated;
+  });
   await audit(req, meeting.id, "RESPOND", "MeetingParticipant", participant.id, { response });
   res.json({ data: row });
 });
