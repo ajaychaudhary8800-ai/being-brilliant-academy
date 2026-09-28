@@ -1,9 +1,10 @@
-import { AIExaminerRubricStatus, ExaminationStatus, Role } from "@prisma/client";
+import { AIExaminerEvaluationStatus, AIExaminerRubricStatus, AnswerSheetStatus, ExaminationStatus, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config.js";
-import { assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
-import { assertExaminationManager } from "../lib/examination-policy.js";
+import { AI_EXAMINER_ENGINE_VERSION, AI_EXAMINER_REVIEW_THRESHOLD, aiExaminerProviderConfigured, aiExaminerProviderMode } from "../lib/ai-examiner-engine.js";
+import { assertAIExaminerEvaluationReady, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
+import { assertExaminationManager, evaluationStatus, examinationResultFor } from "../lib/examination-policy.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -50,6 +51,15 @@ async function examinationForManager(req: AuthRequest, examinationId: string) {
       branch: { select: { id: true, branchName: true } },
       questionPaper: { select: { id: true, fileName: true, publishedAt: true } },
       aiExaminerRubrics: { orderBy: { version: "desc" }, take: 20 },
+      answerSheets: {
+        select: {
+          id: true, fileName: true, mimeType: true, status: true, isLate: true, submittedAt: true, finalizedAt: true, marksObtained: true,
+          student: { select: { id: true, admissionNo: true, rollNo: true, user: { select: { name: true } } } },
+          aiEvaluations: { select: { id: true, revision: true, status: true, suggestedMarks: true, confidence: true, errorCode: true, errorMessage: true, createdAt: true, completedAt: true }, orderBy: { revision: "desc" }, take: 1 },
+        },
+        orderBy: { submittedAt: "asc" },
+        take: 200,
+      },
       _count: { select: { answerSheets: true } },
     },
   });
@@ -113,16 +123,31 @@ function readiness(exam: Awaited<ReturnType<typeof examinationForManager>>, eval
     setupReady: blockers.length === 0,
     blockers,
     engine: {
-      providerConfigured: Boolean(env.AI_PROVIDER_URL && env.AI_API_KEY),
+      providerConfigured: aiExaminerProviderConfigured(),
+      providerMode: aiExaminerProviderMode(),
       model: env.AI_MODEL,
-      evaluationExecutionAvailable: false,
-      phase: "FOUNDATION",
+      engineVersion: AI_EXAMINER_ENGINE_VERSION,
+      reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD,
+      evaluationExecutionAvailable: aiExaminerProviderConfigured(),
+      phase: "EVALUATION_ENGINE",
     },
+    answerSheetItems: exam.answerSheets.map(sheet => ({
+      id: sheet.id,
+      fileName: sheet.fileName,
+      mimeType: sheet.mimeType,
+      status: sheet.status,
+      isLate: sheet.isLate,
+      submittedAt: sheet.submittedAt,
+      finalizedAt: sheet.finalizedAt,
+      marksObtained: sheet.marksObtained,
+      student: { id: sheet.student.id, admissionNo: sheet.student.admissionNo, rollNo: sheet.student.rollNo, name: sheet.student.user.name },
+      latestEvaluation: sheet.aiEvaluations[0] ?? null,
+    })),
   };
 }
 
 router.get("/capabilities", async (_req, res) => {
-  res.json({ data: { providerConfigured: Boolean(env.AI_PROVIDER_URL && env.AI_API_KEY), model: env.AI_MODEL, evaluationExecutionAvailable: false, phase: "FOUNDATION" } });
+  res.json({ data: { providerConfigured: aiExaminerProviderConfigured(), providerMode: aiExaminerProviderMode(), model: env.AI_MODEL, engineVersion: AI_EXAMINER_ENGINE_VERSION, reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD, evaluationExecutionAvailable: aiExaminerProviderConfigured(), phase: "EVALUATION_ENGINE" } });
 });
 
 router.get("/examinations", async (req: AuthRequest, res) => {
