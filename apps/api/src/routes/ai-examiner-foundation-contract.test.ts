@@ -49,6 +49,8 @@ test("Ranpal AI Examiner foundation owns versioned rubrics and reviewable evalua
   assert.match(page, /General evaluation instructions/);
   assert.match(page, /Model answer \/ solution/);
   assert.match(page, /Activate Draft/);
+  assert.match(page, /Assessment prerequisites/);
+  assert.match(page, /AI execution:/);
   assert.match(page, /evaluationExecutionAvailable/);
   assert.match(sidebar, /Ranpal AI Examiner/);
   assert.match(sidebar, /\/admin\/ai-examiner/);
