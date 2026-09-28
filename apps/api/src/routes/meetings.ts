@@ -443,7 +443,15 @@ router.get("/meetings", async (req: AuthRequest, res) => {
 router.get("/meetings/:id", async (req: AuthRequest, res) => {
   const meeting = await getMeeting(req, String(req.params.id));
   await canView(req, meeting);
-  res.json({ data: meeting });
+  const users = await prisma.user.findMany({
+    where: { organizationId: org(req), id: { in: meeting.participants.map(p => p.userId) } },
+    select: { id: true, name: true, email: true, role: true },
+  });
+  const userMap = new Map(users.map(user => [user.id, user]));
+  res.json({ data: {
+    ...meeting,
+    participants: meeting.participants.map(participant => ({ ...participant, user: userMap.get(participant.userId) ?? null })),
+  }});
 });
 
 router.post("/meetings", async (req: AuthRequest, res) => {
