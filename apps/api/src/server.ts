@@ -67,6 +67,7 @@ import analytics from "./routes/analytics.js";
 import organizations from "./routes/organizations.js";
 import organizationProvisioning from "./routes/organization-provisioning.js";
 import learningEcosystem from "./routes/learning-ecosystem.js";
+import meetings from "./routes/meetings.js";
 import premiumExperience from "./routes/premium-experience.js";
 import birthdays from "./routes/birthdays.js";
 import teacherPhotos from "./routes/teacher-photos.js";
@@ -303,6 +304,8 @@ app.use("/api/v1", onlyPaths(["/birthdays", "/admin/teachers"], birthdays));
 // reject non-admin requests.
 app.use("/api/v1", onlyPaths(["/premium"], premiumExperience));
 app.use("/api/v1", onlyPaths(["/learning"], learningEcosystem));
+// Enterprise staff and management meetings are a separate domain from LiveClass.
+app.use("/api/v1", onlyPaths(["/meetings", "/meeting-actions"], meetings));
 
 app.use("/api/v1", onlyPaths(["/finance/payments", "/finance/payment-offsets"], paymentOffsets));
 
