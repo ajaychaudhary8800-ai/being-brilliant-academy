@@ -234,7 +234,7 @@ router.post("/answer-sheets/:answerSheetId/evaluate", async (req: AuthRequest, r
     finalizedAt: sheet.finalizedAt,
   });
   if (!activeRubric) throw new AppError(409, "AI_EXAMINER_ACTIVE_RUBRIC_REQUIRED", "Activate a marking rubric before AI evaluation");
-  if (![AnswerSheetStatus.SUBMITTED, AnswerSheetStatus.LATE_SUBMITTED].includes(sheet.status)) {
+  if (sheet.status !== AnswerSheetStatus.SUBMITTED && sheet.status !== AnswerSheetStatus.LATE_SUBMITTED) {
     throw new AppError(409, "AI_EXAMINER_ANSWER_ALREADY_IN_REVIEW", "Only a submitted answer sheet can start a new AI evaluation");
   }
 
@@ -433,7 +433,7 @@ router.post("/evaluations/:evaluationId/cancel", async (req: AuthRequest, res) =
   });
   if (!evaluation) throw new AppError(404, "AI_EXAMINER_EVALUATION_NOT_FOUND", "AI evaluation not found");
   await examinationForManager(req, evaluation.answerSheet.examinationId);
-  if (![AIExaminerEvaluationStatus.QUEUED, AIExaminerEvaluationStatus.REVIEW_REQUIRED, AIExaminerEvaluationStatus.FAILED].includes(evaluation.status)) {
+  if (evaluation.status !== AIExaminerEvaluationStatus.QUEUED && evaluation.status !== AIExaminerEvaluationStatus.REVIEW_REQUIRED && evaluation.status !== AIExaminerEvaluationStatus.FAILED) {
     throw new AppError(409, "AI_EXAMINER_CANCEL_UNAVAILABLE", "This AI evaluation cannot be cancelled in its current state");
   }
   const cancelled = await prisma.$transaction(async tx => {
