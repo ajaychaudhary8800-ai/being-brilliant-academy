@@ -22,6 +22,7 @@ import {
   type MeetingAudienceSeed,
 } from "../lib/meeting-scheduling.js";
 import { prisma } from "../lib/prisma.js";
+import { assertFeatureEntitled } from "../lib/saas-commercial.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
@@ -168,6 +169,25 @@ async function resolvedParticipants(req: AuthRequest, data: ScheduleData) {
     audiences: data.audiences as MeetingAudienceSeed[],
     allowedBranchIds: await allowedBranches(req),
   });
+}
+
+function scheduleDurationMinutes(data: { startsAt: Date; endsAt: Date }) {
+  return Math.ceil((data.endsAt.getTime() - data.startsAt.getTime()) / 60_000);
+}
+
+async function enforceMeetingPlanLimits(req: AuthRequest, data: { startsAt: Date; endsAt: Date }, participantCount: number) {
+  const policy = await assertFeatureEntitled(org(req), "meetings");
+  if (!policy.enforcementEnabled) return;
+  const limits = policy.plan?.limits ?? {};
+  const maxParticipants = limits["meeting.maxParticipants"];
+  const maxDuration = limits["meeting.maxDurationMinutes"];
+  if (typeof maxParticipants === "number" && participantCount > maxParticipants) {
+    throw new AppError(409, "MEETING_PARTICIPANT_LIMIT", `Your plan allows up to ${maxParticipants} meeting participants`);
+  }
+  const duration = scheduleDurationMinutes(data);
+  if (typeof maxDuration === "number" && duration > maxDuration) {
+    throw new AppError(409, "MEETING_DURATION_LIMIT", `Your plan allows meetings up to ${maxDuration} minutes`);
+  }
 }
 
 async function createOccurrence(input: {
@@ -350,6 +370,7 @@ router.post("/meeting-series", async (req: AuthRequest, res) => {
   const data = seriesInput.parse(req.body);
   await validateScope(req, data.branchId, data.departmentId);
   const participants = await resolvedParticipants(req, data);
+  await enforceMeetingPlanLimits(req, data, participants.length);
   const horizon = data.recurrenceEnd ?? new Date(data.startsAt.getTime() + 366 * 86400000);
   const occurrences = generateMeetingOccurrences({
     startsAt: data.startsAt, endsAt: data.endsAt, timezone: data.timezone,
@@ -430,6 +451,7 @@ router.post("/meetings", async (req: AuthRequest, res) => {
   const data = meetingInput.parse(req.body);
   await validateScope(req, data.branchId, data.departmentId);
   const participants = await resolvedParticipants(req, data);
+  await enforceMeetingPlanLimits(req, data, participants.length);
   const meeting = await createOccurrence({ req, data, participants, startsAt: data.startsAt, endsAt: data.endsAt });
   const rows = await prisma.meetingParticipant.findMany({ where: { organizationId: org(req), meetingId: meeting.id }, select: { id: true, userId: true } });
   await scheduleMeetingNotifications({
