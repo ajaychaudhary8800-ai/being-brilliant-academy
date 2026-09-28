@@ -375,6 +375,68 @@ const meetingInput = meetingShape.superRefine((value, ctx) => {
   if (value.recordingRequired && !value.allowRecording) ctx.addIssue({ code: "custom", path: ["recordingRequired"], message: "Required recording needs allowRecording enabled" });
 });
 
+router.get("/meetings/options", async (req: AuthRequest, res) => {
+  const scope = await actorScope(req);
+  const branchWhere = scope.branchIds ? { id: { in: scope.branchIds } } : {};
+  const branches = await prisma.branch.findMany({
+    where: { organizationId: scope.organizationId, isActive: true, ...branchWhere },
+    select: { id: true, branchName: true, branchCode: true },
+    orderBy: { branchName: "asc" },
+  });
+  const departments = await prisma.department.findMany({
+    where: {
+      organizationId: scope.organizationId,
+      isArchived: false,
+      ...(scope.role === Role.EMPLOYEE && scope.departmentIds.length ? { id: { in: scope.departmentIds } } : {}),
+    },
+    select: { id: true, name: true, code: true },
+    orderBy: { name: "asc" },
+  });
+  const candidateUsers = await prisma.user.findMany({
+    where: { organizationId: scope.organizationId, isActive: true, role: { in: [...staffRoles] } },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      employee: { select: { branchId: true, departmentId: true } },
+      teacherProfile: { select: { branchId: true } },
+      branchAssignments: { select: { branchId: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+  const allowedBranches = scope.branchIds ? new Set(scope.branchIds) : null;
+  const users = candidateUsers.filter(user => {
+    if (!allowedBranches) return true;
+    const ids = [
+      ...user.branchAssignments.map(item => item.branchId),
+      ...(user.employee ? [user.employee.branchId] : []),
+      ...(user.teacherProfile ? [user.teacherProfile.branchId] : []),
+    ];
+    return ids.some(branchId => allowedBranches.has(branchId));
+  }).map(user => ({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    branchIds: [...new Set([
+      ...user.branchAssignments.map(item => item.branchId),
+      ...(user.employee ? [user.employee.branchId] : []),
+      ...(user.teacherProfile ? [user.teacherProfile.branchId] : []),
+    ])],
+    departmentId: user.employee?.departmentId ?? null,
+  }));
+  res.json({
+    data: {
+      branches,
+      departments,
+      users,
+      canCreate: [Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER, Role.EMPLOYEE].includes(scope.role),
+      canOrganizationWide: scope.role === Role.SUPER_ADMIN,
+    },
+  });
+});
+
 router.get("/meetings/dashboard", async (req: AuthRequest, res) => {
   const scope = await actorScope(req);
   const where = visibleMeetingWhere(scope);
@@ -812,7 +874,7 @@ router.post("/meetings/:id/join-token", async (req: AuthRequest, res) => {
     data: {
       serverUrl: livekitClientUrl(),
       participantToken: token,
-      meeting: { id: meeting.id, title: meeting.title, startsAt: meeting.startsAt, endsAt: meeting.endsAt, status: meeting.status },
+      meeting: { id: meeting.id, title: meeting.title, description: meeting.description, startsAt: meeting.startsAt, endsAt: meeting.endsAt, status: meeting.status },
       meetingRole: participant.meetingRole,
       manager,
       locked: meeting.roomLocked,
