@@ -137,7 +137,7 @@ function readiness(exam: Awaited<ReturnType<typeof examinationForManager>>, eval
     engine: {
       providerConfigured: aiExaminerProviderConfigured(),
       providerMode: aiExaminerProviderMode(),
-      model: env.AI_MODEL,
+      model: env.AI_EXAMINER_MODEL,
       engineVersion: AI_EXAMINER_ENGINE_VERSION,
       reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD,
       evaluationExecutionAvailable: aiExaminerProviderConfigured(),
@@ -159,7 +159,7 @@ function readiness(exam: Awaited<ReturnType<typeof examinationForManager>>, eval
 }
 
 router.get("/capabilities", async (_req, res) => {
-  res.json({ data: { providerConfigured: aiExaminerProviderConfigured(), providerMode: aiExaminerProviderMode(), model: env.AI_MODEL, engineVersion: AI_EXAMINER_ENGINE_VERSION, reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD, evaluationExecutionAvailable: aiExaminerProviderConfigured(), phase: "EVALUATION_ENGINE" } });
+  res.json({ data: { providerConfigured: aiExaminerProviderConfigured(), providerMode: aiExaminerProviderMode(), model: env.AI_EXAMINER_MODEL, engineVersion: AI_EXAMINER_ENGINE_VERSION, reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD, evaluationExecutionAvailable: aiExaminerProviderConfigured(), phase: "EVALUATION_ENGINE" } });
 });
 
 router.get("/examinations", async (req: AuthRequest, res) => {
@@ -274,8 +274,8 @@ router.post("/answer-sheets/:answerSheetId/evaluate", async (req: AuthRequest, r
         revision,
         status: AIExaminerEvaluationStatus.QUEUED,
         engineVersion: AI_EXAMINER_ENGINE_VERSION,
-        provider: env.AI_PROVIDER_URL ? new URL(env.AI_PROVIDER_URL).hostname : null,
-        model: env.AI_MODEL,
+        provider: env.AI_EXAMINER_PROVIDER_URL ? new URL(env.AI_EXAMINER_PROVIDER_URL).hostname : null,
+        model: env.AI_EXAMINER_MODEL,
         requestedById: req.auth!.userId,
       },
       select: { id: true, revision: true, status: true, engineVersion: true, provider: true, model: true, createdAt: true },
