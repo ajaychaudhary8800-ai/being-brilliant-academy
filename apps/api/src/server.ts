@@ -68,6 +68,7 @@ import organizations from "./routes/organizations.js";
 import organizationProvisioning from "./routes/organization-provisioning.js";
 import learningEcosystem from "./routes/learning-ecosystem.js";
 import meetings from "./routes/meetings.js";
+import meetingLiveKitWebhook from "./routes/meeting-livekit-webhook.js";
 import premiumExperience from "./routes/premium-experience.js";
 import birthdays from "./routes/birthdays.js";
 import teacherPhotos from "./routes/teacher-photos.js";
@@ -166,6 +167,8 @@ app.use(
   }),
 );
 app.use("/api/v1/payments/razorpay/webhook", express.raw({ type: "application/json" }));
+// LiveKit webhook verification requires the exact raw payload for the signed SHA-256 claim.
+app.use("/api/v1/meetings/livekit/webhook", express.raw({ type: "application/webhook+json", limit: "1mb" }), meetingLiveKitWebhook);
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
