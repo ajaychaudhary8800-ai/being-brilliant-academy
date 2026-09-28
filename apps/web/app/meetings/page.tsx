@@ -60,7 +60,10 @@ function Content() {
           <h1 className="mt-1 text-3xl font-black">Staff & Management Meetings</h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-500">Organization, branch and department meetings with native video, attendance, minutes, decisions and accountable action items.</p>
         </div>
-        {canCreate && <Link href="/meetings/new" className="inline-flex items-center gap-2 rounded-xl bg-brand-700 px-4 py-3 font-bold text-white"><Plus size={17}/>Schedule meeting</Link>}
+        <div className="flex flex-wrap gap-2">
+          {["SUPER_ADMIN","BRANCH_ADMIN"].includes(user?.role??"") && <Link href="/meetings/settings" className="inline-flex items-center rounded-xl border bg-white px-4 py-3 font-bold dark:bg-slate-900">Department authority</Link>}
+          {canCreate && <Link href="/meetings/new" className="inline-flex items-center gap-2 rounded-xl bg-brand-700 px-4 py-3 font-bold text-white"><Plus size={17}/>Schedule meeting</Link>}
+        </div>
       </header>
 
       {error && <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</p>}
