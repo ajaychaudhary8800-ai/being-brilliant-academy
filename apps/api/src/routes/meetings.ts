@@ -52,6 +52,12 @@ router.use(
 );
 
 const id = z.string().cuid();
+function commercialLimit(policy: Awaited<ReturnType<typeof assertFeatureEntitled>>, key: string) {
+  if (!policy.enforcementEnabled) return null;
+  const value = policy.plan?.limits[key];
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
 const staffRoles = [Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.ACCOUNTANT, Role.TEACHER, Role.EMPLOYEE] as const;
 const staffRoleSet = new Set<Role>(staffRoles);
 const managerRoleSet = new Set<Role>([Role.SUPER_ADMIN, Role.BRANCH_ADMIN]);
@@ -761,6 +767,16 @@ router.post("/meetings", async (req: AuthRequest, res) => {
   await assertParticipantScope(scope, users);
   const host = users.find(user => user.id === hostUserId);
   if (!host) throw new AppError(422, "MEETING_HOST_INVALID", "Host must be an active staff user");
+  const commercial = await assertFeatureEntitled(scope.organizationId, "meetings");
+  const maxParticipants = commercialLimit(commercial, "meeting.maxParticipants");
+  if (maxParticipants !== null && users.length > maxParticipants) {
+    throw new AppError(409, "MEETING_PARTICIPANT_LIMIT", `Your plan allows up to ${maxParticipants} meeting participants`);
+  }
+  const durationMinutes = Math.ceil((data.endsAt.getTime() - data.startsAt.getTime()) / 60_000);
+  const maxDurationMinutes = commercialLimit(commercial, "meeting.maxDurationMinutes");
+  if (maxDurationMinutes !== null && durationMinutes > maxDurationMinutes) {
+    throw new AppError(409, "MEETING_DURATION_LIMIT", `Your plan allows meetings up to ${maxDurationMinutes} minutes`);
+  }
 
   const occurrenceStarts = recurrenceOccurrences(data.startsAt, data.timezone, data.recurrenceRule, data.recurrenceEnd);
   const durationMs = data.endsAt.getTime() - data.startsAt.getTime();
@@ -1120,6 +1136,12 @@ router.get("/meetings/:id/attachments/:attachmentId/download", async (req: AuthR
 router.post("/meetings/:id/start", async (req: AuthRequest, res) => {
   const { meeting, scope } = await meetingForActor(req, String(req.params.id));
   requireMeetingManager(scope, meeting);
+  const commercial = await assertFeatureEntitled(scope.organizationId, "meetings");
+  const concurrentLimit = commercialLimit(commercial, "meeting.concurrentRooms");
+  if (concurrentLimit !== null && meeting.status !== MeetingStatus.LIVE) {
+    const activeRooms = await prisma.meeting.count({ where: { status: MeetingStatus.LIVE } });
+    if (activeRooms >= concurrentLimit) throw new AppError(409, "MEETING_CONCURRENT_LIMIT", `Your plan allows ${concurrentLimit} concurrent meeting room(s)`);
+  }
   if ([MeetingStatus.CANCELLED, MeetingStatus.CLOSED].includes(meeting.status)) throw new AppError(409, "MEETING_NOT_STARTABLE", "This meeting cannot be started");
   const room = meeting.livekitRoomName ?? ("mtg-" + crypto.randomUUID());
   const updated = await prisma.meeting.update({ where: { id: meeting.id }, data: { livekitRoomName: room, status: MeetingStatus.LIVE, roomStatus: "LIVE", roomLocked: meeting.lockAfterStart } });
@@ -1474,7 +1496,28 @@ router.post("/meeting-actions/:id/reopen", async (req: AuthRequest, res) => {
 router.post("/meetings/:id/recordings/start", async (req: AuthRequest, res) => {
   const { meeting, scope } = await meetingForActor(req, String(req.params.id));
   requireMeetingManager(scope, meeting);
-  await assertFeatureEntitled(scope.organizationId, "meetings_recording");
+  const commercial = await assertFeatureEntitled(scope.organizationId, "meetings_recording");
+  const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+  const monthlyRecordingMinutes = commercialLimit(commercial, "meeting.monthlyRecordingMinutes");
+  if (monthlyRecordingMinutes !== null) {
+    const used = await prisma.meetingRecording.aggregate({
+      where: { startedAt: { gte: monthStart }, status: { not: MeetingRecordingStatus.DELETED } },
+      _sum: { durationSeconds: true },
+    });
+    if ((used._sum.durationSeconds ?? 0) >= monthlyRecordingMinutes * 60) {
+      throw new AppError(409, "MEETING_RECORDING_MINUTES_LIMIT", "Your monthly meeting recording allowance has been reached");
+    }
+  }
+  const storageGb = commercialLimit(commercial, "meeting.storageGB");
+  if (storageGb !== null) {
+    const used = await prisma.meetingRecording.aggregate({
+      where: { status: { not: MeetingRecordingStatus.DELETED } },
+      _sum: { sizeBytes: true },
+    });
+    if (Number(used._sum.sizeBytes ?? 0n) >= storageGb * 1024 * 1024 * 1024) {
+      throw new AppError(409, "MEETING_RECORDING_STORAGE_LIMIT", "Your meeting recording storage allowance has been reached");
+    }
+  }
   if (!meeting.allowRecording) throw new AppError(403, "MEETING_RECORDING_DISABLED", "Recording is disabled for this meeting");
   if (!meeting.livekitRoomName || meeting.status !== MeetingStatus.LIVE) throw new AppError(409, "MEETING_NOT_LIVE", "Start the meeting before recording");
   if (!livekitRecordingConfigured()) throw new AppError(503, "MEETING_RECORDING_NOT_CONFIGURED", "Meeting recording storage is not configured");
@@ -1486,7 +1529,18 @@ router.post("/meetings/:id/recordings/start", async (req: AuthRequest, res) => {
   if (storage.endpoint) { s3.endpoint = storage.endpoint; s3.force_path_style = true; }
   const result: any = await livekitEgress("StartEgress", { room_name: meeting.livekitRoomName, template: { layout: "grid" }, outputs: [{ file: { file_type: "MP4", filepath: key } }], storage: { s3 } });
   const egressId = result.egress_id ?? result.egressId;
-  const row = await prisma.meetingRecording.create({ data: { organizationId: scope.organizationId, meetingId: meeting.id, providerRecordingId: egressId, egressId, objectKey: key, status: MeetingRecordingStatus.RECORDING, startedAt: new Date(), initiatedById: scope.userId } });
+  const retentionDays = commercialLimit(commercial, "meeting.retentionDays");
+  const row = await prisma.meetingRecording.create({ data: {
+    organizationId: scope.organizationId,
+    meetingId: meeting.id,
+    providerRecordingId: egressId,
+    egressId,
+    objectKey: key,
+    status: MeetingRecordingStatus.RECORDING,
+    startedAt: new Date(),
+    initiatedById: scope.userId,
+    retentionUntil: retentionDays !== null ? new Date(Date.now() + retentionDays * 86_400_000) : null,
+  } });
   await audit(req, meeting.id, "START_RECORDING", "MeetingRecording", row.id, { egressId });
   res.status(201).json({ data: row });
 });
@@ -1497,7 +1551,9 @@ router.post("/meetings/:id/recordings/stop", async (req: AuthRequest, res) => {
   const recording = await prisma.meetingRecording.findFirst({ where: { meetingId: meeting.id, status: { in: [MeetingRecordingStatus.STARTING, MeetingRecordingStatus.RECORDING] } }, orderBy: { createdAt: "desc" } });
   if (!recording?.egressId) throw new AppError(409, "MEETING_RECORDING_NOT_ACTIVE", "No active recording was found");
   const result: any = await livekitEgress("StopEgress", { egress_id: recording.egressId });
-  const row = await prisma.meetingRecording.update({ where: { id: recording.id }, data: { status: MeetingRecordingStatus.PROCESSING, stoppedAt: new Date(), providerRecordingId: result.egress_id ?? recording.providerRecordingId } });
+  const stoppedAt = new Date();
+  const durationSeconds = recording.startedAt ? Math.max(0, Math.floor((stoppedAt.getTime() - recording.startedAt.getTime()) / 1000)) : null;
+  const row = await prisma.meetingRecording.update({ where: { id: recording.id }, data: { status: MeetingRecordingStatus.PROCESSING, stoppedAt, durationSeconds, providerRecordingId: result.egress_id ?? recording.providerRecordingId } });
   await audit(req, meeting.id, "STOP_RECORDING", "MeetingRecording", row.id, { egressId: recording.egressId });
   res.json({ data: row });
 });
