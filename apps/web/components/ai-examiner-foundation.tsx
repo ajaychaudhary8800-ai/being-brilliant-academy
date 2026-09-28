@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BrainCircuit, CheckCircle2, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { BrainCircuit, CheckCircle2, Loader2, Play, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 import { getAccessToken } from "./auth-provider";
 import Sidebar from "./sidebar";
 
@@ -29,7 +29,12 @@ type Readiness = {
   answerSheets:{total:number;withAIEvaluation:number};
   setupReady:boolean;
   blockers:string[];
-  engine:{providerConfigured:boolean;model:string;evaluationExecutionAvailable:boolean;phase:string};
+  engine:{providerConfigured:boolean;providerMode:string;model:string;engineVersion:string;reviewThreshold:number;evaluationExecutionAvailable:boolean;phase:string};
+  answerSheetItems:Array<{
+    id:string;fileName:string;mimeType:string;status:string;isLate:boolean;submittedAt:string;finalizedAt:string|null;marksObtained:number|string|null;
+    student:{id:string;admissionNo:string|null;rollNo:string|null;name:string};
+    latestEvaluation:{id:string;revision:number;status:string;suggestedMarks:number|string|null;confidence:number|string|null;errorCode:string|null;errorMessage:string|null;createdAt:string;completedAt:string|null}|null;
+  }>;
 };
 type QuestionDraft = { key:string; maxMarks:string; criteria:string; modelAnswer:string; concepts:string };
 
@@ -54,6 +59,7 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
   const [questions,setQuestions]=useState<QuestionDraft[]>([{key:"Q1",maxMarks:"",criteria:"",modelAnswer:"",concepts:""}]);
   const [busy,setBusy]=useState(true);
   const [saving,setSaving]=useState(false);
+  const [starting,setStarting]=useState("");
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
 
@@ -83,6 +89,12 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
 
   useEffect(()=>{void loadExams();},[loadExams]);
   useEffect(()=>{void loadReadiness();},[loadReadiness]);
+  useEffect(()=>{
+    if(!readiness?.answerSheetItems?.some(sheet=>["QUEUED","PROCESSING"].includes(sheet.latestEvaluation?.status??""))) return;
+    const timer=window.setInterval(()=>void loadReadiness(),3000);
+    return()=>window.clearInterval(timer);
+  },[readiness?.answerSheetItems,loadReadiness]);
+
 
   const totalMarks=useMemo(()=>questions.reduce((sum,item)=>sum+(Number(item.maxMarks)||0),0),[questions]);
   const maximum=readiness?.examination.maximumMarks??0;
@@ -91,6 +103,16 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
   const updateQuestion=(index:number,field:keyof QuestionDraft,value:string)=>setQuestions(items=>items.map((item,i)=>i===index?{...item,[field]:value}:item));
   const addQuestion=()=>setQuestions(items=>[...items,{key:`Q${items.length+1}`,maxMarks:"",criteria:"",modelAnswer:"",concepts:""}]);
   const removeQuestion=(index:number)=>setQuestions(items=>items.length===1?items:items.filter((_,i)=>i!==index));
+
+  async function startEvaluation(answerSheetId:string){
+    setStarting(answerSheetId);setError("");setNotice("");
+    try{
+      const json=await fetch(`${API}/ai-examiner/answer-sheets/${answerSheetId}/evaluate`,{method:"POST",headers:headers()}).then(responseBody);
+      setNotice(`AI evaluation revision ${json.data.revision} queued. This page will refresh automatically.`);
+      await loadReadiness();
+    }catch(cause){setError(cause instanceof Error?cause.message:"Unable to start AI evaluation");}
+    finally{setStarting("");}
+  }
 
   async function saveRubric(){
     if(!selected)return;
@@ -154,6 +176,45 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
               <div className={`rounded-xl px-4 py-3 text-sm ${readiness.engine.providerConfigured&&readiness.engine.evaluationExecutionAvailable?"bg-emerald-50 text-emerald-800":"bg-amber-50 text-amber-900"}`}><b>AI execution:</b> {readiness.engine.providerConfigured&&readiness.engine.evaluationExecutionAvailable?"Ready":"Not ready"}<br/><span>{readiness.engine.providerConfigured?"AI provider configured":"AI provider not configured"} · {readiness.engine.evaluationExecutionAvailable?"evaluation runner enabled":"evaluation runner disabled"}</span></div>
             </div>
             {readiness.blockers.length>0&&<div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><b>Readiness blockers</b><ul className="mt-2 list-disc space-y-1 pl-5">{readiness.blockers.map(item=><li key={item}>{item}</li>)}</ul></div>}
+          </section>
+          <section className="mt-5 rounded-2xl border bg-white p-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div><h2 className="text-xl font-bold">Answer Sheets & AI Evaluation</h2><p className="text-sm text-slate-500">AI suggests question-wise marks. A teacher or authorized manager must review every question before final marks are written.</p></div>
+              <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">Engine {readiness.engine.engineVersion}</div>
+            </div>
+            {!readiness.engine.evaluationExecutionAvailable&&<div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><b>AI execution is disabled.</b> Configure the AI provider on the API service before starting evaluations.</div>}
+            <div className="mt-4 space-y-3">
+              {readiness.answerSheetItems?.length?readiness.answerSheetItems.map(sheet=>{
+                const evaluation=sheet.latestEvaluation;
+                const running=evaluation&&["QUEUED","PROCESSING"].includes(evaluation.status);
+                const review=evaluation?.status==="REVIEW_REQUIRED";
+                const approved=evaluation?.status==="APPROVED";
+                const failed=evaluation?.status==="FAILED";
+                return <article key={sheet.id} className="rounded-xl border p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="font-bold">{sheet.student.name}</p>
+                      <p className="text-sm text-slate-500">{sheet.student.admissionNo??"No admission number"} · {sheet.fileName}</p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold">{sheet.status}</span>
+                        {sheet.isLate&&<span className="rounded-full bg-amber-50 px-2.5 py-1 font-semibold text-amber-800">Late submission</span>}
+                        {evaluation&&<span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold">AI r{evaluation.revision}: {evaluation.status}</span>}
+                        {evaluation?.confidence!=null&&<span className="rounded-full bg-slate-100 px-2.5 py-1">Confidence {Math.round(Number(evaluation.confidence)*100)}%</span>}
+                        {evaluation?.suggestedMarks!=null&&<span className="rounded-full bg-slate-100 px-2.5 py-1">Suggested {Number(evaluation.suggestedMarks)}/{maximum}</span>}
+                      </div>
+                      {failed&&<p className="mt-2 text-sm text-red-700">{evaluation.errorCode}: {evaluation.errorMessage}</p>}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {review&&<Link className="btn border-emerald-200 text-emerald-700" href={teacherView?`/teacher/ai-examiner/review/${evaluation.id}`:`/admin/ai-examiner/review/${evaluation.id}`}><Sparkles size={16}/>Review AI Marks</Link>}
+                      {approved&&<Link className="btn" href={teacherView?`/teacher/ai-examiner/review/${evaluation.id}`:`/admin/ai-examiner/review/${evaluation.id}`}>View Approved Review</Link>}
+                      {!review&&!approved&&!running&&!sheet.finalizedAt&&<button type="button" className="btn bg-brand-700 text-white disabled:opacity-40" disabled={!readiness.setupReady||!readiness.engine.evaluationExecutionAvailable||starting===sheet.id} onClick={()=>void startEvaluation(sheet.id)}>{starting===sheet.id?<Loader2 className="animate-spin" size={16}/>:<Play size={16}/>} {failed?"Retry AI Evaluation":"Start AI Evaluation"}</button>}
+                      {running&&<span className="inline-flex items-center gap-2 rounded-xl bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800"><Loader2 className="animate-spin" size={16}/>{evaluation?.status==="QUEUED"?"Queued":"Evaluating"}</span>}
+                      {sheet.finalizedAt&&<span className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">Finalized</span>}
+                    </div>
+                  </div>
+                </article>;
+              }):<p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No submitted answer sheets are available.</p>}
+            </div>
           </section>
           <section className="mt-5 rounded-2xl border bg-white p-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-xl font-bold">Marking Rubric</h2><p className="text-sm text-slate-500">Drafts are editable. Activating a new version preserves older rubrics for evaluation history.</p></div><div className={`rounded-full px-3 py-1 text-sm font-bold ${marksMatch?"bg-emerald-50 text-emerald-700":"bg-amber-50 text-amber-800"}`}>{totalMarks} / {maximum} marks</div></div>
