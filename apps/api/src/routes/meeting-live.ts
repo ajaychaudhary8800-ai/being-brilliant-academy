@@ -9,6 +9,7 @@ import { env } from "../config.js";
 import { AppError } from "../lib/http.js";
 import {
   createLiveKitToken,
+  deleteLiveKitRecordingObject,
   getLiveKitRecordingObject,
   livekitClientUrl,
   livekitConfigured,
@@ -143,6 +144,14 @@ router.post("/meetings/native/:room/join", async (req: AuthRequest, res) => {
   const { meeting, participant } = await meetingForRoom(req, room);
   const manager = managerRole(participant.meetingRole);
   assertJoinable(meeting, manager);
+  if (meeting.status !== MeetingStatus.LIVE) {
+    const policy = await assertFeatureEntitled(org(req), "meetings");
+    const limit = policy.enforcementEnabled ? policy.plan?.limits["meeting.concurrentRooms"] : null;
+    if (typeof limit === "number") {
+      const liveRooms = await prisma.meeting.count({ where: { organizationId: org(req), status: MeetingStatus.LIVE, id: { not: meeting.id } } });
+      if (liveRooms >= limit) throw new AppError(409, "MEETING_CONCURRENT_ROOM_LIMIT", `Your plan allows ${limit} concurrent meeting rooms`);
+    }
+  }
   const existing = await prisma.meetingAttendanceSession.findFirst({
     where: { organizationId: org(req), meetingId: meeting.id, participantId: participant.id, leftAt: null },
     orderBy: { joinedAt: "desc" },
@@ -254,7 +263,18 @@ router.post("/meetings/native/:room/recording/start", async (req: AuthRequest, r
   const { meeting, participant } = await meetingForRoom(req, room);
   if (!managerRole(participant.meetingRole)) throw new AppError(403, "MEETING_RECORDING_FORBIDDEN", "Host or co-host permission is required");
   if (!meeting.allowRecording) throw new AppError(403, "MEETING_RECORDING_DISABLED", "Recording is disabled for this meeting");
-  await assertFeatureEntitled(org(req), "meetings_recording");
+  const policy = await assertFeatureEntitled(org(req), "meetings_recording");
+  if (policy.enforcementEnabled) {
+    const monthlyLimit = policy.plan?.limits["meeting.monthlyRecordingMinutes"];
+    if (typeof monthlyLimit === "number") {
+      const now = new Date(), monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const used = await prisma.meetingRecording.aggregate({
+        where: { organizationId: org(req), createdAt: { gte: monthStart }, status: { not: MeetingRecordingStatus.DELETED } },
+        _sum: { durationSeconds: true },
+      });
+      if (Math.ceil((used._sum.durationSeconds ?? 0) / 60) >= monthlyLimit) throw new AppError(409, "MEETING_RECORDING_LIMIT", `Your monthly meeting recording allowance of ${monthlyLimit} minutes has been reached`);
+    }
+  }
   if (!livekitRecordingConfigured()) throw new AppError(503, "MEETING_RECORDING_NOT_CONFIGURED", "Meeting recording storage is not configured");
   const active = meeting.recordings.find(r => r.status === MeetingRecordingStatus.STARTING || r.status === MeetingRecordingStatus.RECORDING);
   if (active) throw new AppError(409, "MEETING_RECORDING_ACTIVE", "A recording is already active");
@@ -269,9 +289,13 @@ router.post("/meetings/native/:room/recording/start", async (req: AuthRequest, r
     storage: { s3 },
   });
   const egressId = result.egress_id ?? result.egressId;
+  const retentionDays = policy.enforcementEnabled && typeof policy.plan?.limits["meeting.retentionDays"] === "number"
+    ? policy.plan.limits["meeting.retentionDays"]!
+    : 90;
   const row = await prisma.meetingRecording.create({ data: {
     organizationId: org(req), meetingId: meeting.id, provider: "LIVEKIT", providerRecordingId: egressId,
     status: MeetingRecordingStatus.STARTING, startedAt: new Date(), storageKey: key, initiatedById: actor(req),
+    retentionUntil: new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000),
   }});
   await meetingAudit(req, meeting.id, "START_RECORDING", { recordingId: row.id, egressId });
   res.status(201).json({ data: row });
@@ -307,6 +331,21 @@ router.get("/meetings/native/:room/recordings/:recordingId", async (req: AuthReq
   res.setHeader("Content-Disposition", `attachment; filename="meeting-${meeting.id}.mp4"`);
   for await (const chunk of object as AsyncIterable<Uint8Array | string>) res.write(chunk);
   res.end();
+});
+
+
+router.delete("/meetings/native/:room/recordings/:recordingId", async (req: AuthRequest, res) => {
+  const room = roomParam.parse(req.params.room);
+  const { meeting, participant } = await meetingForRoom(req, room);
+  if (!managerRole(participant.meetingRole)) throw new AppError(403, "MEETING_RECORDING_DELETE_FORBIDDEN", "Host or co-host permission is required");
+  const recording = await prisma.meetingRecording.findFirst({
+    where: { organizationId: org(req), id: String(req.params.recordingId), meetingId: meeting.id, status: { not: MeetingRecordingStatus.DELETED } },
+  });
+  if (!recording) throw new AppError(404, "MEETING_RECORDING_NOT_FOUND", "Meeting recording not found");
+  if (recording.storageKey) await deleteLiveKitRecordingObject(recording.storageKey).catch(() => undefined);
+  await prisma.meetingRecording.update({ where: { id: recording.id }, data: { status: MeetingRecordingStatus.DELETED, storageKey: null } });
+  await meetingAudit(req, meeting.id, "DELETE_RECORDING", { recordingId: recording.id });
+  res.status(204).send();
 });
 
 export default router;
