@@ -2,14 +2,17 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("Ranpal AI Examiner foundation owns versioned rubrics and reviewable evaluation records", async () => {
-  const [schema,migration,route,server,policy,page,sidebar,workflow,adminPage,teacherPage] = await Promise.all([
+test("Ranpal AI Examiner owns versioned rubrics, queued evaluation and human review", async () => {
+  const [schema,migration,route,server,policy,engine,worker,page,review,sidebar,workflow,adminPage,teacherPage] = await Promise.all([
     readFile(new URL("../../prisma/schema.prisma", import.meta.url), "utf8"),
     readFile(new URL("../../prisma/migrations/20260927150000_ai_examiner_foundation/migration.sql", import.meta.url), "utf8"),
     readFile(new URL("ai-examiner.ts", import.meta.url), "utf8"),
     readFile(new URL("../server.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/ai-examiner-policy.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/ai-examiner-engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/ai-examiner-worker.ts", import.meta.url), "utf8"),
     readFile(new URL("../../../web/components/ai-examiner-foundation.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../../web/components/ai-examiner-review.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../../web/components/sidebar.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../../web/components/examination-workflow.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../../web/app/admin/ai-examiner/page.tsx", import.meta.url), "utf8"),
@@ -34,12 +37,19 @@ test("Ranpal AI Examiner foundation owns versioned rubrics and reviewable evalua
   assert.match(route, /\/rubrics\/:rubricId\/activate/);
   assert.match(route, /\/answer-sheets\/:answerSheetId\/evaluations/);
   assert.match(route, /requireCommercialFeature\("examinations"\)/);
-  assert.match(route, /evaluationExecutionAvailable: false/);
-  assert.match(route, /providerConfigured: Boolean\(env\.AI_PROVIDER_URL && env\.AI_API_KEY\)/);
+  assert.match(route, /evaluationExecutionAvailable: aiExaminerProviderConfigured\(\)/);
+  assert.match(route, /providerConfigured: aiExaminerProviderConfigured\(\)/);
+  assert.match(route, /\/answer-sheets\/:answerSheetId\/evaluate/);
+  assert.match(route, /\/evaluations\/:evaluationId\/approve/);
 
   assert.match(policy, /AI_EXAMINER_RUBRIC_MARKS_MISMATCH/);
   assert.match(policy, /AI_EXAMINER_ACTIVE_RUBRIC_REQUIRED/);
   assert.match(policy, /aiExaminerConfidenceNeedsReview/);
+  assert.match(engine, /POSSIBLE_PROMPT_INJECTION/);
+  assert.match(engine, /validateAIExaminerResultAgainstRubric/);
+  assert.match(engine, /response_format: \{ type: "json_object" \}/);
+  assert.match(worker, /AIExaminerEvaluationStatus\.REVIEW_REQUIRED/);
+  assert.match(worker, /processQueuedAIExaminerEvaluations/);
 
   assert.match(server, /import aiExaminer from "\.\/routes\/ai-examiner\.js"/);
   assert.match(server, /app\.use\("\/api\/v1\/ai-examiner", aiExaminer\)/);
@@ -52,6 +62,10 @@ test("Ranpal AI Examiner foundation owns versioned rubrics and reviewable evalua
   assert.match(page, /Assessment prerequisites/);
   assert.match(page, /AI execution:/);
   assert.match(page, /evaluationExecutionAvailable/);
+  assert.match(page, /Start AI Evaluation/);
+  assert.match(page, /Review AI Marks/);
+  assert.match(review, /Approve & Finalize/);
+  assert.match(review, /Teacher attention required/);
   assert.match(sidebar, /Ranpal AI Examiner/);
   assert.match(sidebar, /\/admin\/ai-examiner/);
   assert.match(workflow, /\/teacher\/ai-examiner/);
