@@ -65,3 +65,35 @@ test("meeting invitations use the existing notification infrastructure", async (
   assert.match(scheduling, /REMINDER_10/);
   assert.match(server, /meetingReminders/);
 });
+
+
+test("native meeting collaboration reuses LiveKit without using LiveClass records", async () => {
+  const live = await readFile(new URL("./meeting-live.ts", import.meta.url), "utf8");
+  assert.match(live, /createLiveKitToken/);
+  assert.match(live, /livekitRoomService/);
+  assert.match(live, /livekitEgress/);
+  assert.match(live, /meetingAttendanceSession/);
+  assert.match(live, /meetingRecording/);
+  assert.match(live, /meetingInteraction/);
+  assert.match(live, /whiteboardData/);
+  assert.doesNotMatch(live, /prisma\.liveClass/);
+  assert.match(server, /onlyPaths\(\["\/meetings\/native"\], meetingLive\)/);
+});
+
+test("meeting workflow covers attendance minutes decisions and action tracking", async () => {
+  const workflow = await readFile(new URL("./meeting-workflow.ts", import.meta.url), "utf8");
+  assert.match(workflow, /\/meetings\/:id\/attendance/);
+  assert.match(workflow, /\/meetings\/:id\/minutes\/approve/);
+  assert.match(workflow, /\/meetings\/:id\/minutes\/publish/);
+  assert.match(workflow, /\/meetings\/:id\/decisions/);
+  assert.match(workflow, /\/meetings\/:id\/actions/);
+  assert.match(workflow, /\/meeting-actions\/:id\/complete/);
+  assert.match(workflow, /overdue/);
+});
+
+test("meeting occurrences synchronize with internal ERP calendar", () => {
+  assert.match(schema, /calendarEventId\s+String\?\s+@unique/);
+  assert.match(route, /calendarEvent\.create/);
+  assert.match(route, /calendarEventRsvp\.createMany/);
+  assert.match(route, /calendarEventRsvp\.upsert/);
+});
