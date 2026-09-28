@@ -5708,6 +5708,7 @@ model Meeting {
   id             String            @id @default(cuid())
   seriesId       String?
   occurrenceIndex Int?
+  calendarEventId String? @unique
   branchId       String?
   departmentId   String?
   title          String
