@@ -5,6 +5,7 @@ import {
   MeetingAttendanceStatus,
   MeetingAudienceType,
   MeetingCalendarProvider,
+  MeetingDepartmentAuthorityRole,
   MeetingInvitationStatus,
   MeetingMinutesStatus,
   MeetingParticipantRole,
@@ -62,21 +63,27 @@ type ActorScope = {
   organizationId: string;
   branchIds: string[] | null;
   departmentIds: string[];
+  managedDepartmentIds: string[];
 };
 
 const organizationId = (req: AuthRequest) => req.auth!.organizationId;
 
 async function actorScope(req: AuthRequest): Promise<ActorScope> {
   const auth = req.auth!;
+  const authorities = await prisma.meetingDepartmentAuthority.findMany({
+    where: { organizationId: auth.organizationId, userId: auth.userId, isActive: true },
+    select: { departmentId: true },
+  });
+  const managedDepartmentIds = [...new Set(authorities.map(item => item.departmentId))];
   if (auth.role === Role.SUPER_ADMIN) {
-    return { userId: auth.userId, role: auth.role, organizationId: auth.organizationId, branchIds: null, departmentIds: [] };
+    return { userId: auth.userId, role: auth.role, organizationId: auth.organizationId, branchIds: null, departmentIds: [], managedDepartmentIds };
   }
   if (auth.role === Role.BRANCH_ADMIN || auth.role === Role.ACCOUNTANT) {
     const assignments = await prisma.branchUser.findMany({
       where: { organizationId: auth.organizationId, userId: auth.userId, branch: { organizationId: auth.organizationId, isActive: true } },
       select: { branchId: true },
     });
-    return { userId: auth.userId, role: auth.role, organizationId: auth.organizationId, branchIds: [...new Set(assignments.map(x => x.branchId))], departmentIds: [] };
+    return { userId: auth.userId, role: auth.role, organizationId: auth.organizationId, branchIds: [...new Set(assignments.map(x => x.branchId))], departmentIds: [], managedDepartmentIds };
   }
   if (auth.role === Role.EMPLOYEE) {
     const employee = await prisma.employee.findFirst({
@@ -89,6 +96,7 @@ async function actorScope(req: AuthRequest): Promise<ActorScope> {
       organizationId: auth.organizationId,
       branchIds: employee ? [employee.branchId] : [],
       departmentIds: employee ? [employee.departmentId] : [],
+      managedDepartmentIds,
     };
   }
   if (auth.role === Role.TEACHER) {
@@ -96,7 +104,7 @@ async function actorScope(req: AuthRequest): Promise<ActorScope> {
       where: { organizationId: auth.organizationId, userId: auth.userId },
       select: { branchId: true },
     });
-    return { userId: auth.userId, role: auth.role, organizationId: auth.organizationId, branchIds: teacher ? [teacher.branchId] : [], departmentIds: [] };
+    return { userId: auth.userId, role: auth.role, organizationId: auth.organizationId, branchIds: teacher ? [teacher.branchId] : [], departmentIds: [], managedDepartmentIds };
   }
   throw new AppError(403, "MEETING_ACCESS_DENIED", "Staff meeting access is required");
 }
@@ -109,7 +117,8 @@ function visibleMeetingWhere(scope: ActorScope) {
     { visibility: MeetingVisibility.ORGANIZATION },
   ];
   if (scope.branchIds?.length) or.push({ visibility: MeetingVisibility.BRANCH, branchId: { in: scope.branchIds } });
-  if (scope.departmentIds.length) or.push({ visibility: MeetingVisibility.DEPARTMENT, departmentId: { in: scope.departmentIds } });
+  const departmentScope = [...new Set([...scope.departmentIds, ...scope.managedDepartmentIds])];
+  if (departmentScope.length) or.push({ visibility: MeetingVisibility.DEPARTMENT, departmentId: { in: departmentScope } });
   return { OR: or };
 }
 
@@ -124,7 +133,11 @@ async function assertScopeTarget(scope: ActorScope, branchId?: string | null, de
   if (departmentId) {
     const department = await prisma.department.findFirst({ where: { organizationId: scope.organizationId, id: departmentId, isArchived: false }, select: { id: true } });
     if (!department) throw new AppError(422, "MEETING_DEPARTMENT_INVALID", "Meeting department is unavailable");
-    if (scope.role === Role.EMPLOYEE && scope.departmentIds.length && !scope.departmentIds.includes(departmentId)) {
+    if (
+      (scope.role === Role.EMPLOYEE || scope.role === Role.TEACHER)
+      && !scope.departmentIds.includes(departmentId)
+      && !scope.managedDepartmentIds.includes(departmentId)
+    ) {
       throw new AppError(403, "MEETING_DEPARTMENT_FORBIDDEN", "You cannot create or manage meetings for this department");
     }
   }
@@ -134,11 +147,18 @@ function assertVisibilityScope(scope: ActorScope, visibility: MeetingVisibility,
   if (visibility === MeetingVisibility.ORGANIZATION && scope.role !== Role.SUPER_ADMIN) {
     throw new AppError(403, "MEETING_ORGANIZATION_VISIBILITY_DENIED", "Organization-wide meeting visibility requires organization administrator access");
   }
-  if (visibility === MeetingVisibility.BRANCH && !branchId) {
-    throw new AppError(422, "MEETING_VISIBILITY_BRANCH_REQUIRED", "Branch-visible meetings require a branch");
+  if (visibility === MeetingVisibility.BRANCH) {
+    if (!branchId) throw new AppError(422, "MEETING_VISIBILITY_BRANCH_REQUIRED", "Branch-visible meetings require a branch");
+    if (scope.role !== Role.SUPER_ADMIN && scope.role !== Role.BRANCH_ADMIN) {
+      throw new AppError(403, "MEETING_BRANCH_VISIBILITY_DENIED", "Branch-wide meeting visibility requires branch administrator access");
+    }
   }
-  if (visibility === MeetingVisibility.DEPARTMENT && !departmentId) {
-    throw new AppError(422, "MEETING_VISIBILITY_DEPARTMENT_REQUIRED", "Department-visible meetings require a department");
+  if (visibility === MeetingVisibility.DEPARTMENT) {
+    if (!departmentId) throw new AppError(422, "MEETING_VISIBILITY_DEPARTMENT_REQUIRED", "Department-visible meetings require a department");
+    const departmentAuthority = scope.managedDepartmentIds.includes(departmentId);
+    if (scope.role !== Role.SUPER_ADMIN && scope.role !== Role.BRANCH_ADMIN && !departmentAuthority) {
+      throw new AppError(403, "MEETING_DEPARTMENT_VISIBILITY_DENIED", "Department-wide meeting visibility requires department authority");
+    }
   }
 }
 
@@ -162,9 +182,10 @@ async function meetingForActor(req: AuthRequest, meetingId: string) {
   return { meeting, scope };
 }
 
-function canManageMeeting(scope: ActorScope, meeting: { branchId: string | null; hostUserId: string; participants: Array<{ userId: string; meetingRole: MeetingParticipantRole; removedAt: Date | null }> }) {
+function canManageMeeting(scope: ActorScope, meeting: { branchId: string | null; departmentId: string | null; hostUserId: string; participants: Array<{ userId: string; meetingRole: MeetingParticipantRole; removedAt: Date | null }> }) {
   if (scope.role === Role.SUPER_ADMIN) return true;
   if (scope.role === Role.BRANCH_ADMIN && meeting.branchId && scope.branchIds?.includes(meeting.branchId)) return true;
+  if (meeting.departmentId && scope.managedDepartmentIds.includes(meeting.departmentId)) return true;
   if (meeting.hostUserId === scope.userId) return true;
   return meeting.participants.some(p => p.userId === scope.userId && !p.removedAt && meetingManagerRoles.has(p.meetingRole));
 }
@@ -388,6 +409,81 @@ const meetingInput = meetingShape.superRefine((value, ctx) => {
   if (value.recordingRequired && !value.allowRecording) ctx.addIssue({ code: "custom", path: ["recordingRequired"], message: "Required recording needs allowRecording enabled" });
 });
 
+router.get("/meetings/department-authorities", async (req: AuthRequest, res) => {
+  const scope = await actorScope(req);
+  if (!managerRoleSet.has(scope.role)) throw new AppError(403, "MEETING_AUTHORITY_ADMIN_REQUIRED", "Administrator access is required");
+  let allowedUserIds: string[] | undefined;
+  if (scope.role === Role.BRANCH_ADMIN) {
+    const users = await prisma.user.findMany({
+      where: {
+        organizationId: scope.organizationId,
+        isActive: true,
+        OR: [
+          { branchAssignments: { some: { branchId: { in: scope.branchIds ?? [] } } } },
+          { employee: { branchId: { in: scope.branchIds ?? [] } } },
+          { teacherProfile: { branchId: { in: scope.branchIds ?? [] } } },
+        ],
+      },
+      select: { id: true },
+    });
+    allowedUserIds = users.map(user => user.id);
+  }
+  const authorities = await prisma.meetingDepartmentAuthority.findMany({
+    where: { ...(allowedUserIds ? { userId: { in: allowedUserIds } } : {}) },
+    orderBy: [{ departmentId: "asc" }, { createdAt: "asc" }],
+  });
+  const [departments, users] = await Promise.all([
+    prisma.department.findMany({
+      where: { id: { in: [...new Set(authorities.map(item => item.departmentId))] } },
+      select: { id: true, name: true, code: true },
+    }),
+    prisma.user.findMany({
+      where: { id: { in: [...new Set(authorities.map(item => item.userId))] } },
+      select: { id: true, name: true, email: true, role: true },
+    }),
+  ]);
+  const departmentMap = new Map(departments.map(item => [item.id, item]));
+  const userMap = new Map(users.map(item => [item.id, item]));
+  res.json({ data: authorities.map(item => ({ ...item, department: departmentMap.get(item.departmentId) ?? null, user: userMap.get(item.userId) ?? null })) });
+});
+
+router.post("/meetings/department-authorities", async (req: AuthRequest, res) => {
+  const scope = await actorScope(req);
+  if (!managerRoleSet.has(scope.role)) throw new AppError(403, "MEETING_AUTHORITY_ADMIN_REQUIRED", "Administrator access is required");
+  const data = z.object({
+    departmentId: id,
+    userId: id,
+    authorityRole: z.nativeEnum(MeetingDepartmentAuthorityRole).default(MeetingDepartmentAuthorityRole.HOD),
+  }).parse(req.body);
+  const department = await prisma.department.findFirst({ where: { id: data.departmentId, isArchived: false }, select: { id: true } });
+  if (!department) throw new AppError(422, "MEETING_DEPARTMENT_INVALID", "Department is unavailable");
+  const users = await eligibleUsers(req, [data.userId]);
+  await assertParticipantScope(scope, users);
+  const authority = await prisma.meetingDepartmentAuthority.upsert({
+    where: { organizationId_departmentId_userId: { organizationId: scope.organizationId, departmentId: data.departmentId, userId: data.userId } },
+    create: { organizationId: scope.organizationId, departmentId: data.departmentId, userId: data.userId, authorityRole: data.authorityRole, isActive: true, createdById: scope.userId },
+    update: { authorityRole: data.authorityRole, isActive: true },
+  });
+  await prisma.auditLog.create({
+    data: { organizationId: scope.organizationId, actorId: scope.userId, action: "MEETING_DEPARTMENT_AUTHORITY_UPSERT", entity: "MeetingDepartmentAuthority", entityId: authority.id, metadata: data },
+  });
+  res.status(201).json({ data: authority });
+});
+
+router.delete("/meetings/department-authorities/:authorityId", async (req: AuthRequest, res) => {
+  const scope = await actorScope(req);
+  if (!managerRoleSet.has(scope.role)) throw new AppError(403, "MEETING_AUTHORITY_ADMIN_REQUIRED", "Administrator access is required");
+  const authority = await prisma.meetingDepartmentAuthority.findFirst({ where: { id: String(req.params.authorityId), isActive: true } });
+  if (!authority) throw new AppError(404, "MEETING_AUTHORITY_NOT_FOUND", "Department authority not found");
+  const users = await eligibleUsers(req, [authority.userId]);
+  await assertParticipantScope(scope, users);
+  await prisma.meetingDepartmentAuthority.update({ where: { id: authority.id }, data: { isActive: false } });
+  await prisma.auditLog.create({
+    data: { organizationId: scope.organizationId, actorId: scope.userId, action: "MEETING_DEPARTMENT_AUTHORITY_REVOKE", entity: "MeetingDepartmentAuthority", entityId: authority.id, metadata: { departmentId: authority.departmentId, userId: authority.userId } },
+  });
+  res.status(204).send();
+});
+
 router.get("/meetings/options", async (req: AuthRequest, res) => {
   const scope = await actorScope(req);
   const branchWhere = scope.branchIds ? { id: { in: scope.branchIds } } : {};
@@ -400,7 +496,9 @@ router.get("/meetings/options", async (req: AuthRequest, res) => {
     where: {
       organizationId: scope.organizationId,
       isArchived: false,
-      ...(scope.role === Role.EMPLOYEE && scope.departmentIds.length ? { id: { in: scope.departmentIds } } : {}),
+      ...((scope.role === Role.EMPLOYEE || scope.role === Role.TEACHER || scope.role === Role.ACCOUNTANT)
+        ? { id: { in: [...new Set([...scope.departmentIds, ...scope.managedDepartmentIds])] } }
+        : {}),
     },
     select: { id: true, name: true, code: true },
     orderBy: { name: "asc" },
@@ -1060,7 +1158,8 @@ router.post("/meetings/:id/minutes/submit", async (req: AuthRequest, res) => {
 
 router.post("/meetings/:id/minutes/approve", async (req: AuthRequest, res) => {
   const { meeting, scope } = await meetingForActor(req, String(req.params.id));
-  if (!managerRoleSet.has(scope.role)) throw new AppError(403, "MEETING_MINUTES_APPROVAL_DENIED", "Scoped administrator approval is required");
+  const departmentApprover = Boolean(meeting.departmentId && scope.managedDepartmentIds.includes(meeting.departmentId));
+  if (!managerRoleSet.has(scope.role) && !departmentApprover) throw new AppError(403, "MEETING_MINUTES_APPROVAL_DENIED", "Scoped administrator or department authority approval is required");
   if (!meeting.minutes) throw new AppError(409, "MEETING_MINUTES_MISSING", "Minutes have not been prepared");
   const row = await prisma.meetingMinutes.update({ where: { id: meeting.minutes.id }, data: { status: MeetingMinutesStatus.APPROVED, approvedById: scope.userId, approvedAt: new Date() } });
   await audit(req, meeting.id, "APPROVE_MINUTES", "MeetingMinutes", row.id);
