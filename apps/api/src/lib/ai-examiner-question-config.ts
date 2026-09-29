@@ -7,6 +7,17 @@ import {
 
 export const aiExaminerQuestionTypeSchema = z.enum(AI_EXAMINER_QUESTION_TYPES);
 
+const aiExaminerAnswerKeyScalarSchema = z.union([
+  z.string().max(12000),
+  z.number().finite(),
+  z.boolean(),
+]);
+export const aiExaminerAnswerKeySchema = z.union([
+  aiExaminerAnswerKeyScalarSchema,
+  z.array(aiExaminerAnswerKeyScalarSchema).max(200),
+  z.record(aiExaminerAnswerKeyScalarSchema),
+]);
+
 export const aiExaminerScoringRuleSchema = z.object({
   correctMarks: z.coerce.number().min(0).max(10000).optional(),
   incorrectMarks: z.coerce.number().min(-10000).max(10000).optional(),
@@ -27,7 +38,7 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
   modelAnswer: z.string().trim().max(12000).nullable().optional(),
   concepts: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
   questionType: aiExaminerQuestionTypeSchema.default("LONG_ANSWER"),
-  answerKey: z.unknown().optional(),
+  answerKey: aiExaminerAnswerKeySchema.optional(),
   scoring: aiExaminerScoringRuleSchema,
   requiresVisualEvidence: z.boolean().default(false),
   requiresCodeExecution: z.boolean().default(false),
