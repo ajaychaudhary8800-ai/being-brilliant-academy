@@ -31,6 +31,7 @@ const id = z.string().trim().min(1).max(191);
 const managementRoles = new Set<Role>([Role.SUPER_ADMIN, Role.BRANCH_ADMIN]);
 const mutableMeetingStatuses = new Set<MeetingStatus>([MeetingStatus.DRAFT, MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE]);
 const respondableMeetingStatuses = new Set<MeetingStatus>([MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE]);
+const cancellableMeetingStatuses = new Set<MeetingStatus>([MeetingStatus.DRAFT, MeetingStatus.SCHEDULED]);
 
 router.use(requireAuth, requireCommercialFeature("meetings"));
 
@@ -517,7 +518,7 @@ router.patch("/meetings/:id", async (req: AuthRequest, res) => {
 router.post("/meetings/:id/cancel", async (req: AuthRequest, res) => {
   const meeting = await getMeeting(req, String(req.params.id));
   await canManage(req, meeting);
-  assertMeetingMutable(meeting);
+  if (!cancellableMeetingStatuses.has(meeting.status)) throw new AppError(409, "MEETING_CANCEL_REQUIRES_END", "Once the meeting room is open, end the meeting instead of cancelling it");
   await invalidateFutureMeetingNotifications(org(req), meeting.id);
   const data = await prisma.$transaction(async tx => {
     const row = await tx.meeting.update({ where: { id: meeting.id }, data: { status: MeetingStatus.CANCELLED, cancelledAt: new Date() } });
