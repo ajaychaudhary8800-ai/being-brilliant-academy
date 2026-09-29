@@ -1,11 +1,21 @@
 import { expect, test } from "@playwright/test";
 import { apiJson, loginApi } from "./support/api";
-import { assertSafeTarget, expectHealthyPage, login } from "./support/environment";
+import { assertSafeTarget, expectHealthyPage, type QaRole } from "./support/environment";
+
+async function authenticate(page: import("@playwright/test").Page, request: import("@playwright/test").APIRequestContext, role: QaRole) {
+  const session = await loginApi(request, role);
+  await page.goto("/");
+  await page.evaluate(({ accessToken, refreshToken }) => {
+    localStorage.setItem("bba.accessToken", accessToken);
+    localStorage.setItem("bba.refreshToken", refreshToken);
+  }, session);
+  return session;
+}
 
 test.beforeEach(({ baseURL }) => assertSafeTarget(baseURL ?? "http://127.0.0.1:3000", true));
 
-test("meetings management scheduler exposes enterprise controls", async ({ page }) => {
-  await login(page, "superAdmin");
+test("meetings management scheduler exposes enterprise controls", async ({ page, request }) => {
+  await authenticate(page, request, "superAdmin");
   await page.goto("/admin/meetings");
   await expectHealthyPage(page, /Staff & Management Meetings/i);
 
@@ -61,7 +71,7 @@ test("meeting detail exposes management workflow controls", async ({ page, reque
   });
 
   try {
-    await login(page, "superAdmin");
+    await authenticate(page, request, "superAdmin");
     await page.goto(`/meetings/${created.data.id}`);
     await expectHealthyPage(page, new RegExp(token, "i"));
     await expect(page.getByRole("button", { name: "Cancel meeting" })).toBeVisible();
@@ -86,8 +96,9 @@ test("meeting detail exposes management workflow controls", async ({ page, reque
   }
 });
 
-test("employee portal exposes Meetings and opens My Meetings", async ({ page }) => {
-  await login(page, "employee");
+test("employee portal exposes Meetings and opens My Meetings", async ({ page, request }) => {
+  await authenticate(page, request, "employee");
+  await page.goto("/employee");
   await expectHealthyPage(page, /Employee Portal/i);
   const meetings = page.getByRole("link", { name: "Meetings", exact: true });
   await expect(meetings).toBeVisible();
@@ -95,14 +106,14 @@ test("employee portal exposes Meetings and opens My Meetings", async ({ page }) 
   await expectHealthyPage(page, /My Meetings/i);
 });
 
-test("teacher can open My Meetings", async ({ page }) => {
-  await login(page, "teacher");
+test("teacher can open My Meetings", async ({ page, request }) => {
+  await authenticate(page, request, "teacher");
   await page.goto("/meetings");
   await expectHealthyPage(page, /My Meetings/i);
 });
 
-test("@mobile meetings management remains usable on a phone viewport", async ({ page }) => {
-  await login(page, "superAdmin");
+test("@mobile meetings management remains usable on a phone viewport", async ({ page, request }) => {
+  await authenticate(page, request, "superAdmin");
   await page.goto("/admin/meetings");
   await expectHealthyPage(page, /Staff & Management Meetings/i);
   const schedule = page.getByRole("button", { name: /Schedule meeting/i });
