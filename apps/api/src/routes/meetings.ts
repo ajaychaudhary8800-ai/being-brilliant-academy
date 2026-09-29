@@ -29,6 +29,8 @@ import { requireCommercialFeature } from "../middleware/commercial-entitlement.j
 const router = Router();
 const id = z.string().trim().min(1).max(191);
 const managementRoles = new Set<Role>([Role.SUPER_ADMIN, Role.BRANCH_ADMIN]);
+const mutableMeetingStatuses = new Set<MeetingStatus>([MeetingStatus.DRAFT, MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE]);
+const respondableMeetingStatuses = new Set<MeetingStatus>([MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE]);
 
 router.use(requireAuth, requireCommercialFeature("meetings"));
 
@@ -82,6 +84,10 @@ async function canView(req: AuthRequest, meeting: Awaited<ReturnType<typeof getM
     return;
   }
   throw new AppError(403, "MEETING_FORBIDDEN", "Meeting access denied");
+}
+
+function assertMeetingMutable(meeting: Awaited<ReturnType<typeof getMeeting>>) {
+  if (!mutableMeetingStatuses.has(meeting.status)) throw new AppError(409, "MEETING_IMMUTABLE", "Meeting is no longer editable");
 }
 
 async function canManage(req: AuthRequest, meeting: Awaited<ReturnType<typeof getMeeting>>) {
@@ -473,7 +479,7 @@ router.post("/meetings", async (req: AuthRequest, res) => {
 router.patch("/meetings/:id", async (req: AuthRequest, res) => {
   const meeting = await getMeeting(req, String(req.params.id));
   await canManage(req, meeting);
-  if (meeting.status === MeetingStatus.ENDED || meeting.status === MeetingStatus.CLOSED || meeting.status === MeetingStatus.CANCELLED) throw new AppError(409, "MEETING_IMMUTABLE", "Meeting is no longer editable");
+  assertMeetingMutable(meeting);
   const data = meetingBaseInput.omit({ participants: true, audiences: true, agenda: true, hostUserId: true }).partial().parse(req.body);
   if (req.auth!.role === Role.BRANCH_ADMIN && data.branchId === null) throw new AppError(403, "MEETING_BRANCH_REQUIRED", "Branch administrators cannot convert a branch meeting to organization-wide scope");
   if (!managementRoles.has(req.auth!.role) && (data.branchId !== undefined || data.departmentId !== undefined)) throw new AppError(403, "MEETING_SCOPE_CHANGE_FORBIDDEN", "Only management can change meeting branch or department scope");
@@ -510,7 +516,7 @@ router.patch("/meetings/:id", async (req: AuthRequest, res) => {
 router.post("/meetings/:id/cancel", async (req: AuthRequest, res) => {
   const meeting = await getMeeting(req, String(req.params.id));
   await canManage(req, meeting);
-  if (meeting.status === MeetingStatus.ENDED || meeting.status === MeetingStatus.CLOSED) throw new AppError(409, "MEETING_ALREADY_ENDED", "Ended meetings cannot be cancelled");
+  assertMeetingMutable(meeting);
   await invalidateFutureMeetingNotifications(org(req), meeting.id);
   const data = await prisma.$transaction(async tx => {
     const row = await tx.meeting.update({ where: { id: meeting.id }, data: { status: MeetingStatus.CANCELLED, cancelledAt: new Date() } });
@@ -525,6 +531,7 @@ router.post("/meetings/:id/respond", async (req: AuthRequest, res) => {
   const meeting = await getMeeting(req, String(req.params.id));
   const participant = meeting.participants.find(p => p.userId === actor(req));
   if (!participant) throw new AppError(403, "MEETING_INVITE_REQUIRED", "You are not invited to this meeting");
+  if (!respondableMeetingStatuses.has(meeting.status)) throw new AppError(409, "MEETING_RESPONSE_CLOSED", "Responses are closed for this meeting");
   const response = z.nativeEnum(MeetingResponseStatus).refine(value => value !== MeetingResponseStatus.PENDING).parse(req.body.response);
   const now = new Date();
   const row = await prisma.$transaction(async tx => {
@@ -547,6 +554,7 @@ router.post("/meetings/:id/respond", async (req: AuthRequest, res) => {
 router.post("/meetings/:id/participants", async (req: AuthRequest, res) => {
   const meeting = await getMeeting(req, String(req.params.id));
   await canManage(req, meeting);
+  assertMeetingMutable(meeting);
   const data = participantInput.parse(req.body);
   const scope = await allowedBranches(req);
   const participants = await resolveMeetingParticipants({
@@ -570,6 +578,7 @@ router.post("/meetings/:id/participants", async (req: AuthRequest, res) => {
 router.delete("/meetings/:id/participants/:participantId", async (req: AuthRequest, res) => {
   const meeting = await getMeeting(req, String(req.params.id));
   await canManage(req, meeting);
+  assertMeetingMutable(meeting);
   const participant = meeting.participants.find(p => p.id === String(req.params.participantId));
   if (!participant) throw new AppError(404, "MEETING_PARTICIPANT_NOT_FOUND", "Participant not found");
   if (participant.meetingRole === MeetingParticipantRole.HOST) throw new AppError(409, "MEETING_HOST_REQUIRED", "Transfer host before removing the host");
@@ -581,6 +590,7 @@ router.delete("/meetings/:id/participants/:participantId", async (req: AuthReque
 router.post("/meetings/:id/agenda", async (req: AuthRequest, res) => {
   const meeting = await getMeeting(req, String(req.params.id));
   await canManage(req, meeting);
+  assertMeetingMutable(meeting);
   const data = agendaInput.parse(req.body);
   if (data.presenterUserId && !meeting.participants.some(p => p.userId === data.presenterUserId)) throw new AppError(422, "MEETING_PRESENTER_NOT_PARTICIPANT", "Presenter must be a meeting participant");
   const row = await prisma.meetingAgendaItem.create({ data: { ...data, organizationId: org(req), meetingId: meeting.id } });
@@ -591,6 +601,7 @@ router.post("/meetings/:id/agenda", async (req: AuthRequest, res) => {
 router.patch("/meetings/:id/agenda/:agendaId", async (req: AuthRequest, res) => {
   const meeting = await getMeeting(req, String(req.params.id));
   await canManage(req, meeting);
+  assertMeetingMutable(meeting);
   const agenda = meeting.agendaItems.find(x => x.id === String(req.params.agendaId));
   if (!agenda) throw new AppError(404, "MEETING_AGENDA_NOT_FOUND", "Agenda item not found");
   const data = agendaInput.partial().parse(req.body);
