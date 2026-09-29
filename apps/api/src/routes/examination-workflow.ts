@@ -50,13 +50,17 @@ async function branchAccess(req: AuthRequest, branchId: string) {
 }
 
 async function examination(req: AuthRequest, examinationId: string) {
-  const exam = await prisma.examination.findFirst({
-    where: { id: examinationId, organizationId: req.auth!.organizationId },
-    include: { teacher: { select: { userId: true } }, questionPaper: { select: { id: true, publishedAt: true, _count: { select: { answerSheets: true } } } } },
-  });
+  const [exam, organization] = await Promise.all([
+    prisma.examination.findFirst({
+      where: { id: examinationId, organizationId: req.auth!.organizationId },
+      include: { teacher: { select: { userId: true } }, questionPaper: { select: { id: true, publishedAt: true, _count: { select: { answerSheets: true } } } } },
+    }),
+    prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { timezone: true } }),
+  ]);
   if (!exam) throw new AppError(404, "EXAMINATION_NOT_FOUND", "Examination not found");
+  if (!organization) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
   await branchAccess(req, exam.branchId);
-  return exam;
+  return { ...exam, organizationTimezone: organization.timezone };
 }
 
 async function assertHistoricalStudentEligibility(req: AuthRequest, student: { id?: string; organizationId: string; status: string; user: { isActive: boolean } } | null, exam: { organizationId: string; branchId: string; courseId: string; batchId: string; academicSessionId: string; examDate: Date }, mode: "CURRENT_OR_NEW_WRITE" | "HISTORICAL_READ" = "CURRENT_OR_NEW_WRITE", allowLegacy = false) {
@@ -122,7 +126,7 @@ router.get("/examinations/:examinationId/question-paper", async (req: AuthReques
     if (req.auth!.role === Role.STUDENT) {
       const student = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { id: true, organizationId: true, branchId: true, batchId: true, academicSessionId: true, status: true, user: { select: { isActive: true } } } });
       await assertHistoricalStudentEligibility(req, student, exam, "HISTORICAL_READ");
-      assertQuestionPaperAvailable(exam.status, exam.questionPaper?.publishedAt ?? null, new Date(), examinationStart(exam));
+      assertQuestionPaperAvailable(exam.status, exam.questionPaper?.publishedAt ?? null, new Date(), examinationStart(exam, exam.organizationTimezone));
     } else await mayManage(req, exam);
   }, () => prisma.examinationQuestionPaper.findFirst({
       where: { examinationId: exam.id, organizationId: req.auth!.organizationId },
@@ -159,7 +163,7 @@ router.put("/examinations/:examinationId/answer-sheet", async (req: AuthRequest,
   const studentId = student!.id;
   // Existing identity remains examinationId_studentId: { examinationId: exam.id, studentId: student.id }.
   const now = new Date();
-  const submission = answerSubmissionState(exam, now);
+  const submission = answerSubmissionState(exam, now, exam.organizationTimezone);
   if (!exam.questionPaper?.publishedAt || exam.questionPaper.publishedAt > now) throw new AppError(409, "SUBMISSION_UNAVAILABLE", "Answer submission is not available for this examination");
   const data = answerSheetUpload.parse(req.body), file = bytes(data);
   const result = await prisma.$transaction(async tx => {
