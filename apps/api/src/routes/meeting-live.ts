@@ -48,6 +48,12 @@ function managerRole(role: MeetingParticipantRole) {
   return role === MeetingParticipantRole.HOST || role === MeetingParticipantRole.CO_HOST;
 }
 
+function assertActiveMeeting(meeting: { status: MeetingStatus }) {
+  if (![MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE].includes(meeting.status)) {
+    throw new AppError(409, "MEETING_NOT_ACTIVE", "This meeting is no longer active");
+  }
+}
+
 function assertJoinable(meeting: { status: MeetingStatus; startsAt: Date; endsAt: Date; joinBeforeMinutes: number; roomLocked: boolean }, manager: boolean) {
   if (![MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE].includes(meeting.status)) {
     throw new AppError(409, "MEETING_NOT_JOINABLE", "This meeting is no longer joinable");
@@ -180,10 +186,24 @@ router.post("/meetings/native/:room/end", async (req: AuthRequest, res) => {
   const room = roomParam.parse(req.params.room);
   const { meeting, participant } = await meetingForRoom(req, room);
   if (!managerRole(participant.meetingRole)) throw new AppError(403, "MEETING_MODERATION_FORBIDDEN", "Host or co-host permission is required");
+  assertActiveMeeting(meeting);
+  const now = new Date();
+  const activeRecordings = meeting.recordings.filter(r => (r.status === MeetingRecordingStatus.STARTING || r.status === MeetingRecordingStatus.RECORDING) && r.providerRecordingId);
+  for (const recording of activeRecordings) {
+    await livekitEgress("StopEgress", { egress_id: recording.providerRecordingId! }).catch(() => null);
+    await prisma.meetingRecording.update({
+      where: { id: recording.id },
+      data: {
+        status: MeetingRecordingStatus.PROCESSING,
+        stoppedAt: now,
+        durationSeconds: Math.max(0, Math.round((now.getTime() - (recording.startedAt ?? now).getTime()) / 1000)),
+      },
+    });
+  }
   await livekitRoomService("DeleteRoom", { room }, room).catch(() => null);
   await closeOpenAttendance(meeting.id);
-  const row = await prisma.meeting.update({ where: { id: meeting.id }, data: { status: MeetingStatus.ENDED, endedAt: new Date(), roomLocked: true } });
-  await meetingAudit(req, meeting.id, "END");
+  const row = await prisma.meeting.update({ where: { id: meeting.id }, data: { status: MeetingStatus.ENDED, endedAt: now, roomLocked: true } });
+  await meetingAudit(req, meeting.id, "END", { stoppedRecordings: activeRecordings.length });
   res.json({ data: row });
 });
 
@@ -191,6 +211,7 @@ router.post("/meetings/native/:room/control", async (req: AuthRequest, res) => {
   const room = roomParam.parse(req.params.room);
   const { meeting, participant } = await meetingForRoom(req, room);
   if (!managerRole(participant.meetingRole)) throw new AppError(403, "MEETING_MODERATION_FORBIDDEN", "Host or co-host permission is required");
+  assertActiveMeeting(meeting);
   const data = z.object({
     action: z.enum(["LOCK", "UNLOCK", "MUTE_TRACK", "REMOVE_PARTICIPANT", "ALLOW_SCREEN_SHARE", "REVOKE_SCREEN_SHARE"]),
     identity: z.string().min(1).max(160).optional(),
@@ -236,6 +257,7 @@ router.post("/meetings/native/:room/control", async (req: AuthRequest, res) => {
 router.post("/meetings/native/:room/interactions", async (req: AuthRequest, res) => {
   const room = roomParam.parse(req.params.room);
   const { meeting } = await meetingForRoom(req, room);
+  assertActiveMeeting(meeting);
   const data = z.object({
     type: z.enum(["CHAT", "RAISE_HAND", "REACTION", "POLL", "POLL_RESPONSE"]),
     content: z.record(z.string(), z.unknown()).optional(),
@@ -250,6 +272,7 @@ router.post("/meetings/native/:room/interactions", async (req: AuthRequest, res)
 router.put("/meetings/native/:room/whiteboard", async (req: AuthRequest, res) => {
   const room = roomParam.parse(req.params.room);
   const { meeting, participant } = await meetingForRoom(req, room);
+  assertActiveMeeting(meeting);
   if (!managerRole(participant.meetingRole)) throw new AppError(403, "MEETING_WHITEBOARD_SAVE_FORBIDDEN", "Host or co-host permission is required to save the whiteboard");
   if (!meeting.allowWhiteboard) throw new AppError(403, "MEETING_WHITEBOARD_DISABLED", "Whiteboard is disabled for this meeting");
   const data = z.object({ strokes: z.array(z.record(z.string(), z.unknown())).max(10000) }).parse(req.body);
@@ -262,6 +285,7 @@ router.post("/meetings/native/:room/recording/start", async (req: AuthRequest, r
   const room = roomParam.parse(req.params.room);
   const { meeting, participant } = await meetingForRoom(req, room);
   if (!managerRole(participant.meetingRole)) throw new AppError(403, "MEETING_RECORDING_FORBIDDEN", "Host or co-host permission is required");
+  assertActiveMeeting(meeting);
   if (!meeting.allowRecording) throw new AppError(403, "MEETING_RECORDING_DISABLED", "Recording is disabled for this meeting");
   const policy = await assertFeatureEntitled(org(req), "meetings_recording");
   if (policy.enforcementEnabled) {
