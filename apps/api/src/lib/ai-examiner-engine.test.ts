@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import {
   AIExaminerProviderError,
   parseAIExaminerProviderText,
@@ -72,4 +73,12 @@ test("AI Examiner rejects duplicate question evaluations", () => {
     () => validateAIExaminerResultAgainstRubric(parseAIExaminerProviderText(JSON.stringify(duplicate)), rubric, 20),
     (error: unknown) => error instanceof AIExaminerProviderError && error.code === "AI_EXAMINER_DUPLICATE_QUESTION",
   );
+});
+
+
+test("Responses API request omits unsupported temperature parameter", async () => {
+  const source = await readFile(new URL("./ai-examiner-engine.ts", import.meta.url), "utf8");
+  const responsesBranch = source.match(/if \(mode === "RESPONSES"\) \{([\s\S]*?)\} else \{/i)?.[1] ?? "";
+  assert.ok(responsesBranch.includes("model: env.AI_EXAMINER_MODEL"));
+  assert.doesNotMatch(responsesBranch, /temperature\s*:/);
 });
