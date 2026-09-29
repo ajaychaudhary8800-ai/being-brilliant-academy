@@ -97,6 +97,9 @@ test("meeting workflow covers attendance minutes decisions and action tracking",
   assert.match(workflow, /\/meetings\/:id\/attendance/);
   assert.match(workflow, /\/meetings\/:id\/minutes\/approve/);
   assert.match(workflow, /\/meetings\/:id\/minutes\/publish/);
+  assert.match(workflow, /\/meetings\/:id\/close/);
+  assert.match(workflow, /MeetingStatus\.MINUTES_PUBLISHED/);
+  assert.match(workflow, /MeetingStatus\.CLOSED/);
   assert.match(workflow, /\/meetings\/:id\/decisions/);
   assert.match(workflow, /\/meetings\/:id\/actions/);
   assert.match(workflow, /\/meeting-actions\/:id\/complete/);
