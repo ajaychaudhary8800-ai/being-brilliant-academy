@@ -122,10 +122,13 @@ test("meeting participant UI exposes staff workflows safely", async () => {
   const detail = await readFile(new URL("../../../web/app/meetings/[id]/page.tsx", import.meta.url), "utf8");
   const list = await readFile(new URL("../../../web/app/meetings/page.tsx", import.meta.url), "utf8");
   const portal = await readFile(new URL("../../../web/components/portal-workspace.tsx", import.meta.url), "utf8");
+  const employee = await readFile(new URL("../../../web/app/employee/page.tsx", import.meta.url), "utf8");
   assert.match(detail, /activeMeeting=Boolean\(meeting&&\["SCHEDULED","OPEN_FOR_JOIN","LIVE"\]\.includes\(meeting\.status\)\)/);
   assert.match(detail, /canRespond=Boolean\(self&&activeMeeting\)/);
   assert.match(list, /\["OPEN_FOR_JOIN","LIVE"\]\.includes\(m\.status\)/);
   assert.match(portal, /"live-classes", "meetings", "students"/);
   assert.match(portal, /href="\/meetings"[^]*Meetings/);
   assert.match(portal, /item\.actionUrl[^]*href=\{item\.actionUrl\}[^]*Open/);
+  assert.match(employee, /href="\/meetings"[^]*Meetings/);
+  assert.match(employee, /tab==="notifications"&&x\.actionUrl/);
 });
