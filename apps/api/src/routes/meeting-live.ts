@@ -44,18 +44,20 @@ async function meetingForRoom(req: AuthRequest, room: string) {
   return { meeting, participant };
 }
 
+const activeMeetingStatuses = new Set<MeetingStatus>([MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE]);
+
 function managerRole(role: MeetingParticipantRole) {
   return role === MeetingParticipantRole.HOST || role === MeetingParticipantRole.CO_HOST;
 }
 
 function assertActiveMeeting(meeting: { status: MeetingStatus }) {
-  if (![MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE].includes(meeting.status)) {
+  if (!activeMeetingStatuses.has(meeting.status)) {
     throw new AppError(409, "MEETING_NOT_ACTIVE", "This meeting is no longer active");
   }
 }
 
 function assertJoinable(meeting: { status: MeetingStatus; startsAt: Date; endsAt: Date; joinBeforeMinutes: number; roomLocked: boolean; lockAfterStart: boolean }, manager: boolean) {
-  if (![MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE].includes(meeting.status)) {
+  if (!activeMeetingStatuses.has(meeting.status)) {
     throw new AppError(409, "MEETING_NOT_JOINABLE", "This meeting is no longer joinable");
   }
   const now = Date.now();
