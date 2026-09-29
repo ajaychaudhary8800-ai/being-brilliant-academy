@@ -50,6 +50,9 @@ test("host and co-host management are explicit meeting roles", () => {
   assert.match(schema, /enum MeetingParticipantRole \{[\s\S]*?HOST[\s\S]*?CO_HOST/);
   assert.match(route, /MeetingParticipantRole\.HOST/);
   assert.match(route, /MeetingParticipantRole\.CO_HOST/);
+  assert.match(route, /Use hostUserId to designate the meeting host/);
+  assert.match(route, /MEETING_HOST_ROLE_IMMUTABLE/);
+  assert.match(route, /participant\.userId === meeting\.hostUserId/);
 });
 
 
