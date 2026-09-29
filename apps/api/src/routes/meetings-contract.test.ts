@@ -123,6 +123,9 @@ test("meeting occurrences synchronize with internal ERP calendar", () => {
   assert.match(route, /calendarEvent\.create/);
   assert.match(route, /calendarEventRsvp\.createMany/);
   assert.match(route, /calendarEventRsvp\.upsert/);
+  assert.match(route, /calendarEventRsvp\.deleteMany/);
+  assert.match(route, /staleInvites/);
+  assert.match(route, /cancelledFutureInvites/);
 });
 
 
