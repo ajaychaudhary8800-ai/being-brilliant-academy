@@ -31,6 +31,9 @@ test("meeting API enforces tenant, branch and commercial boundaries", () => {
   assert.match(route, /erpBranchScope\(req\)/);
   assert.match(route, /assertErpBranchAccess/);
   assert.match(route, /MEETING_PARTICIPANT_BRANCH_FORBIDDEN/);
+  assert.match(route, /mutableMeetingStatuses = new Set<MeetingStatus>\(\[MeetingStatus\.DRAFT, MeetingStatus\.SCHEDULED, MeetingStatus\.OPEN_FOR_JOIN, MeetingStatus\.LIVE\]\)/);
+  assert.match(route, /respondableMeetingStatuses = new Set<MeetingStatus>\(\[MeetingStatus\.SCHEDULED, MeetingStatus\.OPEN_FOR_JOIN, MeetingStatus\.LIVE\]\)/);
+  assert.match(route, /MEETING_RESPONSE_CLOSED/);
   assert.match(server, /onlyPaths\(\["\/meetings", "\/meeting-series", "\/meeting-teams"\], meetings\)/);
 });
 
