@@ -7,46 +7,16 @@ import {
   AI_EXAMINER_REVIEW_THRESHOLD,
   AIExaminerProviderError,
   evaluateWithAIProvider,
-  type AIExaminerRubricQuestion,
 } from "./ai-examiner-engine.js";
-import { aiExaminerConfidenceNeedsReview } from "./ai-examiner-policy.js";
+import {
+  aiExaminerProviderQuestions,
+  reconcileAIExaminerProviderResult,
+  resolveAIExaminerRubricQuestions,
+} from "./ai-examiner-orchestration.js";
 
 function errorDetails(error: unknown) {
   if (error instanceof AIExaminerProviderError) return { code: error.code, message: error.message };
   return { code: "AI_EXAMINER_INTERNAL_ERROR", message: error instanceof Error ? error.message : "AI evaluation failed" };
-}
-
-function parseRubric(value: unknown, modelAnswer: unknown): AIExaminerRubricQuestion[] {
-  const rubric = value && typeof value === "object" && "questions" in value
-    ? (value as { questions?: unknown[] }).questions
-    : null;
-  if (!Array.isArray(rubric)) throw new AIExaminerProviderError("AI_EXAMINER_RUBRIC_INVALID", "Active rubric has no question definitions");
-
-  const answers = new Map<string, string>();
-  if (modelAnswer && typeof modelAnswer === "object" && "questions" in modelAnswer) {
-    const rows = (modelAnswer as { questions?: unknown[] }).questions;
-    if (Array.isArray(rows)) {
-      for (const row of rows) {
-        if (!row || typeof row !== "object") continue;
-        const key = "key" in row ? String((row as { key?: unknown }).key ?? "") : "";
-        const answer = "answer" in row ? String((row as { answer?: unknown }).answer ?? "") : "";
-        if (key && answer) answers.set(key.toLowerCase(), answer);
-      }
-    }
-  }
-
-  return rubric.map((row, index) => {
-    if (!row || typeof row !== "object") throw new AIExaminerProviderError("AI_EXAMINER_RUBRIC_INVALID", `Rubric question ${index + 1} is invalid`);
-    const source = row as Record<string, unknown>;
-    const key = String(source.key ?? "").trim();
-    const maxMarks = Number(source.maxMarks);
-    const criteria = String(source.criteria ?? "").trim();
-    const concepts = Array.isArray(source.concepts) ? source.concepts.map(value => String(value).trim()).filter(Boolean) : [];
-    if (!key || !Number.isFinite(maxMarks) || maxMarks <= 0 || !criteria) {
-      throw new AIExaminerProviderError("AI_EXAMINER_RUBRIC_INVALID", `Rubric question ${index + 1} is incomplete`);
-    }
-    return { key, maxMarks, criteria, concepts, modelAnswer: answers.get(key.toLowerCase()) ?? null };
-  });
 }
 
 async function restoreAnswerSheetAfterFailure(answerSheetId: string, organizationId: string, isLate: boolean) {
@@ -96,7 +66,8 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
     if (evaluation.rubric.status !== AIExaminerRubricStatus.ACTIVE) throw new AIExaminerProviderError("AI_EXAMINER_ACTIVE_RUBRIC_REQUIRED", "The evaluation rubric is no longer active");
     if (evaluation.answerSheet.finalizedAt) throw new AIExaminerProviderError("AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet was finalized before AI evaluation completed");
 
-    const questions = parseRubric(evaluation.rubric.rubric, evaluation.rubric.modelAnswer);
+    const questions = resolveAIExaminerRubricQuestions(evaluation.rubric.rubric, evaluation.rubric.modelAnswer);
+    const providerQuestions = aiExaminerProviderQuestions(questions);
     const result = await evaluateWithAIProvider({
       examination: {
         name: exam.name,
@@ -105,7 +76,7 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
         maximumMarks: exam.maximumMarks,
       },
       instructions: evaluation.rubric.instructions,
-      questions,
+      questions: providerQuestions,
       questionPaper: {
         fileName: paper.fileName,
         mimeType: paper.mimeType,
@@ -118,15 +89,10 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
       },
     });
 
-    const total = result.questions.reduce((sum, question) => sum + question.awardedMarks, 0);
-    const questionConfidence = result.questions.reduce((sum, question) => sum + question.confidence, 0) / result.questions.length;
-    const confidence = Math.min(result.confidence, questionConfidence);
-    const questionRows = result.questions.map(question => ({
-      question,
-      reviewRequired:
-        aiExaminerConfidenceNeedsReview(question.confidence, AI_EXAMINER_REVIEW_THRESHOLD) ||
-        question.flags.length > 0,
-    }));
+    const reconciled = reconcileAIExaminerProviderResult(questions, result, AI_EXAMINER_REVIEW_THRESHOLD);
+    const total = reconciled.suggestedMarks;
+    const confidence = reconciled.confidence;
+    const questionRows = reconciled.questions;
     const completedAt = new Date();
 
     const persisted = await systemPrisma.$transaction(async tx => {
@@ -147,13 +113,13 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
           data: {
             organizationId: evaluation.organizationId,
             evaluationId: evaluation.id,
-            questionKey: row.question.questionKey,
-            maxMarks: row.question.maxMarks,
-            suggestedMarks: row.question.awardedMarks,
-            confidence: row.question.confidence,
-            rubricBreakdown: row.question.rubricBreakdown,
-            feedback: row.question.feedback,
-            extractedAnswer: row.question.extractedAnswer ?? null,
+            questionKey: row.questionKey,
+            maxMarks: row.maxMarks,
+            suggestedMarks: row.suggestedMarks,
+            confidence: row.confidence,
+            rubricBreakdown: row.rubricBreakdown,
+            feedback: row.feedback,
+            extractedAnswer: row.extractedAnswer,
             reviewRequired: row.reviewRequired,
           },
         });
@@ -172,12 +138,16 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
           feedback: result.overallFeedback,
           diagnostics: {
             ...result.diagnostics,
-            questionDiagnostics: result.questions.map(question => ({
+            questionDiagnostics: questionRows.map(question => ({
               questionKey: question.questionKey,
               concepts: question.concepts,
               flags: question.flags,
+              engine: question.engine,
+              deterministicStatus: question.deterministicStatus,
+              scoringError: question.scoringError,
             })),
             reviewRequiredCount: questionRows.filter(row => row.reviewRequired).length,
+            unresolvedDeterministicCount: reconciled.unresolvedDeterministicCount,
             reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD,
           },
           completedAt,

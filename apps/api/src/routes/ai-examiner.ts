@@ -308,7 +308,7 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
   const body = z.object({
     questions: z.array(z.object({
       questionKey: z.string().trim().min(1).max(40),
-      finalMarks: z.coerce.number().min(0).max(10000),
+      finalMarks: z.coerce.number().min(-10000).max(10000),
       teacherComment: z.string().trim().max(5000).nullable().optional(),
     })).min(1).max(200),
     teacherRemarks: z.string().trim().max(5000).nullable().optional(),
@@ -341,6 +341,7 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
     if (!reviewed) throw new AppError(422, "AI_EXAMINER_REVIEW_INCOMPLETE", `Missing teacher review for ${question.questionKey}`);
     const maximum = Number(question.maxMarks);
     if (reviewed.finalMarks > maximum + 0.001) throw new AppError(422, "AI_EXAMINER_MARKS_EXCEED_MAXIMUM", `Marks for ${question.questionKey} cannot exceed ${maximum}`);
+    if (reviewed.finalMarks < -maximum - 0.001) throw new AppError(422, "AI_EXAMINER_MARKS_BELOW_MINIMUM", `Marks for ${question.questionKey} cannot be below -${maximum}`);
     total += reviewed.finalMarks;
   }
   if (total > exam.maximumMarks + 0.001) throw new AppError(422, "AI_EXAMINER_TOTAL_EXCEEDS_MAXIMUM", "Reviewed marks exceed examination maximum marks");

@@ -46,11 +46,30 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
     });
   }
 
-  if (route.deterministic && question.answerKey === undefined && !question.modelAnswer?.trim()) {
+  const structuredAnswerKeyRequired = question.questionType === "MSQ" || question.questionType === "MATCHING";
+  if (route.deterministic && question.answerKey === undefined && (structuredAnswerKeyRequired || !question.modelAnswer?.trim())) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["answerKey"],
-      message: "Deterministic question types require an answer key or model answer",
+      message: structuredAnswerKeyRequired
+        ? "MSQ and matching questions require a structured answer key"
+        : "Deterministic question types require an answer key or model answer",
+    });
+  }
+
+  if (question.scoring?.incorrectMarks != null && question.scoring.incorrectMarks < -question.maxMarks) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["scoring", "incorrectMarks"],
+      message: "Incorrect-answer penalty cannot be less than negative maximum marks",
+    });
+  }
+
+  if (question.scoring?.unansweredMarks != null && question.scoring.unansweredMarks < -question.maxMarks) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["scoring", "unansweredMarks"],
+      message: "Unanswered penalty cannot be less than negative maximum marks",
     });
   }
 

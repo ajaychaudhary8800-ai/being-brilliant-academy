@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { env } from "../config.js";
+import type { AIExaminerQuestionType } from "./ai-examiner-assessment-router.js";
 
-export const AI_EXAMINER_ENGINE_VERSION = "3.0.0";
+export const AI_EXAMINER_ENGINE_VERSION = "3.1.0-alpha.1";
 export const AI_EXAMINER_REVIEW_THRESHOLD = env.AI_EXAMINER_REVIEW_THRESHOLD;
 
 const qualityFlagSchema = z.enum([
@@ -58,6 +59,8 @@ export type AIExaminerRubricQuestion = {
   criteria: string;
   modelAnswer?: string | null;
   concepts: string[];
+  questionType?: AIExaminerQuestionType;
+  evaluationMode?: "EXTRACT_ONLY" | "RUBRIC";
 };
 
 export type AIExaminerDocument = {
@@ -144,6 +147,8 @@ function rubricPrompt(input: AIExaminerProviderInput) {
     questionKey: question.key,
     maxMarks: question.maxMarks,
     markingCriteria: question.criteria,
+    questionType: question.questionType ?? "LONG_ANSWER",
+    evaluationMode: question.evaluationMode ?? "RUBRIC",
     modelAnswer: question.modelAnswer ?? null,
     concepts: question.concepts,
   }));
@@ -201,7 +206,10 @@ Critical grading rules:
 7. For diagrams, graphs, equations, derivations and calculations, use the visual evidence directly where available rather than relying only on OCR-like transcription.
 8. Confidence must represent grading certainty, not answer quality.
 9. Use decimal marks only where justified by the rubric.
-10. Do not make final-result or pass/fail decisions. Return suggested question-level marks only.`;
+10. Do not make final-result or pass/fail decisions. Return suggested question-level marks only.
+11. For questions with evaluationMode EXTRACT_ONLY, transcribe the student's response faithfully, set awardedMarks to 0, and do not infer or repair the response.
+12. For EXTRACT_ONLY MSQ responses, extractedAnswer must be a compact JSON array string such as ["A","C"]. For EXTRACT_ONLY MATCHING responses, extractedAnswer must be a compact JSON object string such as {"A":"1","B":"2"}.
+13. Never use surrounding context to guess an unreadable objective response; lower confidence and flag it for human review instead.`;
 }
 
 function dataUrl(document: AIExaminerDocument) {
