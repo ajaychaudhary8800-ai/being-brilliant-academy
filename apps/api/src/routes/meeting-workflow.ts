@@ -227,9 +227,14 @@ router.put("/meetings/:id/minutes", async (req: AuthRequest, res) => {
 router.post("/meetings/:id/minutes/submit", async (req: AuthRequest, res) => {
   const meeting = await loadMeeting(req, String(req.params.id));
   await assertManage(req, meeting);
+  if (![MeetingStatus.ENDED, MeetingStatus.MINUTES_PENDING].includes(meeting.status)) throw new AppError(409, "MEETING_NOT_ENDED", "End the meeting before submitting minutes");
   if (!meeting.minutes) throw new AppError(409, "MEETING_MINUTES_REQUIRED", "Prepare meeting minutes before submission");
   if (meeting.minutes.status === MeetingMinutesStatus.PUBLISHED) throw new AppError(409, "MEETING_MINUTES_PUBLISHED", "Published minutes are immutable");
-  const row = await prisma.meetingMinutes.update({ where: { id: meeting.minutes.id }, data: { status: MeetingMinutesStatus.UNDER_REVIEW, preparedAt: new Date() } });
+  const row = await prisma.$transaction(async tx => {
+    const minutes = await tx.meetingMinutes.update({ where: { id: meeting.minutes!.id }, data: { status: MeetingMinutesStatus.UNDER_REVIEW, preparedAt: new Date() } });
+    if (meeting.status === MeetingStatus.ENDED) await tx.meeting.update({ where: { id: meeting.id }, data: { status: MeetingStatus.MINUTES_PENDING } });
+    return minutes;
+  });
   await audit(req, meeting.id, "SUBMIT_MINUTES", "MeetingMinutes", row.id);
   res.json({ data: row });
 });
@@ -238,6 +243,7 @@ router.post("/meetings/:id/minutes/approve", async (req: AuthRequest, res) => {
   const meeting = await loadMeeting(req, String(req.params.id));
   if (!managementRoles.has(req.auth!.role)) throw new AppError(403, "MEETING_MINUTES_APPROVAL_FORBIDDEN", "Management approval is required");
   await assertView(req, meeting);
+  if (meeting.status !== MeetingStatus.MINUTES_PENDING) throw new AppError(409, "MEETING_MINUTES_LIFECYCLE_INVALID", "Meeting minutes are not in the review lifecycle");
   if (!meeting.minutes || meeting.minutes.status !== MeetingMinutesStatus.UNDER_REVIEW) throw new AppError(409, "MEETING_MINUTES_NOT_REVIEWABLE", "Minutes must be under review before approval");
   const row = await prisma.meetingMinutes.update({ where: { id: meeting.minutes.id }, data: { status: MeetingMinutesStatus.APPROVED, approvedById: actor(req), approvedAt: new Date() } });
   await audit(req, meeting.id, "APPROVE_MINUTES", "MeetingMinutes", row.id);
@@ -248,6 +254,7 @@ router.post("/meetings/:id/minutes/publish", async (req: AuthRequest, res) => {
   const meeting = await loadMeeting(req, String(req.params.id));
   if (!managementRoles.has(req.auth!.role)) throw new AppError(403, "MEETING_MINUTES_PUBLISH_FORBIDDEN", "Management permission is required");
   await assertView(req, meeting);
+  if (meeting.status !== MeetingStatus.MINUTES_PENDING) throw new AppError(409, "MEETING_MINUTES_LIFECYCLE_INVALID", "Meeting minutes are not in the review lifecycle");
   if (!meeting.minutes || meeting.minutes.status !== MeetingMinutesStatus.APPROVED) throw new AppError(409, "MEETING_MINUTES_NOT_APPROVED", "Approve meeting minutes before publication");
   const now = new Date();
   const row = await prisma.$transaction(async tx => {
