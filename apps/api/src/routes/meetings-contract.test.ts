@@ -81,6 +81,7 @@ test("native meeting collaboration reuses LiveKit without using LiveClass record
   assert.match(live, /livekitRoomService/);
   assert.match(live, /livekitEgress/);
   assert.match(live, /meetingAttendanceSession/);
+  assert.match(live, /\[MeetingStatus\.SCHEDULED, MeetingStatus\.OPEN_FOR_JOIN, MeetingStatus\.LIVE\]\.includes\(meeting\.status\)/);
   assert.match(live, /meetingRecording/);
   assert.match(live, /meetingInteraction/);
   assert.match(live, /whiteboardData/);
@@ -111,8 +112,8 @@ test("meeting participant UI exposes staff workflows safely", async () => {
   const detail = await readFile(new URL("../../../web/app/meetings/[id]/page.tsx", import.meta.url), "utf8");
   const list = await readFile(new URL("../../../web/app/meetings/page.tsx", import.meta.url), "utf8");
   const portal = await readFile(new URL("../../../web/components/portal-workspace.tsx", import.meta.url), "utf8");
-  assert.match(detail, /terminalMeeting=Boolean\(meeting&&\["CANCELLED","ENDED","CLOSED","MINUTES_PUBLISHED"\]\.includes\(meeting\.status\)\)/);
-  assert.match(detail, /canRespond=Boolean\(self&&meeting&&!terminalMeeting\)/);
+  assert.match(detail, /activeMeeting=Boolean\(meeting&&\["SCHEDULED","OPEN_FOR_JOIN","LIVE"\]\.includes\(meeting\.status\)\)/);
+  assert.match(detail, /canRespond=Boolean\(self&&activeMeeting\)/);
   assert.match(list, /\["OPEN_FOR_JOIN","LIVE"\]\.includes\(m\.status\)/);
   assert.match(portal, /"live-classes", "meetings", "students"/);
   assert.match(portal, /href="\/meetings"[^]*Meetings/);
