@@ -17,7 +17,7 @@ import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
 const router = Router();
-const id = z.string().cuid();
+const id = z.string().trim().min(1).max(191);
 const managementRoles = new Set<Role>([Role.SUPER_ADMIN, Role.BRANCH_ADMIN]);
 
 router.use(requireAuth, requireCommercialFeature("meetings"));
