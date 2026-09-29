@@ -90,6 +90,11 @@ jobs:
           QA_REUSE_AUTH_STATE: "true"
         run: pnpm exec playwright test e2e/full-workflows.spec.ts --project=desktop-chromium --grep "@workflow" --workers=1 --retries=0
 
+      - name: Run enterprise staff meeting workflow
+        env:
+          QA_REUSE_AUTH_STATE: "true"
+        run: pnpm exec playwright test e2e/meetings-workflow.spec.ts --project=desktop-chromium --grep "@meeting-workflow" --workers=1 --retries=0
+
       - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -40,6 +40,8 @@ const featureOptions = [
   ["lms", "LMS"],
   ["crm", "CRM & enquiries"],
   ["communication", "Communication"],
+  ["meetings", "Staff & management meetings"],
+  ["meetings_recording", "Meeting cloud recording"],
   ["examinations", "Examinations & tests"],
   ["hr_payroll", "HR & payroll"],
   ["analytics", "Advanced analytics"],

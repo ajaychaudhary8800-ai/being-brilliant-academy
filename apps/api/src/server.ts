@@ -76,9 +76,13 @@ import saasCommercial from "./routes/saas-commercial.js";
 import saasSales from "./routes/saas-sales.js";
 import legalSalesDocuments from "./routes/legal-sales-documents.js";
 import platformControlCenter from "./routes/platform-control-center.js";
+import meetings from "./routes/meetings.js";
+import meetingLive from "./routes/meeting-live.js";
+import meetingWorkflow from "./routes/meeting-workflow.js";
 import { reconcileSaaSLifecycle } from "./lib/saas-commercial.js";
 import { isTenantCorsOriginAllowed } from "./lib/cors-origin.js";
 import { livekitHealth } from "./lib/livekit.js";
+import { purgeExpiredMeetingRecordings, scheduleDueMeetingActionNotifications, scheduleDueMeetingReminders } from "./lib/meeting-scheduling.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -204,9 +208,10 @@ type WorkerHeartbeat = {
   lastError: string | null;
 };
 
-const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle", WorkerHeartbeat> = {
+const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "meetingReminders", WorkerHeartbeat> = {
   notificationDelivery: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   saasLifecycle: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
+  meetingReminders: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
 };
 
 function workerSnapshot(name: keyof typeof workerHeartbeats, maxAgeMs: number, now = new Date()) {
@@ -230,6 +235,7 @@ app.get("/health/operational", async (_req, res) => {
   const workers = {
     notificationDelivery: workerSnapshot("notificationDelivery", 2 * 60_000),
     saasLifecycle: workerSnapshot("saasLifecycle", 10 * 60_000),
+    meetingReminders: workerSnapshot("meetingReminders", 15 * 60_000),
   };
   const healthy = Object.values(checks).every(Boolean) && Object.values(workers).every(worker => worker.healthy);
   res.status(healthy ? 200 : 503).json({
@@ -309,6 +315,9 @@ app.use("/api/v1", onlyPaths(["/finance/payments", "/finance/payment-offsets"], 
 app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations));
 app.use("/api/v1", saasCommercial);
 app.use("/api/v1", onlyPaths(["/analytics"], analytics));
+app.use("/api/v1", onlyPaths(["/meetings/native"], meetingLive));
+app.use("/api/v1", onlyPaths(["/meetings", "/meeting-actions"], meetingWorkflow));
+app.use("/api/v1", onlyPaths(["/meetings", "/meeting-series", "/meeting-teams"], meetings));
 app.use("/api/v1", onlyPaths(["/inventory"], inventory));
 app.use("/api/v1", onlyPaths(["/communication"], communication));
 app.use("/api/v1", onlyPaths(["/hostel"], hostel));
@@ -394,10 +403,34 @@ void reconcileCommercialLifecycle();
 const saasLifecycleWorker = setInterval(() => void reconcileCommercialLifecycle(), 5 * 60_000);
 saasLifecycleWorker.unref();
 
+const runMeetingReminderWorker = async () => {
+  const finishMetric = startWorkerRun("meeting_reminders");
+  try {
+    const now = new Date();
+    const [reminders, actions, retention] = await Promise.all([scheduleDueMeetingReminders(now), scheduleDueMeetingActionNotifications(now), purgeExpiredMeetingRecordings(now)]);
+    const result = { processed: reminders.processed, actionNotifications: actions.queued, recordingsPurged: retention.purged };
+    workerHeartbeats.meetingReminders = { lastSuccessAt: new Date(), lastFailureAt: workerHeartbeats.meetingReminders.lastFailureAt, lastError: null };
+    finishMetric("success");
+    if (result.processed || result.actionNotifications || result.recordingsPurged) logger.info(result, "Meeting workflows reconciled");
+  } catch (error) {
+    workerHeartbeats.meetingReminders = {
+      lastSuccessAt: workerHeartbeats.meetingReminders.lastSuccessAt,
+      lastFailureAt: new Date(),
+      lastError: error instanceof Error ? error.message.slice(0, 500) : "Meeting reminder worker failed",
+    };
+    finishMetric("failure");
+    logger.error({ err: error }, "Meeting reminder worker failed");
+  }
+};
+void runMeetingReminderWorker();
+const meetingReminderWorker = setInterval(() => void runMeetingReminderWorker(), 5 * 60_000);
+meetingReminderWorker.unref();
+
 async function shutdown(signal: string) {
   logger.info({ signal }, "Graceful shutdown started");
   clearInterval(notificationWorker);
   clearInterval(saasLifecycleWorker);
+  clearInterval(meetingReminderWorker);
   server.close(async () => {
     await Promise.allSettled([systemPrisma.$disconnect(), redis?.quit() ?? Promise.resolve()]);
     process.exit(0);
