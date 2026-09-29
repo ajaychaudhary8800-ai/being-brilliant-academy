@@ -22,6 +22,7 @@ type Notification = {
   body: string;
   createdAt: string;
   readAt: string | null;
+  actionUrl?: string | null;
 };
 type Announcement = {
   id: string;
@@ -381,17 +382,30 @@ function NotificationList({ items, markRead }: { items: Notification[]; markRead
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold">{item.title}</h3>
+                {item.actionUrl ? (
+                  <Link href={item.actionUrl} className="font-bold text-brand-700 hover:underline">
+                    {item.title}
+                  </Link>
+                ) : (
+                  <h3 className="font-bold">{item.title}</h3>
+                )}
                 {!item.readAt && <span className="h-2 w-2 rounded-full bg-brand-600" aria-label="Unread" />}
               </div>
               <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{item.body}</p>
               <p className="mt-2 text-xs text-slate-400">{dateTime(item.createdAt)}</p>
             </div>
-            {!item.readAt && (
-              <button className="rounded-lg border px-3 py-2 text-xs font-bold" onClick={() => void markRead(item.id)}>
-                Mark read
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {item.actionUrl && (
+                <Link href={item.actionUrl} className="rounded-lg bg-brand-700 px-3 py-2 text-xs font-bold text-white">
+                  Open
+                </Link>
+              )}
+              {!item.readAt && (
+                <button className="rounded-lg border px-3 py-2 text-xs font-bold" onClick={() => void markRead(item.id)}>
+                  Mark read
+                </button>
+              )}
+            </div>
           </div>
         </article>
       ))}
@@ -1911,7 +1925,7 @@ function Workspace({ role }: { role: PortalRole }) {
   useEffect(() => {
     void load();
   }, [load]);
-  const tabs = role === "TEACHER" ? ["overview", "classes", "learning", "live-classes", "students", "homework", "attendance", "examinations", "notifications", "announcements", "messages", "leave", "profile"] : role === "STUDENT" ? ["overview", "learning", "live-classes", "homework", "timetable", "attendance", "examinations", "fees", "notifications", "announcements", "messages", "leave", "profile"] : ["overview", "notifications", "announcements", "messages", "leave", "profile"];
+  const tabs = role === "TEACHER" ? ["overview", "classes", "learning", "live-classes", "meetings", "students", "homework", "attendance", "examinations", "notifications", "announcements", "messages", "leave", "profile"] : role === "STUDENT" ? ["overview", "learning", "live-classes", "homework", "timetable", "attendance", "examinations", "fees", "notifications", "announcements", "messages", "leave", "profile"] : ["overview", "notifications", "announcements", "messages", "leave", "profile"];
   async function markRead(notificationId: string) {
     await portalRequest(`/notifications/${notificationId}/read`, {
       method: "PATCH",
@@ -1943,6 +1957,10 @@ function Workspace({ role }: { role: PortalRole }) {
             tab === "live-classes" ? (
               <Link key={tab} href="/learning-hub?tab=live-classes" className="whitespace-nowrap rounded-full border bg-white px-4 py-2 text-sm font-bold dark:bg-slate-900">
                 Live Classes
+              </Link>
+            ) : tab === "meetings" ? (
+              <Link key={tab} href="/meetings" className="whitespace-nowrap rounded-full border bg-white px-4 py-2 text-sm font-bold dark:bg-slate-900">
+                Meetings
               </Link>
             ) : (
               <button key={tab} onClick={() => setActive(tab)} className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold ${active === tab ? "bg-brand-700 text-white" : "border bg-white dark:bg-slate-900"}`}>
