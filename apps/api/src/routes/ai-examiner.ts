@@ -3,7 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config.js";
 import { AI_EXAMINER_ENGINE_VERSION, AI_EXAMINER_REVIEW_THRESHOLD, aiExaminerProviderConfigured, aiExaminerProviderMode } from "../lib/ai-examiner-engine.js";
-import { assertAIExaminerEvaluationReady, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
+import { aiExaminerLifecycleBlocker, assertAIExaminerEvaluationReady, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
 import { assertExaminationManager, evaluationStatus, examinationResultFor } from "../lib/examination-policy.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
@@ -112,7 +112,8 @@ function readiness(exam: Awaited<ReturnType<typeof examinationForManager>>, eval
   const activeRubric = exam.aiExaminerRubrics.find((rubric) => rubric.status === AIExaminerRubricStatus.ACTIVE) ?? null;
   const draftRubric = exam.aiExaminerRubrics.find((rubric) => rubric.status === AIExaminerRubricStatus.DRAFT) ?? null;
   const blockers: string[] = [];
-  if (exam.status !== ExaminationStatus.COMPLETED) blockers.push("Complete the examination before AI evaluation");
+  const lifecycleBlocker = aiExaminerLifecycleBlocker(exam.status);
+  if (lifecycleBlocker) blockers.push(lifecycleBlocker);
   if (!exam.questionPaper?.publishedAt) blockers.push("Publish the question paper");
   if (!activeRubric) blockers.push("Activate a marking rubric");
   if (!exam._count.answerSheets) blockers.push("No answer sheets have been submitted");
