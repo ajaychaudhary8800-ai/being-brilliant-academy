@@ -151,6 +151,8 @@ model LearningTestQuestion {
   position       Int
   marks          Decimal          @db.Decimal(6, 2)
   negativeMarks  Decimal          @default(0) @db.Decimal(6, 2)
+  questionVersion Int?
+  questionSnapshot Json?
   test           LearningTest     @relation(fields: [testId], references: [id], onDelete: Cascade)
   question       QuestionBankItem @relation(fields: [questionId], references: [id], onDelete: Restrict)
 

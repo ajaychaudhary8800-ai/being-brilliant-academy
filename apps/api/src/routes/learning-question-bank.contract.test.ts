@@ -38,3 +38,12 @@ test("Question Bank 3.1 exposes normalized exact-content similarity detection", 
   assert.match(route, /NORMALIZED_EXACT_FINGERPRINT/);
   assert.match(route, /similarityHash: questionSimilarityHash/);
 });
+
+
+test("new Learning Tests snapshot Question Bank content and scoring keys", () => {
+  assert.match(route, /questionDeliverySnapshot/);
+  assert.match(route, /questionVersion:source\.version/);
+  assert.match(route, /questionSnapshot:questionJson/);
+  assert.match(route, /studentQuestionFromSnapshot/);
+  assert.match(route, /correctAnswerForTestQuestion\(tq\)/);
+});

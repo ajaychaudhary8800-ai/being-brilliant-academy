@@ -400,10 +400,51 @@ router.post("/learning/questions/random", managers, async (req: AuthRequest, res
 const testInput = z.object({ code: z.string().min(2).max(50), name: z.string().min(3).max(180), type: z.nativeEnum(LearningTestType), branchId: id.optional(), courseId: id, batchId: id.optional(), subjectId: id.optional(), chapter: z.string().max(150).optional(), instructions: z.string().max(10000).optional(), durationMinutes: z.number().int().min(1).max(360), maximumMarks: z.number().positive(), passingMarks: z.number().min(0), startsAt: z.coerce.date().optional(), endsAt: z.coerce.date().optional(), adaptive: z.boolean().default(false), status: z.nativeEnum(LearningStatus).default(LearningStatus.DRAFT), questions: z.array(z.object({ questionId: id, section: z.string().max(80).default("General"), position: z.number().int().positive(), marks: z.number().positive(), negativeMarks: z.number().min(0).default(0) })).min(1).max(300) });
 async function assertTestQuestions(actor: LearningActor, target: { courseId: string; subjectId?: string | null }, questions: Array<{ questionId: string }>) {
   const uniqueIds = [...new Set(questions.map(row => row.questionId))];
-  const rows = await prisma.questionBankItem.findMany({ where: { id: { in: uniqueIds }, ...learningQuestionWhere(actor), isArchived: false }, select: { id: true, courseId: true, subjectId: true } });
+  const rows = await prisma.questionBankItem.findMany({ where: { id: { in: uniqueIds }, ...learningQuestionWhere(actor), isArchived: false } });
   if (rows.length !== uniqueIds.length || rows.some(row => row.courseId && row.courseId !== target.courseId || target.subjectId && row.subjectId !== target.subjectId)) {
     throw new AppError(422, "INVALID_TEST_QUESTION", "Every test question must be authorized and match the Test Course and Subject");
   }
+  return rows;
+}
+function questionDeliverySnapshot(question: {
+  id:string;code:string;version:number;examCategory:string;type:QuestionType;body:string;options:Prisma.JsonValue|null;correctAnswer:Prisma.JsonValue;
+  solution:string|null;chapter:string;topic:string|null;difficulty:string;marks:Prisma.Decimal;negativeMarks:Prisma.Decimal;bloomLevel:string|null;
+  classLevel:ClassLevel|null;academicBoard:AcademicBoard|null;customBoardName:string|null;syllabusCode:string|null;learningOutcomes:string[];
+  expectedTimeSeconds:number|null;variantGroupCode:string|null;language:string;evaluationConfig:Prisma.JsonValue|null;
+}) {
+  return {
+    id:question.id,code:question.code,version:question.version,examCategory:question.examCategory,type:question.type,body:question.body,
+    options:question.options,correctAnswer:question.correctAnswer,solution:question.solution,chapter:question.chapter,topic:question.topic,difficulty:question.difficulty,
+    marks:Number(question.marks),negativeMarks:Number(question.negativeMarks),bloomLevel:question.bloomLevel,classLevel:question.classLevel,academicBoard:question.academicBoard,
+    customBoardName:question.customBoardName,syllabusCode:question.syllabusCode,learningOutcomes:question.learningOutcomes,expectedTimeSeconds:question.expectedTimeSeconds,
+    variantGroupCode:question.variantGroupCode,language:question.language,evaluationConfig:question.evaluationConfig,
+  };
+}
+function snapshotTestQuestions(questions: Array<{questionId:string;section:string;position:number;marks:number;negativeMarks:number}>, bank: Awaited<ReturnType<typeof assertTestQuestions>>) {
+  const byId=new Map(bank.map(question=>[question.id,question]));
+  return questions.map(question=>{
+    const source=byId.get(question.questionId);
+    if(!source)throw new AppError(422,"INVALID_TEST_QUESTION","Question snapshot source is missing");
+    return {...question,questionVersion:source.version,questionSnapshot:questionJson(questionDeliverySnapshot(source))};
+  });
+}
+function studentQuestionFromSnapshot(row:{questionSnapshot:Prisma.JsonValue|null;question:{id:string;code:string;type:QuestionType;body:string;options:Prisma.JsonValue|null;marks:Prisma.Decimal}}){
+  if(!row.questionSnapshot||typeof row.questionSnapshot!=="object"||Array.isArray(row.questionSnapshot))return row.question;
+  const snapshot=row.questionSnapshot as Record<string,unknown>;
+  return {
+    id:String(snapshot.id??row.question.id),
+    code:String(snapshot.code??row.question.code),
+    type:(snapshot.type??row.question.type) as QuestionType,
+    body:String(snapshot.body??row.question.body),
+    options:(snapshot.options??row.question.options) as Prisma.JsonValue|null,
+    marks:snapshot.marks??Number(row.question.marks),
+  };
+}
+function correctAnswerForTestQuestion(row:{questionSnapshot:Prisma.JsonValue|null;question:{correctAnswer:Prisma.JsonValue}}){
+  if(row.questionSnapshot&&typeof row.questionSnapshot==="object"&&!Array.isArray(row.questionSnapshot)&&"correctAnswer" in row.questionSnapshot){
+    return (row.questionSnapshot as Record<string,unknown>).correctAnswer;
+  }
+  return row.question.correctAnswer;
 }
 
 router.get("/learning/tests", async (req: AuthRequest, res) => {
@@ -423,9 +464,10 @@ router.post("/learning/tests", managers, async (req: AuthRequest, res) => {
   const d = testInput.refine(row => row.passingMarks <= row.maximumMarks, "Passing marks cannot exceed maximum marks").refine(row => !row.startsAt || !row.endsAt || row.endsAt > row.startsAt, "End time must be after start time").parse(req.body);
   await relationCheck(d);
   assertManagerResourceAccess(actor, d);
-  await assertTestQuestions(actor, d, d.questions);
+  const bankQuestions = await assertTestQuestions(actor, d, d.questions);
   const { questions, ...test } = d;
-  const row = await prisma.learningTest.create({ data: { ...test, createdById: actor.userId, questions: { create: questions } }, include: { questions: true } });
+  const deliveryQuestions = snapshotTestQuestions(questions, bankQuestions);
+  const row = await prisma.learningTest.create({ data: { ...test, createdById: actor.userId, questions: { create: deliveryQuestions } }, include: { questions: true } });
   await audit(req, "CREATE", "LearningTest", row.id);
   res.status(201).json({ data: row });
 });
@@ -438,8 +480,9 @@ router.patch("/learning/tests/:id", managers, async (req: AuthRequest, res) => {
   const target = { courseId: test.courseId ?? old.courseId, batchId: test.batchId === undefined ? old.batchId : test.batchId, subjectId: test.subjectId === undefined ? old.subjectId : test.subjectId, branchId: test.branchId === undefined ? old.branchId : test.branchId };
   await relationCheck(target);
   assertManagerResourceAccess(actor, target);
-  if (questions) await assertTestQuestions(actor, target, questions);
-  const row = await prisma.learningTest.update({ where: { id: old.id }, data: { ...test, ...(questions ? { questions: { deleteMany: {}, create: questions } } : {}) }, include: { questions: true } });
+  const bankQuestions = questions ? await assertTestQuestions(actor, target, questions) : null;
+  const deliveryQuestions = questions && bankQuestions ? snapshotTestQuestions(questions, bankQuestions) : null;
+  const row = await prisma.learningTest.update({ where: { id: old.id }, data: { ...test, ...(deliveryQuestions ? { questions: { deleteMany: {}, create: deliveryQuestions } } : {}) }, include: { questions: true } });
   await audit(req, "UPDATE", "LearningTest", row.id);
   res.json({ data: row });
 });
@@ -458,6 +501,7 @@ router.delete("/learning/tests/:id", managers, async (req: AuthRequest, res) => 
 router.post("/learning/tests/:id/start", allow(Role.STUDENT), async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const test = await prisma.learningTest.findFirst({ where: { id: String(req.params.id), organizationId: req.auth!.organizationId, status: LearningStatus.PUBLISHED }, include: { questions: { include: { question: { select: { id: true, code: true, type: true, body: true, options: true, marks: true } } }, orderBy: { position: "asc" } } } });
+
   if (!test) throw new AppError(404, "TEST_NOT_AVAILABLE", "Test is not available");
   const learner = actor.learners.find(row => row.userId === actor.userId);
   if (!learner) throw learningDenied();
@@ -471,7 +515,8 @@ router.post("/learning/tests/:id/start", allow(Role.STUDENT), async (req: AuthRe
   if (test.startsAt && test.startsAt > now || test.endsAt && test.endsAt < now) throw new AppError(409, "TEST_OUTSIDE_WINDOW", "Test is outside its availability window");
   const active = await prisma.learningTestAttempt.findFirst({ where: { testId: test.id, studentId: actor.userId, status: LearningAttemptStatus.IN_PROGRESS } });
   const attempt = active ?? await prisma.learningTestAttempt.create({ data: { testId: test.id, studentId: actor.userId, expiresAt: new Date(Date.now() + test.durationMinutes * 60000), unansweredCount: test.questions.length } });
-  res.status(active ? 200 : 201).json({ data: { attempt, test } });
+  const deliveryTest = { ...test, questions: test.questions.map(row => ({ ...row, question: studentQuestionFromSnapshot(row) })) };
+  res.status(active ? 200 : 201).json({ data: { attempt, test: deliveryTest } });
 });
 
 router.put("/learning/attempts/:id/answers/:questionId", allow(Role.STUDENT), async (req: AuthRequest, res) => {
@@ -487,7 +532,7 @@ router.put("/learning/attempts/:id/answers/:questionId", allow(Role.STUDENT), as
   const row = await prisma.learningTestAnswer.upsert({ where: { attemptId_questionId: { attemptId: attempt.id, questionId } }, update: { ...d, answer: d.answer as object | undefined }, create: { attemptId: attempt.id, questionId, ...d, answer: d.answer as object | undefined } });
   res.json({ data: row });
 });
-async function finalizeAttempt(attemptId: string, actor: LearningActor, organizationId: string) { const attempt = await prisma.learningTestAttempt.findFirst({ where: { id: attemptId, organizationId, studentId: actor.userId }, include: { test: { include: { questions: { include: { question: true } } } }, answers: true } }); if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found"); if (attempt.status !== LearningAttemptStatus.IN_PROGRESS) return attempt; const answers = new Map(attempt.answers.map(x => [x.questionId, x])), normalized = (v: unknown) => JSON.stringify(v, Object.keys((v && typeof v === "object" && !Array.isArray(v) ? v as object : {}) as object).sort()); let score = 0, correct = 0, incorrect = 0, unanswered = 0, seconds = 0; const updates = []; for (const tq of attempt.test.questions) { const answer = answers.get(tq.questionId); seconds += answer?.timeSpentSeconds ?? 0; if (!answer || answer.answer == null) { unanswered++; continue; } const ok = normalized(answer.answer) === normalized(tq.question.correctAnswer); const marks = ok ? Number(tq.marks) : -Number(tq.negativeMarks); score += marks; ok ? correct++ : incorrect++; updates.push(prisma.learningTestAnswer.update({ where: { id: answer.id }, data: { isCorrect: ok, awardedMarks: marks } })); } const pct = Math.max(0, Number(attempt.test.maximumMarks) ? score / Number(attempt.test.maximumMarks) * 100 : 0); const better = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED, score: { gt: score } } }), total = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED } }), rank = better + 1, percentile = total ? Math.max(0, (total - better) / total * 100) : 100; const result = await prisma.$transaction([...updates, prisma.learningTestAttempt.update({ where: { id: attempt.id }, data: { status: LearningAttemptStatus.EVALUATED, submittedAt: new Date(), score, percentage: pct, percentile, rank, correctCount: correct, incorrectCount: incorrect, unansweredCount: unanswered, timeSpentSeconds: seconds } })]); await prisma.gamificationProfile.upsert({ where: { userId: actor.userId }, update: { xp: { increment: correct * 5 }, coins: { increment: correct } }, create: { userId: actor.userId, xp: correct * 5, coins: correct } }); return result[result.length - 1]; }
+async function finalizeAttempt(attemptId: string, actor: LearningActor, organizationId: string) { const attempt = await prisma.learningTestAttempt.findFirst({ where: { id: attemptId, organizationId, studentId: actor.userId }, include: { test: { include: { questions: { include: { question: true } } } }, answers: true } }); if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found"); if (attempt.status !== LearningAttemptStatus.IN_PROGRESS) return attempt; const answers = new Map(attempt.answers.map(x => [x.questionId, x])), normalized = (v: unknown) => JSON.stringify(v, Object.keys((v && typeof v === "object" && !Array.isArray(v) ? v as object : {}) as object).sort()); let score = 0, correct = 0, incorrect = 0, unanswered = 0, seconds = 0; const updates = []; for (const tq of attempt.test.questions) { const answer = answers.get(tq.questionId); seconds += answer?.timeSpentSeconds ?? 0; if (!answer || answer.answer == null) { unanswered++; continue; } const ok = normalized(answer.answer) === normalized(correctAnswerForTestQuestion(tq)); const marks = ok ? Number(tq.marks) : -Number(tq.negativeMarks); score += marks; ok ? correct++ : incorrect++; updates.push(prisma.learningTestAnswer.update({ where: { id: answer.id }, data: { isCorrect: ok, awardedMarks: marks } })); } const pct = Math.max(0, Number(attempt.test.maximumMarks) ? score / Number(attempt.test.maximumMarks) * 100 : 0); const better = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED, score: { gt: score } } }), total = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED } }), rank = better + 1, percentile = total ? Math.max(0, (total - better) / total * 100) : 100; const result = await prisma.$transaction([...updates, prisma.learningTestAttempt.update({ where: { id: attempt.id }, data: { status: LearningAttemptStatus.EVALUATED, submittedAt: new Date(), score, percentage: pct, percentile, rank, correctCount: correct, incorrectCount: incorrect, unansweredCount: unanswered, timeSpentSeconds: seconds } })]); await prisma.gamificationProfile.upsert({ where: { userId: actor.userId }, update: { xp: { increment: correct * 5 }, coins: { increment: correct } }, create: { userId: actor.userId, xp: correct * 5, coins: correct } }); return result[result.length - 1]; }
 router.post("/learning/attempts/:id/submit", allow(Role.STUDENT), async (req: AuthRequest, res) => { const actor = await learningActorForRequest(req); const result = await finalizeAttempt(String(req.params.id), actor, req.auth!.organizationId); await audit(req, "SUBMIT", "LearningTestAttempt", String(req.params.id)); res.json({ data: result }); });
 router.get("/learning/tests/:id/results", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
