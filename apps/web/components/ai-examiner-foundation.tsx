@@ -9,6 +9,20 @@ import Sidebar from "./sidebar";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 const headers = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${getAccessToken() ?? ""}` });
 
+const QUESTION_TYPES = [
+  ["MCQ","MCQ"],["MSQ","MSQ / multiple correct"],["TRUE_FALSE","True / False"],["ASSERTION_REASON","Assertion–Reason"],
+  ["FILL_BLANK","Fill in the blank"],["MATCHING","Matching"],["ONE_WORD","One-word answer"],["NUMERICAL","Numerical answer"],
+  ["SHORT_ANSWER","Short answer"],["LONG_ANSWER","Long answer"],["CASE_STUDY","Case study"],["DERIVATION","Derivation"],
+  ["PROOF","Proof"],["CALCULATION","Calculation"],["DIAGRAM","Diagram"],["GRAPH","Graph"],["MAP","Map"],
+  ["GEOMETRY_CONSTRUCTION","Geometry construction"],["CHEMISTRY_EQUATION","Chemistry equation / reaction"],
+  ["ACCOUNTING_STATEMENT","Accounting ledger / statement"],["PROGRAMMING","Programming"],["ESSAY","Essay"],
+  ["LANGUAGE","Language answer"],["ORAL_AUDIO_VIDEO","Oral / audio / video"],["PRACTICAL_PROJECT_VIVA","Practical / project / viva"],
+  ["EARLY_YEARS_VISUAL","Early-years visual / tracing"],
+] as const;
+type QuestionType = typeof QUESTION_TYPES[number][0];
+type AnswerKeyValue = string|number|boolean|Array<string|number|boolean>|Record<string,string|number|boolean>;
+const DETERMINISTIC_TYPES = new Set<QuestionType>(["MCQ","MSQ","TRUE_FALSE","ASSERTION_REASON","FILL_BLANK","MATCHING","ONE_WORD","NUMERICAL"]);
+
 type Exam = {
   id:string; name:string; code:string; status:string; maximumMarks:number; examDate:string;
   subject:{name:string}; batch:{name:string}; branch:{branchName:string};
@@ -18,7 +32,11 @@ type Exam = {
 };
 type RawRubric = {
   id:string; version:number; status:string; instructions:string|null;
-  rubric:{questions?:Array<{key:string;maxMarks:number;criteria:string;concepts?:string[]}>};
+  rubric:{questions?:Array<{
+    key:string;maxMarks:number;criteria:string;concepts?:string[];questionType?:QuestionType;answerKey?:AnswerKeyValue;
+    scoring?:{correctMarks?:number;incorrectMarks?:number;unansweredMarks?:number;partialMode?:string;numericalTolerance?:{absolute?:number;relative?:number}};
+    requiresVisualEvidence?:boolean;requiresCodeExecution?:boolean;
+  }>};
   modelAnswer:{questions?:Array<{key:string;answer:string}>}|null;
 };
 type Readiness = {
@@ -36,7 +54,47 @@ type Readiness = {
     latestEvaluation:{id:string;revision:number;status:string;suggestedMarks:number|string|null;confidence:number|string|null;errorCode:string|null;errorMessage:string|null;createdAt:string;completedAt:string|null}|null;
   }>;
 };
-type QuestionDraft = { key:string; maxMarks:string; criteria:string; modelAnswer:string; concepts:string };
+type QuestionDraft = {
+  key:string;maxMarks:string;criteria:string;modelAnswer:string;concepts:string;questionType:QuestionType;answerKey:string;
+  correctMarks:string;incorrectMarks:string;unansweredMarks:string;partialMode:"NONE"|"PROPORTIONAL_NO_WRONG"|"PROPORTIONAL_WITH_PENALTY";
+  absoluteTolerance:string;relativeTolerance:string;requiresVisualEvidence:boolean;
+};
+
+function emptyQuestion(key:string):QuestionDraft {
+  return {key,maxMarks:"",criteria:"",modelAnswer:"",concepts:"",questionType:"LONG_ANSWER",answerKey:"",correctMarks:"",incorrectMarks:"",unansweredMarks:"",partialMode:"NONE",absoluteTolerance:"",relativeTolerance:"",requiresVisualEvidence:false};
+}
+function displayAnswerKey(value:AnswerKeyValue|undefined){
+  if(value==null)return "";
+  if(Array.isArray(value))return value.map(String).join(", ");
+  if(typeof value==="object")return Object.entries(value).map(([key,item])=>`${key}=${String(item)}`).join(", ");
+  return String(value);
+}
+function answerKeyPayload(question:QuestionDraft):AnswerKeyValue|undefined {
+  const raw=question.answerKey.trim();
+  if(!DETERMINISTIC_TYPES.has(question.questionType))return undefined;
+  if(question.questionType==="MSQ"){
+    const values=raw.split(/[,;\n]+/).map(value=>value.trim()).filter(Boolean);
+    if(!values.length)throw new Error(`${question.key||"Question"}: enter the MSQ correct options, for example A, C.`);
+    return values;
+  }
+  if(question.questionType==="MATCHING"){
+    const pairs=raw.split(/[,;\n]+/).map(value=>value.trim()).filter(Boolean);
+    if(!pairs.length)throw new Error(`${question.key||"Question"}: enter matching pairs, for example A=1, B=2.`);
+    const result:Record<string,string>={};
+    for(const pair of pairs){
+      const match=pair.match(/^(.+?)(?:=|->)(.+)$/);
+      if(!match?.[1]?.trim()||!match?.[2]?.trim())throw new Error(`${question.key||"Question"}: invalid matching pair "${pair}". Use A=1 format.`);
+      result[match[1].trim()]=match[2].trim();
+    }
+    return result;
+  }
+  if(!raw){
+    if(question.modelAnswer.trim())return undefined;
+    throw new Error(`${question.key||"Question"}: enter an answer key or model answer for deterministic scoring.`);
+  }
+  return raw;
+}
+function optionalNumber(value:string){return value.trim()===""?undefined:Number(value);}
 
 async function responseBody(response:Response) {
   const json=await response.json().catch(()=>null);
@@ -47,8 +105,19 @@ async function responseBody(response:Response) {
 function rubricQuestions(source:RawRubric|null):QuestionDraft[] {
   const answers=new Map((source?.modelAnswer?.questions??[]).map(item=>[item.key,item.answer]));
   const questions=source?.rubric?.questions??[];
-  if(!questions.length) return [{key:"Q1",maxMarks:"",criteria:"",modelAnswer:"",concepts:""}];
-  return questions.map(item=>({key:item.key,maxMarks:String(item.maxMarks),criteria:item.criteria,modelAnswer:answers.get(item.key)??"",concepts:(item.concepts??[]).join(", ")}));
+  if(!questions.length)return [emptyQuestion("Q1")];
+  return questions.map(item=>({
+    ...emptyQuestion(item.key),
+    key:item.key,maxMarks:String(item.maxMarks),criteria:item.criteria,modelAnswer:answers.get(item.key)??"",concepts:(item.concepts??[]).join(", "),
+    questionType:item.questionType??"LONG_ANSWER",answerKey:displayAnswerKey(item.answerKey),
+    correctMarks:item.scoring?.correctMarks==null?"":String(item.scoring.correctMarks),
+    incorrectMarks:item.scoring?.incorrectMarks==null?"":String(item.scoring.incorrectMarks),
+    unansweredMarks:item.scoring?.unansweredMarks==null?"":String(item.scoring.unansweredMarks),
+    partialMode:(item.scoring?.partialMode==="PROPORTIONAL_NO_WRONG"||item.scoring?.partialMode==="PROPORTIONAL_WITH_PENALTY"?item.scoring.partialMode:"NONE"),
+    absoluteTolerance:item.scoring?.numericalTolerance?.absolute==null?"":String(item.scoring.numericalTolerance.absolute),
+    relativeTolerance:item.scoring?.numericalTolerance?.relative==null?"":String(item.scoring.numericalTolerance.relative),
+    requiresVisualEvidence:Boolean(item.requiresVisualEvidence),
+  }));
 }
 
 export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:boolean}) {
@@ -56,7 +125,7 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
   const [selected,setSelected]=useState("");
   const [readiness,setReadiness]=useState<Readiness|null>(null);
   const [instructions,setInstructions]=useState("");
-  const [questions,setQuestions]=useState<QuestionDraft[]>([{key:"Q1",maxMarks:"",criteria:"",modelAnswer:"",concepts:""}]);
+  const [questions,setQuestions]=useState<QuestionDraft[]>([emptyQuestion("Q1")]);
   const [busy,setBusy]=useState(true);
   const [saving,setSaving]=useState(false);
   const [starting,setStarting]=useState("");
@@ -100,8 +169,8 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
   const maximum=readiness?.examination.maximumMarks??0;
   const marksMatch=Math.abs(totalMarks-maximum)<0.001;
 
-  const updateQuestion=(index:number,field:keyof QuestionDraft,value:string)=>setQuestions(items=>items.map((item,i)=>i===index?{...item,[field]:value}:item));
-  const addQuestion=()=>setQuestions(items=>[...items,{key:`Q${items.length+1}`,maxMarks:"",criteria:"",modelAnswer:"",concepts:""}]);
+  function updateQuestion<K extends keyof QuestionDraft>(index:number,field:K,value:QuestionDraft[K]){setQuestions(items=>items.map((item,i)=>i===index?{...item,[field]:value}:item));}
+  const addQuestion=()=>setQuestions(items=>[...items,emptyQuestion(`Q${items.length+1}`)]);
   const removeQuestion=(index:number)=>setQuestions(items=>items.length===1?items:items.filter((_,i)=>i!==index));
 
   async function startEvaluation(answerSheetId:string){
@@ -118,13 +187,28 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
     if(!selected)return;
     setSaving(true);setError("");setNotice("");
     try{
-      const payload={instructions:instructions||null,questions:questions.map(item=>({
-        key:item.key.trim(),
-        maxMarks:Number(item.maxMarks),
-        criteria:item.criteria.trim(),
-        modelAnswer:item.modelAnswer.trim()||null,
-        concepts:item.concepts.split(",").map(value=>value.trim()).filter(Boolean),
-      }))};
+      const payload={instructions:instructions||null,questions:questions.map(item=>{
+        const answerKey=answerKeyPayload(item);
+        const scoring=DETERMINISTIC_TYPES.has(item.questionType)?{
+          correctMarks:optionalNumber(item.correctMarks),
+          incorrectMarks:optionalNumber(item.incorrectMarks),
+          unansweredMarks:optionalNumber(item.unansweredMarks),
+          partialMode:item.partialMode,
+          ...(item.questionType==="NUMERICAL"?{numericalTolerance:{absolute:optionalNumber(item.absoluteTolerance)??0,relative:optionalNumber(item.relativeTolerance)??0}}:{}),
+        }:undefined;
+        return {
+          key:item.key.trim(),
+          maxMarks:Number(item.maxMarks),
+          criteria:item.criteria.trim(),
+          modelAnswer:item.modelAnswer.trim()||null,
+          concepts:item.concepts.split(",").map(value=>value.trim()).filter(Boolean),
+          questionType:item.questionType,
+          answerKey,
+          scoring,
+          requiresVisualEvidence:item.requiresVisualEvidence,
+          requiresCodeExecution:item.questionType==="PROGRAMMING",
+        };
+      })};
       await fetch(`${API}/ai-examiner/examinations/${selected}/rubric`,{method:"PUT",headers:headers(),body:JSON.stringify(payload)}).then(responseBody);
       setNotice("AI Examiner rubric draft saved.");
       await loadReadiness();
@@ -150,7 +234,7 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
       <div className="mx-auto max-w-6xl">
         {teacherView&&<Link href="/teacher/examinations" className="mb-4 inline-block font-bold text-brand-700">← Examinations</Link>}
         <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div><p className="text-sm font-bold text-brand-700">RANPAL AI EXAMINER</p><h1 className="text-3xl font-bold">AI Evaluation Setup</h1><p className="mt-1 text-slate-500">Question-wise marking rubric, model answers, readiness and human-review controls.</p></div>
+          <div><p className="text-sm font-bold text-brand-700">RANPAL AI EXAMINER</p><h1 className="text-3xl font-bold">AI Evaluation Setup</h1><p className="mt-1 text-slate-500">Question-wise routing, deterministic objective scoring, rubric evaluation and mandatory human-review controls.</p></div>
           <BrainCircuit className="text-brand-700" size={34}/>
         </header>
         {notice&&<p role="status" className="mt-4 rounded-xl bg-emerald-50 p-3 text-emerald-700">{notice}</p>}
@@ -220,18 +304,40 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-xl font-bold">Marking Rubric</h2><p className="text-sm text-slate-500">Drafts are editable. Activating a new version preserves older rubrics for evaluation history.</p></div><div className={`rounded-full px-3 py-1 text-sm font-bold ${marksMatch?"bg-emerald-50 text-emerald-700":"bg-amber-50 text-amber-800"}`}>{totalMarks} / {maximum} marks</div></div>
             <label className="mt-4 block text-sm font-semibold">General evaluation instructions<textarea className="field mt-1.5 min-h-24" value={instructions} onChange={event=>setInstructions(event.target.value)} placeholder="Examples: award method marks, accept equivalent derivations, flag unclear diagrams for teacher review."/></label>
             <div className="mt-5 space-y-4">
-              {questions.map((question,index)=><article key={index} className="rounded-xl border p-4">
-                <div className="grid gap-3 md:grid-cols-[120px_140px_1fr_auto]">
-                  <label className="text-sm font-semibold">Question<input className="field mt-1" value={question.key} onChange={event=>updateQuestion(index,"key",event.target.value)}/></label>
-                  <label className="text-sm font-semibold">Max marks<input className="field mt-1" type="number" min="0.5" step="0.5" value={question.maxMarks} onChange={event=>updateQuestion(index,"maxMarks",event.target.value)}/></label>
-                  <label className="text-sm font-semibold">Concepts<input className="field mt-1" value={question.concepts} onChange={event=>updateQuestion(index,"concepts",event.target.value)} placeholder="Current electricity, Kirchhoff laws"/></label>
-                  <button type="button" onClick={()=>removeQuestion(index)} disabled={questions.length===1} className="self-end rounded-lg border p-3 text-red-600 disabled:opacity-30" aria-label="Remove question"><Trash2 size={17}/></button>
-                </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <label className="text-sm font-semibold">Marking criteria<textarea className="field mt-1 min-h-28" value={question.criteria} onChange={event=>updateQuestion(index,"criteria",event.target.value)} placeholder="Define step-wise marks and acceptable alternatives."/></label>
-                  <label className="text-sm font-semibold">Model answer / solution<textarea className="field mt-1 min-h-28" value={question.modelAnswer} onChange={event=>updateQuestion(index,"modelAnswer",event.target.value)} placeholder="Reference solution, derivation, key points or expected numerical answer."/></label>
-                </div>
-              </article>)}
+              {questions.map((question,index)=>{
+                const deterministic=DETERMINISTIC_TYPES.has(question.questionType);
+                const routeLabel=deterministic?"Deterministic scoring after answer extraction":question.questionType==="PROGRAMMING"?"Sandbox / specialized review":question.requiresVisualEvidence||["DIAGRAM","GRAPH","MAP","GEOMETRY_CONSTRUCTION","ORAL_AUDIO_VIDEO","PRACTICAL_PROJECT_VIVA","EARLY_YEARS_VISUAL"].includes(question.questionType)?"Multimodal + teacher review":"Rubric-semantic + teacher review";
+                return <article key={index} className="rounded-xl border p-4">
+                  <div className="grid gap-3 md:grid-cols-[100px_120px_220px_1fr_auto]">
+                    <label className="text-sm font-semibold">Question<input className="field mt-1" value={question.key} onChange={event=>updateQuestion(index,"key",event.target.value)}/></label>
+                    <label className="text-sm font-semibold">Max marks<input className="field mt-1" type="number" min="0.5" step="0.5" value={question.maxMarks} onChange={event=>updateQuestion(index,"maxMarks",event.target.value)}/></label>
+                    <label className="text-sm font-semibold">Question type<select className="field mt-1" value={question.questionType} onChange={event=>updateQuestion(index,"questionType",event.target.value as QuestionType)}>{QUESTION_TYPES.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+                    <label className="text-sm font-semibold">Concepts<input className="field mt-1" value={question.concepts} onChange={event=>updateQuestion(index,"concepts",event.target.value)} placeholder="Current electricity, Kirchhoff laws"/></label>
+                    <button type="button" onClick={()=>removeQuestion(index)} disabled={questions.length===1} className="self-end rounded-lg border p-3 text-red-600 disabled:opacity-30" aria-label="Remove question"><Trash2 size={17}/></button>
+                  </div>
+                  <div className="mt-2"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">{routeLabel}</span></div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <label className="text-sm font-semibold">Marking criteria<textarea className="field mt-1 min-h-28" value={question.criteria} onChange={event=>updateQuestion(index,"criteria",event.target.value)} placeholder="Define step-wise marks and acceptable alternatives."/></label>
+                    <label className="text-sm font-semibold">Model answer / solution<textarea className="field mt-1 min-h-28" value={question.modelAnswer} onChange={event=>updateQuestion(index,"modelAnswer",event.target.value)} placeholder="Reference solution, derivation, key points or acceptable alternatives."/></label>
+                  </div>
+                  {deterministic&&<div className="mt-3 rounded-xl bg-slate-50 p-4">
+                    <p className="text-sm font-bold">Deterministic marking rule</p>
+                    <p className="mt-1 text-xs text-slate-500">The AI model extracts the written response only. Ranpal AI applies this key and marking rule in code.</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-4">
+                      <label className="text-sm font-semibold md:col-span-2">Answer key<input className="field mt-1" value={question.answerKey} onChange={event=>updateQuestion(index,"answerKey",event.target.value)} placeholder={question.questionType==="MSQ"?"A, C, D":question.questionType==="MATCHING"?"A=1, B=2, C=3":"Correct answer"}/></label>
+                      <label className="text-sm font-semibold">Correct marks<input className="field mt-1" type="number" step="0.25" value={question.correctMarks} onChange={event=>updateQuestion(index,"correctMarks",event.target.value)} placeholder={question.maxMarks||"Max"}/></label>
+                      <label className="text-sm font-semibold">Incorrect marks<input className="field mt-1" type="number" step="0.25" value={question.incorrectMarks} onChange={event=>updateQuestion(index,"incorrectMarks",event.target.value)} placeholder="0 or -1"/></label>
+                      <label className="text-sm font-semibold">Unanswered marks<input className="field mt-1" type="number" step="0.25" value={question.unansweredMarks} onChange={event=>updateQuestion(index,"unansweredMarks",event.target.value)} placeholder="0"/></label>
+                      {(question.questionType==="MSQ"||question.questionType==="MATCHING")&&<label className="text-sm font-semibold md:col-span-2">Partial marking<select className="field mt-1" value={question.partialMode} onChange={event=>updateQuestion(index,"partialMode",event.target.value as QuestionDraft["partialMode"])}><option value="NONE">No partial marks</option><option value="PROPORTIONAL_NO_WRONG">Proportional only when no wrong option/pair</option><option value="PROPORTIONAL_WITH_PENALTY">Proportional with wrong-selection penalty</option></select></label>}
+                      {question.questionType==="NUMERICAL"&&<>
+                        <label className="text-sm font-semibold">Absolute tolerance<input className="field mt-1" type="number" min="0" step="any" value={question.absoluteTolerance} onChange={event=>updateQuestion(index,"absoluteTolerance",event.target.value)} placeholder="0"/></label>
+                        <label className="text-sm font-semibold">Relative tolerance<input className="field mt-1" type="number" min="0" max="1" step="any" value={question.relativeTolerance} onChange={event=>updateQuestion(index,"relativeTolerance",event.target.value)} placeholder="0.01 = 1%"/></label>
+                      </>}
+                    </div>
+                  </div>}
+                  {!deterministic&&<label className="mt-3 inline-flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={question.requiresVisualEvidence} onChange={event=>updateQuestion(index,"requiresVisualEvidence",event.target.checked)}/>This answer requires visual evidence even if the selected type is primarily textual</label>}
+                </article>;
+              })}
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
               <button type="button" onClick={addQuestion} className="btn"><Plus size={16}/>Add Question</button>

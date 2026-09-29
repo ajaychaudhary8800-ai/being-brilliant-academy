@@ -13,9 +13,10 @@ import {
   reconcileAIExaminerProviderResult,
   resolveAIExaminerRubricQuestions,
 } from "./ai-examiner-orchestration.js";
+import { AIExaminerScoringError } from "./ai-examiner-deterministic.js";
 
 function errorDetails(error: unknown) {
-  if (error instanceof AIExaminerProviderError) return { code: error.code, message: error.message };
+  if (error instanceof AIExaminerProviderError || error instanceof AIExaminerScoringError) return { code: error.code, message: error.message };
   return { code: "AI_EXAMINER_INTERNAL_ERROR", message: error instanceof Error ? error.message : "AI evaluation failed" };
 }
 
