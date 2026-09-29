@@ -19,6 +19,7 @@ import { requireCommercialFeature } from "../middleware/commercial-entitlement.j
 const router = Router();
 const id = z.string().trim().min(1).max(191);
 const managementRoles = new Set<Role>([Role.SUPER_ADMIN, Role.BRANCH_ADMIN]);
+const minutesSubmissionStatuses = new Set<MeetingStatus>([MeetingStatus.ENDED, MeetingStatus.MINUTES_PENDING]);
 
 router.use(requireAuth, requireCommercialFeature("meetings"));
 
@@ -227,7 +228,7 @@ router.put("/meetings/:id/minutes", async (req: AuthRequest, res) => {
 router.post("/meetings/:id/minutes/submit", async (req: AuthRequest, res) => {
   const meeting = await loadMeeting(req, String(req.params.id));
   await assertManage(req, meeting);
-  if (![MeetingStatus.ENDED, MeetingStatus.MINUTES_PENDING].includes(meeting.status)) throw new AppError(409, "MEETING_NOT_ENDED", "End the meeting before submitting minutes");
+  if (!minutesSubmissionStatuses.has(meeting.status)) throw new AppError(409, "MEETING_NOT_ENDED", "End the meeting before submitting minutes");
   if (!meeting.minutes) throw new AppError(409, "MEETING_MINUTES_REQUIRED", "Prepare meeting minutes before submission");
   if (meeting.minutes.status === MeetingMinutesStatus.PUBLISHED) throw new AppError(409, "MEETING_MINUTES_PUBLISHED", "Published minutes are immutable");
   const row = await prisma.$transaction(async tx => {
