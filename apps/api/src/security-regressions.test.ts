@@ -796,6 +796,15 @@ test("portal message authorization rejects cross-tenant recipients and recipient
   await assert.rejects(assertPortalMessageRecipientAuthorized(teacherSender, "missing-recipient", store), unavailablePortalRecipient);
 });
 
+test("student report card download uses the authenticated document helper", async () => {
+  const workspace = await readFile(new URL("../../web/components/portal-workspace.tsx", import.meta.url), "utf8");
+  const reportBlock = workspace.match(/async function report\(resultId: string\) \{([\s\S]*?)\n  \}/)?.[1] ?? "";
+  assert.match(reportBlock, /openAuthenticatedDocument/);
+  assert.match(reportBlock, /portal\/downloads\/report-card/);
+  assert.match(reportBlock, /fileName: "report-card\.pdf"/);
+  assert.doesNotMatch(reportBlock, /window\.open/);
+});
+
 test("portal attendance course labels tolerate a legitimate missing course relation", async () => {
   const moduleUrl = new URL("../../web/components/portal-workspace.tsx", import.meta.url).href;
   const workspace = await import(moduleUrl) as { portalCourseTitle: (course: { title: string | null } | null | undefined) => string };
