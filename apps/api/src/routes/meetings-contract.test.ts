@@ -17,6 +17,14 @@ test("enterprise meetings are a separate domain from LiveClass", () => {
   assert.doesNotMatch(route, /liveClass/i);
 });
 
+test("meeting inputs support existing opaque database identifiers", async () => {
+  const workflow = await readFile(new URL("./meeting-workflow.ts", import.meta.url), "utf8");
+  assert.match(route, /const id = z\.string\(\)\.trim\(\)\.min\(1\)\.max\(191\)/);
+  assert.match(workflow, /const id = z\.string\(\)\.trim\(\)\.min\(1\)\.max\(191\)/);
+  assert.doesNotMatch(route, /const id = z\.string\(\)\.cuid\(\)/);
+  assert.doesNotMatch(workflow, /const id = z\.string\(\)\.cuid\(\)/);
+});
+
 test("meeting API enforces tenant, branch and commercial boundaries", () => {
   assert.match(route, /organizationId: org\(req\)/);
   assert.match(route, /requireCommercialFeature\("meetings"\)/);
