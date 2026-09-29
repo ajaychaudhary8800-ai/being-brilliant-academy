@@ -264,6 +264,15 @@ router.post("/meetings/:id/minutes/publish", async (req: AuthRequest, res) => {
   res.json({ data: row });
 });
 
+router.post("/meetings/:id/close", async (req: AuthRequest, res) => {
+  const meeting = await loadMeeting(req, String(req.params.id));
+  await assertManage(req, meeting);
+  if (meeting.status !== MeetingStatus.MINUTES_PUBLISHED) throw new AppError(409, "MEETING_NOT_READY_TO_CLOSE", "Publish approved minutes before closing the meeting");
+  const row = await prisma.meeting.update({ where: { id: meeting.id }, data: { status: MeetingStatus.CLOSED } });
+  await audit(req, meeting.id, "CLOSE", "Meeting", meeting.id);
+  res.json({ data: row });
+});
+
 router.post("/meetings/:id/decisions", async (req: AuthRequest, res) => {
   const meeting = await loadMeeting(req, String(req.params.id));
   await assertManage(req, meeting);
