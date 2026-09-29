@@ -1648,11 +1648,12 @@ function StudentExaminations({ items, query }: { items: StudentExam[]; query: st
   async function report(resultId: string) {
     setReportError("");
     try {
-      const response = await fetch(`${API}/portal/downloads/report-card/${resultId}`, { headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` } });
-      if (!response.ok) throw new Error("Report card is not available");
-      const url = URL.createObjectURL(await response.blob());
-      window.open(url, "_blank", "noopener,noreferrer");
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await openAuthenticatedDocument({
+        url: `${API}/portal/downloads/report-card/${resultId}`,
+        token: getAccessToken() ?? "",
+        fileName: "report-card.pdf",
+        fallbackError: "Report card is not available",
+      });
     } catch (cause) {
       setReportError(errorMessage(cause));
     }
