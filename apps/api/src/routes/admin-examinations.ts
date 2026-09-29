@@ -104,6 +104,44 @@ async function assertPublishable(client: Prisma.TransactionClient, examinationId
   assertExaminationPublicationReady({ results, unfinishedAnswerSheets, ungeneratedResults });
 }
 
+async function refreshGeneratedResultMetadata(
+  client: Prisma.TransactionClient,
+  exam: { id: string; organizationId: string; maximumMarks: number; passingMarks: number },
+) {
+  const results = await client.examinationResult.findMany({
+    where: { organizationId: exam.organizationId, examinationId: exam.id },
+    orderBy: { marksObtained: "desc" },
+  });
+  let rank = 0, last: number | null = null, index = 0;
+  const now = new Date();
+  for (const result of results) {
+    index++;
+    if (result.marksObtained === null) {
+      await client.examinationResult.update({
+        where: { id: result.id },
+        data: { percentage: null, grade: null, gpa: null, rank: null, status: ExaminationResultStatus.ABSENT, generatedAt: result.generatedAt ?? now },
+      });
+      continue;
+    }
+    const marks = Number(result.marksObtained);
+    const percentage = marks / exam.maximumMarks * 100;
+    const calculated = examinationGradeForPercentage(percentage);
+    if (last === null || marks < last) rank = index;
+    last = marks;
+    await client.examinationResult.update({
+      where: { id: result.id },
+      data: {
+        percentage,
+        grade: calculated.grade,
+        gpa: calculated.gpa,
+        rank,
+        status: marks >= exam.passingMarks ? ExaminationResultStatus.PASS : ExaminationResultStatus.FAIL,
+        generatedAt: result.generatedAt ?? now,
+      },
+    });
+  }
+}
+
 router.get("/examinations/options", async (req: AuthRequest, res) => {
   const ids = await scope(req);
   const [branches, batches, teachers, students] = await Promise.all([
@@ -187,7 +225,10 @@ router.patch("/examinations/:id", async (req: AuthRequest, res) => {
       if (changesCoreExaminationField(partial, { ...old, startTime: clock(old.startMinute), endTime: clock(old.endMinute) })) {
         assertExaminationHistoricalFieldsEditable(await activity(tx, old.id, req.auth!.organizationId));
       }
-      if (partial.status === ExaminationStatus.RESULTS_PUBLISHED) await assertPublishable(tx, old.id, req.auth!.organizationId);
+      if (partial.status === ExaminationStatus.RESULTS_PUBLISHED) {
+        await assertPublishable(tx, old.id, req.auth!.organizationId);
+        await refreshGeneratedResultMetadata(tx, { id: old.id, organizationId: req.auth!.organizationId, maximumMarks: merged.maximumMarks, passingMarks: merged.passingMarks });
+      }
       const value = await tx.examination.update({ where: { id: old.id }, data: { ...rest, ...normalized }, select });
       await tx.auditLog.create({ data: auditData(req, partial.status === ExaminationStatus.ARCHIVED ? "ARCHIVE" : partial.status === ExaminationStatus.RESULTS_PUBLISHED ? "PUBLISH" : "UPDATE", value.id) });
       return value;
@@ -247,20 +288,7 @@ router.post("/examinations/:id/generate-results", async (req: AuthRequest, res) 
       throw new AppError(409, "RESULT_GENERATION_ROSTER_UNAVAILABLE", "Historical examination roster cannot be established");
     }
     for (const studentId of studentIds) await tx.examinationResult.upsert({ where: { examinationId_studentId: { examinationId: exam.id, studentId } }, update: {}, create: { organizationId: req.auth!.organizationId, examinationId: exam.id, studentId, status: ExaminationResultStatus.ABSENT } });
-    const results = await tx.examinationResult.findMany({ where: { examinationId: exam.id }, orderBy: { marksObtained: "desc" } });
-    let rank = 0, last: number | null = null, index = 0;
-    const generatedAt = new Date();
-    for (const result of results) {
-      index++;
-      if (result.marksObtained === null) {
-        await tx.examinationResult.update({ where: { id: result.id }, data: { percentage: null, grade: null, gpa: null, rank: null, status: ExaminationResultStatus.ABSENT, generatedAt } });
-        continue;
-      }
-      const marks = Number(result.marksObtained), percentage = marks / exam.maximumMarks * 100, calculated = examinationGradeForPercentage(percentage);
-      if (last === null || marks < last) rank = index;
-      last = marks;
-      await tx.examinationResult.update({ where: { id: result.id }, data: { percentage, grade: calculated.grade, gpa: calculated.gpa, rank, status: marks >= exam.passingMarks ? ExaminationResultStatus.PASS : ExaminationResultStatus.FAIL, generatedAt } });
-    }
+    await refreshGeneratedResultMetadata(tx, exam);
     const value = await tx.examination.update({ where: { id: exam.id }, data: { status: ExaminationStatus.RESULTS_PUBLISHED }, select });
     await tx.auditLog.create({ data: auditData(req, "GENERATE_RESULTS", exam.id) });
     await tx.auditLog.create({ data: auditData(req, "PUBLISH", exam.id) });
@@ -285,7 +313,11 @@ router.patch("/examinations/:id/status", async (req: AuthRequest, res) => {
   const value = await prisma.$transaction(async tx => {
     const locked = await tx.examination.updateMany({ where: { id: old.id, organizationId: req.auth!.organizationId, status: old.status }, data: { updatedAt: new Date() } });
     assertSingleConditionalMutation(locked.count, "EXAMINATION_CHANGED", "Examination status changed concurrently; reload before retrying");
-    if (status === ExaminationStatus.RESULTS_PUBLISHED) await assertPublishable(tx, old.id, req.auth!.organizationId);
+    if (status === ExaminationStatus.RESULTS_PUBLISHED) {
+      await assertPublishable(tx, old.id, req.auth!.organizationId);
+      const exam = await tx.examination.findUniqueOrThrow({ where: { id: old.id }, select: { id: true, organizationId: true, maximumMarks: true, passingMarks: true } });
+      await refreshGeneratedResultMetadata(tx, exam);
+    }
     const updated = await tx.examination.update({ where: { id: old.id }, data: { status }, select });
     await tx.auditLog.create({ data: auditData(req, status === ExaminationStatus.ARCHIVED ? "ARCHIVE" : status === ExaminationStatus.RESULTS_PUBLISHED ? "PUBLISH" : "STATUS_CHANGE", old.id) });
     return updated;
