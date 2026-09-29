@@ -147,7 +147,9 @@ test("finalized evaluations are immutable and results are never accidentally abs
   assert.throws(() => assertEvaluationOpen(new Date()), /finalized evaluation/i);
   const pass = examinationResultFor(42, 50, 20, new Date("2026-08-20T00:00:00Z"));
   assert.equal(pass.status, ExaminationResultStatus.PASS); assert.equal(pass.percentage, 84);
-  assert.equal(examinationResultFor(10, 50, 20).status, ExaminationResultStatus.FAIL);
+  assert.equal(pass.grade, "A"); assert.equal(pass.gpa, 9);
+  const fail = examinationResultFor(10, 50, 20);
+  assert.equal(fail.status, ExaminationResultStatus.FAIL); assert.equal(fail.grade, "F"); assert.equal(fail.gpa, 0);
   assert.notEqual(pass.status, ExaminationResultStatus.ABSENT);
 });
 
