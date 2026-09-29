@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 type DynamicLabel = "courses" | "groups" | "educators" | "assessments" | "learning";
-type CommercialFeature = "crm" | "lms" | "examinations" | "hr_payroll" | "finance" | "communication" | "transport" | "library" | "hostel" | "inventory" | "analytics" | "multi_branch" | "white_label" | "custom_domain";
+type CommercialFeature = "crm" | "lms" | "examinations" | "hr_payroll" | "finance" | "communication" | "meetings" | "transport" | "library" | "hostel" | "inventory" | "analytics" | "multi_branch" | "white_label" | "custom_domain";
 type MenuEntry = { name: string; href: string; icon: typeof LayoutDashboard; dynamicLabel?: DynamicLabel; superAdminOnly?: boolean; platformOnly?: boolean; tenantOnly?: boolean; feature?: CommercialFeature };
 type MenuGroup = { name: string; entries: MenuEntry[] };
 
@@ -51,6 +51,7 @@ const menuGroups: MenuGroup[] = [
     { name: "Homework", href: "/admin/homeworks", icon: NotebookPen },
     { name: "Examinations", href: "/admin/examinations", icon: FileCheck2, dynamicLabel: "assessments", feature: "examinations" },
     { name: "Answer Submissions", href: "/admin/examination-submissions", icon: FileCheck2, feature: "examinations" },
+    { name: "Ranpal AI Examiner", href: "/admin/ai-examiner", icon: BrainCircuit, feature: "examinations" },
     { name: "Tests", href: "/admin/tests", icon: ClipboardCheck, feature: "examinations" },
     { name: "LMS", href: "/admin/lms", icon: PlaySquare, feature: "lms" },
     { name: "Learning Resources", href: "/admin/learning-ecosystem", icon: BrainCircuit, dynamicLabel: "learning", feature: "lms" },
@@ -70,7 +71,9 @@ const menuGroups: MenuGroup[] = [
   ] },
   { name: "Communication", entries: [
     { name: "Communication", href: "/admin/communication", icon: Bell, feature: "communication" },
+    { name: "Workflow Automation", href: "/admin/automations", icon: CalendarClock, feature: "communication" },
     { name: "Notice Board", href: "/admin/notices", icon: Bell, feature: "communication" },
+    { name: "Staff & Management Meetings", href: "/admin/meetings", icon: CalendarClock, feature: "meetings" },
   ] },
   { name: "Operations", entries: [
     { name: "Transport", href: "/admin/transport", icon: Bus, feature: "transport" },

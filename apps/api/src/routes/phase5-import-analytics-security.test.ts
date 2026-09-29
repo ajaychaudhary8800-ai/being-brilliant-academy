@@ -52,7 +52,7 @@ test("Analytics cache, reports and assistant are tenant-bound", async () => {
   assert.match(source, /analyticsSavedReport\.create\(\{data:\{organizationId:org\(q\)/);
   assert.match(source, /analyticsReportSchedule\.create\(\{data:\{organizationId:org\(q\)/);
   assert.match(source, /analyticsAssistantQuery\.create\(\{data:\{organizationId:org\(q\)/);
-  assert.match(source, /organizationId:org\(q\),id:String\(q\.params\.id\),OR:/);
+  assert.match(source, /analyticsSavedReport\.findFirst\(\{where:\{organizationId:org\(q\),id:String\(q\.params\.id\),deletedAt:null,isArchived:false,OR:/);
 });
 
 test("Analytics branch-admin drilldowns use authenticated branch scope", async () => {

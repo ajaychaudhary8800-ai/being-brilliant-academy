@@ -1,5 +1,6 @@
 import { AnswerSheetStatus, ExaminationResultStatus, ExaminationStatus, Role, StudentStatus } from "@prisma/client";
 import { AppError } from "./http.js";
+import { parseInstitutionDateTime } from "./institution-time.js";
 
 export function assertEvaluationOpen(finalizedAt: Date | null) {
   if (finalizedAt) throw new AppError(409, "EVALUATION_FINALIZED", "A finalized evaluation cannot be modified; an explicit reopen workflow is required");
@@ -31,9 +32,27 @@ export function evaluationStatus(finalize: boolean) {
   return finalize ? AnswerSheetStatus.EVALUATED : AnswerSheetStatus.UNDER_REVIEW;
 }
 
+export function examinationGradeForPercentage(percentage: number) {
+  if (percentage >= 90) return { grade: "A+", gpa: 10 };
+  if (percentage >= 80) return { grade: "A", gpa: 9 };
+  if (percentage >= 70) return { grade: "B+", gpa: 8 };
+  if (percentage >= 60) return { grade: "B", gpa: 7 };
+  if (percentage >= 50) return { grade: "C", gpa: 6 };
+  if (percentage >= 40) return { grade: "D", gpa: 5 };
+  return { grade: "F", gpa: 0 };
+}
+
 export function examinationResultFor(marks: number, maximumMarks: number, passingMarks: number, now = new Date()) {
   const percentage = maximumMarks ? marks / maximumMarks * 100 : 0;
-  return { marksObtained: marks, percentage, status: marks >= passingMarks ? ExaminationResultStatus.PASS : ExaminationResultStatus.FAIL, generatedAt: now };
+  const calculated = examinationGradeForPercentage(percentage);
+  return {
+    marksObtained: marks,
+    percentage,
+    grade: calculated.grade,
+    gpa: calculated.gpa,
+    status: marks >= passingMarks ? ExaminationResultStatus.PASS : ExaminationResultStatus.FAIL,
+    generatedAt: now,
+  };
 }
 
 export function assertStudentExaminationEligible<T extends { organizationId: string; batchId: string; academicSessionId: string }>(student: T | null, exam: { organizationId: string; batchId: string; academicSessionId: string }): asserts student is T {
@@ -58,20 +77,23 @@ export function assertQuestionPaperAvailable(status: ExaminationStatus, publishe
   if (!availableAt || availableAt > now) throw new AppError(403, "QUESTION_PAPER_UNPUBLISHED", "Question paper is not available yet");
 }
 
-export function examinationStart(exam: { examDate: Date; startMinute: number }) {
-  const value = new Date(exam.examDate);
-  value.setUTCHours(Math.floor(exam.startMinute / 60), exam.startMinute % 60, 0, 0);
-  return value;
+function examinationDateTime(examDate: Date, minute: number, timeZone: string) {
+  const date = examDate.toISOString().slice(0, 10);
+  const hour = String(Math.floor(minute / 60)).padStart(2, "0");
+  const minutePart = String(minute % 60).padStart(2, "0");
+  return parseInstitutionDateTime(`${date}T${hour}:${minutePart}`, timeZone);
 }
 
-export function examinationEnd(exam: { examDate: Date; endMinute: number }) {
-  const value = new Date(exam.examDate);
-  value.setUTCHours(Math.floor(exam.endMinute / 60), exam.endMinute % 60, 0, 0);
-  return value;
+export function examinationStart(exam: { examDate: Date; startMinute: number }, timeZone = "UTC") {
+  return examinationDateTime(exam.examDate, exam.startMinute, timeZone);
 }
 
-export function answerSubmissionState(exam: { examDate: Date; startMinute: number; endMinute: number; status: ExaminationStatus }, now = new Date()) {
-  const start = examinationStart(exam), end = examinationEnd(exam);
+export function examinationEnd(exam: { examDate: Date; endMinute: number }, timeZone = "UTC") {
+  return examinationDateTime(exam.examDate, exam.endMinute, timeZone);
+}
+
+export function answerSubmissionState(exam: { examDate: Date; startMinute: number; endMinute: number; status: ExaminationStatus }, now = new Date(), timeZone = "UTC") {
+  const start = examinationStart(exam, timeZone), end = examinationEnd(exam, timeZone);
   if (now < start) throw new AppError(409, "SUBMISSION_NOT_OPEN", "Answer submission is not open before the examination starts");
   if (now <= end && exam.status === ExaminationStatus.SCHEDULED) return { status: AnswerSheetStatus.SUBMITTED, examinationStatus: ExaminationStatus.SCHEDULED };
   if (now > end && exam.status === ExaminationStatus.COMPLETED) return { status: AnswerSheetStatus.LATE_SUBMITTED, examinationStatus: ExaminationStatus.COMPLETED };

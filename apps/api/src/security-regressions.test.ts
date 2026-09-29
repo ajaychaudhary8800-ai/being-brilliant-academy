@@ -147,7 +147,9 @@ test("finalized evaluations are immutable and results are never accidentally abs
   assert.throws(() => assertEvaluationOpen(new Date()), /finalized evaluation/i);
   const pass = examinationResultFor(42, 50, 20, new Date("2026-08-20T00:00:00Z"));
   assert.equal(pass.status, ExaminationResultStatus.PASS); assert.equal(pass.percentage, 84);
-  assert.equal(examinationResultFor(10, 50, 20).status, ExaminationResultStatus.FAIL);
+  assert.equal(pass.grade, "A"); assert.equal(pass.gpa, 9);
+  const fail = examinationResultFor(10, 50, 20);
+  assert.equal(fail.status, ExaminationResultStatus.FAIL); assert.equal(fail.grade, "F"); assert.equal(fail.gpa, 0);
   assert.notEqual(pass.status, ExaminationResultStatus.ABSENT);
 });
 
@@ -792,6 +794,15 @@ test("portal message authorization rejects cross-tenant recipients and recipient
   await assert.rejects(assertPortalMessageRecipientAuthorized(teacherSender, "cross-tenant-parent", store), unavailablePortalRecipient);
   await assert.rejects(assertPortalMessageRecipientAuthorized({ userId: "student-user", role: Role.STUDENT, organizationId: "organization-a" }, "cross-tenant-teacher", store), unavailablePortalRecipient);
   await assert.rejects(assertPortalMessageRecipientAuthorized(teacherSender, "missing-recipient", store), unavailablePortalRecipient);
+});
+
+test("student report card download uses the authenticated document helper", async () => {
+  const workspace = await readFile(new URL("../../web/components/portal-workspace.tsx", import.meta.url), "utf8");
+  const reportBlock = workspace.match(/async function report\(resultId: string\) \{([\s\S]*?)\n  \}/)?.[1] ?? "";
+  assert.match(reportBlock, /openAuthenticatedDocument/);
+  assert.match(reportBlock, /portal\/downloads\/report-card/);
+  assert.match(reportBlock, /fileName: "report-card\.pdf"/);
+  assert.doesNotMatch(reportBlock, /window\.open/);
 });
 
 test("portal attendance course labels tolerate a legitimate missing course relation", async () => {

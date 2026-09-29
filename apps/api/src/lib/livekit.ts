@@ -1,4 +1,4 @@
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import jwt from "jsonwebtoken";
 import { env } from "../config.js";
 import { AppError } from "./http.js";
@@ -54,6 +54,17 @@ export async function getLiveKitRecordingObject(key: string) {
   });
   const result = await client.send(new GetObjectCommand({ Bucket: storage.bucket, Key: key }));
   return result.Body;
+}
+
+export async function deleteLiveKitRecordingObject(key: string) {
+  const storage = livekitRecordingStorage();
+  const client = new S3Client({
+    region: storage.region,
+    endpoint: storage.endpoint,
+    forcePathStyle: Boolean(storage.endpoint),
+    credentials: { accessKeyId: storage.accessKeyId, secretAccessKey: storage.secretAccessKey },
+  });
+  await client.send(new DeleteObjectCommand({ Bucket: storage.bucket, Key: key }));
 }
 
 export async function livekitHealth() {

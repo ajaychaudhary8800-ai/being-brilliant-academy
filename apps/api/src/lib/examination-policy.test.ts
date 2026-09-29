@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ExaminationStatus } from "@prisma/client";
 import {
+  answerSubmissionState,
   assertExaminationPublicationReady,
   assertQuestionPaperAvailable,
   examinationStart,
@@ -24,6 +25,20 @@ test("question paper requires both publication time and examination start", () =
     new Date("2026-09-20T10:00:00.000Z"),
     startsAt,
   ));
+});
+
+
+test("examination windows use the organization timezone", () => {
+  const exam = {
+    examDate: new Date("2026-09-29T00:00:00.000Z"),
+    startMinute: 12 * 60 + 15,
+    endMinute: 13 * 60 + 15,
+    status: ExaminationStatus.COMPLETED,
+  };
+  const startsAt = examinationStart(exam, "Asia/Kolkata");
+  assert.equal(startsAt.toISOString(), "2026-09-29T06:45:00.000Z");
+  const submission = answerSubmissionState(exam, new Date("2026-09-29T08:38:00.000Z"), "Asia/Kolkata");
+  assert.equal(submission.status, "LATE_SUBMITTED");
 });
 
 test("future publication time remains authoritative even after exam start", () => {

@@ -89,3 +89,41 @@ jobs:
             docker compose --env-file .env.staging up -d --wait --remove-orphans
             curl -fkSs https://localhost/health/nginx
             curl -fkSs https://localhost/api/health/ready
+
+
+  meeting-qa:
+    if: ${{ vars.STAGING_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    needs: deploy
+    timeout-minutes: 25
+    env:
+      CI: "true"
+      QA_BASE_URL: "https://main-staging.beingbrilliantedu.com"
+      QA_ORGANIZATION_SLUG: "automate-qa-school"
+      QA_SUPER_ADMIN_EMAIL: ${{ secrets.QA_SUPER_ADMIN_EMAIL }}
+      QA_SUPER_ADMIN_PASSWORD: ${{ secrets.QA_SUPER_ADMIN_PASSWORD }}
+      QA_TEACHER_EMAIL: ${{ secrets.QA_TEACHER_EMAIL }}
+      QA_TEACHER_PASSWORD: ${{ secrets.QA_TEACHER_PASSWORD }}
+      QA_EMPLOYEE_EMAIL: ${{ secrets.QA_EMPLOYEE_EMAIL }}
+      QA_EMPLOYEE_PASSWORD: ${{ secrets.QA_EMPLOYEE_PASSWORD }}
+      QA_RUN_MUTATION_TESTS: "true"
+      QA_ALLOW_MUTATIONS: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Run enterprise staff meeting staging QA
+        run: pnpm exec playwright test e2e/meetings-workflow.spec.ts --project=desktop-chromium --grep "@meeting-workflow" --workers=1 --retries=0
+      - name: Upload meeting QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-meetings-qa-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14

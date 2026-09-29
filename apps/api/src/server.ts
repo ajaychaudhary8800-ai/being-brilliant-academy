@@ -15,6 +15,9 @@ import { systemPrisma } from "./lib/prisma.js";
 import { ensureRedis, redis } from "./lib/redis.js";
 import { MAX_NOTIFICATION_DELIVERY_ATTEMPTS, deliverNotification, providerStatus, verifySmtp } from "./lib/notifications.js";
 import { activeNotificationConstraints } from "./lib/notification-policy.js";
+import { deliverScheduledAnalyticsReports } from "./lib/analytics-report-scheduler.js";
+import { executeActiveAutomations } from "./lib/automation-executor.js";
+import { processQueuedAIExaminerEvaluations } from "./lib/ai-examiner-worker.js";
 import { onlyPaths } from "./lib/scoped-router.js";
 import auth from "./routes/auth.js";
 import courses from "./routes/courses.js";
@@ -40,6 +43,7 @@ import studentHomeworks from "./routes/student-homeworks.js";
 import teacherHomeworks from "./routes/teacher-homeworks.js";
 import adminExaminations from "./routes/admin-examinations.js";
 import examinationWorkflow from "./routes/examination-workflow.js";
+import aiExaminer from "./routes/ai-examiner.js";
 import adminFees from "./routes/admin-fees.js";
 import feeDefaulters from "./routes/fee-defaulters.js";
 import adminTests from "./routes/admin-tests.js";
@@ -64,6 +68,7 @@ import communication from "./routes/communication.js";
 import noticeBoard from "./routes/notice-board.js";
 import inventory from "./routes/inventory.js";
 import analytics from "./routes/analytics.js";
+import automation from "./routes/automation.js";
 import organizations from "./routes/organizations.js";
 import organizationProvisioning from "./routes/organization-provisioning.js";
 import learningEcosystem from "./routes/learning-ecosystem.js";
@@ -76,9 +81,13 @@ import saasCommercial from "./routes/saas-commercial.js";
 import saasSales from "./routes/saas-sales.js";
 import legalSalesDocuments from "./routes/legal-sales-documents.js";
 import platformControlCenter from "./routes/platform-control-center.js";
+import meetings from "./routes/meetings.js";
+import meetingLive from "./routes/meeting-live.js";
+import meetingWorkflow from "./routes/meeting-workflow.js";
 import { reconcileSaaSLifecycle } from "./lib/saas-commercial.js";
 import { isTenantCorsOriginAllowed } from "./lib/cors-origin.js";
 import { livekitHealth } from "./lib/livekit.js";
+import { purgeExpiredMeetingRecordings, scheduleDueMeetingActionNotifications, scheduleDueMeetingReminders } from "./lib/meeting-scheduling.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -204,9 +213,12 @@ type WorkerHeartbeat = {
   lastError: string | null;
 };
 
-const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle", WorkerHeartbeat> = {
+const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation" | "aiExaminer" | "meetingReminders", WorkerHeartbeat> = {
   notificationDelivery: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   saasLifecycle: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
+  workflowAutomation: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
+  aiExaminer: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
+  meetingReminders: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
 };
 
 function workerSnapshot(name: keyof typeof workerHeartbeats, maxAgeMs: number, now = new Date()) {
@@ -230,6 +242,9 @@ app.get("/health/operational", async (_req, res) => {
   const workers = {
     notificationDelivery: workerSnapshot("notificationDelivery", 2 * 60_000),
     saasLifecycle: workerSnapshot("saasLifecycle", 10 * 60_000),
+    workflowAutomation: workerSnapshot("workflowAutomation", 10 * 60_000),
+    aiExaminer: workerSnapshot("aiExaminer", Math.max(60_000, env.AI_EXAMINER_WORKER_INTERVAL_MS * 12)),
+    meetingReminders: workerSnapshot("meetingReminders", 15 * 60_000),
   };
   const healthy = Object.values(checks).every(Boolean) && Object.values(workers).every(worker => worker.healthy);
   res.status(healthy ? 200 : 503).json({
@@ -291,6 +306,7 @@ app.use("/api/v1/admin", adminClassrooms);
 app.use("/api/v1/admin", adminAcademicOperations);
 app.use("/api/v1/admin", adminEducationMasters);
 app.use("/api/v1/exam-workflow", examinationWorkflow);
+app.use("/api/v1/ai-examiner", aiExaminer);
 app.use("/api/v1/student", studentHomeworks);
 app.use("/api/v1/teacher", adminSubjectOptions);
 app.use("/api/v1/teacher", teacherHomeworks);
@@ -309,6 +325,10 @@ app.use("/api/v1", onlyPaths(["/finance/payments", "/finance/payment-offsets"], 
 app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations));
 app.use("/api/v1", saasCommercial);
 app.use("/api/v1", onlyPaths(["/analytics"], analytics));
+app.use("/api/v1", onlyPaths(["/automations"], automation));
+app.use("/api/v1", onlyPaths(["/meetings/native"], meetingLive));
+app.use("/api/v1", onlyPaths(["/meetings", "/meeting-actions"], meetingWorkflow));
+app.use("/api/v1", onlyPaths(["/meetings", "/meeting-series", "/meeting-teams"], meetings));
 app.use("/api/v1", onlyPaths(["/inventory"], inventory));
 app.use("/api/v1", onlyPaths(["/communication"], communication));
 app.use("/api/v1", onlyPaths(["/hostel"], hostel));
@@ -394,10 +414,120 @@ void reconcileCommercialLifecycle();
 const saasLifecycleWorker = setInterval(() => void reconcileCommercialLifecycle(), 5 * 60_000);
 saasLifecycleWorker.unref();
 
+const runMeetingReminderWorker = async () => {
+  const finishMetric = startWorkerRun("meeting_reminders");
+  try {
+    const now = new Date();
+    const [reminders, actions, retention] = await Promise.all([
+      scheduleDueMeetingReminders(now),
+      scheduleDueMeetingActionNotifications(now),
+      purgeExpiredMeetingRecordings(now),
+    ]);
+    const result = { processed: reminders.processed, actionNotifications: actions.queued, recordingsPurged: retention.purged };
+    workerHeartbeats.meetingReminders = {
+      lastSuccessAt: new Date(),
+      lastFailureAt: workerHeartbeats.meetingReminders.lastFailureAt,
+      lastError: null,
+    };
+    finishMetric("success");
+    if (result.processed || result.actionNotifications || result.recordingsPurged) logger.info(result, "Meeting workflows reconciled");
+  } catch (error) {
+    workerHeartbeats.meetingReminders = {
+      lastSuccessAt: workerHeartbeats.meetingReminders.lastSuccessAt,
+      lastFailureAt: new Date(),
+      lastError: error instanceof Error ? error.message.slice(0, 500) : "Meeting reminder worker failed",
+    };
+    finishMetric("failure");
+    logger.error({ err: error }, "Meeting reminder worker failed");
+  }
+};
+void runMeetingReminderWorker();
+const meetingReminderWorker = setInterval(() => void runMeetingReminderWorker(), 5 * 60_000);
+meetingReminderWorker.unref();
+
+let analyticsReportWorkerRunning = false;
+const runAnalyticsReportWorker = async () => {
+  if (analyticsReportWorkerRunning) return;
+  analyticsReportWorkerRunning = true;
+  const finishMetric = startWorkerRun("analytics_report_delivery");
+  try { await deliverScheduledAnalyticsReports(); finishMetric("success"); }
+  catch (error) { finishMetric("failure"); logger.error({ err: error }, "Analytics report worker failed"); }
+  finally { analyticsReportWorkerRunning = false; }
+};
+void runAnalyticsReportWorker();
+const analyticsReportWorker = setInterval(() => void runAnalyticsReportWorker(), 60_000);
+analyticsReportWorker.unref();
+
+let workflowAutomationWorkerRunning = false;
+const runWorkflowAutomationWorker = async () => {
+  if (workflowAutomationWorkerRunning) return;
+  workflowAutomationWorkerRunning = true;
+  const finishMetric = startWorkerRun("workflow_automation");
+  try {
+    const results = await executeActiveAutomations(new Date());
+    const failed = results.filter(result => !result.ok);
+    workerHeartbeats.workflowAutomation = {
+      lastSuccessAt: new Date(),
+      lastFailureAt: failed.length ? new Date() : workerHeartbeats.workflowAutomation.lastFailureAt,
+      lastError: failed[0]?.error ?? null,
+    };
+    finishMetric(failed.length ? "failure" : "success");
+    if (failed.length) logger.warn({ failed: failed.length, total: results.length }, "Workflow automation worker completed with failures");
+  } catch (error) {
+    workerHeartbeats.workflowAutomation = {
+      lastSuccessAt: workerHeartbeats.workflowAutomation.lastSuccessAt,
+      lastFailureAt: new Date(),
+      lastError: error instanceof Error ? error.message.slice(0, 500) : "Workflow automation worker failed",
+    };
+    finishMetric("failure");
+    logger.error({ err: error }, "Workflow automation worker failed");
+  } finally {
+    workflowAutomationWorkerRunning = false;
+  }
+};
+void runWorkflowAutomationWorker();
+const workflowAutomationWorker = setInterval(() => void runWorkflowAutomationWorker(), 5 * 60_000);
+workflowAutomationWorker.unref();
+
+let aiExaminerWorkerRunning = false;
+const runAIExaminerWorker = async () => {
+  if (aiExaminerWorkerRunning) return;
+  aiExaminerWorkerRunning = true;
+  const finishMetric = startWorkerRun("ai_examiner");
+  try {
+    const results = await processQueuedAIExaminerEvaluations(2);
+    const failed = results.filter(result => "failed" in result && result.failed);
+    workerHeartbeats.aiExaminer = {
+      lastSuccessAt: new Date(),
+      lastFailureAt: failed.length ? new Date() : workerHeartbeats.aiExaminer.lastFailureAt,
+      lastError: failed[0] && "error" in failed[0] ? failed[0].error?.message ?? null : null,
+    };
+    finishMetric(failed.length ? "failure" : "success");
+    if (failed.length) logger.warn({ failed: failed.length, total: results.length }, "AI Examiner worker completed with evaluation failures");
+  } catch (error) {
+    workerHeartbeats.aiExaminer = {
+      lastSuccessAt: workerHeartbeats.aiExaminer.lastSuccessAt,
+      lastFailureAt: new Date(),
+      lastError: error instanceof Error ? error.message.slice(0, 500) : "AI Examiner worker failed",
+    };
+    finishMetric("failure");
+    logger.error({ err: error }, "AI Examiner worker failed");
+  } finally {
+    aiExaminerWorkerRunning = false;
+  }
+};
+void runAIExaminerWorker();
+const aiExaminerWorker = setInterval(() => void runAIExaminerWorker(), env.AI_EXAMINER_WORKER_INTERVAL_MS);
+aiExaminerWorker.unref();
+
 async function shutdown(signal: string) {
   logger.info({ signal }, "Graceful shutdown started");
   clearInterval(notificationWorker);
   clearInterval(saasLifecycleWorker);
+  clearInterval(analyticsReportWorker);
+  clearInterval(workflowAutomationWorker);
+  clearInterval(aiExaminerWorker);
+  clearInterval(meetingReminderWorker);
   server.close(async () => {
     await Promise.allSettled([systemPrisma.$disconnect(), redis?.quit() ?? Promise.resolve()]);
     process.exit(0);

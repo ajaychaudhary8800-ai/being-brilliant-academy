@@ -73,5 +73,8 @@ export async function apiJson<T>(
     ...(options.data === undefined ? {} : { data: options.data }),
   });
   if (!response.ok()) throw new Error(`${session.role} ${options.method ?? "GET"} ${path} failed: ${await responseError(response)}`);
-  return await response.json() as T;
+  if (response.status() === 204) return undefined as T;
+  const body = await response.text();
+  if (!body.trim()) return undefined as T;
+  return JSON.parse(body) as T;
 }
