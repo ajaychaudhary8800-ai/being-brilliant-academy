@@ -283,7 +283,6 @@ export async function evaluateWithAIProvider(input: AIExaminerProviderInput): Pr
           ],
         },
       ],
-      temperature: 0,
     };
   } else {
     body = {
