@@ -4,6 +4,7 @@ import { AIExaminerEvaluationStatus, AIExaminerRubricStatus, ExaminationStatus }
 import { AppError } from "./http.js";
 import {
   aiExaminerConfidenceNeedsReview,
+  aiExaminerLifecycleBlocker,
   assertAIExaminerEvaluationReady,
   assertAIExaminerReviewable,
   assertAIExaminerRubricActivatable,
@@ -32,6 +33,14 @@ test("AI Examiner rubric activation requires a draft rubric with exact examinati
     maximumMarks: 70,
     rubricMaximumMarks: 69,
   }), "AI_EXAMINER_RUBRIC_MARKS_MISMATCH");
+});
+
+test("AI Examiner lifecycle readiness distinguishes pending, completed and closed examinations", () => {
+  assert.equal(aiExaminerLifecycleBlocker(ExaminationStatus.DRAFT), "Complete the examination before AI evaluation");
+  assert.equal(aiExaminerLifecycleBlocker(ExaminationStatus.SCHEDULED), "Complete the examination before AI evaluation");
+  assert.equal(aiExaminerLifecycleBlocker(ExaminationStatus.COMPLETED), null);
+  assert.equal(aiExaminerLifecycleBlocker(ExaminationStatus.RESULTS_PUBLISHED), "Results are published; new AI evaluations are closed");
+  assert.equal(aiExaminerLifecycleBlocker(ExaminationStatus.ARCHIVED), "Archived examinations cannot start AI evaluation");
 });
 
 test("AI Examiner evaluation requires completed exam, paper, active rubric and unfinalized answer", () => {
