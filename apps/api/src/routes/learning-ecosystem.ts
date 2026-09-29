@@ -1,4 +1,4 @@
-import { ApprovalStatus, BatchStatus, CourseStatus, DoubtStatus, LearningAttemptStatus, LearningStatus, LearningTestType, LiveClassProvider, QuestionType, Role, StudentStatus, StudyMaterialType, SubjectLegacyReviewStatus, SubjectStatus, TeacherAllocationStatus } from "@prisma/client";
+import { AcademicBoard, ApprovalStatus, BatchStatus, ClassLevel, CourseStatus, DoubtStatus, LearningAttemptStatus, LearningStatus, LearningTestType, LiveClassProvider, Prisma, QuestionType, Role, StudentStatus, StudyMaterialType, SubjectLegacyReviewStatus, SubjectStatus, TeacherAllocationStatus } from "@prisma/client";
 import { Router } from "express";
 import crypto from "node:crypto";
 import { z } from "zod";
@@ -249,11 +249,80 @@ router.post("/learning/doubts/:id/escalate", allow(Role.STUDENT), async (req: Au
   res.json({ data: updated });
 });
 
-const questionInput = z.object({ code: z.string().trim().min(2).max(50), examCategory: z.enum(["CBSE", "JEE_MAIN", "NEET", "CUET"]), type: questionTypes, subjectId: id, courseId: id.optional(), chapter: z.string().trim().min(1).max(150), topic: z.string().trim().max(150).optional(), difficulty: z.enum(["EASY", "MEDIUM", "HARD"]), marks: z.number().positive().max(100), negativeMarks: z.number().min(0).max(100).default(0), year: z.number().int().min(1990).max(2100).optional(), source: z.string().max(150).optional(), tags: z.array(z.string().max(40)).max(20).default([]), bloomLevel: z.enum(["REMEMBER", "UNDERSTAND", "APPLY", "ANALYZE", "EVALUATE", "CREATE"]).optional(), body: z.string().min(3).max(20000), options: z.unknown().optional(), correctAnswer: z.unknown(), solution: z.string().max(20000).optional() });
+const examCategoryCode = z.string().trim().min(2).max(80).regex(/^[A-Za-z0-9][A-Za-z0-9 _.-]*$/, "Exam category contains unsupported characters");
+const questionInput = z.object({
+  code: z.string().trim().min(2).max(50),
+  examCategory: examCategoryCode,
+  type: questionTypes,
+  subjectId: id,
+  courseId: id.optional(),
+  chapter: z.string().trim().min(1).max(150),
+  topic: z.string().trim().max(150).optional(),
+  difficulty: z.enum(["EASY", "MEDIUM", "HARD"]),
+  marks: z.number().positive().max(100),
+  negativeMarks: z.number().min(0).max(100).default(0),
+  year: z.number().int().min(1990).max(2100).optional(),
+  source: z.string().max(150).optional(),
+  tags: z.array(z.string().max(40)).max(20).default([]),
+  bloomLevel: z.enum(["REMEMBER", "UNDERSTAND", "APPLY", "ANALYZE", "EVALUATE", "CREATE"]).optional(),
+  classLevel: z.nativeEnum(ClassLevel).optional(),
+  academicBoard: z.nativeEnum(AcademicBoard).optional(),
+  customBoardName: z.string().trim().min(2).max(120).optional(),
+  syllabusCode: z.string().trim().min(1).max(120).optional(),
+  learningOutcomes: z.array(z.string().trim().min(1).max(300)).max(30).default([]),
+  expectedTimeSeconds: z.number().int().min(5).max(21600).optional(),
+  variantGroupCode: z.string().trim().min(1).max(80).optional(),
+  language: z.string().trim().min(2).max(80).default("English"),
+  aiGenerated: z.boolean().default(false),
+  evaluationConfig: z.record(z.any()).optional(),
+  body: z.string().min(3).max(20000),
+  options: z.unknown().optional(),
+  correctAnswer: z.unknown(),
+  solution: z.string().max(20000).optional(),
+}).superRefine((value, ctx) => {
+  if (value.academicBoard === AcademicBoard.OTHER && !value.customBoardName) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customBoardName"], message: "Custom board name is required when academic board is OTHER" });
+  }
+  if (value.negativeMarks > value.marks) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["negativeMarks"], message: "Negative marks cannot exceed maximum marks" });
+  }
+});
+
+function stableQuestionValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return `[${value.map(stableQuestionValue).join(",")}]`;
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a],[b]) => a.localeCompare(b));
+    return `{${entries.map(([key,item]) => `${JSON.stringify(key)}:${stableQuestionValue(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+function questionSimilarityHash(body: string, options?: unknown) {
+  const normalizedBody = body.toLocaleLowerCase("en").replace(/\s+/g, " ").trim();
+  return crypto.createHash("sha256").update(`${normalizedBody}\n${stableQuestionValue(options)}`).digest("hex");
+}
+function questionJson(value: unknown): Prisma.InputJsonValue {
+  return value as Prisma.InputJsonValue;
+}
+router.post("/learning/questions/similarity-check", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const d = z.object({ subjectId: id, body: z.string().min(3).max(20000), options: z.unknown().optional(), limit: z.number().int().min(1).max(20).default(10) }).parse(req.body);
+  await relationCheck({ subjectId: d.subjectId });
+  assertManagerQuestionAccess(actor, { subjectId: d.subjectId });
+  const similarityHash = questionSimilarityHash(d.body, d.options);
+  const data = await prisma.questionBankItem.findMany({
+    where: { ...learningQuestionWhere(actor), subjectId: d.subjectId, similarityHash, isArchived: false },
+    select: { id: true, code: true, examCategory: true, type: true, chapter: true, topic: true, version: true, approvalStatus: true },
+    take: d.limit,
+    orderBy: { updatedAt: "desc" },
+  });
+  res.json({ data, meta: { exactContentMatch: data.length > 0, similarityHash, method: "NORMALIZED_EXACT_FINGERPRINT" } });
+});
+
 router.get("/learning/questions", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
-  const q = pageQuery.extend({ examCategory: z.string().optional(), subjectId: id.optional(), chapter: z.string().optional(), difficulty: z.string().optional(), type: questionTypes.optional(), approvalStatus: z.nativeEnum(ApprovalStatus).optional() }).parse(req.query);
-  const where: any = { ...learningQuestionWhere(actor), isArchived: false, ...(q.examCategory ? { examCategory: q.examCategory } : {}), ...(q.subjectId ? { subjectId: q.subjectId } : {}), ...(q.chapter ? { chapter: { contains: q.chapter, mode: "insensitive" } } : {}), ...(q.difficulty ? { difficulty: q.difficulty } : {}), ...(q.type ? { type: q.type } : {}), ...(q.approvalStatus ? { approvalStatus: q.approvalStatus } : {}), ...(q.search ? { OR: [{ body: { contains: q.search, mode: "insensitive" } }, { code: { contains: q.search, mode: "insensitive" } }, { topic: { contains: q.search, mode: "insensitive" } }] } : {}) };
+  const q = pageQuery.extend({ examCategory: examCategoryCode.optional(), subjectId: id.optional(), chapter: z.string().optional(), difficulty: z.string().optional(), type: questionTypes.optional(), approvalStatus: z.nativeEnum(ApprovalStatus).optional(), classLevel: z.nativeEnum(ClassLevel).optional(), academicBoard: z.nativeEnum(AcademicBoard).optional(), syllabusCode: z.string().trim().max(120).optional(), bloomLevel: z.string().trim().max(40).optional(), variantGroupCode: z.string().trim().max(80).optional() }).parse(req.query);
+  const where: any = { ...learningQuestionWhere(actor), isArchived: false, ...(q.examCategory ? { examCategory: q.examCategory } : {}), ...(q.subjectId ? { subjectId: q.subjectId } : {}), ...(q.chapter ? { chapter: { contains: q.chapter, mode: "insensitive" } } : {}), ...(q.difficulty ? { difficulty: q.difficulty } : {}), ...(q.type ? { type: q.type } : {}), ...(q.approvalStatus ? { approvalStatus: q.approvalStatus } : {}), ...(q.classLevel ? { classLevel: q.classLevel } : {}), ...(q.academicBoard ? { academicBoard: q.academicBoard } : {}), ...(q.syllabusCode ? { syllabusCode: q.syllabusCode } : {}), ...(q.bloomLevel ? { bloomLevel: q.bloomLevel } : {}), ...(q.variantGroupCode ? { variantGroupCode: q.variantGroupCode } : {}), ...(q.search ? { OR: [{ body: { contains: q.search, mode: "insensitive" } }, { code: { contains: q.search, mode: "insensitive" } }, { topic: { contains: q.search, mode: "insensitive" } }, { learningOutcomes: { has: q.search } }] } : {}) };
   const [total, data] = await prisma.$transaction([
     prisma.questionBankItem.count({ where }),
     prisma.questionBankItem.findMany({ where, include: { createdBy: { select: { name: true } }, reviewedBy: { select: { name: true } }, _count: { select: { revisions: true, testQuestions: true } } }, skip: (q.page - 1) * q.limit, take: q.limit, orderBy: { createdAt: q.sortOrder } }),
@@ -267,7 +336,7 @@ router.post("/learning/questions", managers, async (req: AuthRequest, res) => {
   await relationCheck(d);
   assertManagerQuestionAccess(actor, d);
   try {
-    const row = await prisma.questionBankItem.create({ data: { ...d, options: d.options as object | undefined, correctAnswer: d.correctAnswer as object, createdById: actor.userId } });
+    const row = await prisma.questionBankItem.create({ data: { ...d, options: d.options === undefined ? undefined : questionJson(d.options), correctAnswer: questionJson(d.correctAnswer), evaluationConfig: d.evaluationConfig === undefined ? undefined : questionJson(d.evaluationConfig), similarityHash: questionSimilarityHash(d.body, d.options), createdById: actor.userId } });
     await audit(req, "CREATE", "QuestionBankItem", row.id);
     res.status(201).json({ data: row });
   } catch (error: any) {
@@ -287,7 +356,7 @@ router.patch("/learning/questions/:id", managers, async (req: AuthRequest, res) 
   const snapshot = JSON.parse(JSON.stringify(old));
   const row = await prisma.$transaction(async tx => {
     await tx.questionBankRevision.create({ data: { questionId: old.id, version: old.version, snapshot, changedById: actor.userId } });
-    return tx.questionBankItem.update({ where: { id: old.id }, data: { ...d, options: d.options as object | undefined, correctAnswer: d.correctAnswer as object | undefined, version: { increment: 1 }, approvalStatus: ApprovalStatus.DRAFT } });
+    return tx.questionBankItem.update({ where: { id: old.id }, data: { ...d, options: d.options === undefined ? undefined : questionJson(d.options), correctAnswer: d.correctAnswer === undefined ? undefined : questionJson(d.correctAnswer), evaluationConfig: d.evaluationConfig === undefined ? undefined : questionJson(d.evaluationConfig), similarityHash: questionSimilarityHash(d.body ?? old.body, d.options === undefined ? old.options : d.options), version: { increment: 1 }, approvalStatus: ApprovalStatus.DRAFT } });
   });
   await audit(req, "UPDATE", "QuestionBankItem", row.id);
   res.json({ data: row });
@@ -308,7 +377,7 @@ router.post("/learning/questions/bulk", managers, async (req: AuthRequest, res) 
   const rows = z.object({ questions: z.array(questionInput).min(1).max(500) }).parse(req.body).questions;
   for (const row of rows) { await relationCheck(row); assertManagerQuestionAccess(actor, row); }
   const created = [];
-  for (const row of rows) created.push(await prisma.questionBankItem.create({ data: { ...row, options: row.options as object | undefined, correctAnswer: row.correctAnswer as object, createdById: actor.userId } }));
+  for (const row of rows) created.push(await prisma.questionBankItem.create({ data: { ...row, options: row.options === undefined ? undefined : questionJson(row.options), correctAnswer: questionJson(row.correctAnswer), evaluationConfig: row.evaluationConfig === undefined ? undefined : questionJson(row.evaluationConfig), similarityHash: questionSimilarityHash(row.body, row.options), createdById: actor.userId } }));
   await audit(req, "BULK_IMPORT", "QuestionBankItem", undefined, { count: created.length });
   res.status(201).json({ data: created, meta: { imported: created.length } });
 });

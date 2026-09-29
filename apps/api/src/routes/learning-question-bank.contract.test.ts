@@ -19,3 +19,22 @@ test("Question Bank editing preserves version history and resets approval", () =
   assert.match(route, /router\.post\("\/learning\/questions\/bulk"/);
   assert.match(route, /router\.get\("\/learning\/questions\/export"/);
 });
+
+
+test("Question Bank 3.1 accepts configurable exam categories and richer assessment metadata", () => {
+  assert.match(route, /examCategory: examCategoryCode/);
+  assert.match(route, /classLevel: z\.nativeEnum\(ClassLevel\)/);
+  assert.match(route, /academicBoard: z\.nativeEnum\(AcademicBoard\)/);
+  assert.match(route, /learningOutcomes:/);
+  assert.match(route, /expectedTimeSeconds:/);
+  assert.match(route, /variantGroupCode:/);
+  assert.match(route, /evaluationConfig:/);
+  assert.doesNotMatch(route, /examCategory: z\.enum\(\["CBSE", "JEE_MAIN", "NEET", "CUET"\]\)/);
+});
+
+test("Question Bank 3.1 exposes normalized exact-content similarity detection", () => {
+  assert.match(route, /router\.post\("\/learning\/questions\/similarity-check"/);
+  assert.match(route, /questionSimilarityHash/);
+  assert.match(route, /NORMALIZED_EXACT_FINGERPRINT/);
+  assert.match(route, /similarityHash: questionSimilarityHash/);
+});

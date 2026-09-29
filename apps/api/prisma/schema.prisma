@@ -61,6 +61,17 @@ model QuestionBankItem {
   source         String?
   tags           String[]               @default([])
   bloomLevel     String?
+  classLevel     ClassLevel?
+  academicBoard  AcademicBoard?
+  customBoardName String?
+  syllabusCode   String?
+  learningOutcomes String[]              @default([])
+  expectedTimeSeconds Int?
+  variantGroupCode String?
+  similarityHash String?
+  language       String                 @default("English")
+  aiGenerated    Boolean                @default(false)
+  evaluationConfig Json?
   body           String                 @db.Text
   options        Json?
   correctAnswer  Json
@@ -81,6 +92,9 @@ model QuestionBankItem {
   @@unique([organizationId, code])
   @@index([organizationId, examCategory, subjectId, chapter])
   @@index([organizationId, difficulty, approvalStatus])
+  @@index([organizationId, classLevel, academicBoard])
+  @@index([organizationId, variantGroupCode])
+  @@index([organizationId, similarityHash])
   @@index([organizationId, createdAt])
 }
 
@@ -1327,10 +1341,31 @@ enum LeaveRequestStatus {
 enum QuestionType {
   MCQ
   MSQ
-  NUMERICAL
+  TRUE_FALSE
   ASSERTION_REASON
-  PARAGRAPH
+  FILL_BLANK
   MATCHING
+  ONE_WORD
+  NUMERICAL
+  SHORT_ANSWER
+  LONG_ANSWER
+  CASE_STUDY
+  DERIVATION
+  PROOF
+  CALCULATION
+  DIAGRAM
+  GRAPH
+  MAP
+  GEOMETRY_CONSTRUCTION
+  CHEMISTRY_EQUATION
+  ACCOUNTING_STATEMENT
+  PROGRAMMING
+  ESSAY
+  LANGUAGE
+  ORAL_AUDIO_VIDEO
+  PRACTICAL_PROJECT_VIVA
+  EARLY_YEARS_VISUAL
+  PARAGRAPH
   SUBJECTIVE
 }
 
