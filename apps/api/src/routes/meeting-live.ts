@@ -54,7 +54,7 @@ function assertActiveMeeting(meeting: { status: MeetingStatus }) {
   }
 }
 
-function assertJoinable(meeting: { status: MeetingStatus; startsAt: Date; endsAt: Date; joinBeforeMinutes: number; roomLocked: boolean }, manager: boolean) {
+function assertJoinable(meeting: { status: MeetingStatus; startsAt: Date; endsAt: Date; joinBeforeMinutes: number; roomLocked: boolean; lockAfterStart: boolean }, manager: boolean) {
   if (![MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE].includes(meeting.status)) {
     throw new AppError(409, "MEETING_NOT_JOINABLE", "This meeting is no longer joinable");
   }
@@ -63,6 +63,7 @@ function assertJoinable(meeting: { status: MeetingStatus; startsAt: Date; endsAt
   const closesAt = meeting.endsAt.getTime() + 4 * 60 * 60_000;
   if (now < opensAt) throw new AppError(425, "MEETING_NOT_OPEN", "Meeting room is not open yet");
   if (now > closesAt) throw new AppError(410, "MEETING_JOIN_WINDOW_CLOSED", "Meeting join window has closed");
+  if (meeting.lockAfterStart && !manager && now >= meeting.startsAt.getTime()) throw new AppError(423, "MEETING_LATE_JOIN_LOCKED", "Late joining is locked for this meeting");
   if (meeting.roomLocked && !manager) throw new AppError(423, "MEETING_LOCKED", "The host has locked this meeting");
 }
 
@@ -154,7 +155,7 @@ router.post("/meetings/native/:room/join", async (req: AuthRequest, res) => {
     const policy = await assertFeatureEntitled(org(req), "meetings");
     const limit = policy.enforcementEnabled ? policy.plan?.limits["meeting.concurrentRooms"] : null;
     if (typeof limit === "number") {
-      const liveRooms = await prisma.meeting.count({ where: { organizationId: org(req), status: MeetingStatus.LIVE, id: { not: meeting.id } } });
+      const liveRooms = await prisma.meeting.count({ where: { organizationId: org(req), status: { in: [MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE] }, id: { not: meeting.id } } });
       if (liveRooms >= limit) throw new AppError(409, "MEETING_CONCURRENT_ROOM_LIMIT", `Your plan allows ${limit} concurrent meeting rooms`);
     }
   }
