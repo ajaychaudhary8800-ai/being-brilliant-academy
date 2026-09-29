@@ -4,7 +4,7 @@ import { z } from "zod";
 import { examinationCodeConflict, isExaminationCodeConflict } from "../lib/examination-uniqueness.js";
 import { AppError } from "../lib/http.js";
 import { requireRequestedBranch } from "../lib/branch-policy.js";
-import { assertExaminationHistoricalFieldsEditable, assertExaminationPublicationReady, assertExaminationStatusTransition, assertSingleConditionalMutation, changesCoreExaminationField } from "../lib/examination-policy.js";
+import { assertExaminationHistoricalFieldsEditable, assertExaminationPublicationReady, assertExaminationStatusTransition, assertSingleConditionalMutation, changesCoreExaminationField, examinationGradeForPercentage } from "../lib/examination-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { historicalCivilDate, resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -256,7 +256,7 @@ router.post("/examinations/:id/generate-results", async (req: AuthRequest, res) 
         await tx.examinationResult.update({ where: { id: result.id }, data: { percentage: null, grade: null, gpa: null, rank: null, status: ExaminationResultStatus.ABSENT, generatedAt } });
         continue;
       }
-      const marks = Number(result.marksObtained), percentage = marks / exam.maximumMarks * 100, calculated = grade(percentage);
+      const marks = Number(result.marksObtained), percentage = marks / exam.maximumMarks * 100, calculated = examinationGradeForPercentage(percentage);
       if (last === null || marks < last) rank = index;
       last = marks;
       await tx.examinationResult.update({ where: { id: result.id }, data: { percentage, grade: calculated.grade, gpa: calculated.gpa, rank, status: marks >= exam.passingMarks ? ExaminationResultStatus.PASS : ExaminationResultStatus.FAIL, generatedAt } });
@@ -312,7 +312,6 @@ router.delete("/examinations/:id", async (req: AuthRequest, res) => {
   res.status(204).send();
 });
 
-function grade(percentage: number) { if (percentage >= 90) return { grade: "A+", gpa: 10 }; if (percentage >= 80) return { grade: "A", gpa: 9 }; if (percentage >= 70) return { grade: "B+", gpa: 8 }; if (percentage >= 60) return { grade: "B", gpa: 7 }; if (percentage >= 50) return { grade: "C", gpa: 6 }; if (percentage >= 40) return { grade: "D", gpa: 5 }; return { grade: "F", gpa: 0 }; }
 function esc(value: string) { return value.replace(/[<>&'\"]/g, character => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[character]!); }
 function pdf(res: any, title: string, lines: string[]) { const content = [title, ...lines].slice(0, 45).map((value, index) => `BT /F1 ${index ? 10 : 18} Tf 35 ${800 - index * 25} Td (${value.replace(/[()\\]/g, "\\$&")}) Tj ET`).join("\n"), objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>", `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]; let document = "%PDF-1.4\n", offsets = [0]; objects.forEach((object, index) => { offsets.push(Buffer.byteLength(document)); document += `${index + 1} 0 obj\n${object}\nendobj\n`; }); const at = Buffer.byteLength(document); document += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(value => String(value).padStart(10, "0") + " 00000 n ").join("\n")}\ntrailer << /Size 6 /Root 1 0 R >>\nstartxref\n${at}\n%%EOF`; res.set({ "Content-Type": "application/pdf", "Content-Disposition": "attachment; filename=report.pdf" }).send(Buffer.from(document)); }
 
