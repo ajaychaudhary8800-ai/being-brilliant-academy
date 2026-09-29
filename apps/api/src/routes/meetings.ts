@@ -567,10 +567,22 @@ router.post("/meetings/:id/participants", async (req: AuthRequest, res) => {
     explicit: [data], audiences: [], allowedBranchIds: scope,
   });
   const resolved = participants.find(p => p.userId === data.userId)!;
+  const previous = await prisma.meetingParticipant.findUnique({ where: { meetingId_userId: { meetingId: meeting.id, userId: data.userId } } });
+  if (previous?.removedAt) {
+    const staleInvites = await prisma.meetingInvite.findMany({ where: { organizationId: org(req), meetingId: meeting.id, participantId: previous.id }, select: { notificationId: true } });
+    const staleNotificationIds = staleInvites.map(invite => invite.notificationId).filter((value): value is string => Boolean(value));
+    if (staleNotificationIds.length) await prisma.notification.updateMany({ where: { organizationId: org(req), id: { in: staleNotificationIds } }, data: { deletedAt: new Date() } });
+    await prisma.meetingInvite.deleteMany({ where: { organizationId: org(req), meetingId: meeting.id, participantId: previous.id } });
+  }
   const row = await prisma.meetingParticipant.upsert({
     where: { meetingId_userId: { meetingId: meeting.id, userId: data.userId } },
     create: { organizationId: org(req), meetingId: meeting.id, userId: data.userId, participantKind: resolved.participantKind, meetingRole: data.meetingRole, addedById: actor(req) },
     update: { participantKind: resolved.participantKind, meetingRole: data.meetingRole, removedAt: null },
+  });
+  if (meeting.calendarEventId) await prisma.calendarEventRsvp.upsert({
+    where: { eventId_userId: { eventId: meeting.calendarEventId, userId: row.userId } },
+    create: { organizationId: org(req), eventId: meeting.calendarEventId, userId: row.userId, response: "PENDING" },
+    update: { response: "PENDING", respondedAt: new Date() },
   });
   await scheduleMeetingNotifications({
     organizationId: org(req), meetingId: meeting.id, title: meeting.title, startsAt: meeting.startsAt, timezone: meeting.timezone,
@@ -587,8 +599,17 @@ router.delete("/meetings/:id/participants/:participantId", async (req: AuthReque
   const participant = meeting.participants.find(p => p.id === String(req.params.participantId));
   if (!participant) throw new AppError(404, "MEETING_PARTICIPANT_NOT_FOUND", "Participant not found");
   if (participant.userId === meeting.hostUserId || participant.meetingRole === MeetingParticipantRole.HOST) throw new AppError(409, "MEETING_HOST_REQUIRED", "Transfer host before removing the host");
-  await prisma.meetingParticipant.update({ where: { id: participant.id }, data: { removedAt: new Date() } });
-  await audit(req, meeting.id, "REMOVE_PARTICIPANT", "MeetingParticipant", participant.id, { userId: participant.userId });
+  const now = new Date();
+  await prisma.meetingParticipant.update({ where: { id: participant.id }, data: { removedAt: now } });
+  if (meeting.calendarEventId) await prisma.calendarEventRsvp.deleteMany({ where: { organizationId: org(req), eventId: meeting.calendarEventId, userId: participant.userId } });
+  const futureInvites = await prisma.meetingInvite.findMany({
+    where: { organizationId: org(req), meetingId: meeting.id, participantId: participant.id, scheduledAt: { gt: now } },
+    select: { id: true, notificationId: true },
+  });
+  const notificationIds = futureInvites.map(invite => invite.notificationId).filter((value): value is string => Boolean(value));
+  if (notificationIds.length) await prisma.notification.updateMany({ where: { organizationId: org(req), id: { in: notificationIds } }, data: { deletedAt: now } });
+  if (futureInvites.length) await prisma.meetingInvite.updateMany({ where: { id: { in: futureInvites.map(invite => invite.id) } }, data: { status: "CANCELLED" } });
+  await audit(req, meeting.id, "REMOVE_PARTICIPANT", "MeetingParticipant", participant.id, { userId: participant.userId, cancelledFutureInvites: futureInvites.length });
   res.status(204).send();
 });
 
