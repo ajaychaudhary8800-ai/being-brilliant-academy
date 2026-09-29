@@ -28,6 +28,7 @@ test("meeting inputs support existing opaque database identifiers", async () => 
 test("meeting API enforces tenant, branch and commercial boundaries", () => {
   assert.match(route, /organizationId: org\(req\)/);
   assert.match(route, /requireCommercialFeature\("meetings"\)/);
+  assert.match(route, /assertFeatureEntitled\(org\(req\), "meetings_recording"\)/);
   assert.match(route, /erpBranchScope\(req\)/);
   assert.match(route, /assertErpBranchAccess/);
   assert.match(route, /MEETING_PARTICIPANT_BRANCH_FORBIDDEN/);
@@ -87,6 +88,8 @@ test("native meeting collaboration reuses LiveKit without using LiveClass record
   assert.match(live, /\[MeetingStatus\.SCHEDULED, MeetingStatus\.OPEN_FOR_JOIN, MeetingStatus\.LIVE\]\.includes\(meeting\.status\)/);
   assert.match(live, /MEETING_NOT_ACTIVE/);
   assert.match(live, /stoppedRecordings/);
+  assert.match(live, /MEETING_LATE_JOIN_LOCKED/);
+  assert.match(live, /status: \{ in: \[MeetingStatus\.OPEN_FOR_JOIN, MeetingStatus\.LIVE\] \}/);
   assert.match(live, /meetingRecording/);
   assert.match(live, /meetingInteraction/);
   assert.match(live, /whiteboardData/);
