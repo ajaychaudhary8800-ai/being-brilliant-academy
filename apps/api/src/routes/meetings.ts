@@ -181,8 +181,9 @@ function scheduleDurationMinutes(data: { startsAt: Date; endsAt: Date }) {
   return Math.ceil((data.endsAt.getTime() - data.startsAt.getTime()) / 60_000);
 }
 
-async function enforceMeetingPlanLimits(req: AuthRequest, data: { startsAt: Date; endsAt: Date }, participantCount: number) {
+async function enforceMeetingPlanLimits(req: AuthRequest, data: { startsAt: Date; endsAt: Date; allowRecording: boolean }, participantCount: number) {
   const policy = await assertFeatureEntitled(org(req), "meetings");
+  if (data.allowRecording) await assertFeatureEntitled(org(req), "meetings_recording");
   if (!policy.enforcementEnabled) return;
   const limits = policy.plan?.limits ?? {};
   const maxParticipants = limits["meeting.maxParticipants"];
