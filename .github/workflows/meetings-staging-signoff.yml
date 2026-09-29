@@ -1,0 +1,81 @@
+name: ERP 3.0 Meetings staging sign-off
+
+on:
+  push:
+    branches:
+      - feature/erp3-staff-management-meetings
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meetings-staging-signoff
+  cancel-in-progress: true
+
+jobs:
+  meetings-signoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CI: "true"
+      QA_BASE_URL: "https://main-staging.beingbrilliantedu.com"
+      QA_ORGANIZATION_SLUG: "automate-qa-school"
+      QA_SUPER_ADMIN_EMAIL: ${{ secrets.QA_SUPER_ADMIN_EMAIL }}
+      QA_SUPER_ADMIN_PASSWORD: ${{ secrets.QA_SUPER_ADMIN_PASSWORD }}
+      QA_TEACHER_EMAIL: ${{ secrets.QA_TEACHER_EMAIL }}
+      QA_TEACHER_PASSWORD: ${{ secrets.QA_TEACHER_PASSWORD }}
+      QA_EMPLOYEE_EMAIL: ${{ secrets.QA_EMPLOYEE_EMAIL }}
+      QA_EMPLOYEE_PASSWORD: ${{ secrets.QA_EMPLOYEE_PASSWORD }}
+      QA_RUN_MUTATION_TESTS: "true"
+      QA_ALLOW_MUTATIONS: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Validate Meetings QA credentials
+        shell: bash
+        run: |
+          missing=0
+          for name in \
+            QA_SUPER_ADMIN_EMAIL QA_SUPER_ADMIN_PASSWORD \
+            QA_TEACHER_EMAIL QA_TEACHER_PASSWORD \
+            QA_EMPLOYEE_EMAIL QA_EMPLOYEE_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required GitHub Actions secret: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run complete Meetings lifecycle QA
+        run: pnpm exec playwright test e2e/meetings-workflow.spec.ts --project=desktop-chromium --grep "@meeting-workflow" --workers=1 --retries=0
+
+      - name: Run Meetings desktop UI sign-off
+        run: pnpm exec playwright test e2e/meetings-ui.spec.ts --project=desktop-chromium --grep-invert "@mobile" --workers=1 --retries=0
+
+      - name: Run Meetings mobile UI sign-off
+        run: pnpm exec playwright test e2e/meetings-ui.spec.ts --project=mobile-chromium --grep "@mobile" --workers=1 --retries=0
+
+      - name: Upload Meetings sign-off evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: meetings-staging-signoff-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
