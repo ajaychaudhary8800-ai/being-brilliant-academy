@@ -32,9 +32,27 @@ export function evaluationStatus(finalize: boolean) {
   return finalize ? AnswerSheetStatus.EVALUATED : AnswerSheetStatus.UNDER_REVIEW;
 }
 
+export function examinationGradeForPercentage(percentage: number) {
+  if (percentage >= 90) return { grade: "A+", gpa: 10 };
+  if (percentage >= 80) return { grade: "A", gpa: 9 };
+  if (percentage >= 70) return { grade: "B+", gpa: 8 };
+  if (percentage >= 60) return { grade: "B", gpa: 7 };
+  if (percentage >= 50) return { grade: "C", gpa: 6 };
+  if (percentage >= 40) return { grade: "D", gpa: 5 };
+  return { grade: "F", gpa: 0 };
+}
+
 export function examinationResultFor(marks: number, maximumMarks: number, passingMarks: number, now = new Date()) {
   const percentage = maximumMarks ? marks / maximumMarks * 100 : 0;
-  return { marksObtained: marks, percentage, status: marks >= passingMarks ? ExaminationResultStatus.PASS : ExaminationResultStatus.FAIL, generatedAt: now };
+  const calculated = examinationGradeForPercentage(percentage);
+  return {
+    marksObtained: marks,
+    percentage,
+    grade: calculated.grade,
+    gpa: calculated.gpa,
+    status: marks >= passingMarks ? ExaminationResultStatus.PASS : ExaminationResultStatus.FAIL,
+    generatedAt: now,
+  };
 }
 
 export function assertStudentExaminationEligible<T extends { organizationId: string; batchId: string; academicSessionId: string }>(student: T | null, exam: { organizationId: string; batchId: string; academicSessionId: string }): asserts student is T {
