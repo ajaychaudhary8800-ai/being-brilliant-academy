@@ -168,7 +168,7 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
             <StatusCard label="Question paper" ok={Boolean(readiness.questionPaper?.publishedAt)} value={readiness.questionPaper?.publishedAt?"Published":"Required"}/>
             <StatusCard label="Active rubric" ok={Boolean(readiness.activeRubric)} value={readiness.activeRubric?`Version ${readiness.activeRubric.version}`:"Required"}/>
             <StatusCard label="Answer sheets" ok={readiness.answerSheets.total>0} value={String(readiness.answerSheets.total)}/>
-            <StatusCard label="Assessment prerequisites" ok={readiness.setupReady} value={readiness.setupReady?"Ready":"Blocked"}/>
+            <StatusCard label="AI evaluation window" ok={readiness.setupReady || readiness.examination.status === "RESULTS_PUBLISHED" || readiness.examination.status === "ARCHIVED"} value={readiness.setupReady ? "Ready" : readiness.examination.status === "RESULTS_PUBLISHED" || readiness.examination.status === "ARCHIVED" ? "Closed" : "Blocked"}/>
           </section>
           <section className="mt-5 rounded-2xl border bg-white p-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
