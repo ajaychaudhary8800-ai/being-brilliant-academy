@@ -96,3 +96,11 @@ test("AuthenticatedVideo resumes safely and never places a token in its URL", ()
   assert.match(video, /onTimeUpdate\?\./);
   assert.doesNotMatch(video, /[?&](?:token|access_token)=/);
 });
+
+
+test("Teacher portal exposes staff meetings and actionable meeting notifications", () => {
+  assert.match(portal, /"live-classes", "meetings", "students"/);
+  assert.match(portal, /href="\/meetings"[^]*>\s*Meetings\s*</);
+  assert.match(portal, /actionUrl\?: string \| null/);
+  assert.match(portal, /item\.actionUrl[^]*href=\{item\.actionUrl\}[^]*Open/);
+});
