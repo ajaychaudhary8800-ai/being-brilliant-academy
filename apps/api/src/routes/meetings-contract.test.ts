@@ -85,6 +85,8 @@ test("native meeting collaboration reuses LiveKit without using LiveClass record
   assert.match(live, /livekitEgress/);
   assert.match(live, /meetingAttendanceSession/);
   assert.match(live, /\[MeetingStatus\.SCHEDULED, MeetingStatus\.OPEN_FOR_JOIN, MeetingStatus\.LIVE\]\.includes\(meeting\.status\)/);
+  assert.match(live, /MEETING_NOT_ACTIVE/);
+  assert.match(live, /stoppedRecordings/);
   assert.match(live, /meetingRecording/);
   assert.match(live, /meetingInteraction/);
   assert.match(live, /whiteboardData/);
@@ -100,6 +102,8 @@ test("meeting workflow covers attendance minutes decisions and action tracking",
   assert.match(workflow, /\/meetings\/:id\/close/);
   assert.match(workflow, /MeetingStatus\.MINUTES_PUBLISHED/);
   assert.match(workflow, /MeetingStatus\.CLOSED/);
+  assert.match(workflow, /MEETING_NOT_ENDED/);
+  assert.match(workflow, /MEETING_MINUTES_LIFECYCLE_INVALID/);
   assert.match(workflow, /\/meetings\/:id\/decisions/);
   assert.match(workflow, /\/meetings\/:id\/actions/);
   assert.match(workflow, /\/meeting-actions\/:id\/complete/);
