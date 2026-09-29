@@ -3,6 +3,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config.js";
 import { AI_EXAMINER_ENGINE_VERSION, AI_EXAMINER_REVIEW_THRESHOLD, aiExaminerProviderConfigured, aiExaminerProviderMode } from "../lib/ai-examiner-engine.js";
+import { AI_EXAMINER_ENGINES, AI_EXAMINER_QUESTION_TYPES } from "../lib/ai-examiner-assessment-router.js";
+import { aiExaminerRubricInputSchema, aiExaminerRubricStorage } from "../lib/ai-examiner-question-config.js";
 import { aiExaminerLifecycleBlocker, assertAIExaminerEvaluationReady, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
 import { assertExaminationManager, evaluationStatus, examinationResultFor } from "../lib/examination-policy.js";
 import { AppError } from "../lib/http.js";
@@ -14,23 +16,7 @@ const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER), requireCommercialFeature("examinations"));
 
 const cuid = z.string().cuid();
-const rubricInput = z.object({
-  instructions: z.string().trim().max(5000).nullable().optional(),
-  questions: z.array(z.object({
-    key: z.string().trim().min(1).max(40),
-    maxMarks: z.coerce.number().positive().max(10000),
-    criteria: z.string().trim().min(2).max(4000),
-    modelAnswer: z.string().trim().max(12000).nullable().optional(),
-    concepts: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
-  })).min(1).max(200),
-}).superRefine((value, ctx) => {
-  const keys = new Set<string>();
-  value.questions.forEach((question, index) => {
-    const normalized = question.key.toLowerCase();
-    if (keys.has(normalized)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["questions", index, "key"], message: "Question keys must be unique" });
-    keys.add(normalized);
-  });
-});
+const rubricInput = aiExaminerRubricInputSchema;
 
 async function branchAccess(req: AuthRequest, branchId: string) {
   if (req.auth!.role !== Role.BRANCH_ADMIN) return;
@@ -142,6 +128,8 @@ function readiness(exam: Awaited<ReturnType<typeof examinationForManager>>, eval
       engineVersion: AI_EXAMINER_ENGINE_VERSION,
       reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD,
       evaluationExecutionAvailable: aiExaminerProviderConfigured(),
+      questionTypes: AI_EXAMINER_QUESTION_TYPES,
+      engines: AI_EXAMINER_ENGINES,
       phase: "EVALUATION_ENGINE",
     },
     answerSheetItems: exam.answerSheets.map(sheet => ({
@@ -160,7 +148,7 @@ function readiness(exam: Awaited<ReturnType<typeof examinationForManager>>, eval
 }
 
 router.get("/capabilities", async (_req, res) => {
-  res.json({ data: { providerConfigured: aiExaminerProviderConfigured(), providerMode: aiExaminerProviderMode(), model: env.AI_EXAMINER_MODEL, engineVersion: AI_EXAMINER_ENGINE_VERSION, reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD, evaluationExecutionAvailable: aiExaminerProviderConfigured(), phase: "EVALUATION_ENGINE" } });
+  res.json({ data: { providerConfigured: aiExaminerProviderConfigured(), providerMode: aiExaminerProviderMode(), model: env.AI_EXAMINER_MODEL, engineVersion: AI_EXAMINER_ENGINE_VERSION, reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD, evaluationExecutionAvailable: aiExaminerProviderConfigured(), questionTypes: AI_EXAMINER_QUESTION_TYPES, engines: AI_EXAMINER_ENGINES, phase: "EVALUATION_ENGINE" } });
 });
 
 router.get("/examinations", async (req: AuthRequest, res) => {
@@ -196,8 +184,7 @@ router.put("/examinations/:examinationId/rubric", async (req: AuthRequest, res) 
   const exam = await examinationForManager(req, cuid.parse(req.params.examinationId));
   if (exam.status === ExaminationStatus.ARCHIVED) throw new AppError(409, "AI_EXAMINER_EXAM_ARCHIVED", "Archived examinations cannot edit AI Examiner rubrics");
   const input = rubricInput.parse(req.body);
-  const rubric = { questions: input.questions.map(({ modelAnswer, ...question }) => question) };
-  const modelAnswer = { questions: input.questions.filter(question => question.modelAnswer).map(question => ({ key: question.key, answer: question.modelAnswer })) };
+  const { rubric, modelAnswer } = aiExaminerRubricStorage(input);
   const existingDraft = exam.aiExaminerRubrics.find((value) => value.status === AIExaminerRubricStatus.DRAFT);
   const nextVersion = Math.max(0, ...exam.aiExaminerRubrics.map(value => value.version)) + 1;
   const data = existingDraft
