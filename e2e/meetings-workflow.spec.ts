@@ -244,6 +244,14 @@ test("@meeting-workflow enterprise staff meeting lifecycle", async ({ request, b
   expect(finalMeeting.data.status).toBe("MINUTES_PUBLISHED");
   expect(finalMeeting.data.minutes?.status).toBe("PUBLISHED");
 
+  const closed = await apiJson<any>(
+    request,
+    superAdmin,
+    `/api/v1/meetings/${meeting.id}/close`,
+    { method: "POST", data: {} },
+  );
+  expect(closed.data.status).toBe("CLOSED");
+
   await apiJson(
     request,
     superAdmin,
