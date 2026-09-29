@@ -1,6 +1,13 @@
 import { AIExaminerEvaluationStatus, AIExaminerRubricStatus, ExaminationStatus } from "@prisma/client";
 import { AppError } from "./http.js";
 
+export function aiExaminerLifecycleBlocker(status: ExaminationStatus) {
+  if (status === ExaminationStatus.COMPLETED) return null;
+  if (status === ExaminationStatus.RESULTS_PUBLISHED) return "Results are published; new AI evaluations are closed";
+  if (status === ExaminationStatus.ARCHIVED) return "Archived examinations cannot start AI evaluation";
+  return "Complete the examination before AI evaluation";
+}
+
 export function assertAIExaminerRubricActivatable(input: {
   status: AIExaminerRubricStatus;
   examinationStatus: ExaminationStatus;
