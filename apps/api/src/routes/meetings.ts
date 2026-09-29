@@ -104,7 +104,9 @@ async function canManage(req: AuthRequest, meeting: Awaited<ReturnType<typeof ge
 
 const participantInput = z.object({
   userId: id,
-  meetingRole: z.nativeEnum(MeetingParticipantRole).default(MeetingParticipantRole.PARTICIPANT),
+  meetingRole: z.nativeEnum(MeetingParticipantRole)
+    .refine(role => role !== MeetingParticipantRole.HOST, { message: "Use hostUserId to designate the meeting host" })
+    .default(MeetingParticipantRole.PARTICIPANT),
 });
 
 const audienceInput = z.object({
@@ -558,6 +560,7 @@ router.post("/meetings/:id/participants", async (req: AuthRequest, res) => {
   await canManage(req, meeting);
   assertMeetingMutable(meeting);
   const data = participantInput.parse(req.body);
+  if (data.userId === meeting.hostUserId) throw new AppError(409, "MEETING_HOST_ROLE_IMMUTABLE", "The configured host role cannot be changed through participant management");
   const scope = await allowedBranches(req);
   const participants = await resolveMeetingParticipants({
     organizationId: org(req), hostUserId: meeting.hostUserId, meetingBranchId: meeting.branchId,
@@ -583,7 +586,7 @@ router.delete("/meetings/:id/participants/:participantId", async (req: AuthReque
   assertMeetingMutable(meeting);
   const participant = meeting.participants.find(p => p.id === String(req.params.participantId));
   if (!participant) throw new AppError(404, "MEETING_PARTICIPANT_NOT_FOUND", "Participant not found");
-  if (participant.meetingRole === MeetingParticipantRole.HOST) throw new AppError(409, "MEETING_HOST_REQUIRED", "Transfer host before removing the host");
+  if (participant.userId === meeting.hostUserId || participant.meetingRole === MeetingParticipantRole.HOST) throw new AppError(409, "MEETING_HOST_REQUIRED", "Transfer host before removing the host");
   await prisma.meetingParticipant.update({ where: { id: participant.id }, data: { removedAt: new Date() } });
   await audit(req, meeting.id, "REMOVE_PARTICIPANT", "MeetingParticipant", participant.id, { userId: participant.userId });
   res.status(204).send();
