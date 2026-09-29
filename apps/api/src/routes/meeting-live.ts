@@ -49,7 +49,7 @@ function managerRole(role: MeetingParticipantRole) {
 }
 
 function assertJoinable(meeting: { status: MeetingStatus; startsAt: Date; endsAt: Date; joinBeforeMinutes: number; roomLocked: boolean }, manager: boolean) {
-  if (meeting.status === MeetingStatus.CANCELLED || meeting.status === MeetingStatus.CLOSED || meeting.status === MeetingStatus.ENDED) {
+  if (![MeetingStatus.SCHEDULED, MeetingStatus.OPEN_FOR_JOIN, MeetingStatus.LIVE].includes(meeting.status)) {
     throw new AppError(409, "MEETING_NOT_JOINABLE", "This meeting is no longer joinable");
   }
   const now = Date.now();
