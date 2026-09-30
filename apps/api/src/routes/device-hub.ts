@@ -347,6 +347,294 @@ router.post("/device-hub/ingest/:deviceId", async (req, res) => {
 
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
 
+router.get("/device-hub/adapters", async (req: AuthRequest, res) => {
+  const data = await prisma.deviceAdapterRegistry.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+  });
+  res.json({ data });
+});
+
+const secretReference = z.string().trim().min(3).max(300).superRefine((value, ctx) => {
+  if (/^(https?|rtsp|mqtt):\/\//i.test(value) || /:\/\/[^/]*@/.test(value) || /(?:password|token|secret)=/i.test(value)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Store a secret-manager reference, not raw credentials or endpoint secrets" });
+  }
+});
+
+router.get("/device-hub/connectors", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const data = await prisma.deviceConnectorInstance.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      ...(req.auth!.role === Role.SUPER_ADMIN ? {} : { branchId: { in: scope } }),
+    },
+    include: { adapter: true },
+    orderBy: { name: "asc" },
+  });
+  res.json({
+    data: data.map(item => ({
+      ...item,
+      secretRef: item.secretRef ? "[configured]" : null,
+      health: connectorHealth({
+        status: item.status,
+        lastSuccessAt: item.lastSuccessAt,
+        lastErrorAt: item.lastErrorAt,
+        consecutiveFailures: item.consecutiveFailures,
+        latencyMs: item.latencyMs,
+      }),
+    })),
+  });
+});
+
+router.post("/device-hub/connectors", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const body = z.object({
+    branchId: cuid.nullable().optional(),
+    adapterKey: z.string().trim().min(2).max(100),
+    name: z.string().trim().min(2).max(180),
+    secretRef: secretReference.nullable().optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
+  }).parse(req.body);
+  if (req.auth!.role === Role.BRANCH_ADMIN && !body.branchId) {
+    throw new AppError(422, "CONNECTOR_BRANCH_REQUIRED", "Branch administrators must configure connectors inside an assigned branch");
+  }
+  if (body.branchId) await assertErpBranchTarget(scope, body.branchId);
+  const adapter = await prisma.deviceAdapterRegistry.findUnique({ where: { key: body.adapterKey } });
+  if (!adapter || !adapter.isActive) throw new AppError(422, "DEVICE_ADAPTER_INVALID", "Selected Device Hub adapter is not active");
+  if (adapter.requiredEntitlement) await assertFeatureEntitled(req.auth!.organizationId, adapter.requiredEntitlement);
+  try {
+    const data = await prisma.deviceConnectorInstance.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        branchId: body.branchId ?? null,
+        adapterId: adapter.id,
+        name: body.name,
+        secretRef: body.secretRef ?? null,
+        config: body.config ? profileJson(body.config) : undefined,
+        createdById: req.auth!.userId,
+      },
+      include: { adapter: true },
+    });
+    res.status(201).json({ data: { ...data, secretRef: data.secretRef ? "[configured]" : null } });
+  } catch (error: any) {
+    if (error?.code === "P2002") throw new AppError(409, "DEVICE_CONNECTOR_EXISTS", "Connector name already exists in this organization");
+    throw error;
+  }
+});
+
+router.patch("/device-hub/connectors/:connectorId", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const connector = await prisma.deviceConnectorInstance.findFirst({
+    where: { id: cuid.parse(req.params.connectorId), organizationId: req.auth!.organizationId },
+    include: { adapter: true },
+  });
+  if (!connector) throw new AppError(404, "DEVICE_CONNECTOR_NOT_FOUND", "Device connector not found");
+  if (connector.branchId) assertErpBranchAccess(scope, connector.branchId);
+  const body = z.object({
+    status: z.nativeEnum(DeviceConnectorStatus).optional(),
+    secretRef: secretReference.nullable().optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
+  }).parse(req.body);
+  const data = await prisma.deviceConnectorInstance.update({
+    where: { id: connector.id },
+    data: {
+      status: body.status,
+      secretRef: body.secretRef,
+      config: body.config ? profileJson(body.config) : undefined,
+    },
+    include: { adapter: true },
+  });
+  res.json({ data: { ...data, secretRef: data.secretRef ? "[configured]" : null } });
+});
+
+router.post("/device-hub/connectors/:connectorId/health-report", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const connector = await prisma.deviceConnectorInstance.findFirst({
+    where: { id: cuid.parse(req.params.connectorId), organizationId: req.auth!.organizationId },
+  });
+  if (!connector) throw new AppError(404, "DEVICE_CONNECTOR_NOT_FOUND", "Device connector not found");
+  if (connector.branchId) assertErpBranchAccess(scope, connector.branchId);
+  const body = z.object({
+    ok: z.boolean(),
+    latencyMs: z.number().int().min(0).max(600_000).optional(),
+    errorCode: z.string().trim().max(180).optional(),
+    errorMessage: z.string().trim().max(5000).optional(),
+  }).parse(req.body);
+  const now = new Date();
+  const data = await prisma.deviceConnectorInstance.update({
+    where: { id: connector.id },
+    data: body.ok ? {
+      status: DeviceConnectorStatus.ACTIVE,
+      lastSyncAt: now,
+      lastSuccessAt: now,
+      latencyMs: body.latencyMs,
+      consecutiveFailures: 0,
+      lastErrorAt: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    } : {
+      status: DeviceConnectorStatus.DEGRADED,
+      lastSyncAt: now,
+      latencyMs: body.latencyMs,
+      consecutiveFailures: { increment: 1 },
+      lastErrorAt: now,
+      lastErrorCode: body.errorCode ?? "CONNECTOR_HEALTH_FAILED",
+      lastErrorMessage: body.errorMessage ?? "Connector health check failed",
+    },
+  });
+  res.json({
+    data: {
+      ...data,
+      secretRef: data.secretRef ? "[configured]" : null,
+      health: connectorHealth({
+        status: data.status,
+        lastSuccessAt: data.lastSuccessAt,
+        lastErrorAt: data.lastErrorAt,
+        consecutiveFailures: data.consecutiveFailures,
+        latencyMs: data.latencyMs,
+      }),
+    },
+  });
+});
+
+router.get("/device-hub/edge-agents", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const data = await prisma.connectedCampusEdgeAgent.findMany({
+    where: { organizationId: req.auth!.organizationId, branchId: { in: scope } },
+    orderBy: { name: "asc" },
+  });
+  res.json({ data: data.map(item => ({ ...item, tokenHash: undefined, publicKey: item.publicKey ? "[configured]" : null })) });
+});
+
+router.post("/device-hub/edge-agents", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const body = z.object({
+    branchId: cuid,
+    code: z.string().trim().min(2).max(80).regex(/^[A-Za-z0-9._-]+$/),
+    name: z.string().trim().min(2).max(180),
+    publicKey: z.string().trim().min(32).max(10000).nullable().optional(),
+    capabilities: z.array(z.string().trim().min(1).max(100)).max(200).default([]),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  }).parse(req.body);
+  await assertErpBranchTarget(scope, body.branchId);
+  await assertFeatureEntitled(req.auth!.organizationId, "connectedCampus");
+  const token = generateEdgeAgentToken();
+  try {
+    const data = await prisma.connectedCampusEdgeAgent.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        branchId: body.branchId,
+        code: body.code.toUpperCase(),
+        name: body.name,
+        tokenHash: hashEdgeAgentToken(token),
+        publicKey: body.publicKey ?? null,
+        capabilities: [...new Set(body.capabilities.map(item => item.toUpperCase()))],
+        metadata: body.metadata ? profileJson(body.metadata) : undefined,
+      },
+      select: {
+        id: true, organizationId: true, branchId: true, code: true, name: true, status: true,
+        capabilities: true, createdAt: true, updatedAt: true,
+      },
+    });
+    res.status(201).json({ data, credential: { token, displayOnce: true }, meta: { productionReady: false, hardwareValidated: false } });
+  } catch (error: any) {
+    if (error?.code === "P2002") throw new AppError(409, "EDGE_AGENT_EXISTS", "Edge Agent code already exists in this branch");
+    throw error;
+  }
+});
+
+router.post("/device-hub/edge-agents/:agentId/rotate-token", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const agent = await prisma.connectedCampusEdgeAgent.findFirst({
+    where: { id: cuid.parse(req.params.agentId), organizationId: req.auth!.organizationId },
+  });
+  if (!agent) throw new AppError(404, "EDGE_AGENT_NOT_FOUND", "Edge Agent not found");
+  assertErpBranchAccess(scope, agent.branchId);
+  const token = generateEdgeAgentToken();
+  await prisma.connectedCampusEdgeAgent.update({
+    where: { id: agent.id },
+    data: { tokenHash: hashEdgeAgentToken(token), status: EdgeAgentStatus.PROVISIONING },
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "EDGE_AGENT_TOKEN_ROTATED",
+      entity: "ConnectedCampusEdgeAgent",
+      entityId: agent.id,
+    },
+  });
+  res.json({ data: { agentId: agent.id }, credential: { token, displayOnce: true } });
+});
+
+router.patch("/device-hub/edge-agents/:agentId", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const agent = await prisma.connectedCampusEdgeAgent.findFirst({
+    where: { id: cuid.parse(req.params.agentId), organizationId: req.auth!.organizationId },
+  });
+  if (!agent) throw new AppError(404, "EDGE_AGENT_NOT_FOUND", "Edge Agent not found");
+  assertErpBranchAccess(scope, agent.branchId);
+  const body = z.object({
+    status: z.nativeEnum(EdgeAgentStatus).optional(),
+    name: z.string().trim().min(2).max(180).optional(),
+    publicKey: z.string().trim().min(32).max(10000).nullable().optional(),
+    capabilities: z.array(z.string().trim().min(1).max(100)).max(200).optional(),
+  }).parse(req.body);
+  const data = await prisma.connectedCampusEdgeAgent.update({
+    where: { id: agent.id },
+    data: {
+      ...body,
+      capabilities: body.capabilities ? [...new Set(body.capabilities.map(item => item.toUpperCase()))] : undefined,
+    },
+    select: {
+      id: true, organizationId: true, branchId: true, code: true, name: true, status: true, version: true,
+      os: true, hostname: true, capabilities: true, lastHeartbeatAt: true, lastSeenAt: true, lastErrorCode: true,
+      createdAt: true, updatedAt: true,
+    },
+  });
+  res.json({ data });
+});
+
+router.get("/device-hub/retries", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const q = z.object({
+    status: z.nativeEnum(DeviceRetryStatus).optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+  }).parse(req.query);
+  const data = await prisma.connectedDeviceRetryJob.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      device: { ...(req.auth!.role === Role.SUPER_ADMIN ? {} : { branchId: { in: scope } }) },
+      ...(q.status ? { status: q.status } : {}),
+    },
+    include: { device: { select: { id: true, code: true, branchId: true, kind: true } } },
+    orderBy: [{ status: "asc" }, { nextAttemptAt: "asc" }],
+    take: q.limit,
+  });
+  res.json({ data });
+});
+
+router.post("/device-hub/retries/:retryId/requeue", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const retry = await prisma.connectedDeviceRetryJob.findFirst({
+    where: { id: cuid.parse(req.params.retryId), organizationId: req.auth!.organizationId },
+    include: { device: { select: { branchId: true } } },
+  });
+  if (!retry) throw new AppError(404, "DEVICE_RETRY_NOT_FOUND", "Device retry job not found");
+  if (retry.device.branchId) assertErpBranchAccess(scope, retry.device.branchId);
+  const data = await prisma.connectedDeviceRetryJob.update({
+    where: { id: retry.id },
+    data: { status: DeviceRetryStatus.QUEUED, nextAttemptAt: new Date(), lastErrorCode: null, lastErrorMessage: null },
+  });
+  if (retry.commandId) {
+    await prisma.connectedDeviceCommand.updateMany({
+      where: { id: retry.commandId, organizationId: req.auth!.organizationId },
+      data: { status: ConnectedDeviceCommandStatus.QUEUED },
+    });
+  }
+  res.json({ data });
+});
+
 const deviceInput = z.object({
   branchId: cuid.nullable().optional(),
   code: z.string().trim().min(2).max(80).regex(/^[A-Za-z0-9._-]+$/),
