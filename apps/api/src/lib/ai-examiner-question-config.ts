@@ -122,11 +122,11 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
     });
   }
 
-  if (question.stemValidation && !["DERIVATION", "PROOF", "CALCULATION", "NUMERICAL"].includes(question.questionType)) {
+  if (question.stemValidation && !["DERIVATION", "PROOF", "CALCULATION"].includes(question.questionType)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["stemValidation"],
-      message: "STEM validation is only supported for numerical, calculation, derivation and proof questions",
+      message: "STEM validation is only supported for calculation, derivation and proof questions",
     });
   }
 
