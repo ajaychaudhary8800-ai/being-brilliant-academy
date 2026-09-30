@@ -17,7 +17,7 @@ function provider(questions: AIExaminerProviderResult["questions"]): AIExaminerP
   };
 }
 
-function row(questionKey:string, extractedAnswer:string|null, awardedMarks=3, confidence=0.95) {
+function row(questionKey:string, extractedAnswer:string|null, awardedMarks=3, confidence=0.95): AIExaminerProviderResult["questions"][number] {
   return {
     questionKey,
     maxMarks: 4,
