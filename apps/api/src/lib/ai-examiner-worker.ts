@@ -1,4 +1,4 @@
-import { AIExaminerEvaluationStatus, AIExaminerRubricStatus, AnswerSheetStatus, ExaminationStatus } from "@prisma/client";
+import { AIExaminerEvaluationStatus, AIExaminerRubricStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AnswerSheetStatus, ExaminationStatus } from "@prisma/client";
 import { env } from "../config.js";
 import { logger } from "./logger.js";
 import { systemPrisma } from "./prisma.js";
@@ -10,12 +10,14 @@ import {
 } from "./ai-examiner-engine.js";
 import {
   aiExaminerProviderQuestions,
+  overlayTrustedAIExaminerOmrAnswers,
   reconcileAIExaminerProviderResult,
   resolveAIExaminerRubricQuestions,
 } from "./ai-examiner-orchestration.js";
 import { AIExaminerScoringError } from "./ai-examiner-deterministic.js";
 import { parseAIExaminerExamProfile } from "./ai-examiner-exam-profile.js";
 import { decideAIExaminerSecondPass } from "./ai-examiner-second-pass.js";
+import { collectTrustedAIExaminerOmrAnswers } from "./ai-examiner-scan-ingestion.js";
 
 function examProfileHighStakes(snapshot: unknown) {
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return false;
@@ -61,6 +63,21 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
       answerSheet: {
         include: {
           questionPaper: true,
+          scanBinding: {
+            include: {
+              pages: {
+                select: {
+                  pageNumber: true,
+                  totalPages: true,
+                  status: true,
+                  validationResult: true,
+                  scannerEngine: true,
+                  scannerVersion: true,
+                },
+                orderBy: { pageNumber: "asc" },
+              },
+            },
+          },
           examination: {
             include: {
               subject: { select: { name: true } },
@@ -104,7 +121,41 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
       },
     });
 
-    const reconciled = reconcileAIExaminerProviderResult(questions, result, AI_EXAMINER_REVIEW_THRESHOLD);
+    const scanBinding = evaluation.answerSheet.scanBinding;
+    const omrQuestionKeys = questions.filter(question => question.omrValidation).map(question => question.key);
+    let scoringResult = result;
+    let omrEvidence = {
+      available: Boolean(scanBinding),
+      trusted: false,
+      reason: scanBinding ? "OMR scan binding is not locked with fully accepted pages" : null as string | null,
+      appliedQuestionKeys: [] as string[],
+      pageCount: scanBinding?.pages.length ?? 0,
+      scanners: scanBinding
+        ? [...new Set(scanBinding.pages.map(page => `${page.scannerEngine}@${page.scannerVersion}`))]
+        : [] as string[],
+    };
+
+    if (
+      scanBinding?.status === AIExaminerScanBindingStatus.LOCKED &&
+      scanBinding.pages.length > 0 &&
+      scanBinding.pages.every(page => page.status === AIExaminerScanPageStatus.ACCEPTED)
+    ) {
+      const collected = collectTrustedAIExaminerOmrAnswers(scanBinding.pages.map(page => page.validationResult));
+      if (collected.valid) {
+        const overlaid = overlayTrustedAIExaminerOmrAnswers(questions, result, collected.answers);
+        scoringResult = overlaid.result;
+        omrEvidence = {
+          ...omrEvidence,
+          trusted: true,
+          reason: null,
+          appliedQuestionKeys: overlaid.appliedQuestionKeys,
+        };
+      } else {
+        omrEvidence = { ...omrEvidence, reason: collected.reason };
+      }
+    }
+
+    const reconciled = reconcileAIExaminerProviderResult(questions, scoringResult, AI_EXAMINER_REVIEW_THRESHOLD);
     const total = reconciled.suggestedMarks;
     const confidence = reconciled.confidence;
     const questionRows = reconciled.questions;
@@ -113,6 +164,8 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
       overallConfidence: confidence,
       confidenceThreshold: AI_EXAMINER_REVIEW_THRESHOLD,
       highStakes,
+      omrReviewRequired: Boolean(scanBinding) && !omrEvidence.trusted,
+      omrQuestionKeys,
       questions: questionRows.map(question => ({
         questionKey: question.questionKey,
         confidence: question.confidence,
@@ -186,6 +239,7 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
             unresolvedDeterministicCount: reconciled.unresolvedDeterministicCount,
             reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD,
             secondPassVerification: secondPass,
+            omrEvidence,
           },
           completedAt,
           errorCode: null,
@@ -208,6 +262,8 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
             secondPassRequired: secondPass.required,
             secondPassReasons: secondPass.reasons,
             highStakes,
+            omrEvidenceTrusted: omrEvidence.trusted,
+            omrAppliedQuestionCount: omrEvidence.appliedQuestionKeys.length,
             engineVersion: AI_EXAMINER_ENGINE_VERSION,
           },
         },
