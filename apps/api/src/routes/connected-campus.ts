@@ -96,7 +96,7 @@ async function assertVisitorHost(req: AuthRequest, visitor: { hostUserId: string
     assertErpBranchAccess(scope, visitor.branchId);
     return;
   }
-  if (![Role.TEACHER, Role.EMPLOYEE].includes(req.auth!.role)) {
+  if (req.auth!.role !== Role.TEACHER && req.auth!.role !== Role.EMPLOYEE) {
     throw new AppError(403, "VISITOR_HOST_FORBIDDEN", "Only the assigned host or an administrator may approve visitors");
   }
   if (visitor.hostUserId !== req.auth!.userId) {
@@ -250,7 +250,7 @@ router.post("/connected-campus/visitors/:visitorId/decision", allow(Role.TEACHER
   });
   if (!visitor) throw new AppError(404, "VISITOR_NOT_FOUND", "Visitor pre-registration not found");
   await assertVisitorHost(req, visitor);
-  if (![CampusVisitorStatus.PENDING_APPROVAL, CampusVisitorStatus.PRE_REGISTERED].includes(visitor.status)) {
+  if (visitor.status !== CampusVisitorStatus.PENDING_APPROVAL && visitor.status !== CampusVisitorStatus.PRE_REGISTERED) {
     throw new AppError(409, "VISITOR_DECISION_LOCKED", "Visitor has already been processed");
   }
   const body = z.object({
@@ -298,7 +298,7 @@ router.post("/connected-campus/visitors/:visitorId/check-in", allow(...adminRole
   });
   if (!visitor) throw new AppError(404, "VISITOR_NOT_FOUND", "Visitor not found");
   await assertAdminBranch(req, visitor.branchId);
-  if (![CampusVisitorStatus.APPROVED, CampusVisitorStatus.PRE_REGISTERED].includes(visitor.status)) {
+  if (visitor.status !== CampusVisitorStatus.APPROVED && visitor.status !== CampusVisitorStatus.PRE_REGISTERED) {
     throw new AppError(409, "VISITOR_CHECKIN_NOT_ALLOWED", "Visitor is not approved for check-in");
   }
   const now = new Date();
@@ -377,7 +377,7 @@ router.get("/connected-campus/parent/children", allow(Role.PARENT), async (req: 
       student: {
         include: {
           user: { select: { name: true, avatarUrl: true } },
-          branch: { select: { id: true, name: true } },
+          branch: { select: { id: true, branchName: true } },
           batch: { select: { id: true, name: true, code: true } },
         },
       },
@@ -512,7 +512,7 @@ router.post("/connected-campus/gate/pickup/verify", allow(...adminRoles), async 
   }
 
   const now = new Date();
-  let decision = PickupGateDecision.APPROVED;
+  let decision: PickupGateDecision = PickupGateDecision.APPROVED;
   let reasonCode = "PICKUP_AUTHORIZATION_VALID";
   if (authorization.status !== PickupAuthorizationStatus.ACTIVE) {
     decision = PickupGateDecision.DENIED;
