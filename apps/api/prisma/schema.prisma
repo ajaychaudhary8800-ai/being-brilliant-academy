@@ -2714,6 +2714,7 @@ model AIExaminerEvidenceAttachment {
   observation    Json?
   sourceDevice   String?
   capturedAt     DateTime?
+  identityMasked Boolean                        @default(false)
   uploadedById   String
   reviewedById   String?
   reviewNotes    String?                        @db.Text
