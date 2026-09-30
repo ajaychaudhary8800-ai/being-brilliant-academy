@@ -10,6 +10,7 @@ import {
   SchoolEventSeverity,
   SchoolEventStatus,
   SafetyIncidentSeverity,
+  TransportAlertType,
   TripStatus,
 } from "@prisma/client";
 import { z } from "zod";
@@ -285,6 +286,76 @@ async function processIdentity(event: any, normalized: z.infer<typeof normalized
   return { adapter: "STUDENT_ATTENDANCE", bindingId: binding.id, attendanceId: attendance.id };
 }
 
+function transportMetadataNumber(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function transportMetadataBoolean(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true","1","on","yes"].includes(normalized)) return true;
+    if (["false","0","off","no"].includes(normalized)) return false;
+  }
+  return null;
+}
+
+async function createTransportAlert(input: {
+  organizationId: string;
+  branchId: string;
+  tripId?: string | null;
+  vehicleId: string;
+  sourceEventId: string;
+  type: TransportAlertType;
+  severity: SchoolEventSeverity;
+  title: string;
+  description?: string | null;
+  occurredAt: Date;
+  metadata?: Record<string, unknown>;
+}) {
+  const alert = await systemPrisma.transportAlert.upsert({
+    where: { sourceEventId_type: { sourceEventId: input.sourceEventId, type: input.type } },
+    create: {
+      organizationId: input.organizationId,
+      branchId: input.branchId,
+      tripId: input.tripId ?? null,
+      vehicleId: input.vehicleId,
+      sourceEventId: input.sourceEventId,
+      type: input.type,
+      severity: input.severity,
+      title: input.title,
+      description: input.description ?? null,
+      occurredAt: input.occurredAt,
+      metadata: input.metadata ? json(input.metadata) : undefined,
+    },
+    update: {},
+  });
+  await recordSchoolEvent({
+    organizationId: input.organizationId,
+    branchId: input.branchId,
+    category: SchoolEventCategory.TRANSPORT,
+    type: `TRANSPORT_ALERT_${input.type}`,
+    severity: input.severity,
+    occurredAt: input.occurredAt,
+    sourceType: "TRANSPORT_ALERT",
+    sourceId: alert.id,
+    vehicleId: input.vehicleId,
+    correlationKey: input.tripId ? `trip:${input.tripId}` : `vehicle:${input.vehicleId}`,
+    title: input.title,
+    summary: input.description ?? null,
+    reviewRequired: input.severity === SchoolEventSeverity.HIGH || input.severity === SchoolEventSeverity.CRITICAL,
+    metadata: { alertType: input.type, ...(input.metadata ?? {}) },
+  });
+  return alert;
+}
+
 async function processLocation(event: any, normalized: z.infer<typeof normalizedSchema>) {
   if (normalized.latitude === null || normalized.longitude === null) {
     throw new DeviceEventProcessingError("DEVICE_LOCATION_COORDINATES_REQUIRED", "Location event requires latitude and longitude");
@@ -296,7 +367,7 @@ async function processLocation(event: any, normalized: z.infer<typeof normalized
   });
   const vehicle = await systemPrisma.transportVehicle.findFirst({
     where: { id: binding.entityId, organizationId: event.organizationId },
-    select: { id: true, branchId: true },
+    select: { id: true, branchId: true, currentSpeed: true, lastGpsAt: true },
   });
   if (!vehicle) throw new DeviceEventProcessingError("DEVICE_VEHICLE_NOT_FOUND", "Bound vehicle no longer exists");
   if (event.device.branchId && vehicle.branchId !== event.device.branchId) {
@@ -309,16 +380,61 @@ async function processLocation(event: any, normalized: z.infer<typeof normalized
       vehicleId: vehicle.id,
       status: TripStatus.STARTED,
     },
-    select: { id: true, route: { select: { branchId: true } } },
+    select: {
+      id: true,
+      startedAt: true,
+      scheduledAt: true,
+      maxSpeed: true,
+      route: { select: { branchId: true, estimatedMinutes: true, distanceKm: true } },
+    },
     orderBy: { startedAt: "desc" },
   });
   if (trip && trip.route.branchId !== vehicle.branchId) {
     throw new DeviceEventProcessingError("DEVICE_TRIP_BRANCH_MISMATCH", "Active trip branch does not match the bound vehicle");
   }
 
-  const geofenceEvent = typeof normalized.metadata.geofenceEvent === "string"
-    ? normalized.metadata.geofenceEvent.slice(0, 180)
-    : null;
+  const metadata = normalized.metadata;
+  const geofenceEvent = typeof metadata.geofenceEvent === "string" ? metadata.geofenceEvent.slice(0, 180) : null;
+  const headingRaw = transportMetadataNumber(metadata, "heading");
+  const heading = headingRaw !== null && headingRaw >= 0 && headingRaw <= 360 ? headingRaw : null;
+  const ignitionOn = transportMetadataBoolean(metadata, "ignition");
+  const odometerKmRaw = transportMetadataNumber(metadata, "odometerKm");
+  const odometerKm = odometerKmRaw !== null && odometerKmRaw >= 0 ? odometerKmRaw : null;
+  const batteryRaw = transportMetadataNumber(metadata, "batteryPercent");
+  const batteryPercent = batteryRaw !== null && batteryRaw >= 0 && batteryRaw <= 100 ? batteryRaw : null;
+  const rangeRaw = transportMetadataNumber(metadata, "estimatedRangeKm");
+  const estimatedRangeKm = rangeRaw !== null && rangeRaw >= 0 ? rangeRaw : null;
+  const progressRaw = transportMetadataNumber(metadata, "routeProgressPercent");
+  const routeProgressPercent = progressRaw !== null && progressRaw >= 0 && progressRaw <= 100 ? progressRaw : null;
+  const providerEtaRaw = transportMetadataNumber(metadata, "etaMinutes");
+  const providerEta = providerEtaRaw !== null && providerEtaRaw >= 0 && providerEtaRaw <= 24 * 60 ? Math.round(providerEtaRaw) : null;
+  const routeDeviation = metadata.routeDeviation === true || String(metadata.routeDeviation ?? "").toLowerCase() === "true";
+
+  const previousPoint = trip ? await systemPrisma.transportGpsPoint.findFirst({
+    where: { organizationId: event.organizationId, tripId: trip.id, recordedAt: { lt: event.occurredAt } },
+    orderBy: { recordedAt: "desc" },
+    select: { speed: true, recordedAt: true },
+  }) : null;
+  let accelerationMps2: number | null = null;
+  if (previousPoint && normalized.speedKph !== null) {
+    const seconds = (event.occurredAt.getTime() - previousPoint.recordedAt.getTime()) / 1000;
+    if (seconds > 0 && seconds <= 300) {
+      accelerationMps2 = ((normalized.speedKph - Number(previousPoint.speed)) / 3.6) / seconds;
+    }
+  }
+
+  const policy = await systemPrisma.transportSafetyPolicy.findUnique({
+    where: { branchId: vehicle.branchId },
+  });
+  const overspeedKph = policy ? Number(policy.overspeedKph) : 60;
+  const harshAccelerationMps2 = policy ? Number(policy.harshAccelerationMps2) : 3;
+  const harshBrakingMps2 = policy ? Number(policy.harshBrakingMps2) : -3.5;
+
+  const estimatedEta = providerEta ?? (
+    trip && routeProgressPercent !== null
+      ? Math.max(0, Math.round(trip.route.estimatedMinutes * (1 - routeProgressPercent / 100)))
+      : null
+  );
 
   await systemPrisma.$transaction(async tx => {
     await tx.transportVehicle.update({
@@ -327,6 +443,11 @@ async function processLocation(event: any, normalized: z.infer<typeof normalized
         currentLatitude: normalized.latitude!,
         currentLongitude: normalized.longitude!,
         currentSpeed: normalized.speedKph ?? 0,
+        currentHeading: heading,
+        ignitionOn,
+        odometerKm,
+        batteryPercent,
+        estimatedRangeKm,
         lastGpsAt: event.occurredAt,
       },
     });
@@ -340,13 +461,106 @@ async function processLocation(event: any, normalized: z.infer<typeof normalized
           latitude: normalized.latitude!,
           longitude: normalized.longitude!,
           speed: normalized.speedKph ?? 0,
+          heading,
+          ignitionOn,
+          odometerKm,
+          accelerationMps2,
           recordedAt: event.occurredAt,
           geofenceEvent,
         },
         update: {},
       });
+      const currentSpeed = normalized.speedKph ?? 0;
+      const previousMax = trip.maxSpeed ? Number(trip.maxSpeed) : 0;
+      await tx.transportTrip.update({
+        where: { id: trip.id },
+        data: {
+          maxSpeed: Math.max(previousMax, currentSpeed),
+          routeProgressPercent,
+          etaMinutes: estimatedEta,
+          lastEtaAt: estimatedEta !== null ? event.occurredAt : undefined,
+        },
+      });
     }
   });
+
+  const alerts: string[] = [];
+  if (normalized.speedKph !== null && normalized.speedKph > overspeedKph) {
+    const alert = await createTransportAlert({
+      organizationId: event.organizationId,
+      branchId: vehicle.branchId,
+      tripId: trip?.id ?? null,
+      vehicleId: vehicle.id,
+      sourceEventId: event.id,
+      type: TransportAlertType.OVERSPEED,
+      severity: SchoolEventSeverity.HIGH,
+      title: "Vehicle overspeed detected",
+      description: `Speed ${normalized.speedKph.toFixed(1)} km/h exceeded branch limit ${overspeedKph.toFixed(1)} km/h.`,
+      occurredAt: event.occurredAt,
+      metadata: { speedKph: normalized.speedKph, thresholdKph: overspeedKph },
+    });
+    alerts.push(alert.id);
+  }
+  if (accelerationMps2 !== null && accelerationMps2 >= harshAccelerationMps2) {
+    const alert = await createTransportAlert({
+      organizationId: event.organizationId,
+      branchId: vehicle.branchId,
+      tripId: trip?.id ?? null,
+      vehicleId: vehicle.id,
+      sourceEventId: event.id,
+      type: TransportAlertType.HARSH_ACCELERATION,
+      severity: SchoolEventSeverity.MEDIUM,
+      title: "Harsh acceleration detected",
+      occurredAt: event.occurredAt,
+      metadata: { accelerationMps2, thresholdMps2: harshAccelerationMps2 },
+    });
+    alerts.push(alert.id);
+  }
+  if (accelerationMps2 !== null && accelerationMps2 <= harshBrakingMps2) {
+    const alert = await createTransportAlert({
+      organizationId: event.organizationId,
+      branchId: vehicle.branchId,
+      tripId: trip?.id ?? null,
+      vehicleId: vehicle.id,
+      sourceEventId: event.id,
+      type: TransportAlertType.HARSH_BRAKING,
+      severity: SchoolEventSeverity.MEDIUM,
+      title: "Harsh braking detected",
+      occurredAt: event.occurredAt,
+      metadata: { accelerationMps2, thresholdMps2: harshBrakingMps2 },
+    });
+    alerts.push(alert.id);
+  }
+  if (routeDeviation) {
+    const alert = await createTransportAlert({
+      organizationId: event.organizationId,
+      branchId: vehicle.branchId,
+      tripId: trip?.id ?? null,
+      vehicleId: vehicle.id,
+      sourceEventId: event.id,
+      type: TransportAlertType.ROUTE_DEVIATION,
+      severity: SchoolEventSeverity.HIGH,
+      title: "Route deviation detected",
+      occurredAt: event.occurredAt,
+      metadata: { providerSignal: true, latitude: normalized.latitude, longitude: normalized.longitude },
+    });
+    alerts.push(alert.id);
+  }
+  if (geofenceEvent) {
+    const alert = await createTransportAlert({
+      organizationId: event.organizationId,
+      branchId: vehicle.branchId,
+      tripId: trip?.id ?? null,
+      vehicleId: vehicle.id,
+      sourceEventId: event.id,
+      type: TransportAlertType.GEOFENCE,
+      severity: SchoolEventSeverity.INFO,
+      title: `Vehicle geofence event: ${geofenceEvent}`,
+      occurredAt: event.occurredAt,
+      metadata: { geofenceEvent },
+    });
+    alerts.push(alert.id);
+  }
 
   await recordSchoolEvent({
     organizationId: event.organizationId,
@@ -365,10 +579,27 @@ async function processLocation(event: any, normalized: z.infer<typeof normalized
       latitude: normalized.latitude,
       longitude: normalized.longitude,
       speedKph: normalized.speedKph,
+      heading,
+      ignitionOn,
+      odometerKm,
+      batteryPercent,
+      estimatedRangeKm,
+      accelerationMps2,
+      routeProgressPercent,
+      etaMinutes: estimatedEta,
       geofenceEvent,
+      alertIds: alerts,
     },
   });
-  return { adapter: "TRANSPORT_GPS", bindingId: binding.id, vehicleId: vehicle.id, tripId: trip?.id ?? null };
+  return {
+    adapter: "TRANSPORT_GPS",
+    bindingId: binding.id,
+    vehicleId: vehicle.id,
+    tripId: trip?.id ?? null,
+    routeProgressPercent,
+    etaMinutes: estimatedEta,
+    alertIds: alerts,
+  };
 }
 
 async function processAccess(event: any, normalized: z.infer<typeof normalizedSchema>) {
