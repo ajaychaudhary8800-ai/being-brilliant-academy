@@ -7028,6 +7028,7 @@ model TransportSafetyPolicy {
   delayedStartMinutes     Int      @default(10)
   routeDeviationMeters    Int      @default(500)
   stopGeofenceMeters      Int      @default(250)
+  requirePreTripChecklist Boolean  @default(false)
   updatedById             String?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
