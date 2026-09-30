@@ -1,9 +1,16 @@
-import { AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerRubricStatus, AnswerSheetStatus, ExaminationStatus, Prisma, Role } from "@prisma/client";
+import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerRubricStatus, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config.js";
 import { AI_EXAMINER_ENGINE_VERSION, AI_EXAMINER_REVIEW_THRESHOLD, aiExaminerProviderConfigured, aiExaminerProviderMode } from "../lib/ai-examiner-engine.js";
 import { parseAIExaminerExamProfile } from "../lib/ai-examiner-exam-profile.js";
+import {
+  assessAIExaminerBenchmarkDrift,
+  calculateAIExaminerBenchmarkMetrics,
+  evaluateAIExaminerBenchmarkGate,
+  groupAIExaminerBenchmarkMetrics,
+  type AIExaminerBenchmarkCase,
+} from "../lib/ai-examiner-benchmark.js";
 import { AI_EXAMINER_ENGINES, AI_EXAMINER_QUESTION_TYPES } from "../lib/ai-examiner-assessment-router.js";
 import { aiExaminerRubricInputSchema, aiExaminerRubricStorage } from "../lib/ai-examiner-question-config.js";
 import { aiExaminerLifecycleBlocker, assertAIExaminerEvaluationReady, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
@@ -18,6 +25,41 @@ router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER)
 
 const cuid = z.string().cuid();
 const rubricInput = aiExaminerRubricInputSchema;
+
+const benchmarkThresholdSchema = z.object({
+  minimumCases: z.coerce.number().int().min(1).max(100000),
+  agreementToleranceMarks: z.coerce.number().min(0).max(10000).default(0),
+  agreementToleranceRatio: z.coerce.number().min(0).max(1).default(0),
+  maximumNormalizedMae: z.coerce.number().min(0).max(1),
+  minimumWithinToleranceRate: z.coerce.number().min(0).max(1),
+  maximumOverrideRate: z.coerce.number().min(0).max(1),
+  maximumLowConfidenceRate: z.coerce.number().min(0).max(1),
+  lowConfidenceThreshold: z.coerce.number().min(0).max(1),
+  drift: z.object({
+    maximumNormalizedMaeIncrease: z.coerce.number().min(0).max(1),
+    maximumOverrideRateIncrease: z.coerce.number().min(0).max(1),
+    maximumLowConfidenceRateIncrease: z.coerce.number().min(0).max(1),
+    maximumWithinToleranceRateDrop: z.coerce.number().min(0).max(1),
+  }).optional(),
+});
+
+const benchmarkMetricsSchema = z.object({
+  caseCount: z.number().int().nonnegative(),
+  meanAbsoluteErrorMarks: z.number(),
+  normalizedMae: z.number(),
+  meanSignedErrorMarks: z.number(),
+  withinToleranceRate: z.number(),
+  exactAgreementRate: z.number(),
+  overrideRate: z.number(),
+  lowConfidenceRate: z.number(),
+  reviewRequiredRate: z.number(),
+});
+
+function requireBenchmarkAdmin(req: AuthRequest) {
+  if (req.auth!.role === Role.TEACHER) {
+    throw new AppError(403, "AI_EXAMINER_BENCHMARK_ADMIN_REQUIRED", "Only organization or branch administrators can manage benchmark datasets");
+  }
+}
 
 function requireExamProfileAdmin(req: AuthRequest) {
   if (req.auth!.role === Role.TEACHER) {
@@ -42,6 +84,25 @@ async function visibleProfileBranchIds(req: AuthRequest): Promise<string[] | nul
     select: { branchId: true },
   });
   return teacher ? [teacher.branchId] : [];
+}
+
+async function benchmarkSuiteForRequest(req: AuthRequest, suiteId: string) {
+  const suite = await prisma.aIExaminerBenchmarkSuite.findFirst({
+    where: { id: suiteId, organizationId: req.auth!.organizationId },
+    include: {
+      subject: { select: { id: true, name: true, code: true } },
+      branch: { select: { id: true, branchName: true } },
+      _count: { select: { cases: true, runs: true } },
+    },
+  });
+  if (!suite) throw new AppError(404, "AI_EXAMINER_BENCHMARK_SUITE_NOT_FOUND", "Benchmark suite not found");
+  if (suite.branchId) {
+    const visibleBranches = await visibleProfileBranchIds(req);
+    if (visibleBranches && !visibleBranches.includes(suite.branchId)) {
+      throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
+    }
+  }
+  return suite;
 }
 
 async function branchAccess(req: AuthRequest, branchId: string) {
@@ -178,6 +239,336 @@ function readiness(exam: Awaited<ReturnType<typeof examinationForManager>>, eval
 
 router.get("/capabilities", async (_req, res) => {
   res.json({ data: { providerConfigured: aiExaminerProviderConfigured(), providerMode: aiExaminerProviderMode(), model: env.AI_EXAMINER_MODEL, engineVersion: AI_EXAMINER_ENGINE_VERSION, reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD, evaluationExecutionAvailable: aiExaminerProviderConfigured(), questionTypes: AI_EXAMINER_QUESTION_TYPES, engines: AI_EXAMINER_ENGINES, phase: "EVALUATION_ENGINE" } });
+});
+
+router.get("/benchmark-suites", async (req: AuthRequest, res) => {
+  const branches = await visibleProfileBranchIds(req);
+  const status = z.nativeEnum(AIExaminerBenchmarkSuiteStatus).optional().parse(req.query.status);
+  const data = await prisma.aIExaminerBenchmarkSuite.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      ...(status ? { status } : {}),
+      ...(branches ? { OR: [{ branchId: null }, { branchId: { in: branches } }] } : {}),
+    },
+    select: {
+      id: true, branchId: true, subjectId: true, code: true, name: true, classLevel: true,
+      academicBoard: true, questionType: true, status: true, thresholds: true, approvedAt: true,
+      createdAt: true, updatedAt: true, _count: { select: { cases: true, runs: true } },
+      subject: { select: { id: true, name: true, code: true } },
+      branch: { select: { id: true, branchName: true } },
+    },
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    take: 200,
+  });
+  res.json({ data });
+});
+
+router.post("/benchmark-suites", async (req: AuthRequest, res) => {
+  requireBenchmarkAdmin(req);
+  const body = z.object({
+    branchId: cuid.nullable().optional(),
+    subjectId: cuid.nullable().optional(),
+    code: z.string().trim().min(2).max(80).regex(/^[A-Z0-9][A-Z0-9_-]*$/),
+    name: z.string().trim().min(2).max(180),
+    classLevel: z.nativeEnum(ClassLevel).nullable().optional(),
+    academicBoard: z.nativeEnum(AcademicBoard).nullable().optional(),
+    questionType: z.nativeEnum(QuestionType).nullable().optional(),
+    thresholds: benchmarkThresholdSchema,
+  }).parse(req.body);
+  const branchId = body.branchId ?? null;
+  if (req.auth!.role === Role.BRANCH_ADMIN && !branchId) {
+    throw new AppError(422, "AI_EXAMINER_BENCHMARK_BRANCH_REQUIRED", "Branch administrators can create branch-scoped benchmark suites only");
+  }
+  if (branchId) {
+    await branchAccess(req, branchId);
+    if (!await prisma.branch.findFirst({ where: { id: branchId, organizationId: req.auth!.organizationId }, select: { id: true } })) {
+      throw new AppError(422, "INVALID_BRANCH", "Benchmark suite branch is invalid");
+    }
+  }
+  if (body.subjectId && !await prisma.subject.findFirst({ where: { id: body.subjectId, organizationId: req.auth!.organizationId }, select: { id: true } })) {
+    throw new AppError(422, "INVALID_SUBJECT", "Benchmark suite subject is invalid");
+  }
+  if (await prisma.aIExaminerBenchmarkSuite.findFirst({ where: { organizationId: req.auth!.organizationId, code: body.code }, select: { id: true } })) {
+    throw new AppError(409, "AI_EXAMINER_BENCHMARK_SUITE_EXISTS", "Benchmark suite code already exists");
+  }
+  const data = await prisma.aIExaminerBenchmarkSuite.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      branchId,
+      subjectId: body.subjectId ?? null,
+      code: body.code,
+      name: body.name,
+      classLevel: body.classLevel ?? null,
+      academicBoard: body.academicBoard ?? null,
+      questionType: body.questionType ?? null,
+      thresholds: profileJson(body.thresholds),
+      createdById: req.auth!.userId,
+    },
+  });
+  await prisma.auditLog.create({ data: {
+    organizationId: req.auth!.organizationId,
+    actorId: req.auth!.userId,
+    action: "AI_EXAMINER_BENCHMARK_SUITE_CREATED",
+    entity: "AIExaminerBenchmarkSuite",
+    entityId: data.id,
+    metadata: { code: data.code, branchId: data.branchId, subjectId: data.subjectId, questionType: data.questionType },
+  } }).catch(() => null);
+  res.status(201).json({ data });
+});
+
+router.post("/benchmark-suites/:suiteId/cases", async (req: AuthRequest, res) => {
+  requireBenchmarkAdmin(req);
+  const suite = await benchmarkSuiteForRequest(req, cuid.parse(req.params.suiteId));
+  if (suite.status !== AIExaminerBenchmarkSuiteStatus.DRAFT) {
+    throw new AppError(409, "AI_EXAMINER_BENCHMARK_SUITE_IMMUTABLE", "Benchmark cases can only be changed while the suite is draft");
+  }
+  if (req.auth!.role === Role.BRANCH_ADMIN && !suite.branchId) {
+    throw new AppError(403, "BRANCH_FORBIDDEN", "Organization-wide benchmark suites can only be changed by a super administrator");
+  }
+  const body = z.object({
+    sourceAnswerSheetId: cuid,
+    questionKey: z.string().trim().min(1).max(40),
+    maxMarks: z.coerce.number().positive().max(10000),
+    minimumMarks: z.coerce.number().min(-10000).max(10000).default(0),
+    humanMarks: z.coerce.number().min(-10000).max(10000),
+    humanReviewerId: cuid,
+    goldNotes: z.string().trim().max(10000).nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  }).superRefine((value, ctx) => {
+    if (value.minimumMarks > value.maxMarks) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["minimumMarks"], message: "Minimum marks cannot exceed maximum marks" });
+    if (value.humanMarks < value.minimumMarks || value.humanMarks > value.maxMarks) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["humanMarks"], message: "Human marks must be within configured question bounds" });
+  }).parse(req.body);
+
+  const reviewer = await prisma.user.findFirst({
+    where: { id: body.humanReviewerId, organizationId: req.auth!.organizationId, isActive: true },
+    select: { id: true, role: true },
+  });
+  if (!reviewer || ![Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER].includes(reviewer.role)) {
+    throw new AppError(422, "AI_EXAMINER_BENCHMARK_REVIEWER_INVALID", "Human benchmark reviewer must be an active teacher or administrator");
+  }
+
+  const { sheet, exam } = await answerSheetForManager(req, body.sourceAnswerSheetId);
+  if (suite.branchId && suite.branchId !== exam.branchId) {
+    throw new AppError(422, "AI_EXAMINER_BENCHMARK_BRANCH_MISMATCH", "Source answer sheet must belong to the benchmark suite branch");
+  }
+  if (suite.subjectId && suite.subjectId !== exam.subjectId) {
+    throw new AppError(422, "AI_EXAMINER_BENCHMARK_SUBJECT_MISMATCH", "Source answer sheet subject must match the benchmark suite subject");
+  }
+
+  const data = await prisma.aIExaminerBenchmarkCase.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      suiteId: suite.id,
+      sourceAnswerSheetId: sheet.id,
+      questionKey: body.questionKey,
+      maxMarks: body.maxMarks,
+      minimumMarks: body.minimumMarks,
+      humanMarks: body.humanMarks,
+      humanReviewerId: reviewer.id,
+      goldNotes: body.goldNotes ?? null,
+      ...(body.metadata ? { metadata: profileJson(body.metadata) } : {}),
+    },
+  });
+  await prisma.auditLog.create({ data: {
+    organizationId: req.auth!.organizationId,
+    actorId: req.auth!.userId,
+    action: "AI_EXAMINER_BENCHMARK_CASE_CREATED",
+    entity: "AIExaminerBenchmarkCase",
+    entityId: data.id,
+    metadata: { suiteId: suite.id, answerSheetId: sheet.id, questionKey: body.questionKey, humanReviewerId: reviewer.id },
+  } }).catch(() => null);
+  res.status(201).json({ data });
+});
+
+router.post("/benchmark-suites/:suiteId/activate", async (req: AuthRequest, res) => {
+  requireBenchmarkAdmin(req);
+  const suite = await benchmarkSuiteForRequest(req, cuid.parse(req.params.suiteId));
+  if (suite.status !== AIExaminerBenchmarkSuiteStatus.DRAFT) {
+    throw new AppError(409, "AI_EXAMINER_BENCHMARK_SUITE_NOT_DRAFT", "Only a draft benchmark suite can be activated");
+  }
+  if (req.auth!.role === Role.BRANCH_ADMIN && !suite.branchId) {
+    throw new AppError(403, "BRANCH_FORBIDDEN", "Organization-wide benchmark suites can only be activated by a super administrator");
+  }
+  const thresholds = benchmarkThresholdSchema.parse(suite.thresholds);
+  const activeCases = await prisma.aIExaminerBenchmarkCase.count({ where: { organizationId: req.auth!.organizationId, suiteId: suite.id, isActive: true } });
+  if (activeCases < thresholds.minimumCases) {
+    throw new AppError(409, "AI_EXAMINER_BENCHMARK_CASES_INSUFFICIENT", `Benchmark suite requires at least ${thresholds.minimumCases} active human-marked cases before activation`);
+  }
+  const now = new Date();
+  const data = await prisma.aIExaminerBenchmarkSuite.update({
+    where: { id: suite.id },
+    data: { status: AIExaminerBenchmarkSuiteStatus.ACTIVE, approvedById: req.auth!.userId, approvedAt: now },
+  });
+  await prisma.auditLog.create({ data: {
+    organizationId: req.auth!.organizationId,
+    actorId: req.auth!.userId,
+    action: "AI_EXAMINER_BENCHMARK_SUITE_ACTIVATED",
+    entity: "AIExaminerBenchmarkSuite",
+    entityId: suite.id,
+    metadata: { activeCases, minimumCases: thresholds.minimumCases },
+  } }).catch(() => null);
+  res.json({ data });
+});
+
+router.get("/benchmark-suites/:suiteId/runs", async (req: AuthRequest, res) => {
+  const suite = await benchmarkSuiteForRequest(req, cuid.parse(req.params.suiteId));
+  const data = await prisma.aIExaminerBenchmarkRun.findMany({
+    where: { organizationId: req.auth!.organizationId, suiteId: suite.id },
+    select: {
+      id: true, engineVersion: true, provider: true, model: true, status: true, thresholds: true,
+      metrics: true, benchmarkReady: true, startedAt: true, completedAt: true, createdAt: true,
+      _count: { select: { results: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+  res.json({ data });
+});
+
+router.post("/benchmark-suites/:suiteId/runs", async (req: AuthRequest, res) => {
+  requireBenchmarkAdmin(req);
+  const suite = await benchmarkSuiteForRequest(req, cuid.parse(req.params.suiteId));
+  if (suite.status !== AIExaminerBenchmarkSuiteStatus.ACTIVE) {
+    throw new AppError(409, "AI_EXAMINER_BENCHMARK_SUITE_INACTIVE", "Activate the benchmark suite before recording a benchmark run");
+  }
+  if (req.auth!.role === Role.BRANCH_ADMIN && !suite.branchId) {
+    throw new AppError(403, "BRANCH_FORBIDDEN", "Organization-wide benchmark runs can only be recorded by a super administrator");
+  }
+  const body = z.object({
+    engineVersion: z.string().trim().min(1).max(120),
+    provider: z.string().trim().min(1).max(160).nullable().optional(),
+    model: z.string().trim().min(1).max(160).nullable().optional(),
+    results: z.array(z.object({
+      caseId: cuid,
+      aiMarks: z.coerce.number().min(-10000).max(10000),
+      confidence: z.coerce.number().min(0).max(1),
+      reviewRequired: z.boolean().default(true),
+      teacherOverride: z.boolean().default(false),
+      diagnostics: z.record(z.string(), z.unknown()).optional(),
+      errorCode: z.string().trim().max(160).nullable().optional(),
+    })).min(1).max(100000),
+  }).parse(req.body);
+
+  const cases = await prisma.aIExaminerBenchmarkCase.findMany({
+    where: { organizationId: req.auth!.organizationId, suiteId: suite.id, isActive: true },
+    select: { id: true, maxMarks: true, minimumMarks: true, humanMarks: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const caseMap = new Map(cases.map(row => [row.id, row]));
+  const resultMap = new Map<string, typeof body.results[number]>();
+  for (const result of body.results) {
+    if (resultMap.has(result.caseId)) throw new AppError(422, "AI_EXAMINER_BENCHMARK_DUPLICATE_RESULT", "Each benchmark case may appear only once in a run");
+    if (!caseMap.has(result.caseId)) throw new AppError(422, "AI_EXAMINER_BENCHMARK_CASE_INVALID", "Benchmark run contains a case outside the active suite");
+    resultMap.set(result.caseId, result);
+  }
+  if (resultMap.size !== cases.length) {
+    throw new AppError(422, "AI_EXAMINER_BENCHMARK_RUN_INCOMPLETE", `Benchmark run must contain all ${cases.length} active cases`);
+  }
+
+  const thresholds = benchmarkThresholdSchema.parse(suite.thresholds);
+  const benchmarkRows: AIExaminerBenchmarkCase[] = cases.map(row => {
+    const result = resultMap.get(row.id)!;
+    return {
+      id: row.id,
+      humanMarks: Number(row.humanMarks),
+      aiMarks: result.aiMarks,
+      maxMarks: Number(row.maxMarks),
+      minimumMarks: Number(row.minimumMarks),
+      confidence: result.confidence,
+      reviewRequired: result.reviewRequired,
+      teacherOverride: result.teacherOverride,
+      subjectKey: suite.subject?.name ?? suite.subjectId ?? "UNSPECIFIED",
+      questionType: suite.questionType ?? "UNSPECIFIED",
+    };
+  });
+
+  const { drift, ...gateThresholds } = thresholds;
+  let gate;
+  try {
+    gate = evaluateAIExaminerBenchmarkGate(benchmarkRows, gateThresholds);
+  } catch (error) {
+    throw new AppError(422, "AI_EXAMINER_BENCHMARK_RESULT_INVALID", error instanceof Error ? error.message : "Benchmark result is invalid");
+  }
+  const bySubject = groupAIExaminerBenchmarkMetrics(benchmarkRows, "subjectKey", gateThresholds);
+  const byQuestionType = groupAIExaminerBenchmarkMetrics(benchmarkRows, "questionType", gateThresholds);
+  const previous = await prisma.aIExaminerBenchmarkRun.findFirst({
+    where: { organizationId: req.auth!.organizationId, suiteId: suite.id, status: AIExaminerBenchmarkRunStatus.COMPLETED },
+    select: { metrics: true },
+    orderBy: { completedAt: "desc" },
+  });
+  let driftAssessment: ReturnType<typeof assessAIExaminerBenchmarkDrift> | null = null;
+  if (drift && previous?.metrics && typeof previous.metrics === "object" && !Array.isArray(previous.metrics)) {
+    const priorOverall = benchmarkMetricsSchema.safeParse((previous.metrics as Record<string, unknown>).overall);
+    if (priorOverall.success) driftAssessment = assessAIExaminerBenchmarkDrift(priorOverall.data, gate.metrics, drift);
+  }
+
+  const metricsPayload = {
+    overall: gate.metrics,
+    gateFailures: gate.failures,
+    bySubject,
+    byQuestionType,
+    drift: driftAssessment,
+  };
+  const now = new Date();
+  const data = await prisma.$transaction(async tx => {
+    const run = await tx.aIExaminerBenchmarkRun.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        suiteId: suite.id,
+        engineVersion: body.engineVersion,
+        provider: body.provider ?? null,
+        model: body.model ?? null,
+        status: AIExaminerBenchmarkRunStatus.COMPLETED,
+        thresholds: profileJson(thresholds),
+        metrics: profileJson(metricsPayload),
+        benchmarkReady: gate.ready && !driftAssessment?.driftDetected,
+        createdById: req.auth!.userId,
+        startedAt: now,
+        completedAt: now,
+      },
+    });
+    await tx.aIExaminerBenchmarkResult.createMany({
+      data: cases.map(row => {
+        const result = resultMap.get(row.id)!;
+        return {
+          organizationId: req.auth!.organizationId,
+          runId: run.id,
+          caseId: row.id,
+          aiMarks: result.aiMarks,
+          confidence: result.confidence,
+          reviewRequired: result.reviewRequired,
+          teacherOverride: result.teacherOverride,
+          ...(result.diagnostics ? { diagnostics: profileJson(result.diagnostics) } : {}),
+          errorCode: result.errorCode ?? null,
+        };
+      }),
+    });
+    await tx.auditLog.create({ data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "AI_EXAMINER_BENCHMARK_RUN_RECORDED",
+      entity: "AIExaminerBenchmarkRun",
+      entityId: run.id,
+      metadata: {
+        suiteId: suite.id,
+        caseCount: cases.length,
+        benchmarkReady: run.benchmarkReady,
+        gateFailures: gate.failures,
+        driftDetected: driftAssessment?.driftDetected ?? false,
+      },
+    } });
+    return run;
+  });
+
+  res.status(201).json({
+    data: {
+      ...data,
+      benchmarkGate: gate,
+      drift: driftAssessment,
+      releaseReady: false,
+      releaseReadyReason: "Benchmark readiness is only one release gate; staging, security, tenant isolation and functional QA remain separate requirements.",
+    },
+  });
 });
 
 router.get("/exam-profiles", async (req: AuthRequest, res) => {
