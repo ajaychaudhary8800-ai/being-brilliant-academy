@@ -1053,7 +1053,7 @@ router.post("/answer-sheets/:answerSheetId/evidence", async (req: AuthRequest, r
   const rubricQuestion = rubricQuestions.find(question => question.key.toLocaleLowerCase("en") === body.questionKey.toLocaleLowerCase("en"));
   if (!rubricQuestion) throw new AppError(422, "AI_EXAMINER_EVIDENCE_QUESTION_INVALID", "Evidence question key is not present in the active rubric");
 
-  let fileData: Buffer | undefined;
+  let fileData: Uint8Array<ArrayBuffer> | undefined;
   let fileSize: number | undefined;
   let contentSha256: string | undefined;
   let externalUrl: string | undefined;
@@ -1065,7 +1065,7 @@ router.post("/answer-sheets/:answerSheetId/evidence", async (req: AuthRequest, r
       mimeType: body.mimeType,
       maximumBytes: 10 * 1024 * 1024,
     });
-    fileData = decoded.bytes;
+    fileData = decoded.bytes as unknown as Uint8Array<ArrayBuffer>;
     fileSize = decoded.bytes.length;
     contentSha256 = decoded.contentSha256;
   } else if (body.externalUrl) {
