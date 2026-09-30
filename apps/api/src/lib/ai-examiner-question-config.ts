@@ -18,6 +18,12 @@ export const aiExaminerAnswerKeySchema = z.union([
   z.record(aiExaminerAnswerKeyScalarSchema),
 ]);
 
+export const aiExaminerChemistryValidationSchema = z.object({
+  expectedEquation: z.string().trim().min(1).max(12000).optional(),
+  requireBalanced: z.boolean().default(true),
+  allowReverse: z.boolean().default(false),
+});
+
 export const aiExaminerStemValidationSchema = z.object({
   expectedExpression: z.string().trim().min(1).max(12000).optional(),
   expectedNumericValue: z.coerce.number().finite().optional(),
@@ -80,6 +86,7 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
   requiresVisualEvidence: z.boolean().default(false),
   requiresCodeExecution: z.boolean().default(false),
   stemValidation: aiExaminerStemValidationSchema.optional(),
+  chemistryValidation: aiExaminerChemistryValidationSchema.optional(),
 }).superRefine((question, ctx) => {
   const route = routeAIExaminerQuestion({
     questionType: question.questionType,
@@ -127,6 +134,14 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["stemValidation"],
       message: "STEM validation is only supported for calculation, derivation and proof questions",
+    });
+  }
+
+  if (question.chemistryValidation && question.questionType !== "CHEMISTRY_EQUATION") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["chemistryValidation"],
+      message: "Chemistry equation validation is only supported for CHEMISTRY_EQUATION questions",
     });
   }
 
