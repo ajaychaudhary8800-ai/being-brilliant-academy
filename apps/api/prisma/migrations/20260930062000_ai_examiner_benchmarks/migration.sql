@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS "AIExaminerBenchmarkCase" (
   "sourceAnswerSheetId" TEXT,
   "questionKey" TEXT NOT NULL,
   "maxMarks" DECIMAL(8,2) NOT NULL,
+  "minimumMarks" DECIMAL(8,2) NOT NULL DEFAULT 0,
   "humanMarks" DECIMAL(8,2) NOT NULL,
   "humanReviewerId" TEXT NOT NULL,
   "goldNotes" TEXT,
