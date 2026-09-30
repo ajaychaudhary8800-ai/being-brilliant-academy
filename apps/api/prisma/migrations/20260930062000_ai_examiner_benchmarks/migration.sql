@@ -93,6 +93,8 @@ CREATE INDEX IF NOT EXISTS "AIExaminerBenchmarkSuite_organizationId_subjectId_qu
 CREATE INDEX IF NOT EXISTS "AIExaminerBenchmarkSuite_organizationId_branchId_status_idx"
   ON "AIExaminerBenchmarkSuite"("organizationId","branchId","status");
 
+CREATE UNIQUE INDEX IF NOT EXISTS "AIExaminerBenchmarkCase_suiteId_sourceAnswerSheetId_questionKey_key"
+  ON "AIExaminerBenchmarkCase"("suiteId","sourceAnswerSheetId","questionKey");
 CREATE INDEX IF NOT EXISTS "AIExaminerBenchmarkCase_organizationId_suiteId_isActive_idx"
   ON "AIExaminerBenchmarkCase"("organizationId","suiteId","isActive");
 CREATE INDEX IF NOT EXISTS "AIExaminerBenchmarkCase_sourceAnswerSheetId_questionKey_idx"
