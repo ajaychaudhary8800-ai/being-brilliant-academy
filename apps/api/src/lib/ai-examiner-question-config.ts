@@ -160,6 +160,27 @@ export const aiExaminerScoringRuleSchema = z.object({
   }).default({ absolute: 0, relative: 0 }),
 }).optional();
 
+export const aiExaminerLanguagePolicySchema = z.object({
+  acceptedLanguages: z.array(z.string().trim().min(2).max(80)).min(1).max(12).default(["English"]),
+  allowCodeSwitching: z.boolean().default(false),
+  allowTransliteration: z.boolean().default(false),
+  evaluateLanguageMechanics: z.boolean().default(false),
+  requireOriginalLanguageEvidence: z.boolean().default(true),
+}).superRefine((value, ctx) => {
+  const seen = new Set<string>();
+  value.acceptedLanguages.forEach((language, index) => {
+    const normalized = language.normalize("NFKC").toLocaleLowerCase("en");
+    if (seen.has(normalized)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["acceptedLanguages", index],
+        message: "Accepted academic languages must be unique",
+      });
+    }
+    seen.add(normalized);
+  });
+});
+
 export const aiExaminerRubricQuestionInputSchema = z.object({
   key: z.string().trim().min(1).max(40),
   maxMarks: z.coerce.number().positive().max(10000),
@@ -171,6 +192,7 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
   scoring: aiExaminerScoringRuleSchema,
   requiresVisualEvidence: z.boolean().default(false),
   requiresCodeExecution: z.boolean().default(false),
+  languagePolicy: aiExaminerLanguagePolicySchema.default({ acceptedLanguages: ["English"], allowCodeSwitching: false, allowTransliteration: false, evaluateLanguageMechanics: false, requireOriginalLanguageEvidence: true }),
   stemValidation: aiExaminerStemValidationSchema.optional(),
   chemistryValidation: aiExaminerChemistryValidationSchema.optional(),
   accountingValidation: aiExaminerAccountingValidationSchema.optional(),
