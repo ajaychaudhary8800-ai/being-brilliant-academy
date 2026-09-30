@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   aiExaminerProviderQuestions,
+  applyAIExaminerCodeVerifications,
   overlayTrustedAIExaminerOmrAnswers,
   reconcileAIExaminerProviderResult,
   resolveAIExaminerRubricQuestions,
@@ -210,4 +211,96 @@ test("multimodal visual criteria are passed to the provider and reconciled as st
   assert.ok(evidence && "engine" in evidence && evidence.engine === "MULTIMODAL");
   assert.equal(evidence.reviewRequired, true);
   assert.equal(evidence.checks.some(check => check.status === "REVIEW"), true);
+});
+
+
+test("programming provider marks are withheld until isolated execution evidence is verified", () => {
+  const questions = resolveAIExaminerRubricQuestions({
+    questions: [{
+      key: "Q1",
+      maxMarks: 10,
+      criteria: "Write a function that adds two integers.",
+      concepts: ["Programming"],
+      questionType: "PROGRAMMING",
+      requiresCodeExecution: true,
+      codeExecution: {
+        language: "PYTHON",
+        timeoutMs: 2000,
+        memoryMb: 64,
+        maxOutputBytes: 4096,
+        networkAccess: false,
+        fileSystem: "NONE",
+        testCases: [
+          { key: "basic", input: "1 2", expectedOutput: "3", weight: 1 },
+          { key: "negative", input: "-2 5", expectedOutput: "3", weight: 1, hidden: true },
+        ],
+      },
+    }],
+  }, null);
+
+  const primary = reconcileAIExaminerProviderResult(
+    questions,
+    provider([row("Q1", "def add(a,b): return a+b", 10, 0.99)]),
+    0.75,
+  );
+  assert.equal(primary.questions[0]?.engine, "CODE_SANDBOX");
+  assert.equal(primary.questions[0]?.suggestedMarks, null);
+  assert.equal(primary.questions[0]?.scoringError?.code, "AI_EXAMINER_CODE_RUNNER_REQUIRED");
+  assert.equal(primary.suggestedMarks, null);
+
+  const verified = applyAIExaminerCodeVerifications({
+    reconciled: primary,
+    questions,
+    verifications: new Map([["q1", {
+      engine: "CODE_SANDBOX",
+      reviewRequired: true,
+      executionAccepted: true,
+      passedWeight: 1,
+      totalWeight: 2,
+      scoreFraction: 0.5,
+      checks: [],
+    }]]),
+  });
+  assert.equal(verified.questions[0]?.suggestedMarks, 5);
+  assert.equal(verified.questions[0]?.scoringError, null);
+  assert.equal(verified.questions[0]?.reviewRequired, true);
+  assert.equal(verified.suggestedMarks, 5);
+});
+
+test("untrusted sandbox evidence keeps programming marks unresolved", () => {
+  const questions = resolveAIExaminerRubricQuestions({
+    questions: [{
+      key: "Q1",
+      maxMarks: 8,
+      criteria: "Write the program.",
+      concepts: [],
+      questionType: "PROGRAMMING",
+      requiresCodeExecution: true,
+      codeExecution: {
+        language: "JAVASCRIPT",
+        timeoutMs: 1000,
+        memoryMb: 64,
+        maxOutputBytes: 4096,
+        networkAccess: false,
+        fileSystem: "NONE",
+        testCases: [{ key: "t1", expectedOutput: "OK", weight: 1 }],
+      },
+    }],
+  }, null);
+  const primary = reconcileAIExaminerProviderResult(questions, provider([row("Q1", "console.log('OK')", 8)]), 0.75);
+  const verified = applyAIExaminerCodeVerifications({
+    reconciled: primary,
+    questions,
+    verifications: new Map([["q1", {
+      engine: "CODE_SANDBOX",
+      reviewRequired: true,
+      executionAccepted: false,
+      passedWeight: 0,
+      totalWeight: 1,
+      scoreFraction: 0,
+      checks: [{ criterion: "Sandbox execution", status: "REVIEW", rationale: "Infrastructure unavailable" }],
+    }]]),
+  });
+  assert.equal(verified.questions[0]?.suggestedMarks, null);
+  assert.equal(verified.questions[0]?.scoringError?.code, "AI_EXAMINER_CODE_EXECUTION_UNTRUSTED");
 });
