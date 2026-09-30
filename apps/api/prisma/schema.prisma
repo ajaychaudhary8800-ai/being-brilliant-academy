@@ -569,6 +569,63 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum ConnectedDeviceKind {
+  BIOMETRIC
+  RFID
+  GPS
+  CAMERA
+  ACCESS_CONTROL
+  ENVIRONMENT_SENSOR
+  EDGE_GATEWAY
+  OTHER
+}
+
+enum ConnectedDeviceProtocol {
+  WEBHOOK
+  REST_PULL
+  MQTT
+  TCP_PUSH
+  ONVIF
+  RTSP
+  SDK
+  MANUAL
+}
+
+enum ConnectedDeviceStatus {
+  PROVISIONING
+  ACTIVE
+  OFFLINE
+  DEGRADED
+  DISABLED
+  RETIRED
+}
+
+enum ConnectedDeviceEventStatus {
+  RECEIVED
+  NORMALIZED
+  PROCESSED
+  REJECTED
+  DUPLICATE
+}
+
+enum ConnectedDeviceBindingType {
+  STUDENT
+  EMPLOYEE
+  VEHICLE
+  GATE
+  CAMERA
+  ROUTE
+  OTHER
+}
+
+enum ConnectedDeviceCommandStatus {
+  QUEUED
+  SENT
+  ACKNOWLEDGED
+  FAILED
+  CANCELLED
+}
+
 enum Role {
   SUPER_ADMIN
   BRANCH_ADMIN
@@ -5329,6 +5386,105 @@ model GstConfiguration {
 
   @@unique([branchId, effectiveFrom])
   @@index([organizationId])
+}
+
+model ConnectedDevice {
+  organizationId   String
+  id               String                    @id @default(cuid())
+  branchId         String?
+  code             String
+  name             String
+  kind             ConnectedDeviceKind
+  protocol         ConnectedDeviceProtocol
+  providerKey      String
+  externalDeviceId String?
+  status           ConnectedDeviceStatus     @default(PROVISIONING)
+  ingestTokenHash  String?
+  capabilities     String[]                  @default([])
+  config           Json?
+  metadata         Json?
+  firmwareVersion  String?
+  lastHeartbeatAt  DateTime?
+  lastSeenAt       DateTime?
+  lastErrorAt      DateTime?
+  lastErrorCode    String?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  events           ConnectedDeviceEvent[]
+  bindings         ConnectedDeviceBinding[]
+  commands         ConnectedDeviceCommand[]
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, providerKey, externalDeviceId])
+  @@index([organizationId, branchId, status])
+  @@index([organizationId, kind, status])
+}
+
+model ConnectedDeviceEvent {
+  organizationId  String
+  id              String                     @id @default(cuid())
+  deviceId        String
+  externalEventId String?
+  eventType       String
+  occurredAt      DateTime
+  receivedAt      DateTime                   @default(now())
+  payload         Json
+  normalized      Json?
+  status          ConnectedDeviceEventStatus @default(RECEIVED)
+  errorCode       String?
+  errorMessage    String?                    @db.Text
+  sourceHash      String
+  processedAt     DateTime?
+  device          ConnectedDevice            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, externalEventId])
+  @@unique([deviceId, sourceHash])
+  @@index([organizationId, eventType, occurredAt])
+  @@index([organizationId, status, receivedAt])
+}
+
+model ConnectedDeviceBinding {
+  organizationId   String
+  id               String                     @id @default(cuid())
+  deviceId         String
+  bindingType      ConnectedDeviceBindingType
+  entityId         String
+  externalSubjectId String?
+  label            String?
+  metadata         Json?
+  activeFrom       DateTime                   @default(now())
+  activeUntil      DateTime?
+  isActive         Boolean                    @default(true)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  device           ConnectedDevice            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, bindingType, entityId])
+  @@unique([deviceId, externalSubjectId])
+  @@index([organizationId, bindingType, entityId, isActive])
+  @@index([organizationId, deviceId, isActive])
+}
+
+model ConnectedDeviceCommand {
+  organizationId String
+  id             String                       @id @default(cuid())
+  deviceId       String
+  commandType    String
+  payload        Json?
+  status         ConnectedDeviceCommandStatus @default(QUEUED)
+  idempotencyKey String
+  requestedById  String?
+  sentAt         DateTime?
+  acknowledgedAt DateTime?
+  failedAt       DateTime?
+  errorCode      String?
+  errorMessage   String?                      @db.Text
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+  device         ConnectedDevice              @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, idempotencyKey])
+  @@index([organizationId, status, createdAt])
 }
 
 model TransportVehicleType {
