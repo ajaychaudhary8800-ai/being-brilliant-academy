@@ -268,7 +268,7 @@ router.get("/device-hub/camera-media/:sessionId", async (req, res) => {
     throw new AppError(401, "CAMERA_SESSION_UNAUTHORIZED", "Camera session token is invalid");
   }
   const now = new Date();
-  if (session.expiresAt <= now || [CameraSessionStatus.EXPIRED, CameraSessionStatus.REVOKED].includes(session.status)) {
+  if (session.expiresAt <= now || session.status === CameraSessionStatus.EXPIRED || session.status === CameraSessionStatus.REVOKED) {
     if (session.status !== CameraSessionStatus.EXPIRED) {
       await prisma.cameraViewSession.update({ where: { id: session.id }, data: { status: CameraSessionStatus.EXPIRED } }).catch(() => {});
     }
@@ -322,7 +322,7 @@ router.post("/device-hub/ingest/:deviceId", async (req, res) => {
   if (!device || !verifyConnectedDeviceIngestToken(token, device.ingestTokenHash)) {
     throw new AppError(401, "DEVICE_INGEST_UNAUTHORIZED", "Device ingest token is invalid");
   }
-  if ([ConnectedDeviceStatus.DISABLED, ConnectedDeviceStatus.RETIRED].includes(device.status)) {
+  if (device.status === ConnectedDeviceStatus.DISABLED || device.status === ConnectedDeviceStatus.RETIRED) {
     throw new AppError(409, "DEVICE_INGEST_DISABLED", "This device is not accepting events");
   }
 
@@ -761,7 +761,7 @@ const deviceInput = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
-const cameraInput = z.object({
+const cameraBaseInput = z.object({
   branchId: cuid,
   code: z.string().trim().min(2).max(80).regex(/^[A-Za-z0-9._-]+$/),
   name: z.string().trim().min(2).max(180),
@@ -784,7 +784,9 @@ const cameraInput = z.object({
   audioEnabled: z.boolean().default(false),
   aiReviewEnabled: z.boolean().default(false),
   isActive: z.boolean().default(true),
-}).superRefine((value, ctx) => {
+});
+
+const cameraInput = cameraBaseInput.superRefine((value, ctx) => {
   for (const [key, ref] of [["streamSecretRef", value.streamSecretRef], ["recordingSecretRef", value.recordingSecretRef]] as const) {
     if (ref && /:\/\/[^/]*@/.test(ref)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: "Store a secret reference, not a credential-bearing stream URL" });
@@ -894,7 +896,7 @@ async function scopedSafetyIncident(req: AuthRequest, incidentId: string) {
 
 router.post("/device-hub/safety-incidents/:incidentId/acknowledge", async (req: AuthRequest, res) => {
   const incident = await scopedSafetyIncident(req, cuid.parse(req.params.incidentId));
-  if ([SafetyIncidentStatus.RESOLVED, SafetyIncidentStatus.FALSE_ALARM].includes(incident.status)) {
+  if (incident.status === SafetyIncidentStatus.RESOLVED || incident.status === SafetyIncidentStatus.FALSE_ALARM) {
     throw new AppError(409, "SAFETY_INCIDENT_CLOSED", "Closed incidents cannot be acknowledged");
   }
   const now = new Date();
@@ -1657,7 +1659,7 @@ router.patch("/device-hub/cameras/:cameraId", async (req: AuthRequest, res) => {
   const camera = await prisma.campusCamera.findFirst({ where: { id: cuid.parse(req.params.cameraId), organizationId: req.auth!.organizationId } });
   if (!camera) throw new AppError(404, "CAMERA_NOT_FOUND", "Campus camera not found");
   assertErpBranchAccess(scope, camera.branchId);
-  const body = cameraInput.partial().parse(req.body);
+  const body = cameraBaseInput.partial().parse(req.body);
   const targetBranch = body.branchId ?? camera.branchId;
   await assertErpBranchTarget(scope, targetBranch);
   if (body.deviceId) {
@@ -1791,7 +1793,7 @@ router.post("/device-hub/access-points", async (req: AuthRequest, res) => {
     if (device.branchId && device.branchId !== body.branchId) {
       throw new AppError(422, "ACCESS_POINT_DEVICE_BRANCH_MISMATCH", "Access point and connected device must belong to the same branch");
     }
-    if (![ConnectedDeviceKind.ACCESS_CONTROL, ConnectedDeviceKind.RFID, ConnectedDeviceKind.BIOMETRIC].includes(device.kind)) {
+    if (device.kind !== ConnectedDeviceKind.ACCESS_CONTROL && device.kind !== ConnectedDeviceKind.RFID && device.kind !== ConnectedDeviceKind.BIOMETRIC) {
       throw new AppError(422, "ACCESS_POINT_DEVICE_KIND_INVALID", "Access points require an access-control, RFID, or biometric device");
     }
   }
