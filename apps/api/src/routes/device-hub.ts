@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import {
+  CameraAccessAction,
+  CameraExportStatus,
   CameraIncidentSeverity,
   CameraIncidentStatus,
+  CameraSessionStatus,
+  CameraStreamKind,
   CampusAccessDecision,
   CampusAccessPointType,
   ConnectedDeviceBindingType,
@@ -66,6 +70,29 @@ async function deviceForOrganization(organizationId: string, deviceId: string) {
   });
   if (!device) throw new AppError(404, "DEVICE_NOT_FOUND", "Connected device not found");
   return device;
+}
+
+function cameraSessionTokenHash(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function safeMediaResult(value: unknown) {
+  const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const safeUrl = (candidate: unknown, protocols: string[]) => {
+    if (typeof candidate !== "string" || candidate.length > 4000) return null;
+    try {
+      const url = new URL(candidate);
+      return protocols.includes(url.protocol) ? candidate : null;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    hlsUrl: safeUrl(record.hlsUrl, ["https:"]),
+    webrtcUrl: safeUrl(record.webrtcUrl, ["https:", "wss:"]),
+    downloadUrl: safeUrl(record.downloadUrl, ["https:"]),
+    expiresAt: typeof record.expiresAt === "string" ? record.expiresAt : null,
+  };
 }
 
 async function edgeAgentForToken(agentId: string, token: string) {
@@ -229,6 +256,63 @@ router.post("/device-hub/edge-agents/:agentId/commands/:commandId/ack", async (r
     return updated;
   });
   res.status(202).json({ data, meta: { retryStatus: retry.status, nextAttemptAt: retry.nextAttemptAt } });
+});
+
+router.get("/device-hub/camera-media/:sessionId", async (req, res) => {
+  const token = req.header("x-camera-session-token")?.trim() ?? "";
+  if (!token) throw new AppError(401, "CAMERA_SESSION_TOKEN_REQUIRED", "Camera session token required");
+  const session = await prisma.cameraViewSession.findUnique({
+    where: { id: cuid.parse(req.params.sessionId) },
+  });
+  if (!session || cameraSessionTokenHash(token) !== session.tokenHash) {
+    throw new AppError(401, "CAMERA_SESSION_UNAUTHORIZED", "Camera session token is invalid");
+  }
+  const now = new Date();
+  if (session.expiresAt <= now || [CameraSessionStatus.EXPIRED, CameraSessionStatus.REVOKED].includes(session.status)) {
+    if (session.status !== CameraSessionStatus.EXPIRED) {
+      await prisma.cameraViewSession.update({ where: { id: session.id }, data: { status: CameraSessionStatus.EXPIRED } }).catch(() => {});
+    }
+    throw new AppError(410, "CAMERA_SESSION_EXPIRED", "Camera media session has expired");
+  }
+  if (!session.commandId) throw new AppError(409, "CAMERA_SESSION_PENDING", "Camera media session is waiting for edge dispatch");
+  const command = await prisma.connectedDeviceCommand.findFirst({
+    where: { id: session.commandId, organizationId: session.organizationId },
+    select: { status: true, result: true, errorCode: true, errorMessage: true },
+  });
+  if (!command) throw new AppError(409, "CAMERA_SESSION_PENDING", "Camera media command is not available");
+  if (command.status === ConnectedDeviceCommandStatus.FAILED) {
+    await prisma.cameraViewSession.update({
+      where: { id: session.id },
+      data: { status: CameraSessionStatus.FAILED, errorCode: command.errorCode ?? "CAMERA_EDGE_FAILED" },
+    }).catch(() => {});
+    throw new AppError(502, "CAMERA_SESSION_FAILED", command.errorMessage ?? "Camera edge adapter failed to create media session");
+  }
+  if (command.status !== ConnectedDeviceCommandStatus.ACKNOWLEDGED) {
+    return res.status(202).json({ data: { id: session.id, status: CameraSessionStatus.PENDING } });
+  }
+  const media = safeMediaResult(command.result);
+  if (!media.hlsUrl && !media.webrtcUrl) {
+    await prisma.cameraViewSession.update({
+      where: { id: session.id },
+      data: { status: CameraSessionStatus.FAILED, errorCode: "CAMERA_MEDIA_RESULT_INVALID" },
+    });
+    throw new AppError(502, "CAMERA_MEDIA_RESULT_INVALID", "Edge adapter did not return an approved HTTPS/WSS media URL");
+  }
+  await prisma.cameraViewSession.update({
+    where: { id: session.id },
+    data: { status: CameraSessionStatus.READY, lastAccessAt: now },
+  });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    data: {
+      id: session.id,
+      kind: session.kind,
+      status: CameraSessionStatus.READY,
+      media: { hlsUrl: media.hlsUrl, webrtcUrl: media.webrtcUrl, expiresAt: media.expiresAt },
+      watermarkText: session.watermarkText,
+      expiresAt: session.expiresAt,
+    },
+  });
 });
 
 router.post("/device-hub/ingest/:deviceId", async (req, res) => {
@@ -684,10 +768,19 @@ const cameraInput = z.object({
   deviceId: cuid,
   zone: z.string().trim().max(180).nullable().optional(),
   location: z.string().trim().max(300).nullable().optional(),
+  building: z.string().trim().max(180).nullable().optional(),
+  floor: z.string().trim().max(80).nullable().optional(),
+  groupName: z.string().trim().max(180).nullable().optional(),
+  mapX: z.number().min(-100000).max(100000).nullable().optional(),
+  mapY: z.number().min(-100000).max(100000).nullable().optional(),
+  nvrRef: z.string().trim().max(180).nullable().optional(),
+  channelRef: z.string().trim().max(180).nullable().optional(),
+  vehicleId: cuid.nullable().optional(),
   streamSecretRef: z.string().trim().min(3).max(300).nullable().optional(),
   recordingSecretRef: z.string().trim().min(3).max(300).nullable().optional(),
   retentionDays: z.number().int().min(1).max(365).default(30),
   privacyMasking: z.boolean().default(true),
+  watermarkEnabled: z.boolean().default(true),
   audioEnabled: z.boolean().default(false),
   aiReviewEnabled: z.boolean().default(false),
   isActive: z.boolean().default(true),
