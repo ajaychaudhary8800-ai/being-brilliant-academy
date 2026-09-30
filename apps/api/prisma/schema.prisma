@@ -664,6 +664,35 @@ enum CameraIncidentStatus {
   DISMISSED
 }
 
+enum SchoolEventCategory {
+  ATTENDANCE
+  ACCESS
+  TRANSPORT
+  CAMERA
+  SAFETY
+  VISITOR
+  PICKUP
+  DEVICE
+  COMMUNICATION
+  OTHER
+}
+
+enum SchoolEventSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SchoolEventStatus {
+  RECORDED
+  REVIEW_REQUIRED
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
 enum Role {
   SUPER_ADMIN
   BRANCH_ADMIN
@@ -5424,6 +5453,45 @@ model GstConfiguration {
 
   @@unique([branchId, effectiveFrom])
   @@index([organizationId])
+}
+
+model SchoolEvent {
+  organizationId String
+  id             String              @id @default(cuid())
+  branchId       String?
+  category       SchoolEventCategory
+  type           String
+  severity       SchoolEventSeverity @default(INFO)
+  status         SchoolEventStatus   @default(RECORDED)
+  occurredAt     DateTime
+  sourceType     String
+  sourceId       String
+  correlationKey String?
+  studentId      String?
+  employeeId     String?
+  vehicleId      String?
+  deviceId       String?
+  accessPointId  String?
+  cameraId       String?
+  title          String
+  summary        String?             @db.Text
+  metadata       Json?
+  reviewRequired Boolean             @default(false)
+  acknowledgedById String?
+  acknowledgedAt DateTime?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNotes String?            @db.Text
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([organizationId, sourceType, sourceId])
+  @@index([organizationId, branchId, occurredAt])
+  @@index([organizationId, category, status, occurredAt])
+  @@index([organizationId, studentId, occurredAt])
+  @@index([organizationId, employeeId, occurredAt])
+  @@index([organizationId, vehicleId, occurredAt])
+  @@index([organizationId, correlationKey, occurredAt])
 }
 
 model CampusCamera {
