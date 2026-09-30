@@ -32,6 +32,7 @@ function normalizeEvidenceText(value: string) {
 
 export function auditAIExaminerSemanticEvidence(input: {
   extractedAnswer?: string | null;
+  awardedMarks?: number;
   rubricBreakdown: AIExaminerEvidenceBreakdownRow[];
 }): AIExaminerEvidenceAudit {
   const answer = normalizeEvidenceText(input.extractedAnswer ?? "");
@@ -77,6 +78,17 @@ export function auditAIExaminerSemanticEvidence(input: {
         : "The evidence excerpt is not literally traceable to the extracted student answer and requires human verification.",
     };
   });
+
+  if (!input.rubricBreakdown.length && (input.awardedMarks ?? 0) > 0) {
+    positivelyAwardedMarks = input.awardedMarks ?? 0;
+    checks.push({
+      criterion: "Rubric evidence coverage",
+      status: "REVIEW",
+      awardedMarks: input.awardedMarks ?? 0,
+      evidenceText: null,
+      rationale: "Positive semantic marks were awarded without criterion-level rubric breakdown evidence.",
+    });
+  }
 
   const coverageRate = positivelyAwardedMarks > 0
     ? Math.max(0, Math.min(1, evidenceLinkedMarks / positivelyAwardedMarks))
