@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS "AIExaminerReviewRound" (
   "reviewerId" TEXT NOT NULL,
   "assignedById" TEXT NOT NULL,
   "anonymizeStudentIdentity" BOOLEAN NOT NULL DEFAULT false,
+  "sourceIdentityMasked" BOOLEAN NOT NULL DEFAULT false,
   "priorMarksVisible" BOOLEAN NOT NULL DEFAULT true,
   "status" "AIExaminerReviewRoundStatus" NOT NULL DEFAULT 'ASSIGNED',
   "totalMarks" DECIMAL(8,2),
