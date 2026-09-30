@@ -6,8 +6,12 @@ import {
   CampusAccessPointType,
   ConnectedDeviceBindingType,
   ConnectedDeviceKind,
+  ConnectedDeviceCommandStatus,
   ConnectedDeviceProtocol,
   ConnectedDeviceStatus,
+  DeviceConnectorStatus,
+  DeviceRetryStatus,
+  EdgeAgentStatus,
   EmergencyMode,
   Prisma,
   Role,
@@ -29,7 +33,16 @@ import {
   verifyConnectedDeviceIngestToken,
 } from "../lib/device-hub.js";
 import { processConnectedDeviceEvent } from "../lib/device-hub-processor.js";
+import {
+  connectorHealth,
+  generateEdgeAgentToken,
+  hashEdgeAgentToken,
+  nextRetryState,
+  verifyDeviceEventSignature,
+  verifyEdgeAgentToken,
+} from "../lib/device-hub-governance.js";
 import { AppError } from "../lib/http.js";
+import { assertFeatureEntitled } from "../lib/saas-commercial.js";
 import { prisma } from "../lib/prisma.js";
 import {
   assertErpBranchAccess,
@@ -79,6 +92,23 @@ router.post("/device-hub/ingest/:deviceId", async (req, res) => {
     payload: envelope.payload,
   });
   const now = new Date();
+  const timestampHeader = req.header("x-device-timestamp");
+  const signatureHeader = req.header("x-device-signature");
+  let signatureVerified: boolean | null = null;
+  if (device.signatureRequired || timestampHeader || signatureHeader) {
+    const signature = verifyDeviceEventSignature({
+      sourceHash,
+      publicKey: device.signingPublicKey,
+      timestampHeader,
+      signatureHeader,
+      now,
+    });
+    if (!signature.ok) {
+      throw new AppError(401, "DEVICE_SIGNATURE_INVALID", `Device event signature rejected: ${signature.code}`);
+    }
+    signatureVerified = true;
+  }
+  const eventDelayMs = Math.max(0, now.getTime() - envelope.occurredAt.getTime());
 
   try {
     const event = await prisma.$transaction(async tx => {
@@ -89,6 +119,8 @@ router.post("/device-hub/ingest/:deviceId", async (req, res) => {
           externalEventId: envelope.externalEventId,
           eventType: normalized.eventType,
           occurredAt: normalized.occurredAt,
+          eventDelayMs,
+          signatureVerified,
           payload: profileJson(envelope.payload),
           normalized: profileJson({
             category: normalized.category,
@@ -114,6 +146,7 @@ router.post("/device-hub/ingest/:deviceId", async (req, res) => {
           ...(envelope.heartbeat || normalized.category === "HEARTBEAT" ? { lastHeartbeatAt: now } : {}),
           lastErrorAt: null,
           lastErrorCode: null,
+          ...(signatureVerified ? { lastSignatureAt: now } : {}),
           ...(typeof normalized.metadata.firmware === "string" ? { firmwareVersion: normalized.metadata.firmware } : {}),
         },
       });
@@ -160,6 +193,8 @@ const deviceInput = z.object({
   protocol: z.nativeEnum(ConnectedDeviceProtocol),
   providerKey: z.string().trim().min(2).max(100),
   externalDeviceId: z.string().trim().min(1).max(180).nullable().optional(),
+  signatureRequired: z.boolean().default(false),
+  signingPublicKey: z.string().trim().min(32).max(10000).nullable().optional(),
   capabilities: z.array(z.string().trim().min(1).max(80)).max(100).default([]),
   config: z.record(z.string(), z.unknown()).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
@@ -909,6 +944,17 @@ router.post("/device-hub/devices", async (req: AuthRequest, res) => {
     throw new AppError(422, "DEVICE_BRANCH_REQUIRED", "Branch administrators must provision devices inside an assigned branch");
   }
   if (body.branchId) await assertErpBranchTarget(scope, body.branchId);
+  if (body.signatureRequired && !body.signingPublicKey) {
+    throw new AppError(422, "DEVICE_SIGNING_KEY_REQUIRED", "Signed device ingestion requires an Ed25519 public key");
+  }
+  if (body.signingPublicKey) {
+    try {
+      const key = crypto.createPublicKey(body.signingPublicKey);
+      if (key.asymmetricKeyType !== "ed25519") throw new Error("not ed25519");
+    } catch {
+      throw new AppError(422, "DEVICE_SIGNING_KEY_INVALID", "Device signing key must be a valid Ed25519 public key");
+    }
+  }
   const token = generateConnectedDeviceIngestToken();
   try {
     const device = await prisma.connectedDevice.create({
