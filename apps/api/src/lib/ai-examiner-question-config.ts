@@ -77,6 +77,36 @@ export const aiExaminerStemValidationSchema = z.object({
   }
 });
 
+export const aiExaminerCodeExecutionSchema = z.object({
+  language: z.enum(["PYTHON", "JAVASCRIPT", "TYPESCRIPT", "JAVA", "C", "CPP"]),
+  runtimeVersion: z.string().trim().min(1).max(40).optional(),
+  timeoutMs: z.coerce.number().int().min(100).max(10_000).default(2_000),
+  memoryMb: z.coerce.number().int().min(16).max(512).default(128),
+  maxOutputBytes: z.coerce.number().int().min(256).max(64_000).default(8_192),
+  networkAccess: z.literal(false).default(false),
+  fileSystem: z.enum(["NONE", "EPHEMERAL"]).default("EPHEMERAL"),
+  testCases: z.array(z.object({
+    key: z.string().trim().min(1).max(80),
+    input: z.string().max(20_000).optional(),
+    expectedOutput: z.string().max(20_000).optional(),
+    weight: z.coerce.number().positive().max(10_000),
+    hidden: z.boolean().default(false),
+  })).min(1).max(100),
+}).superRefine((value, ctx) => {
+  const keys = new Set<string>();
+  value.testCases.forEach((test, index) => {
+    const normalized = test.key.toLowerCase();
+    if (keys.has(normalized)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["testCases", index, "key"],
+        message: "Programming test-case keys must be unique",
+      });
+    }
+    keys.add(normalized);
+  });
+});
+
 export const aiExaminerScoringRuleSchema = z.object({
   correctMarks: z.coerce.number().min(0).max(10000).optional(),
   incorrectMarks: z.coerce.number().min(-10000).max(10000).optional(),
@@ -104,6 +134,7 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
   stemValidation: aiExaminerStemValidationSchema.optional(),
   chemistryValidation: aiExaminerChemistryValidationSchema.optional(),
   accountingValidation: aiExaminerAccountingValidationSchema.optional(),
+  codeExecution: aiExaminerCodeExecutionSchema.optional(),
 }).superRefine((question, ctx) => {
   const route = routeAIExaminerQuestion({
     questionType: question.questionType,
@@ -167,6 +198,22 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["accountingValidation"],
       message: "Accounting validation is only supported for ACCOUNTING_STATEMENT questions",
+    });
+  }
+
+  if (question.codeExecution && question.questionType !== "PROGRAMMING") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["codeExecution"],
+      message: "Code execution configuration is only supported for PROGRAMMING questions",
+    });
+  }
+
+  if ((question.questionType === "PROGRAMMING" || question.requiresCodeExecution) && !question.codeExecution) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["codeExecution"],
+      message: "Programming questions require an explicit isolated code-execution configuration",
     });
   }
 
