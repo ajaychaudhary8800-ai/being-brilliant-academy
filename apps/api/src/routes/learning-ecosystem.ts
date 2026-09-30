@@ -21,6 +21,18 @@ import {
 } from "../lib/learning-ecosystem-access.js";
 import { AppError } from "../lib/http.js";
 import { resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
+import {
+  learningTestAdapterReadiness,
+  learningTestAttemptExpiry,
+  learningTestAvailability,
+  learningTestDeliveryPolicySchema,
+  learningTestOfflineLease,
+  learningTestResumeDecision,
+  newLearningTestDeliverySeed,
+  prepareLearningTestDelivery,
+  resolveLearningTestDeliveryForStudent,
+  resolveLearningTestDeliveryPolicy,
+} from "../lib/learning-test-delivery-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { getObject } from "../lib/storage.js";
 import { createLiveKitToken, getLiveKitRecordingObject, livekitClientUrl, livekitConfigured, livekitEgress, livekitRecordingConfigured, livekitRecordingStorage, livekitRoomService } from "../lib/livekit.js";
@@ -398,7 +410,7 @@ router.post("/learning/questions/random", managers, async (req: AuthRequest, res
   res.json({ data: rows.sort(() => Math.random() - .5).slice(0, d.count) });
 });
 
-const testInput = z.object({ code: z.string().min(2).max(50), name: z.string().min(3).max(180), type: z.nativeEnum(LearningTestType), branchId: id.optional(), courseId: id, batchId: id.optional(), subjectId: id.optional(), chapter: z.string().max(150).optional(), instructions: z.string().max(10000).optional(), durationMinutes: z.number().int().min(1).max(360), maximumMarks: z.number().positive(), passingMarks: z.number().min(0), startsAt: z.coerce.date().optional(), endsAt: z.coerce.date().optional(), adaptive: z.boolean().default(false), status: z.nativeEnum(LearningStatus).default(LearningStatus.DRAFT), questions: z.array(z.object({ questionId: id, section: z.string().max(80).default("General"), position: z.number().int().positive(), marks: z.number().positive(), negativeMarks: z.number().min(0).default(0) })).min(1).max(300) });
+const testInput = z.object({ code: z.string().min(2).max(50), name: z.string().min(3).max(180), type: z.nativeEnum(LearningTestType), branchId: id.optional(), courseId: id, batchId: id.optional(), subjectId: id.optional(), chapter: z.string().max(150).optional(), instructions: z.string().max(10000).optional(), durationMinutes: z.number().int().min(1).max(360), maximumMarks: z.number().positive(), passingMarks: z.number().min(0), startsAt: z.coerce.date().optional(), endsAt: z.coerce.date().optional(), adaptive: z.boolean().default(false), deliveryPolicy: learningTestDeliveryPolicySchema.nullable().optional(), status: z.nativeEnum(LearningStatus).default(LearningStatus.DRAFT), questions: z.array(z.object({ questionId: id, section: z.string().max(80).default("General"), position: z.number().int().positive(), marks: z.number().positive(), negativeMarks: z.number().min(0).default(0) })).min(1).max(300) });
 async function assertTestQuestions(actor: LearningActor, target: { courseId: string; subjectId?: string | null }, questions: Array<{ questionId: string }>) {
   const uniqueIds = [...new Set(questions.map(row => row.questionId))];
   const rows = await prisma.questionBankItem.findMany({ where: { id: { in: uniqueIds }, ...learningQuestionWhere(actor), isArchived: false } });
@@ -466,9 +478,9 @@ router.post("/learning/tests", managers, async (req: AuthRequest, res) => {
   await relationCheck(d);
   assertManagerResourceAccess(actor, d);
   const bankQuestions = await assertTestQuestions(actor, d, d.questions);
-  const { questions, ...test } = d;
+  const { questions, deliveryPolicy, ...test } = d;
   const deliveryQuestions = snapshotTestQuestions(questions, bankQuestions);
-  const row = await prisma.learningTest.create({ data: { ...test, createdById: actor.userId, questions: { create: deliveryQuestions } }, include: { questions: true } });
+  const row = await prisma.learningTest.create({ data: { ...test, deliveryPolicy: deliveryPolicy == null ? undefined : questionJson(deliveryPolicy), createdById: actor.userId, questions: { create: deliveryQuestions } }, include: { questions: true } });
   await audit(req, "CREATE", "LearningTest", row.id);
   res.status(201).json({ data: row });
 });
@@ -477,13 +489,13 @@ router.patch("/learning/tests/:id", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const old = await prisma.learningTest.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor) } });
   if (!old) throw new AppError(404, "TEST_NOT_FOUND", "Test not found");
-  const d = testInput.partial().parse(req.body), { questions, ...test } = d;
+  const d = testInput.partial().parse(req.body), { questions, deliveryPolicy, ...test } = d;
   const target = { courseId: test.courseId ?? old.courseId, batchId: test.batchId === undefined ? old.batchId : test.batchId, subjectId: test.subjectId === undefined ? old.subjectId : test.subjectId, branchId: test.branchId === undefined ? old.branchId : test.branchId };
   await relationCheck(target);
   assertManagerResourceAccess(actor, target);
   const bankQuestions = questions ? await assertTestQuestions(actor, target, questions) : null;
   const deliveryQuestions = questions && bankQuestions ? snapshotTestQuestions(questions, bankQuestions) : null;
-  const row = await prisma.learningTest.update({ where: { id: old.id }, data: { ...test, ...(deliveryQuestions ? { questions: { deleteMany: {}, create: deliveryQuestions } } : {}) }, include: { questions: true } });
+  const row = await prisma.learningTest.update({ where: { id: old.id }, data: { ...test, ...(deliveryPolicy !== undefined ? { deliveryPolicy: deliveryPolicy === null ? Prisma.JsonNull : questionJson(deliveryPolicy) } : {}), ...(deliveryQuestions ? { questions: { deleteMany: {}, create: deliveryQuestions } } : {}) }, include: { questions: true } });
   await audit(req, "UPDATE", "LearningTest", row.id);
   res.json({ data: row });
 });
