@@ -336,7 +336,11 @@ router.post("/exam-profiles/:profileId/activate", async (req: AuthRequest, res) 
 
 router.post("/examinations/:examinationId/exam-profile", async (req: AuthRequest, res) => {
   const exam = await examinationForManager(req, cuid.parse(req.params.examinationId));
-  if ([ExaminationStatus.COMPLETED, ExaminationStatus.RESULTS_PUBLISHED, ExaminationStatus.ARCHIVED].includes(exam.status)) {
+  if (
+    exam.status === ExaminationStatus.COMPLETED ||
+    exam.status === ExaminationStatus.RESULTS_PUBLISHED ||
+    exam.status === ExaminationStatus.ARCHIVED
+  ) {
     throw new AppError(409, "AI_EXAMINER_PROFILE_EXAM_LOCKED", "Exam profile cannot change after the examination is completed");
   }
   if (exam.aiExaminerRubrics.some(rubric => rubric.status === AIExaminerRubricStatus.ACTIVE)) {
