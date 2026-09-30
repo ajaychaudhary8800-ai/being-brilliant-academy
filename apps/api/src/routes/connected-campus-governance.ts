@@ -464,7 +464,7 @@ router.patch("/connected-campus/governance/certifications/:certificationId/revie
     where: { id: cuid.parse(req.params.certificationId), organizationId: req.auth!.organizationId },
   });
   if (!certification) throw new AppError(404, "CAPABILITY_CERTIFICATION_NOT_FOUND", "Capability certification not found");
-  if (![CapabilityCertificationStatus.DRAFT, CapabilityCertificationStatus.IN_REVIEW].includes(certification.status)) {
+  if (certification.status !== CapabilityCertificationStatus.DRAFT && certification.status !== CapabilityCertificationStatus.IN_REVIEW) {
     throw new AppError(409, "CAPABILITY_CERTIFICATION_CLOSED", "Certification has already been reviewed");
   }
   const body = z.object({
@@ -601,7 +601,7 @@ router.get("/connected-campus/governance/readiness", allow(Role.SUPER_ADMIN), as
   const aiCertifiedSuiteCodes = benchmarkSuites.filter(suite => certifiedSuiteIds.has(suite.id)).map(suite => suite.code);
   const securityPrivacyCertified = certifications.some(certification =>
     certification.kind === CapabilityCertificationKind.SECURITY_PRIVACY
-    && [CertificationEnvironment.STAGING, CertificationEnvironment.PRODUCTION_LIKE].includes(certification.environment)
+    && (certification.environment === CertificationEnvironment.STAGING || certification.environment === CertificationEnvironment.PRODUCTION_LIKE)
   );
 
   const readiness = evaluateERP31Readiness({
