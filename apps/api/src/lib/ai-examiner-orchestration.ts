@@ -32,6 +32,11 @@ import {
   type AIExaminerEvidenceAudit,
 } from "./ai-examiner-evidence.js";
 import type { AIExaminerTrustedOmrAnswer } from "./ai-examiner-scan-ingestion.js";
+import {
+  verifyAIExaminerVisualEvidence,
+  type AIExaminerVisualValidationConfig,
+  type AIExaminerVisualVerification,
+} from "./ai-examiner-visual-verifier.js";
 
 export type AIExaminerResolvedRubricQuestion = {
   key: string;
@@ -52,6 +57,7 @@ export type AIExaminerResolvedRubricQuestion = {
   };
   accountingValidation?: AccountingValidationConfig;
   omrValidation?: { allowedOptions: string[] };
+  visualValidation?: AIExaminerVisualValidationConfig;
 };
 
 type ProviderQuestion = AIExaminerProviderResult["questions"][number];
@@ -76,7 +82,7 @@ export type AIExaminerReconciledQuestion = {
   engine: string;
   deterministicStatus: string | null;
   scoringError: { code: string; message: string } | null;
-  specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | null;
+  specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | AIExaminerVisualVerification | null;
   evidenceAudit: AIExaminerEvidenceAudit | null;
 };
 
@@ -149,6 +155,7 @@ export function aiExaminerProviderQuestions(questions: AIExaminerResolvedRubricQ
       evaluationMode: route.deterministic ? "EXTRACT_ONLY" : "RUBRIC",
       // Withhold deterministic answer keys from extraction to avoid anchoring/bias.
       modelAnswer: route.deterministic ? null : question.modelAnswer ?? null,
+      visualValidation: question.visualValidation,
     };
   });
 }
@@ -248,8 +255,14 @@ export function reconcileAIExaminerProviderResult(
     const baseReview = provider.confidence < reviewThreshold || provider.flags.length > 0;
 
     if (!route.deterministic) {
-      let specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | null = null;
+      let specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | AIExaminerVisualVerification | null = null;
       let evidenceAudit: AIExaminerEvidenceAudit | null = null;
+      if (route.engine === "MULTIMODAL" && question.visualValidation) {
+        specializedEvidence = verifyAIExaminerVisualEvidence({
+          config: question.visualValidation,
+          observations: provider.visualObservations,
+        });
+      }
       if (route.engine === "RUBRIC_SEMANTIC") {
         evidenceAudit = auditAIExaminerSemanticEvidence({
           extractedAnswer: provider.extractedAnswer,
