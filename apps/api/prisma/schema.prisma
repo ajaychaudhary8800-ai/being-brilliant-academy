@@ -693,6 +693,30 @@ enum SchoolEventStatus {
   DISMISSED
 }
 
+enum SafetyIncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  ACTIVE_RESPONSE
+  RESOLVED
+  FALSE_ALARM
+}
+
+enum EmergencyMode {
+  NORMAL
+  ALERT
+  SECURE_CAMPUS
+  EVACUATION
+  REUNIFICATION
+  ALL_CLEAR
+}
+
+enum SafetyIncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
 enum Role {
   SUPER_ADMIN
   BRANCH_ADMIN
