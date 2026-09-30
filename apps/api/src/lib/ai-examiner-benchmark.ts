@@ -3,6 +3,7 @@ export type AIExaminerBenchmarkCase = {
   humanMarks: number;
   aiMarks: number;
   maxMarks: number;
+  minimumMarks?: number;
   confidence: number;
   reviewRequired?: boolean;
   teacherOverride?: boolean;
@@ -57,9 +58,12 @@ function validCase(row: AIExaminerBenchmarkCase) {
   finite(row.maxMarks, "maxMarks");
   finite(row.confidence, "confidence");
   if (row.maxMarks <= 0) throw new Error("maxMarks must be positive");
+  const minimumMarks = row.minimumMarks ?? 0;
+  finite(minimumMarks, "minimumMarks");
+  if (minimumMarks > row.maxMarks) throw new Error("minimumMarks cannot exceed maxMarks");
   if (row.confidence < 0 || row.confidence > 1) throw new Error("confidence must be between 0 and 1");
-  if (row.humanMarks < 0 || row.humanMarks > row.maxMarks) throw new Error("humanMarks must be within question bounds");
-  if (row.aiMarks < 0 || row.aiMarks > row.maxMarks) throw new Error("aiMarks must be within question bounds");
+  if (row.humanMarks < minimumMarks || row.humanMarks > row.maxMarks) throw new Error("humanMarks must be within question bounds");
+  if (row.aiMarks < minimumMarks || row.aiMarks > row.maxMarks) throw new Error("aiMarks must be within question bounds");
   return row;
 }
 
