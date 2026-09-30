@@ -18,6 +18,43 @@ export const aiExaminerAnswerKeySchema = z.union([
   z.record(aiExaminerAnswerKeyScalarSchema),
 ]);
 
+export const aiExaminerStemValidationSchema = z.object({
+  expectedExpression: z.string().trim().min(1).max(12000).optional(),
+  expectedNumericValue: z.coerce.number().finite().optional(),
+  numericalTolerance: z.object({
+    absolute: z.coerce.number().min(0).max(1_000_000_000).default(0),
+    relative: z.coerce.number().min(0).max(1).default(0),
+  }).optional(),
+  expectedUnit: z.string().trim().min(1).max(120).optional(),
+  acceptedUnits: z.array(z.string().trim().min(1).max(120)).max(50).default([]),
+  unitRequired: z.boolean().optional(),
+  expectedSign: z.enum(["POSITIVE", "NEGATIVE", "ZERO", "NONZERO", "ANY"]).optional(),
+  significantFigures: z.object({
+    count: z.coerce.number().int().min(1).max(20),
+    mode: z.enum(["EXACT", "AT_LEAST"]).default("EXACT"),
+  }).optional(),
+  stepCriteria: z.array(z.object({
+    key: z.string().trim().min(1).max(80),
+    marks: z.coerce.number().positive().max(10000),
+    evidence: z.array(z.string().trim().min(1).max(500)).min(1).max(20),
+  })).max(50).default([]),
+}).superRefine((value, ctx) => {
+  const configured = Boolean(
+    value.expectedExpression ||
+    value.expectedNumericValue != null ||
+    value.expectedUnit ||
+    value.expectedSign ||
+    value.significantFigures ||
+    value.stepCriteria.length
+  );
+  if (!configured) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "STEM validation requires at least one configured verification rule",
+    });
+  }
+});
+
 export const aiExaminerScoringRuleSchema = z.object({
   correctMarks: z.coerce.number().min(0).max(10000).optional(),
   incorrectMarks: z.coerce.number().min(-10000).max(10000).optional(),
@@ -42,6 +79,7 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
   scoring: aiExaminerScoringRuleSchema,
   requiresVisualEvidence: z.boolean().default(false),
   requiresCodeExecution: z.boolean().default(false),
+  stemValidation: aiExaminerStemValidationSchema.optional(),
 }).superRefine((question, ctx) => {
   const route = routeAIExaminerQuestion({
     questionType: question.questionType,
@@ -81,6 +119,14 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["scoring", "unansweredMarks"],
       message: "Unanswered penalty cannot be less than negative maximum marks",
+    });
+  }
+
+  if (question.stemValidation && !["DERIVATION", "PROOF", "CALCULATION", "NUMERICAL"].includes(question.questionType)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["stemValidation"],
+      message: "STEM validation is only supported for numerical, calculation, derivation and proof questions",
     });
   }
 
