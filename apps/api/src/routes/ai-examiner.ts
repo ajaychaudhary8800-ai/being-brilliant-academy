@@ -18,6 +18,8 @@ import { assessAIExaminerReviewCompletion, reviewPolicyFromExamSnapshot } from "
 import { assertExaminationManager, evaluationStatus, examinationResultFor } from "../lib/examination-policy.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
+import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
+import { allowedAnswerSheetTypes, assertDocumentFileExtension, decodeVerifiedUpload } from "../lib/secure-upload.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
@@ -66,6 +68,13 @@ function requireExamProfileAdmin(req: AuthRequest) {
   if (req.auth!.role === Role.TEACHER) {
     throw new AppError(403, "AI_EXAMINER_PROFILE_ADMIN_REQUIRED", "Only organization or branch administrators can manage exam profiles");
   }
+}
+
+function anonymousReviewFileName(mimeType: string) {
+  if (mimeType === "application/pdf") return "anonymous-answer-sheet.pdf";
+  if (mimeType === "image/jpeg") return "anonymous-answer-sheet.jpg";
+  if (mimeType === "image/png") return "anonymous-answer-sheet.png";
+  return "anonymous-answer-sheet";
 }
 
 function profileJson(value: unknown): Prisma.InputJsonValue {
@@ -966,6 +975,92 @@ router.get("/evaluations/:evaluationId", async (req: AuthRequest, res) => {
   res.json({ data: row });
 });
 
+router.put("/evaluations/:evaluationId/review-artifact", async (req: AuthRequest, res) => {
+  const evaluationId = cuid.parse(req.params.evaluationId);
+  const body = z.object({
+    fileName: z.string().trim().min(1).max(180),
+    mimeType: z.enum(allowedAnswerSheetTypes),
+    base64: z.string().min(1).max(14_000_000, "File must not exceed 10 MB"),
+    identityMaskingConfirmed: z.literal(true),
+  }).parse(req.body);
+
+  assertDocumentFileExtension(body.fileName, body.mimeType);
+  const fileData = decodeVerifiedUpload(body.base64, body.mimeType);
+
+  const evaluation = await prisma.aIExaminerEvaluation.findFirst({
+    where: { id: evaluationId, organizationId: req.auth!.organizationId },
+    include: {
+      answerSheet: { select: { examinationId: true, finalizedAt: true } },
+      reviewArtifact: { select: { id: true } },
+      reviewRounds: {
+        where: { anonymizeStudentIdentity: true, status: { not: AIExaminerReviewRoundStatus.CANCELLED } },
+        select: { id: true, status: true },
+      },
+    },
+  });
+  if (!evaluation) throw new AppError(404, "AI_EXAMINER_EVALUATION_NOT_FOUND", "AI evaluation not found");
+  if (evaluation.status !== AIExaminerEvaluationStatus.REVIEW_REQUIRED) {
+    throw new AppError(409, "AI_EXAMINER_REVIEW_ARTIFACT_UNAVAILABLE", "An anonymized review artifact can only be prepared while the evaluation awaits review");
+  }
+  if (evaluation.answerSheet.finalizedAt) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet has already been finalized");
+
+  await examinationForManager(req, evaluation.answerSheet.examinationId);
+  if (evaluation.reviewRounds.length) {
+    throw new AppError(409, "AI_EXAMINER_REVIEW_ARTIFACT_LOCKED", "The anonymized review artifact cannot change after a blind review round has been assigned");
+  }
+
+  const data = await prisma.$transaction(async tx => {
+    const artifact = await tx.aIExaminerReviewArtifact.upsert({
+      where: { evaluationId: evaluation.id },
+      update: {
+        fileName: body.fileName,
+        mimeType: body.mimeType,
+        fileSize: fileData.length,
+        fileData,
+        identityMasked: true,
+        uploadedById: req.auth!.userId,
+      },
+      create: {
+        organizationId: req.auth!.organizationId,
+        evaluationId: evaluation.id,
+        fileName: body.fileName,
+        mimeType: body.mimeType,
+        fileSize: fileData.length,
+        fileData,
+        identityMasked: true,
+        uploadedById: req.auth!.userId,
+      },
+      select: {
+        id: true,
+        evaluationId: true,
+        mimeType: true,
+        fileSize: true,
+        identityMasked: true,
+        uploadedById: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: evaluation.reviewArtifact ? "AI_EXAMINER_REVIEW_ARTIFACT_REPLACED" : "AI_EXAMINER_REVIEW_ARTIFACT_CREATED",
+        entity: "AIExaminerReviewArtifact",
+        entityId: artifact.id,
+        metadata: {
+          evaluationId: evaluation.id,
+          mimeType: body.mimeType,
+          fileSize: fileData.length,
+          identityMaskingConfirmed: true,
+        },
+      },
+    });
+    return artifact;
+  });
+  res.json({ data });
+});
+
 router.get("/review-rounds/mine", async (req: AuthRequest, res) => {
   const data = await prisma.aIExaminerReviewRound.findMany({
     where: {
@@ -988,7 +1083,8 @@ router.get("/review-rounds/mine", async (req: AuthRequest, res) => {
       createdAt: true,
       evaluation: {
         select: {
-          answerSheet: { select: { id: true, examinationId: true, fileName: true, mimeType: true } },
+          answerSheet: { select: { id: true, examinationId: true, mimeType: true } },
+          reviewArtifact: { select: { id: true, identityMasked: true } },
           _count: { select: { questions: true } },
         },
       },
@@ -1024,13 +1120,13 @@ router.post("/evaluations/:evaluationId/review-rounds", async (req: AuthRequest,
   const body = z.object({
     reviewerId: cuid,
     kind: z.nativeEnum(AIExaminerReviewRoundKind).default(AIExaminerReviewRoundKind.PRIMARY),
-    sourceIdentityMasked: z.boolean().default(false),
   }).parse(req.body);
 
   const evaluation = await prisma.aIExaminerEvaluation.findFirst({
     where: { id: evaluationId, organizationId: req.auth!.organizationId },
     include: {
       answerSheet: { select: { id: true, examinationId: true, finalizedAt: true } },
+      reviewArtifact: { select: { id: true, identityMasked: true } },
       reviewRounds: { select: { sequence: true, reviewerId: true, kind: true, status: true } },
     },
   });
@@ -1044,8 +1140,9 @@ router.post("/evaluations/:evaluationId/review-rounds", async (req: AuthRequest,
   const policy = reviewPolicyFromExamSnapshot(exam.aiExaminerExamProfileSnapshot);
   await assertEligibleReviewRoundReviewer(req, body.reviewerId, exam.branchId);
 
-  if ((policy.mode === "BLIND" || policy.mode === "DOUBLE_BLIND") && !body.sourceIdentityMasked) {
-    throw new AppError(422, "AI_EXAMINER_SOURCE_IDENTITY_MASK_REQUIRED", "Blind review requires confirmation that identifying content in the source answer sheet has been masked");
+  const blindReview = policy.mode === "BLIND" || policy.mode === "DOUBLE_BLIND";
+  if (blindReview && (!evaluation.reviewArtifact || !evaluation.reviewArtifact.identityMasked)) {
+    throw new AppError(422, "AI_EXAMINER_REVIEW_ARTIFACT_REQUIRED", "Upload an identity-masked review artifact before assigning blind or double-blind review");
   }
 
   if (body.kind === AIExaminerReviewRoundKind.PRIMARY || body.kind === AIExaminerReviewRoundKind.SECONDARY) {
@@ -1082,7 +1179,7 @@ router.post("/evaluations/:evaluationId/review-rounds", async (req: AuthRequest,
         reviewerId: body.reviewerId,
         assignedById: req.auth!.userId,
         anonymizeStudentIdentity: policy.anonymizeStudentIdentity,
-        sourceIdentityMasked: body.sourceIdentityMasked,
+        sourceIdentityMasked: blindReview,
         priorMarksVisible: policy.reviewersSeePriorMarks,
       },
     });
@@ -1099,13 +1196,68 @@ router.post("/evaluations/:evaluationId/review-rounds", async (req: AuthRequest,
           sequence,
           kind: body.kind,
           mode: policy.mode,
-          sourceIdentityMasked: body.sourceIdentityMasked,
+          sourceIdentityMasked: blindReview,
         },
       },
     });
     return round;
   });
   res.status(201).json({ data });
+});
+
+router.get("/review-rounds/:roundId/document", async (req: AuthRequest, res) => {
+  const roundId = cuid.parse(req.params.roundId);
+  const round = await prisma.aIExaminerReviewRound.findFirst({
+    where: { id: roundId, organizationId: req.auth!.organizationId },
+    include: {
+      evaluation: {
+        select: {
+          id: true,
+          reviewArtifact: {
+            select: { fileName: true, mimeType: true, fileSize: true, fileData: true, identityMasked: true },
+          },
+          answerSheet: {
+            select: { fileName: true, mimeType: true, fileSize: true, fileData: true },
+          },
+        },
+      },
+    },
+  });
+  if (!round) throw new AppError(404, "AI_EXAMINER_REVIEW_ROUND_NOT_FOUND", "Review round not found");
+  if (round.reviewerId !== req.auth!.userId) {
+    throw new AppError(403, "AI_EXAMINER_REVIEW_ROUND_FORBIDDEN", "Only the assigned reviewer can access this review document");
+  }
+  if (round.status === AIExaminerReviewRoundStatus.CANCELLED) {
+    throw new AppError(409, "AI_EXAMINER_REVIEW_ROUND_CLOSED", "Cancelled review rounds cannot access assessment documents");
+  }
+
+  const source = round.anonymizeStudentIdentity ? round.evaluation.reviewArtifact : round.evaluation.answerSheet;
+  if (!source) throw new AppError(409, "AI_EXAMINER_REVIEW_ARTIFACT_REQUIRED", "The required review document is not available");
+  if (round.anonymizeStudentIdentity && (!round.sourceIdentityMasked || !("identityMasked" in source) || !source.identityMasked)) {
+    throw new AppError(409, "AI_EXAMINER_SOURCE_IDENTITY_MASK_REQUIRED", "Blind review document is not confirmed identity-masked");
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "AI_EXAMINER_REVIEW_DOCUMENT_ACCESSED",
+      entity: "AIExaminerReviewRound",
+      entityId: round.id,
+      metadata: {
+        evaluationId: round.evaluationId,
+        anonymized: round.anonymizeStudentIdentity,
+      },
+    },
+  });
+
+  const displayName = round.anonymizeStudentIdentity ? anonymousReviewFileName(source.mimeType) : source.fileName;
+  res.set(storedDocumentHeaders({
+    fileName: displayName,
+    mimeType: source.mimeType,
+    fileSize: source.fileSize,
+    fallbackName: round.anonymizeStudentIdentity ? "anonymous-answer-sheet" : "answer-sheet",
+  }, "inline")).send(storedDocumentBuffer(source.fileData));
 });
 
 router.post("/review-rounds/:roundId/submit", async (req: AuthRequest, res) => {
