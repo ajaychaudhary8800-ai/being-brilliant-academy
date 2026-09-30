@@ -115,6 +115,31 @@ async function branchAccess(req: AuthRequest, branchId: string) {
   if (!found) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
 }
 
+async function assertEligibleReviewRoundReviewer(req: AuthRequest, reviewerId: string, branchId: string) {
+  const reviewer = await prisma.user.findFirst({
+    where: {
+      id: reviewerId,
+      organizationId: req.auth!.organizationId,
+      isActive: true,
+      role: { in: [Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER] },
+    },
+    select: {
+      id: true,
+      role: true,
+      teacherProfile: { select: { branchId: true } },
+      branchAssignments: { where: { branchId }, select: { branchId: true } },
+    },
+  });
+  if (!reviewer) throw new AppError(422, "AI_EXAMINER_REVIEWER_INVALID", "Reviewer must be an active teacher or administrator in this organization");
+  if (reviewer.role === Role.TEACHER && reviewer.teacherProfile?.branchId !== branchId) {
+    throw new AppError(422, "AI_EXAMINER_REVIEWER_BRANCH_INVALID", "Teacher reviewer must belong to the examination branch");
+  }
+  if (reviewer.role === Role.BRANCH_ADMIN && !reviewer.branchAssignments.length) {
+    throw new AppError(422, "AI_EXAMINER_REVIEWER_BRANCH_INVALID", "Branch administrator reviewer must be assigned to the examination branch");
+  }
+  return reviewer;
+}
+
 async function examinationForManager(req: AuthRequest, examinationId: string) {
   const exam = await prisma.examination.findFirst({
     where: { organizationId: req.auth!.organizationId, id: examinationId },
@@ -941,6 +966,252 @@ router.get("/evaluations/:evaluationId", async (req: AuthRequest, res) => {
   res.json({ data: row });
 });
 
+router.get("/review-rounds/mine", async (req: AuthRequest, res) => {
+  const data = await prisma.aIExaminerReviewRound.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      reviewerId: req.auth!.userId,
+      status: { not: AIExaminerReviewRoundStatus.CANCELLED },
+    },
+    select: {
+      id: true,
+      evaluationId: true,
+      sequence: true,
+      kind: true,
+      mode: true,
+      anonymizeStudentIdentity: true,
+      sourceIdentityMasked: true,
+      priorMarksVisible: true,
+      status: true,
+      totalMarks: true,
+      submittedAt: true,
+      createdAt: true,
+      evaluation: {
+        select: {
+          answerSheet: { select: { id: true, examinationId: true, fileName: true, mimeType: true } },
+          _count: { select: { questions: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+  res.json({ data });
+});
+
+router.get("/evaluations/:evaluationId/review-rounds", async (req: AuthRequest, res) => {
+  const evaluationId = cuid.parse(req.params.evaluationId);
+  const evaluation = await prisma.aIExaminerEvaluation.findFirst({
+    where: { id: evaluationId, organizationId: req.auth!.organizationId },
+    include: {
+      answerSheet: { select: { examinationId: true } },
+      reviewRounds: {
+        include: {
+          reviewer: { select: { id: true, name: true, role: true } },
+          _count: { select: { decisions: true } },
+        },
+        orderBy: { sequence: "asc" },
+      },
+    },
+  });
+  if (!evaluation) throw new AppError(404, "AI_EXAMINER_EVALUATION_NOT_FOUND", "AI evaluation not found");
+  await examinationForManager(req, evaluation.answerSheet.examinationId);
+  res.json({ data: evaluation.reviewRounds });
+});
+
+router.post("/evaluations/:evaluationId/review-rounds", async (req: AuthRequest, res) => {
+  const evaluationId = cuid.parse(req.params.evaluationId);
+  const body = z.object({
+    reviewerId: cuid,
+    kind: z.nativeEnum(AIExaminerReviewRoundKind).default(AIExaminerReviewRoundKind.PRIMARY),
+    sourceIdentityMasked: z.boolean().default(false),
+  }).parse(req.body);
+
+  const evaluation = await prisma.aIExaminerEvaluation.findFirst({
+    where: { id: evaluationId, organizationId: req.auth!.organizationId },
+    include: {
+      answerSheet: { select: { id: true, examinationId: true, finalizedAt: true } },
+      reviewRounds: { select: { sequence: true, reviewerId: true, kind: true, status: true } },
+    },
+  });
+  if (!evaluation) throw new AppError(404, "AI_EXAMINER_EVALUATION_NOT_FOUND", "AI evaluation not found");
+  if (evaluation.status !== AIExaminerEvaluationStatus.REVIEW_REQUIRED) {
+    throw new AppError(409, "AI_EXAMINER_REVIEW_ROUND_UNAVAILABLE", "Review rounds can only be assigned after AI evaluation is ready for review");
+  }
+  if (evaluation.answerSheet.finalizedAt) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet has already been finalized");
+
+  const exam = await examinationForManager(req, evaluation.answerSheet.examinationId);
+  const policy = reviewPolicyFromExamSnapshot(exam.aiExaminerExamProfileSnapshot);
+  await assertEligibleReviewRoundReviewer(req, body.reviewerId, exam.branchId);
+
+  if ((policy.mode === "BLIND" || policy.mode === "DOUBLE_BLIND") && !body.sourceIdentityMasked) {
+    throw new AppError(422, "AI_EXAMINER_SOURCE_IDENTITY_MASK_REQUIRED", "Blind review requires confirmation that identifying content in the source answer sheet has been masked");
+  }
+
+  if (body.kind === AIExaminerReviewRoundKind.PRIMARY || body.kind === AIExaminerReviewRoundKind.SECONDARY) {
+    const duplicateReviewer = evaluation.reviewRounds.some(round =>
+      round.reviewerId === body.reviewerId &&
+      round.status !== AIExaminerReviewRoundStatus.CANCELLED &&
+      (round.kind === AIExaminerReviewRoundKind.PRIMARY || round.kind === AIExaminerReviewRoundKind.SECONDARY)
+    );
+    if (duplicateReviewer) {
+      throw new AppError(409, "AI_EXAMINER_INDEPENDENT_REVIEWER_REQUIRED", "Independent review rounds must use distinct reviewers");
+    }
+  }
+
+  if (body.kind === AIExaminerReviewRoundKind.MODERATION) {
+    const priorIndependentReviewer = evaluation.reviewRounds.some(round =>
+      round.reviewerId === body.reviewerId &&
+      round.status !== AIExaminerReviewRoundStatus.CANCELLED &&
+      (round.kind === AIExaminerReviewRoundKind.PRIMARY || round.kind === AIExaminerReviewRoundKind.SECONDARY)
+    );
+    if (priorIndependentReviewer) {
+      throw new AppError(409, "AI_EXAMINER_MODERATOR_INDEPENDENCE_REQUIRED", "Moderator must be independent from prior primary/secondary reviewers");
+    }
+  }
+
+  const sequence = Math.max(0, ...evaluation.reviewRounds.map(round => round.sequence)) + 1;
+  const data = await prisma.$transaction(async tx => {
+    const round = await tx.aIExaminerReviewRound.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        evaluationId: evaluation.id,
+        sequence,
+        kind: body.kind,
+        mode: policy.mode as AIExaminerReviewMode,
+        reviewerId: body.reviewerId,
+        assignedById: req.auth!.userId,
+        anonymizeStudentIdentity: policy.anonymizeStudentIdentity,
+        sourceIdentityMasked: body.sourceIdentityMasked,
+        priorMarksVisible: policy.reviewersSeePriorMarks,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_EXAMINER_REVIEW_ROUND_ASSIGNED",
+        entity: "AIExaminerReviewRound",
+        entityId: round.id,
+        metadata: {
+          evaluationId: evaluation.id,
+          reviewerId: body.reviewerId,
+          sequence,
+          kind: body.kind,
+          mode: policy.mode,
+          sourceIdentityMasked: body.sourceIdentityMasked,
+        },
+      },
+    });
+    return round;
+  });
+  res.status(201).json({ data });
+});
+
+router.post("/review-rounds/:roundId/submit", async (req: AuthRequest, res) => {
+  const roundId = cuid.parse(req.params.roundId);
+  const body = z.object({
+    decisions: z.array(z.object({
+      questionKey: z.string().trim().min(1).max(40),
+      awardedMarks: z.coerce.number().min(-10000).max(10000),
+      comment: z.string().trim().max(5000).nullable().optional(),
+      evidence: z.unknown().optional(),
+    })).min(1).max(200),
+    notes: z.string().trim().max(5000).nullable().optional(),
+  }).parse(req.body);
+
+  const round = await prisma.aIExaminerReviewRound.findFirst({
+    where: { id: roundId, organizationId: req.auth!.organizationId },
+    include: {
+      evaluation: {
+        include: {
+          questions: true,
+          answerSheet: { select: { id: true, examinationId: true, finalizedAt: true } },
+        },
+      },
+    },
+  });
+  if (!round) throw new AppError(404, "AI_EXAMINER_REVIEW_ROUND_NOT_FOUND", "Review round not found");
+  if (round.reviewerId !== req.auth!.userId) throw new AppError(403, "AI_EXAMINER_REVIEW_ROUND_FORBIDDEN", "Only the assigned reviewer can submit this review round");
+  if (round.status !== AIExaminerReviewRoundStatus.ASSIGNED && round.status !== AIExaminerReviewRoundStatus.IN_PROGRESS) {
+    throw new AppError(409, "AI_EXAMINER_REVIEW_ROUND_CLOSED", "This review round is no longer open for submission");
+  }
+  if (round.evaluation.answerSheet.finalizedAt) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet has already been finalized");
+  if (round.anonymizeStudentIdentity && !round.sourceIdentityMasked) {
+    throw new AppError(409, "AI_EXAMINER_SOURCE_IDENTITY_MASK_REQUIRED", "Blind review cannot be submitted until the source answer sheet is identity-masked");
+  }
+
+  const exam = await prisma.examination.findFirst({
+    where: { id: round.evaluation.answerSheet.examinationId, organizationId: req.auth!.organizationId },
+    select: { id: true, maximumMarks: true, status: true },
+  });
+  if (!exam) throw new AppError(404, "EXAMINATION_NOT_FOUND", "Examination not found");
+  if (exam.status !== ExaminationStatus.COMPLETED) throw new AppError(409, "AI_EXAMINER_EVALUATION_CLOSED", "Examination is no longer open for review");
+
+  const byKey = new Map(body.decisions.map(decision => [decision.questionKey.toLowerCase(), decision]));
+  if (byKey.size !== body.decisions.length || byKey.size !== round.evaluation.questions.length) {
+    throw new AppError(422, "AI_EXAMINER_REVIEW_INCOMPLETE", "Review round must contain exactly one decision for every evaluated question");
+  }
+
+  let total = 0;
+  for (const question of round.evaluation.questions) {
+    const decision = byKey.get(question.questionKey.toLowerCase());
+    if (!decision) throw new AppError(422, "AI_EXAMINER_REVIEW_INCOMPLETE", `Missing review decision for ${question.questionKey}`);
+    const maximum = Number(question.maxMarks);
+    if (decision.awardedMarks > maximum + 0.001) throw new AppError(422, "AI_EXAMINER_MARKS_EXCEED_MAXIMUM", `Marks for ${question.questionKey} cannot exceed ${maximum}`);
+    if (decision.awardedMarks < -maximum - 0.001) throw new AppError(422, "AI_EXAMINER_MARKS_BELOW_MINIMUM", `Marks for ${question.questionKey} cannot be below -${maximum}`);
+    total += decision.awardedMarks;
+  }
+  if (total > exam.maximumMarks + 0.001) throw new AppError(422, "AI_EXAMINER_TOTAL_EXCEEDS_MAXIMUM", "Review-round marks exceed examination maximum marks");
+
+  const now = new Date();
+  const submitted = await prisma.$transaction(async tx => {
+    await tx.aIExaminerReviewDecision.deleteMany({ where: { reviewRoundId: round.id } });
+    for (const question of round.evaluation.questions) {
+      const decision = byKey.get(question.questionKey.toLowerCase())!;
+      await tx.aIExaminerReviewDecision.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          reviewRoundId: round.id,
+          questionEvaluationId: question.id,
+          questionKey: question.questionKey,
+          awardedMarks: decision.awardedMarks,
+          comment: decision.comment ?? null,
+          ...(decision.evidence !== undefined ? { evidence: profileJson(decision.evidence) } : {}),
+        },
+      });
+    }
+    const updated = await tx.aIExaminerReviewRound.update({
+      where: { id: round.id },
+      data: {
+        status: AIExaminerReviewRoundStatus.SUBMITTED,
+        totalMarks: total,
+        notes: body.notes ?? null,
+        submittedAt: now,
+      },
+      include: { decisions: { orderBy: { createdAt: "asc" } } },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_EXAMINER_REVIEW_ROUND_SUBMITTED",
+        entity: "AIExaminerReviewRound",
+        entityId: round.id,
+        metadata: {
+          evaluationId: round.evaluationId,
+          sequence: round.sequence,
+          kind: round.kind,
+          totalMarks: total,
+          decisionCount: body.decisions.length,
+        },
+      },
+    });
+    return updated;
+  });
+  res.json({ data: submitted });
+});
+
 router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) => {
   const evaluationId = cuid.parse(req.params.evaluationId);
   const body = z.object({
@@ -956,6 +1227,7 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
     where: { id: evaluationId, organizationId: req.auth!.organizationId },
     include: {
       questions: true,
+      reviewRounds: { select: { reviewerId: true, kind: true, status: true, totalMarks: true } },
       answerSheet: { select: { id: true, examinationId: true, studentId: true, finalizedAt: true, status: true } },
     },
   });
@@ -967,6 +1239,21 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
   const exam = await examinationForManager(req, evaluation.answerSheet.examinationId);
   if (exam.status !== ExaminationStatus.COMPLETED) throw new AppError(409, "AI_EXAMINER_EVALUATION_CLOSED", "Examination is no longer open for evaluation");
   if (evaluation.answerSheet.finalizedAt) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet has already been finalized");
+
+  const reviewPolicy = reviewPolicyFromExamSnapshot(exam.aiExaminerExamProfileSnapshot);
+  const reviewCompletion = assessAIExaminerReviewCompletion({
+    policy: reviewPolicy,
+    rounds: evaluation.reviewRounds.map(round => ({
+      reviewerId: round.reviewerId,
+      kind: round.kind,
+      status: round.status,
+      totalMarks: round.totalMarks == null ? null : Number(round.totalMarks),
+    })),
+    maximumMarks: exam.maximumMarks,
+  });
+  if (!reviewCompletion.readyToFinalize) {
+    throw new AppError(409, "AI_EXAMINER_REVIEW_POLICY_INCOMPLETE", reviewCompletion.blockers.join(" "));
+  }
 
   const byKey = new Map(body.questions.map(row => [row.questionKey.toLowerCase(), row]));
   if (byKey.size !== evaluation.questions.length || body.questions.length !== evaluation.questions.length) {
