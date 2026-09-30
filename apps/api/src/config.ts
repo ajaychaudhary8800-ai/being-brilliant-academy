@@ -38,6 +38,7 @@ const schema = z.object({
   AI_EXAMINER_REVIEW_THRESHOLD: z.coerce.number().min(0.5).max(1).default(0.85),
   AI_EXAMINER_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(120_000),
   AI_EXAMINER_WORKER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(60_000).default(5_000),
+  DEVICE_HUB_WORKER_INTERVAL_MS: z.coerce.number().int().min(5_000).max(300_000).default(15_000),
   LIVEKIT_URL: optionalUrl,
   LIVEKIT_API_KEY: optionalString,
   LIVEKIT_API_SECRET: optionalString,
