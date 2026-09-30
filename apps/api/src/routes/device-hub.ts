@@ -1,4 +1,6 @@
 import {
+  CameraIncidentSeverity,
+  CameraIncidentStatus,
   CampusAccessDecision,
   CampusAccessPointType,
   ConnectedDeviceBindingType,
@@ -154,6 +156,188 @@ const deviceInput = z.object({
   capabilities: z.array(z.string().trim().min(1).max(80)).max(100).default([]),
   config: z.record(z.string(), z.unknown()).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const cameraInput = z.object({
+  branchId: cuid,
+  code: z.string().trim().min(2).max(80).regex(/^[A-Za-z0-9._-]+$/),
+  name: z.string().trim().min(2).max(180),
+  deviceId: cuid,
+  zone: z.string().trim().max(180).nullable().optional(),
+  location: z.string().trim().max(300).nullable().optional(),
+  streamSecretRef: z.string().trim().min(3).max(300).nullable().optional(),
+  recordingSecretRef: z.string().trim().min(3).max(300).nullable().optional(),
+  retentionDays: z.number().int().min(1).max(365).default(30),
+  privacyMasking: z.boolean().default(true),
+  audioEnabled: z.boolean().default(false),
+  aiReviewEnabled: z.boolean().default(false),
+  isActive: z.boolean().default(true),
+}).superRefine((value, ctx) => {
+  for (const [key, ref] of [["streamSecretRef", value.streamSecretRef], ["recordingSecretRef", value.recordingSecretRef]] as const) {
+    if (ref && /:\/\/[^/]*@/.test(ref)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: "Store a secret reference, not a credential-bearing stream URL" });
+    }
+    if (ref && /^(rtsp|http|https):\/\//i.test(ref)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: "Store a secret reference identifier rather than a raw endpoint URL" });
+    }
+  }
+});
+
+router.get("/device-hub/cameras", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const cameras = await prisma.campusCamera.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      ...(req.auth!.role === Role.SUPER_ADMIN ? {} : erpBranchWhere(scope)),
+    },
+    orderBy: [{ branchId: "asc" }, { name: "asc" }],
+  });
+  const devices = cameras.length ? await prisma.connectedDevice.findMany({
+    where: { organizationId: req.auth!.organizationId, id: { in: cameras.map(camera => camera.deviceId) } },
+    select: { id: true, status: true, lastHeartbeatAt: true, lastSeenAt: true, lastErrorAt: true, lastErrorCode: true, firmwareVersion: true },
+  }) : [];
+  const byId = new Map(devices.map(device => [device.id, device]));
+  res.json({
+    data: cameras.map(camera => {
+      const device = byId.get(camera.deviceId);
+      return {
+        ...camera,
+        streamSecretRef: camera.streamSecretRef ? "[configured]" : null,
+        recordingSecretRef: camera.recordingSecretRef ? "[configured]" : null,
+        health: device ? connectedDeviceHealth({
+          status: device.status,
+          lastHeartbeatAt: device.lastHeartbeatAt,
+          lastSeenAt: device.lastSeenAt,
+        }) : { online: false, stale: true, lastSeenAt: null, ageSeconds: null },
+        deviceStatus: device?.status ?? "MISSING",
+        lastErrorAt: device?.lastErrorAt ?? null,
+        lastErrorCode: device?.lastErrorCode ?? null,
+        firmwareVersion: device?.firmwareVersion ?? null,
+      };
+    }),
+  });
+});
+
+router.post("/device-hub/cameras", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const body = cameraInput.parse(req.body);
+  await assertErpBranchTarget(scope, body.branchId);
+  const device = await deviceForOrganization(req.auth!.organizationId, body.deviceId);
+  if (device.kind !== ConnectedDeviceKind.CAMERA) throw new AppError(422, "CAMERA_DEVICE_KIND_INVALID", "Campus camera requires a CAMERA Device Hub record");
+  if (device.branchId && device.branchId !== body.branchId) throw new AppError(422, "CAMERA_DEVICE_BRANCH_MISMATCH", "Camera and Device Hub record must belong to the same branch");
+  try {
+    const data = await prisma.campusCamera.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        ...body,
+        code: body.code.toUpperCase(),
+        zone: body.zone ?? null,
+        location: body.location ?? null,
+        streamSecretRef: body.streamSecretRef ?? null,
+        recordingSecretRef: body.recordingSecretRef ?? null,
+      },
+      select: {
+        id: true, organizationId: true, branchId: true, code: true, name: true, deviceId: true, zone: true, location: true,
+        retentionDays: true, privacyMasking: true, audioEnabled: true, aiReviewEnabled: true, isActive: true, createdAt: true, updatedAt: true,
+      },
+    });
+    res.status(201).json({ data, meta: { hardwareValidated: false, productionReady: false } });
+  } catch (error: any) {
+    if (error?.code === "P2002") throw new AppError(409, "CAMERA_ALREADY_EXISTS", "Camera code or Device Hub assignment already exists");
+    throw error;
+  }
+});
+
+router.patch("/device-hub/cameras/:cameraId", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const camera = await prisma.campusCamera.findFirst({ where: { id: cuid.parse(req.params.cameraId), organizationId: req.auth!.organizationId } });
+  if (!camera) throw new AppError(404, "CAMERA_NOT_FOUND", "Campus camera not found");
+  assertErpBranchAccess(scope, camera.branchId);
+  const body = cameraInput.partial().parse(req.body);
+  const targetBranch = body.branchId ?? camera.branchId;
+  await assertErpBranchTarget(scope, targetBranch);
+  if (body.deviceId) {
+    const device = await deviceForOrganization(req.auth!.organizationId, body.deviceId);
+    if (device.kind !== ConnectedDeviceKind.CAMERA) throw new AppError(422, "CAMERA_DEVICE_KIND_INVALID", "Campus camera requires a CAMERA Device Hub record");
+    if (device.branchId && device.branchId !== targetBranch) throw new AppError(422, "CAMERA_DEVICE_BRANCH_MISMATCH", "Camera and Device Hub record must belong to the same branch");
+  }
+  const data = await prisma.campusCamera.update({
+    where: { id: camera.id },
+    data: { ...body, code: body.code?.toUpperCase() },
+    select: {
+      id: true, organizationId: true, branchId: true, code: true, name: true, deviceId: true, zone: true, location: true,
+      retentionDays: true, privacyMasking: true, audioEnabled: true, aiReviewEnabled: true, isActive: true, createdAt: true, updatedAt: true,
+    },
+  });
+  res.json({ data });
+});
+
+router.get("/device-hub/camera-incidents", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const q = z.object({
+    status: z.nativeEnum(CameraIncidentStatus).optional(),
+    severity: z.nativeEnum(CameraIncidentSeverity).optional(),
+    cameraId: cuid.optional(),
+    since: z.coerce.date().optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+  }).parse(req.query);
+  const data = await prisma.cameraIncident.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      camera: {
+        ...(req.auth!.role === Role.SUPER_ADMIN ? {} : erpBranchWhere(scope)),
+        ...(q.cameraId ? { id: q.cameraId } : {}),
+      },
+      ...(q.status ? { status: q.status } : {}),
+      ...(q.severity ? { severity: q.severity } : {}),
+      ...(q.since ? { occurredAt: { gte: q.since } } : {}),
+    },
+    include: { camera: { select: { id: true, branchId: true, code: true, name: true, zone: true, location: true } } },
+    take: q.limit,
+    orderBy: { occurredAt: "desc" },
+  });
+  res.json({ data });
+});
+
+router.patch("/device-hub/camera-incidents/:incidentId", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const incident = await prisma.cameraIncident.findFirst({
+    where: { id: cuid.parse(req.params.incidentId), organizationId: req.auth!.organizationId },
+    include: { camera: { select: { branchId: true } } },
+  });
+  if (!incident) throw new AppError(404, "CAMERA_INCIDENT_NOT_FOUND", "Camera incident not found");
+  assertErpBranchAccess(scope, incident.camera.branchId);
+  const body = z.object({
+    status: z.enum(["ACKNOWLEDGED","INVESTIGATING","RESOLVED","DISMISSED"]),
+    resolutionNotes: z.string().trim().min(3).max(5000).optional(),
+  }).parse(req.body);
+  if (["RESOLVED","DISMISSED"].includes(body.status) && !body.resolutionNotes) {
+    throw new AppError(422, "CAMERA_INCIDENT_RESOLUTION_REQUIRED", "Resolved or dismissed incidents require review notes");
+  }
+  const now = new Date();
+  const data = await prisma.cameraIncident.update({
+    where: { id: incident.id },
+    data: {
+      status: body.status,
+      ...(body.status === "ACKNOWLEDGED" || body.status === "INVESTIGATING"
+        ? { acknowledgedById: req.auth!.userId, acknowledgedAt: incident.acknowledgedAt ?? now }
+        : {}),
+      ...(body.status === "RESOLVED" || body.status === "DISMISSED"
+        ? { resolvedById: req.auth!.userId, resolvedAt: now, resolutionNotes: body.resolutionNotes }
+        : {}),
+    },
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "CAMERA_INCIDENT_REVIEWED",
+      entity: "CameraIncident",
+      entityId: incident.id,
+      metadata: { status: body.status },
+    },
+  });
+  res.json({ data });
 });
 
 const accessPointInput = z.object({
