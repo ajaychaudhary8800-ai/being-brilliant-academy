@@ -235,7 +235,7 @@ test("real PostgreSQL concurrency contracts", { skip: !enabled, timeout: 60_000 
       assert.ok(results.every(result => result.status === "fulfilled" || result.status === "rejected" && isSerializableConflict(result.reason)));
       assert.ok(amountPaid <= 1_000);
       assert.equal(finalFee?.amountPaidPaise, amountPaid);
-      assert.equal(finalFee?.status, amountPaid === 1_000 ? FeeStatus.PAID : FeeStatus.PARTIAL);
+      assert.equal(finalFee?.status, amountPaid === 0 ? FeeStatus.PENDING : amountPaid === 1_000 ? FeeStatus.PAID : FeeStatus.PARTIAL);
     });
 
     await t.test("duplicate external transaction identifiers admit one payment", async () => {
