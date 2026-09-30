@@ -51,11 +51,11 @@ test("expected device mapping failures are persisted as rejected events instead 
   assert.match(source, /processedAt: new Date\(\)/);
 });
 
-test("supported VIDEO events are processed while unsupported SENSOR/GENERIC categories remain pending", async () => {
+test("supported VIDEO and SENSOR events are processed while unsupported GENERIC categories remain pending", async () => {
   const source = await readFile(new URL("./device-hub-processor.ts", import.meta.url), "utf8");
   assert.match(source, /category === "VIDEO"\) result = await processVideo/);
+  assert.match(source, /category === "SENSOR"\) result = await processEnvironmentalSensor/);
   assert.match(source, /pendingAdapter: parsed\.data\.category/);
-  assert.doesNotMatch(source, /category === "SENSOR"\) result = await/);
   assert.doesNotMatch(source, /category === "GENERIC"\) result = await/);
 });
 
