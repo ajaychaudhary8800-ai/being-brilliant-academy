@@ -6,6 +6,7 @@ export type AIExaminerVerificationReason =
   | "SCORING_ERROR"
   | "SPECIALIZED_CHECK_FAILED"
   | "SPECIALIZED_CHECK_REVIEW"
+  | "EVIDENCE_LINK_UNVERIFIED"
   | "INCOMPLETE_MARKS";
 
 export type AIExaminerSecondPassQuestion = {
@@ -17,6 +18,10 @@ export type AIExaminerSecondPassQuestion = {
   specializedEvidence?: {
     checks?: Array<{ status?: string }>;
     reviewRequired?: boolean;
+  } | null;
+  evidenceAudit?: {
+    reviewRequired?: boolean;
+    coverageRate?: number;
   } | null;
 };
 
@@ -79,6 +84,13 @@ export function decideAIExaminerSecondPass(input: {
       checks.some(check => check.status === "REVIEW")
     ) {
       reasons.add("SPECIALIZED_CHECK_REVIEW");
+      include = true;
+    }
+    if (
+      question.evidenceAudit?.reviewRequired ||
+      (question.evidenceAudit?.coverageRate != null && question.evidenceAudit.coverageRate < 1)
+    ) {
+      reasons.add("EVIDENCE_LINK_UNVERIFIED");
       include = true;
     }
 
