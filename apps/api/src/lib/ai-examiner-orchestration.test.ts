@@ -206,7 +206,8 @@ test("multimodal visual criteria are passed to the provider and reconciled as st
   const result = reconcileAIExaminerProviderResult(questions, provider([providerRow]), 0.75);
   assert.equal(result.questions[0]?.engine, "MULTIMODAL");
   assert.equal(result.questions[0]?.reviewRequired, true);
-  assert.equal(result.questions[0]?.specializedEvidence?.engine, "MULTIMODAL");
-  assert.equal(result.questions[0]?.specializedEvidence?.reviewRequired, true);
-  assert.equal(result.questions[0]?.specializedEvidence?.checks.some(check => check.status === "REVIEW"), true);
+  const evidence = result.questions[0]?.specializedEvidence;
+  assert.ok(evidence && "engine" in evidence && evidence.engine === "MULTIMODAL");
+  assert.equal(evidence.reviewRequired, true);
+  assert.equal(evidence.checks.some(check => check.status === "REVIEW"), true);
 });
