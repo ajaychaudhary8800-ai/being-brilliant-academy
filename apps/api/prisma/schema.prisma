@@ -648,6 +648,22 @@ enum CampusAccessSubjectType {
   UNKNOWN
 }
 
+enum CameraIncidentSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum CameraIncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+}
+
 enum Role {
   SUPER_ADMIN
   BRANCH_ADMIN
@@ -5408,6 +5424,59 @@ model GstConfiguration {
 
   @@unique([branchId, effectiveFrom])
   @@index([organizationId])
+}
+
+model CampusCamera {
+  organizationId String
+  id             String               @id @default(cuid())
+  branchId       String
+  code           String
+  name           String
+  deviceId       String               @unique
+  zone           String?
+  location       String?
+  streamSecretRef String?
+  recordingSecretRef String?
+  retentionDays  Int                  @default(30)
+  privacyMasking Boolean              @default(true)
+  audioEnabled   Boolean              @default(false)
+  aiReviewEnabled Boolean             @default(false)
+  isActive       Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  incidents      CameraIncident[]
+
+  @@unique([organizationId, branchId, code])
+  @@index([organizationId, branchId, isActive])
+}
+
+model CameraIncident {
+  organizationId String
+  id             String                 @id @default(cuid())
+  cameraId       String
+  deviceEventId  String?                @unique
+  eventType      String
+  severity       CameraIncidentSeverity @default(INFO)
+  status         CameraIncidentStatus   @default(OPEN)
+  title          String
+  description    String?                @db.Text
+  occurredAt     DateTime
+  confidence     Decimal?               @db.Decimal(5,4)
+  reviewRequired Boolean                @default(true)
+  clipExternalRef String?
+  snapshotExternalRef String?
+  metadata       Json?
+  acknowledgedById String?
+  acknowledgedAt DateTime?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNotes String?               @db.Text
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  camera         CampusCamera           @relation(fields: [cameraId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, cameraId, occurredAt])
+  @@index([organizationId, status, severity, occurredAt])
 }
 
 model CampusAccessPoint {
