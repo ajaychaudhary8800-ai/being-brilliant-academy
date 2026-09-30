@@ -1779,6 +1779,14 @@ router.get("/review-rounds/:roundId/workspace", async (req: AuthRequest, res) =>
             select: {
               id: true,
               mimeType: true,
+              evidenceAttachments: {
+                where: { status: "VERIFIED" },
+                select: {
+                  id: true, questionKey: true, kind: true, status: true, fileName: true, mimeType: true, fileSize: true,
+                  externalUrl: true, durationSeconds: true, transcript: true, observation: true, capturedAt: true,
+                },
+                orderBy: [{ questionKey: "asc" }, { createdAt: "asc" }],
+              },
               examination: {
                 select: {
                   id: true,
@@ -1849,6 +1857,20 @@ router.get("/review-rounds/:roundId/workspace", async (req: AuthRequest, res) =>
           mimeType: round.evaluation.answerSheet.mimeType,
           documentRoute: `/api/ai-examiner/review-rounds/${round.id}/document`,
         },
+        evidence: round.evaluation.answerSheet.evidenceAttachments.map(item => ({
+          id: item.id,
+          questionKey: item.questionKey,
+          kind: item.kind,
+          status: item.status,
+          durationSeconds: item.durationSeconds,
+          transcript: item.transcript,
+          observation: item.observation,
+          capturedAt: item.capturedAt,
+          fileRoute: item.fileName && item.mimeType && item.fileSize
+            ? `/api/ai-examiner/review-rounds/${round.id}/evidence/${item.id}/file`
+            : null,
+          externalUrl: round.anonymizeStudentIdentity ? null : item.externalUrl,
+        })),
         questions,
       },
     },
@@ -2729,6 +2751,31 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
   });
   if (!reviewCompletion.readyToFinalize) {
     throw new AppError(409, "AI_EXAMINER_REVIEW_POLICY_INCOMPLETE", reviewCompletion.blockers.join(" "));
+  }
+
+  const activeRubric = exam.aiExaminerRubrics.find(rubric => rubric.status === AIExaminerRubricStatus.ACTIVE);
+  if (!activeRubric) throw new AppError(409, "AI_EXAMINER_ACTIVE_RUBRIC_REQUIRED", "Active rubric is required before final approval");
+  const supplementaryQuestions = resolveAIExaminerRubricQuestions(activeRubric.rubric, activeRubric.modelAnswer)
+    .filter(question => question.questionType === "ORAL_AUDIO_VIDEO" || question.questionType === "PRACTICAL_PROJECT_VIVA");
+  if (supplementaryQuestions.length) {
+    const verifiedEvidence = await prisma.aIExaminerEvidenceAttachment.findMany({
+      where: {
+        organizationId: req.auth!.organizationId,
+        answerSheetId: evaluation.answerSheet.id,
+        status: "VERIFIED",
+        questionKey: { in: supplementaryQuestions.map(question => question.key) },
+      },
+      select: { questionKey: true },
+    });
+    const verifiedKeys = new Set(verifiedEvidence.map(item => item.questionKey.toLocaleLowerCase("en")));
+    const missing = supplementaryQuestions.filter(question => !verifiedKeys.has(question.key.toLocaleLowerCase("en"))).map(question => question.key);
+    if (missing.length) {
+      throw new AppError(
+        409,
+        "AI_EXAMINER_SUPPLEMENTARY_EVIDENCE_INCOMPLETE",
+        `Verified oral/practical evidence is required before final approval for: ${missing.join(", ")}`,
+      );
+    }
   }
 
   const byKey = new Map(body.questions.map(row => [row.questionKey.toLowerCase(), row]));
