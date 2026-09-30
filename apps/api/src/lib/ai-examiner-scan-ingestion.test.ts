@@ -5,6 +5,7 @@ import {
   assertAIExaminerScanToken,
   createAIExaminerScanToken,
   hashAIExaminerScanToken,
+  collectTrustedAIExaminerOmrAnswers,
   validateAIExaminerOmrIngestion,
 } from "./ai-examiner-scan-ingestion.js";
 
@@ -123,4 +124,36 @@ test("invalid scan page metadata and confidence thresholds are rejected", () => 
       detections: [],
     },
   }));
+});
+
+
+test("trusted OMR evidence is collected only from fully accepted stored pages", () => {
+  const clean = collectTrustedAIExaminerOmrAnswers([{
+    status: "ACCEPTED",
+    issues: [],
+    answers: [
+      { questionKey: "Q1", selections: ["b"], confidence: 0.98, autoScorable: true },
+      { questionKey: "Q2", selections: ["A", "c"], confidence: 0.96, autoScorable: true },
+    ],
+  }]);
+  assert.equal(clean.valid, true);
+  assert.deepEqual(clean.answers.get("q1")?.selections, ["B"]);
+  assert.deepEqual(clean.answers.get("q2")?.selections, ["A", "C"]);
+
+  const uncertain = collectTrustedAIExaminerOmrAnswers([{
+    status: "REVIEW_REQUIRED",
+    issues: [{ code: "AMBIGUOUS_MARK" }],
+    answers: [{ questionKey: "Q1", selections: ["A"], confidence: 0.7, autoScorable: false }],
+  }]);
+  assert.equal(uncertain.valid, false);
+  assert.equal(uncertain.answers.size, 0);
+});
+
+test("duplicate OMR question evidence across accepted pages is rejected", () => {
+  const result = collectTrustedAIExaminerOmrAnswers([
+    { status: "ACCEPTED", issues: [], answers: [{ questionKey: "Q1", selections: ["A"], confidence: 0.99, autoScorable: true }] },
+    { status: "ACCEPTED", issues: [], answers: [{ questionKey: "q1", selections: ["A"], confidence: 0.99, autoScorable: true }] },
+  ]);
+  assert.equal(result.valid, false);
+  assert.match(result.reason ?? "", /more than one accepted scan page/);
 });
