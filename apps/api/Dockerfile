@@ -1,13 +1,14 @@
 # syntax=docker/dockerfile:1.7
 FROM node:22-alpine AS build
-ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH NODE_OPTIONS=--max-old-space-size=1024
 RUN corepack enable
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json apps/api/package.json
 RUN --mount=type=cache,id=pnpm-api,target=/pnpm/store pnpm install --frozen-lockfile --prod=false --filter @bba/api...
 COPY apps/api apps/api
-RUN pnpm --filter @bba/api prisma:generate && pnpm --filter @bba/api build
+RUN pnpm --filter @bba/api prisma:generate
+RUN pnpm --filter @bba/api build
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production PORT=4000
