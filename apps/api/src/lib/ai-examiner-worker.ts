@@ -146,6 +146,7 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
               engine: question.engine,
               deterministicStatus: question.deterministicStatus,
               scoringError: question.scoringError,
+              specializedEvidence: question.specializedEvidence,
             })),
             reviewRequiredCount: questionRows.filter(row => row.reviewRequired).length,
             unresolvedDeterministicCount: reconciled.unresolvedDeterministicCount,
