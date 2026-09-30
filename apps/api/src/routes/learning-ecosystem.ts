@@ -20,6 +20,7 @@ import {
   type LearningResource,
 } from "../lib/learning-ecosystem-access.js";
 import { AppError } from "../lib/http.js";
+import { calculateLearningTestPsychometrics } from "../lib/learning-item-analysis.js";
 import { resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import {
   learningTestAdapterReadiness,
@@ -531,6 +532,145 @@ function assertLearningTestClientBinding(
 }
 
 const learningTestClientInstance = z.string().trim().min(8).max(160).regex(/^[A-Za-z0-9._:-]+$/);
+
+function remediationQuestionContext(row: {
+  questionId: string;
+  questionSnapshot: Prisma.JsonValue | null;
+  question: { code: string; chapter: string; topic: string | null; learningOutcomes: string[] };
+}) {
+  if (row.questionSnapshot && typeof row.questionSnapshot === "object" && !Array.isArray(row.questionSnapshot)) {
+    const snapshot = row.questionSnapshot as Record<string, unknown>;
+    return {
+      questionId: row.questionId,
+      code: String(snapshot.code ?? row.question.code),
+      chapter: String(snapshot.chapter ?? row.question.chapter),
+      topic: snapshot.topic == null ? row.question.topic : String(snapshot.topic),
+      learningOutcomes: Array.isArray(snapshot.learningOutcomes)
+        ? snapshot.learningOutcomes.map(String).filter(Boolean)
+        : row.question.learningOutcomes,
+    };
+  }
+  return {
+    questionId: row.questionId,
+    code: row.question.code,
+    chapter: row.question.chapter,
+    topic: row.question.topic,
+    learningOutcomes: row.question.learningOutcomes,
+  };
+}
+
+async function regenerateLearningAttemptRemediation(input: {
+  organizationId: string;
+  attemptId: string;
+  studentUserId: string;
+}) {
+  const attempt = await prisma.learningTestAttempt.findFirst({
+    where: {
+      id: input.attemptId,
+      organizationId: input.organizationId,
+      studentId: input.studentUserId,
+      status: LearningAttemptStatus.EVALUATED,
+    },
+    include: {
+      answers: { select: { questionId: true, isCorrect: true, awardedMarks: true } },
+      test: {
+        include: {
+          questions: {
+            include: {
+              question: {
+                select: { code: true, chapter: true, topic: true, learningOutcomes: true },
+              },
+            },
+            orderBy: { position: "asc" },
+          },
+        },
+      },
+    },
+  });
+  if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Evaluated test attempt not found");
+
+  const answerByQuestion = new Map(attempt.answers.map(answer => [answer.questionId, answer]));
+  const weak = attempt.test.questions
+    .map(row => {
+      const answer = answerByQuestion.get(row.questionId);
+      const awarded = answer?.awardedMarks == null ? null : Number(answer.awardedMarks);
+      const maximum = Number(row.marks);
+      const ratio = awarded == null || maximum <= 0 ? 0 : awarded / maximum;
+      return {
+        ...remediationQuestionContext(row),
+        isCorrect: answer?.isCorrect ?? null,
+        scoreRatio: Math.max(0, Math.min(1, ratio)),
+      };
+    })
+    .filter(row => row.isCorrect !== true || row.scoreRatio < 0.6);
+
+  const chapterTopicPairs = weak.map(row => ({ chapter: row.chapter, topic: row.topic })).filter(row => row.chapter);
+  const materials = chapterTopicPairs.length
+    ? await prisma.studyMaterial.findMany({
+        where: {
+          organizationId: input.organizationId,
+          status: LearningStatus.PUBLISHED,
+          isArchived: false,
+          courseId: attempt.test.courseId,
+          ...(attempt.test.subjectId ? { subjectId: attempt.test.subjectId } : {}),
+          OR: chapterTopicPairs.flatMap(row => [
+            { chapter: row.chapter, ...(row.topic ? { topic: row.topic } : {}) },
+            { chapter: row.chapter },
+          ]),
+        },
+        select: { id: true, title: true, type: true, chapter: true, topic: true, externalUrl: true },
+        take: 24,
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+
+  const materialByContext = (chapter: string, topic: string | null) =>
+    materials.find(material => material.chapter === chapter && topic && material.topic === topic)
+    ?? materials.find(material => material.chapter === chapter)
+    ?? null;
+
+  const recommendationRows = weak.slice(0, 20).map((row, index) => {
+    const material = materialByContext(row.chapter, row.topic);
+    const focus = row.topic || row.chapter || row.code;
+    const outcome = row.learningOutcomes[0];
+    return {
+      organizationId: input.organizationId,
+      userId: input.studentUserId,
+      kind: "REMEDIAL",
+      title: `Review ${focus}`,
+      reason: [
+        `${row.code} needs follow-up after this assessment.`,
+        outcome ? `Learning outcome: ${outcome}.` : null,
+        material ? `Suggested material: ${material.title}.` : "Revise the concept and attempt a targeted practice question.",
+      ].filter(Boolean).join(" "),
+      entityType: "LearningTestAttempt",
+      entityId: attempt.id,
+      priority: Math.min(100, 90 - index),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    };
+  });
+
+  await prisma.$transaction(async tx => {
+    await tx.learningRecommendation.deleteMany({
+      where: {
+        organizationId: input.organizationId,
+        userId: input.studentUserId,
+        kind: "REMEDIAL",
+        entityType: "LearningTestAttempt",
+        entityId: attempt.id,
+        completedAt: null,
+      },
+    });
+    if (recommendationRows.length) await tx.learningRecommendation.createMany({ data: recommendationRows });
+  });
+
+  return {
+    attemptId: attempt.id,
+    weakQuestions: weak,
+    materials,
+    recommendationCount: recommendationRows.length,
+  };
+}
 
 router.post("/learning/tests/:id/start", allow(Role.STUDENT), async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
