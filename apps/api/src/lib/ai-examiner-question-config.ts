@@ -107,6 +107,23 @@ export const aiExaminerCodeExecutionSchema = z.object({
   });
 });
 
+export const aiExaminerOmrValidationSchema = z.object({
+  allowedOptions: z.array(z.string().trim().min(1).max(40)).min(2).max(20),
+}).superRefine((value, ctx) => {
+  const seen = new Set<string>();
+  value.allowedOptions.forEach((option, index) => {
+    const normalized = option.toLocaleUpperCase("en");
+    if (seen.has(normalized)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["allowedOptions", index],
+        message: "OMR option labels must be unique",
+      });
+    }
+    seen.add(normalized);
+  });
+});
+
 export const aiExaminerScoringRuleSchema = z.object({
   correctMarks: z.coerce.number().min(0).max(10000).optional(),
   incorrectMarks: z.coerce.number().min(-10000).max(10000).optional(),
@@ -135,6 +152,7 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
   chemistryValidation: aiExaminerChemistryValidationSchema.optional(),
   accountingValidation: aiExaminerAccountingValidationSchema.optional(),
   codeExecution: aiExaminerCodeExecutionSchema.optional(),
+  omrValidation: aiExaminerOmrValidationSchema.optional(),
 }).superRefine((question, ctx) => {
   const route = routeAIExaminerQuestion({
     questionType: question.questionType,
@@ -198,6 +216,14 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["accountingValidation"],
       message: "Accounting validation is only supported for ACCOUNTING_STATEMENT questions",
+    });
+  }
+
+  if (question.omrValidation && !["MCQ", "MSQ"].includes(question.questionType)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["omrValidation"],
+      message: "OMR validation is only supported for MCQ and MSQ questions",
     });
   }
 
