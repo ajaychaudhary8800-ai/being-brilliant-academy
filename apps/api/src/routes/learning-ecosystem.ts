@@ -250,7 +250,7 @@ router.post("/learning/doubts/:id/escalate", allow(Role.STUDENT), async (req: Au
 });
 
 const examCategoryCode = z.string().trim().min(2).max(80).regex(/^[A-Za-z0-9][A-Za-z0-9 _.-]*$/, "Exam category contains unsupported characters");
-const questionInput = z.object({
+const questionInputBase = z.object({
   code: z.string().trim().min(2).max(50),
   examCategory: examCategoryCode,
   type: questionTypes,
@@ -279,7 +279,8 @@ const questionInput = z.object({
   options: z.unknown().optional(),
   correctAnswer: z.unknown(),
   solution: z.string().max(20000).optional(),
-}).superRefine((value, ctx) => {
+});
+const questionInput = questionInputBase.superRefine((value, ctx) => {
   if (value.academicBoard === AcademicBoard.OTHER && !value.customBoardName) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customBoardName"], message: "Custom board name is required when academic board is OTHER" });
   }
@@ -349,7 +350,7 @@ router.patch("/learning/questions/:id", managers, async (req: AuthRequest, res) 
   const actor = await learningActorForRequest(req);
   const old = await prisma.questionBankItem.findFirst({ where: { id: String(req.params.id), ...learningQuestionWhere(actor) } });
   if (!old) throw new AppError(404, "QUESTION_NOT_FOUND", "Question not found");
-  const d = questionInput.partial().parse(req.body);
+  const d = questionInputBase.partial().parse(req.body);
   const target = { courseId: d.courseId === undefined ? old.courseId : d.courseId, subjectId: d.subjectId ?? old.subjectId };
   await relationCheck(target);
   assertManagerQuestionAccess(actor, target);
