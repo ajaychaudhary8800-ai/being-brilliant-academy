@@ -14,6 +14,20 @@ import {
   resolveAIExaminerRubricQuestions,
 } from "./ai-examiner-orchestration.js";
 import { AIExaminerScoringError } from "./ai-examiner-deterministic.js";
+import { parseAIExaminerExamProfile } from "./ai-examiner-exam-profile.js";
+import { decideAIExaminerSecondPass } from "./ai-examiner-second-pass.js";
+
+function examProfileHighStakes(snapshot: unknown) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return false;
+  const config = (snapshot as Record<string, unknown>).config;
+  if (!config) return false;
+  try {
+    return parseAIExaminerExamProfile(config).highStakes;
+  } catch {
+    // A malformed assigned profile must fail safe: require stronger verification rather than silently downgrade scrutiny.
+    return true;
+  }
+}
 
 function errorDetails(error: unknown) {
   if (error instanceof AIExaminerProviderError || error instanceof AIExaminerScoringError) return { code: error.code, message: error.message };
@@ -94,6 +108,20 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
     const total = reconciled.suggestedMarks;
     const confidence = reconciled.confidence;
     const questionRows = reconciled.questions;
+    const highStakes = examProfileHighStakes(exam.aiExaminerExamProfileSnapshot);
+    const secondPass = decideAIExaminerSecondPass({
+      overallConfidence: confidence,
+      confidenceThreshold: AI_EXAMINER_REVIEW_THRESHOLD,
+      highStakes,
+      questions: questionRows.map(question => ({
+        questionKey: question.questionKey,
+        confidence: question.confidence,
+        suggestedMarks: question.suggestedMarks,
+        flags: question.flags,
+        scoringError: question.scoringError,
+        specializedEvidence: question.specializedEvidence,
+      })),
+    });
     const completedAt = new Date();
 
     const persisted = await systemPrisma.$transaction(async tx => {
@@ -153,6 +181,7 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
             reviewRequiredCount: questionRows.filter(row => row.reviewRequired).length,
             unresolvedDeterministicCount: reconciled.unresolvedDeterministicCount,
             reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD,
+            secondPassVerification: secondPass,
           },
           completedAt,
           errorCode: null,
@@ -172,6 +201,9 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
             suggestedMarks: total,
             confidence,
             reviewRequiredCount: questionRows.filter(row => row.reviewRequired).length,
+            secondPassRequired: secondPass.required,
+            secondPassReasons: secondPass.reasons,
+            highStakes,
             engineVersion: AI_EXAMINER_ENGINE_VERSION,
           },
         },
