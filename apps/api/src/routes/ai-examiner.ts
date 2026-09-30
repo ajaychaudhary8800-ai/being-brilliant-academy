@@ -1027,6 +1027,7 @@ const aiExaminerEvidenceInputSchema = z.object({
   observation: z.record(z.string(), z.unknown()).optional(),
   sourceDevice: z.string().trim().max(160).optional(),
   capturedAt: z.coerce.date().optional(),
+  identityMasked: z.boolean().default(false),
 }).superRefine((value, ctx) => {
   const uploadKinds = new Set(["AUDIO","VIDEO","IMAGE","DOCUMENT"]);
   if (uploadKinds.has(value.kind)) {
@@ -1088,11 +1089,12 @@ router.post("/answer-sheets/:answerSheetId/evidence", async (req: AuthRequest, r
       observation: body.observation ? profileJson(body.observation) : undefined,
       sourceDevice: body.sourceDevice,
       capturedAt: body.capturedAt,
+      identityMasked: body.identityMasked,
       uploadedById: req.auth!.userId,
     },
     select: {
       id: true, answerSheetId: true, questionKey: true, kind: true, status: true, fileName: true, mimeType: true, fileSize: true,
-      externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true,
+      externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true, identityMasked: true,
       uploadedById: true, reviewedById: true, reviewNotes: true, reviewedAt: true, createdAt: true, updatedAt: true,
     },
   });
@@ -1129,7 +1131,7 @@ router.get("/answer-sheets/:answerSheetId/evidence", async (req: AuthRequest, re
     where: { organizationId: req.auth!.organizationId, answerSheetId },
     select: {
       id: true, answerSheetId: true, questionKey: true, kind: true, status: true, fileName: true, mimeType: true, fileSize: true,
-      externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true,
+      externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true, identityMasked: true,
       uploadedById: true, reviewedById: true, reviewNotes: true, reviewedAt: true, createdAt: true, updatedAt: true,
     },
     orderBy: [{ questionKey: "asc" }, { createdAt: "asc" }],
@@ -1185,7 +1187,7 @@ router.patch("/evidence/:evidenceId/review", async (req: AuthRequest, res) => {
     },
     select: {
       id: true, answerSheetId: true, questionKey: true, kind: true, status: true, fileName: true, mimeType: true, fileSize: true,
-      externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true,
+      externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true, identityMasked: true,
       uploadedById: true, reviewedById: true, reviewNotes: true, reviewedAt: true, createdAt: true, updatedAt: true,
     },
   });
@@ -1783,7 +1785,7 @@ router.get("/review-rounds/:roundId/workspace", async (req: AuthRequest, res) =>
                 where: { status: "VERIFIED" },
                 select: {
                   id: true, questionKey: true, kind: true, status: true, fileName: true, mimeType: true, fileSize: true,
-                  externalUrl: true, durationSeconds: true, transcript: true, observation: true, capturedAt: true,
+                  externalUrl: true, durationSeconds: true, transcript: true, observation: true, capturedAt: true, identityMasked: true,
                 },
                 orderBy: [{ questionKey: "asc" }, { createdAt: "asc" }],
               },
@@ -1857,7 +1859,7 @@ router.get("/review-rounds/:roundId/workspace", async (req: AuthRequest, res) =>
           mimeType: round.evaluation.answerSheet.mimeType,
           documentRoute: `/api/ai-examiner/review-rounds/${round.id}/document`,
         },
-        evidence: round.evaluation.answerSheet.evidenceAttachments.map(item => ({
+        evidence: round.evaluation.answerSheet.evidenceAttachments.filter(item => !round.anonymizeStudentIdentity || item.identityMasked).map(item => ({
           id: item.id,
           questionKey: item.questionKey,
           kind: item.kind,
