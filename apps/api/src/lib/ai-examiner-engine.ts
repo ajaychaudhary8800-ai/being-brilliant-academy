@@ -209,7 +209,8 @@ Critical grading rules:
 10. Do not make final-result or pass/fail decisions. Return suggested question-level marks only.
 11. For questions with evaluationMode EXTRACT_ONLY, transcribe the student's response faithfully, set awardedMarks to 0, and do not infer or repair the response.
 12. For EXTRACT_ONLY MSQ responses, extractedAnswer must be a compact JSON array string such as ["A","C"]. For EXTRACT_ONLY MATCHING responses, extractedAnswer must be a compact JSON object string such as {"A":"1","B":"2"}.
-13. Never use surrounding context to guess an unreadable objective response; lower confidence and flag it for human review instead.`;
+13. For ACCOUNTING_STATEMENT questions, extractedAnswer must be a compact JSON object string with {"headings":["..."],"rows":[{"label":"...","debit":0,"credit":0,"amount":0,"side":"DEBIT|CREDIT|ASSET|LIABILITY|INCOME|EXPENSE"}]}. Include only fields actually visible or inferable from the student's written accounting layout; do not invent missing values.
+14. Never use surrounding context to guess an unreadable objective response; lower confidence and flag it for human review instead.`;
 }
 
 function dataUrl(document: AIExaminerDocument) {
