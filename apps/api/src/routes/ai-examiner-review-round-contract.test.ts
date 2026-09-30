@@ -39,3 +39,32 @@ test("review-round mutations are organization scoped", async () => {
   assert.match(routes, /AI_EXAMINER_REVIEW_ROUND_ASSIGNED/);
   assert.match(routes, /AI_EXAMINER_REVIEW_ROUND_SUBMITTED/);
 });
+
+
+test("anonymized review artifacts are persistent, verified and privacy-safe", async () => {
+  const schema = await readFile(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../../prisma/migrations/20260930071500_ai_examiner_review_artifact/migration.sql", import.meta.url), "utf8");
+  const routes = await readFile(new URL("./ai-examiner.ts", import.meta.url), "utf8");
+
+  assert.match(schema, /model AIExaminerReviewArtifact \{/);
+  assert.match(schema, /evaluationId\s+String\s+@unique/);
+  assert.match(schema, /identityMasked\s+Boolean/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "AIExaminerReviewArtifact"/);
+  assert.match(migration, /AIExaminerReviewArtifact_organizationId_fkey/);
+  assert.match(routes, /router\.put\("\/evaluations\/:evaluationId\/review-artifact"/);
+  assert.match(routes, /decodeVerifiedUpload\(body\.base64, body\.mimeType\)/);
+  assert.match(routes, /AI_EXAMINER_REVIEW_ARTIFACT_LOCKED/);
+  assert.match(routes, /AI_EXAMINER_REVIEW_ARTIFACT_REQUIRED/);
+  assert.match(routes, /anonymousReviewFileName/);
+  assert.match(routes, /AI_EXAMINER_REVIEW_DOCUMENT_ACCESSED/);
+});
+
+test("double-blind reviewer workspace hides prior AI marks when policy forbids them", async () => {
+  const routes = await readFile(new URL("./ai-examiner.ts", import.meta.url), "utf8");
+
+  assert.match(routes, /router\.get\("\/review-rounds\/:roundId\/workspace"/);
+  assert.match(routes, /round\.priorMarksVisible \? \{/);
+  assert.match(routes, /aiSuggestedMarks: question\.suggestedMarks/);
+  assert.match(routes, /documentRoute:/);
+  assert.doesNotMatch(routes, /review-rounds\/mine[^]*fileName: true[^]*reviewArtifact/);
+});
