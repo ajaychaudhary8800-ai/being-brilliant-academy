@@ -31,6 +31,7 @@ import {
   auditAIExaminerSemanticEvidence,
   type AIExaminerEvidenceAudit,
 } from "./ai-examiner-evidence.js";
+import type { AIExaminerTrustedOmrAnswer } from "./ai-examiner-scan-ingestion.js";
 
 export type AIExaminerResolvedRubricQuestion = {
   key: string;
@@ -150,6 +151,38 @@ export function aiExaminerProviderQuestions(questions: AIExaminerResolvedRubricQ
       modelAnswer: route.deterministic ? null : question.modelAnswer ?? null,
     };
   });
+}
+
+export function overlayTrustedAIExaminerOmrAnswers(
+  questions: AIExaminerResolvedRubricQuestion[],
+  result: AIExaminerProviderResult,
+  omrAnswers: Map<string, AIExaminerTrustedOmrAnswer>,
+) {
+  const byKey = new Map(questions.map(question => [question.key.toLowerCase(), question]));
+  const appliedQuestionKeys: string[] = [];
+
+  const nextQuestions = result.questions.map(providerQuestion => {
+    const key = providerQuestion.questionKey.toLowerCase();
+    const rubricQuestion = byKey.get(key);
+    const omr = omrAnswers.get(key);
+    if (!rubricQuestion || !omr || (rubricQuestion.questionType !== "MCQ" && rubricQuestion.questionType !== "MSQ")) {
+      return providerQuestion;
+    }
+
+    appliedQuestionKeys.push(rubricQuestion.key);
+    return {
+      ...providerQuestion,
+      extractedAnswer: rubricQuestion.questionType === "MSQ"
+        ? JSON.stringify(omr.selections)
+        : (omr.selections[0] ?? ""),
+      confidence: omr.confidence,
+    };
+  });
+
+  return {
+    result: { ...result, questions: nextQuestions },
+    appliedQuestionKeys,
+  };
 }
 
 function decodeStructuredAnswer(questionType: AIExaminerQuestionType, extractedAnswer: string | null | undefined): unknown {
