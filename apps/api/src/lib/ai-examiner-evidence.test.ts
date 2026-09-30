@@ -51,3 +51,15 @@ test("evidence normalization tolerates unicode quotes and whitespace", () => {
   assert.equal(audit.reviewRequired, false);
   assert.equal(audit.coverageRate, 1);
 });
+
+
+test("positive semantic marks with no breakdown are not treated as evidence-complete", () => {
+  const audit = auditAIExaminerSemanticEvidence({
+    extractedAnswer: "A substantive answer exists.",
+    awardedMarks: 4,
+    rubricBreakdown: [],
+  });
+  assert.equal(audit.reviewRequired, true);
+  assert.equal(audit.coverageRate, 0);
+  assert.equal(audit.positivelyAwardedMarks, 4);
+});
