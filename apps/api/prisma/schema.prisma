@@ -624,6 +624,7 @@ model Organization {
   examinationQuestionPapers ExaminationQuestionPaper[]
   examinationAnswerSheets ExaminationAnswerSheet[]
   aiExaminerExamProfiles   AIExaminerExamProfile[]
+  aiExaminerBenchmarkSuites AIExaminerBenchmarkSuite[]
   feePlans               FeePlan[]
   studentFeeAssignments  StudentFeeAssignment[]
   feePaymentOffsets       FeePaymentOffset[]
@@ -1171,6 +1172,19 @@ enum AIExaminerExamProfileStatus {
   ARCHIVED
 }
 
+enum AIExaminerBenchmarkSuiteStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum AIExaminerBenchmarkRunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 enum AIExaminerEvaluationStatus {
   QUEUED
   PROCESSING
@@ -1532,6 +1546,10 @@ model User {
   aiExaminerRubricsApproved AIExaminerRubric[] @relation("AIExaminerRubricApprover")
   aiExaminerExamProfilesCreated AIExaminerExamProfile[] @relation("AIExaminerExamProfileCreator")
   aiExaminerExamProfilesApproved AIExaminerExamProfile[] @relation("AIExaminerExamProfileApprover")
+  aiExaminerBenchmarkSuitesCreated AIExaminerBenchmarkSuite[] @relation("AIExaminerBenchmarkSuiteCreator")
+  aiExaminerBenchmarkSuitesApproved AIExaminerBenchmarkSuite[] @relation("AIExaminerBenchmarkSuiteApprover")
+  aiExaminerBenchmarkCasesReviewed AIExaminerBenchmarkCase[] @relation("AIExaminerBenchmarkHumanReviewer")
+  aiExaminerBenchmarkRunsCreated AIExaminerBenchmarkRun[] @relation("AIExaminerBenchmarkRunCreator")
   aiExaminerEvaluationsRequested AIExaminerEvaluation[] @relation("AIExaminerEvaluationRequester")
   aiExaminerEvaluationsReviewed AIExaminerEvaluation[] @relation("AIExaminerEvaluationReviewer")
   learningRecommendations  LearningRecommendation[]
@@ -1603,6 +1621,7 @@ model Branch {
   homeworks             Homework[]
   examinations          Examination[]
   aiExaminerExamProfiles AIExaminerExamProfile[]
+  aiExaminerBenchmarkSuites AIExaminerBenchmarkSuite[]
   lmsLessons            Lesson[]
   announcements         Announcement[]
   leaveRequests         LeaveRequest[]
@@ -1836,6 +1855,7 @@ model Subject {
   lmsLessons     Lesson[]
   teacherAllocations TeacherAllocation[]
   substitutions TeacherSubstitution[]
+  aiExaminerBenchmarkSuites AIExaminerBenchmarkSuite[]
 
   @@unique([organizationId, code])
   @@index([organizationId, status])
@@ -2554,6 +2574,7 @@ model ExaminationAnswerSheet {
   student        StudentProfile @relation(fields: [studentId], references: [id], onDelete: Restrict)
   evaluatedBy    User? @relation("AnswerSheetEvaluator", fields: [evaluatedById], references: [id], onDelete: Restrict)
   aiEvaluations  AIExaminerEvaluation[]
+  benchmarkCases AIExaminerBenchmarkCase[]
 
   @@unique([examinationId, studentId])
   @@index([organizationId, status, submittedAt])
@@ -2667,6 +2688,105 @@ model AIExaminerQuestionEvaluation {
 
   @@unique([evaluationId, questionKey])
   @@index([organizationId, reviewRequired])
+}
+
+model AIExaminerBenchmarkSuite {
+  organizationId String
+  id             String                         @id @default(cuid())
+  branchId       String?
+  subjectId      String?
+  code           String
+  name           String
+  classLevel     ClassLevel?
+  academicBoard  AcademicBoard?
+  questionType   QuestionType?
+  status         AIExaminerBenchmarkSuiteStatus @default(DRAFT)
+  thresholds     Json
+  createdById    String
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+  organization   Organization                   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch?                        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  subject        Subject?                       @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  createdBy      User                           @relation("AIExaminerBenchmarkSuiteCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy     User?                          @relation("AIExaminerBenchmarkSuiteApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  cases          AIExaminerBenchmarkCase[]
+  runs           AIExaminerBenchmarkRun[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, status])
+  @@index([organizationId, subjectId, questionType])
+  @@index([organizationId, branchId, status])
+}
+
+model AIExaminerBenchmarkCase {
+  organizationId      String
+  id                  String                    @id @default(cuid())
+  suiteId             String
+  sourceAnswerSheetId String?
+  questionKey         String
+  maxMarks            Decimal                   @db.Decimal(8, 2)
+  humanMarks          Decimal                   @db.Decimal(8, 2)
+  humanReviewerId     String
+  goldNotes           String?                   @db.Text
+  metadata            Json?
+  isActive            Boolean                   @default(true)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  suite               AIExaminerBenchmarkSuite  @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+  sourceAnswerSheet   ExaminationAnswerSheet?   @relation(fields: [sourceAnswerSheetId], references: [id], onDelete: Restrict)
+  humanReviewer       User                      @relation("AIExaminerBenchmarkHumanReviewer", fields: [humanReviewerId], references: [id], onDelete: Restrict)
+  results             AIExaminerBenchmarkResult[]
+
+  @@index([organizationId, suiteId, isActive])
+  @@index([sourceAnswerSheetId, questionKey])
+  @@index([humanReviewerId])
+}
+
+model AIExaminerBenchmarkRun {
+  organizationId String                       @default("org_default")
+  id             String                       @id @default(cuid())
+  suiteId        String
+  engineVersion  String
+  provider       String?
+  model          String?
+  status         AIExaminerBenchmarkRunStatus @default(QUEUED)
+  thresholds     Json
+  metrics        Json?
+  ready          Boolean                      @default(false)
+  createdById    String
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+  suite          AIExaminerBenchmarkSuite     @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+  createdBy      User                         @relation("AIExaminerBenchmarkRunCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  results        AIExaminerBenchmarkResult[]
+
+  @@index([organizationId, suiteId, createdAt])
+  @@index([organizationId, status])
+}
+
+model AIExaminerBenchmarkResult {
+  organizationId  String                  @default("org_default")
+  id              String                  @id @default(cuid())
+  runId           String
+  caseId          String
+  aiMarks         Decimal                 @db.Decimal(8, 2)
+  confidence      Decimal                 @db.Decimal(5, 4)
+  reviewRequired  Boolean                 @default(true)
+  teacherOverride Boolean                 @default(false)
+  diagnostics     Json?
+  errorCode       String?
+  createdAt       DateTime                @default(now())
+  run             AIExaminerBenchmarkRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  benchmarkCase   AIExaminerBenchmarkCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, caseId])
+  @@index([organizationId, runId])
+  @@index([caseId])
 }
 
 model Attendance {
