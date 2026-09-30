@@ -18,6 +18,10 @@ import {
   type AIExaminerStemValidationConfig,
   type AIExaminerStemVerification,
 } from "./ai-examiner-stem-verifier.js";
+import {
+  verifyChemistryEquation,
+  type ChemistryVerification,
+} from "./ai-examiner-chemistry-verifier.js";
 
 export type AIExaminerResolvedRubricQuestion = {
   key: string;
@@ -31,6 +35,11 @@ export type AIExaminerResolvedRubricQuestion = {
   requiresVisualEvidence: boolean;
   requiresCodeExecution: boolean;
   stemValidation?: AIExaminerStemValidationConfig;
+  chemistryValidation?: {
+    expectedEquation?: string;
+    requireBalanced: boolean;
+    allowReverse: boolean;
+  };
 };
 
 type ProviderQuestion = AIExaminerProviderResult["questions"][number];
@@ -54,7 +63,7 @@ export type AIExaminerReconciledQuestion = {
   engine: string;
   deterministicStatus: string | null;
   scoringError: { code: string; message: string } | null;
-  specializedEvidence: AIExaminerStemVerification | null;
+  specializedEvidence: AIExaminerStemVerification | ChemistryVerification | null;
 };
 
 const deterministicTypes = new Set<AIExaminerQuestionType>([
@@ -193,9 +202,22 @@ export function reconcileAIExaminerProviderResult(
     const baseReview = provider.confidence < reviewThreshold || provider.flags.length > 0;
 
     if (!route.deterministic) {
-      const specializedEvidence = route.engine === "SPECIALIZED_SYMBOLIC" && question.stemValidation && provider.extractedAnswer
-        ? verifyAIExaminerStemResponse({ response: provider.extractedAnswer, config: question.stemValidation })
-        : null;
+      let specializedEvidence: AIExaminerStemVerification | ChemistryVerification | null = null;
+      if (route.engine === "SPECIALIZED_SYMBOLIC" && provider.extractedAnswer) {
+        if (question.stemValidation) {
+          specializedEvidence = verifyAIExaminerStemResponse({
+            response: provider.extractedAnswer,
+            config: question.stemValidation,
+          });
+        } else if (question.questionType === "CHEMISTRY_EQUATION" && question.chemistryValidation) {
+          specializedEvidence = verifyChemistryEquation({
+            response: provider.extractedAnswer,
+            expectedEquation: question.chemistryValidation.expectedEquation,
+            requireBalanced: question.chemistryValidation.requireBalanced,
+            allowReverse: question.chemistryValidation.allowReverse,
+          });
+        }
+      }
       return {
         questionKey: question.key,
         maxMarks: question.maxMarks,
