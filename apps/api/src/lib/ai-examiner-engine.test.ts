@@ -82,3 +82,11 @@ test("Responses API request omits unsupported temperature parameter", async () =
   assert.ok(responsesBranch.includes("model: env.AI_EXAMINER_MODEL"));
   assert.doesNotMatch(responsesBranch, /temperature\s*:/);
 });
+
+
+test("AI Examiner accepts criterion evidenceText for auditable rubric grading", () => {
+  const withEvidence = structuredClone(valid);
+  withEvidence.questions[0]!.rubricBreakdown[0]!.evidenceText = "V = IR";
+  const parsed = parseAIExaminerProviderText(JSON.stringify(withEvidence));
+  assert.equal(parsed.questions[0]?.rubricBreakdown[0]?.evidenceText, "V = IR");
+});
