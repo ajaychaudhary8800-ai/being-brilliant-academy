@@ -30,6 +30,7 @@ import {
 } from "../lib/ai-examiner-regrade.js";
 import { assertExaminationManager, evaluationStatus, examinationResultFor } from "../lib/examination-policy.js";
 import { analyzeAIExaminerOriginality } from "../lib/ai-examiner-originality.js";
+import { aiExaminerEvidenceMimeTypes, assertAIExaminerEvidenceKindMatchesMime, decodeAIExaminerEvidenceUpload, normalizeAIExaminerEvidenceUrl } from "../lib/ai-examiner-evidence-upload.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
@@ -1011,6 +1012,194 @@ router.post("/examinations/:examinationId/rubrics/:rubricId/activate", async (re
     return value;
   });
   res.json({ data: activated });
+});
+
+const aiExaminerEvidenceKindSchema = z.enum(["AUDIO","VIDEO","IMAGE","DOCUMENT","EXTERNAL_REFERENCE","STRUCTURED_OBSERVATION"]);
+const aiExaminerEvidenceInputSchema = z.object({
+  questionKey: z.string().trim().min(1).max(80),
+  kind: aiExaminerEvidenceKindSchema,
+  fileName: z.string().trim().min(1).max(255).optional(),
+  mimeType: z.enum(aiExaminerEvidenceMimeTypes).optional(),
+  base64: z.string().min(4).optional(),
+  externalUrl: z.string().trim().max(2048).optional(),
+  durationSeconds: z.coerce.number().int().min(1).max(8 * 60 * 60).optional(),
+  transcript: z.string().max(100000).optional(),
+  observation: z.record(z.string(), z.unknown()).optional(),
+  sourceDevice: z.string().trim().max(160).optional(),
+  capturedAt: z.coerce.date().optional(),
+}).superRefine((value, ctx) => {
+  const uploadKinds = new Set(["AUDIO","VIDEO","IMAGE","DOCUMENT"]);
+  if (uploadKinds.has(value.kind)) {
+    for (const field of ["fileName","mimeType","base64"] as const) {
+      if (!value[field]) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: `${field} is required for uploaded evidence` });
+    }
+  }
+  if (value.kind === "EXTERNAL_REFERENCE" && !value.externalUrl) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["externalUrl"], message: "externalUrl is required for external evidence" });
+  }
+  if (value.kind === "STRUCTURED_OBSERVATION" && !value.observation) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["observation"], message: "observation is required for structured evidence" });
+  }
+});
+
+router.post("/answer-sheets/:answerSheetId/evidence", async (req: AuthRequest, res) => {
+  const answerSheetId = cuid.parse(req.params.answerSheetId);
+  const { sheet, exam } = await answerSheetForManager(req, answerSheetId);
+  const body = aiExaminerEvidenceInputSchema.parse(req.body);
+  const activeRubric = exam.aiExaminerRubrics.find(rubric => rubric.status === AIExaminerRubricStatus.ACTIVE);
+  if (!activeRubric) throw new AppError(409, "AI_EXAMINER_RUBRIC_REQUIRED", "Activate a marking rubric before attaching question evidence");
+  const rubricQuestions = resolveAIExaminerRubricQuestions(activeRubric.rubric, activeRubric.modelAnswer);
+  const rubricQuestion = rubricQuestions.find(question => question.key.toLocaleLowerCase("en") === body.questionKey.toLocaleLowerCase("en"));
+  if (!rubricQuestion) throw new AppError(422, "AI_EXAMINER_EVIDENCE_QUESTION_INVALID", "Evidence question key is not present in the active rubric");
+
+  let fileData: Buffer | undefined;
+  let fileSize: number | undefined;
+  let contentSha256: string | undefined;
+  let externalUrl: string | undefined;
+  if (body.fileName && body.mimeType && body.base64) {
+    assertAIExaminerEvidenceKindMatchesMime(body.kind, body.mimeType);
+    const decoded = decodeAIExaminerEvidenceUpload({
+      base64: body.base64,
+      fileName: body.fileName,
+      mimeType: body.mimeType,
+      maximumBytes: 10 * 1024 * 1024,
+    });
+    fileData = decoded.bytes;
+    fileSize = decoded.bytes.length;
+    contentSha256 = decoded.contentSha256;
+  } else if (body.externalUrl) {
+    externalUrl = normalizeAIExaminerEvidenceUrl(body.externalUrl);
+  }
+
+  const evidence = await prisma.aIExaminerEvidenceAttachment.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      answerSheetId: sheet.id,
+      questionKey: rubricQuestion.key,
+      kind: body.kind,
+      fileName: body.fileName,
+      mimeType: body.mimeType,
+      fileSize,
+      fileData,
+      externalUrl,
+      contentSha256,
+      durationSeconds: body.durationSeconds,
+      transcript: body.transcript?.trim() || undefined,
+      observation: body.observation ? profileJson(body.observation) : undefined,
+      sourceDevice: body.sourceDevice,
+      capturedAt: body.capturedAt,
+      uploadedById: req.auth!.userId,
+    },
+    select: {
+      id: true, answerSheetId: true, questionKey: true, kind: true, status: true, fileName: true, mimeType: true, fileSize: true,
+      externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true,
+      uploadedById: true, reviewedById: true, reviewNotes: true, reviewedAt: true, createdAt: true, updatedAt: true,
+    },
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "AI_EXAMINER_EVIDENCE_ADDED",
+      entity: "AIExaminerEvidenceAttachment",
+      entityId: evidence.id,
+      metadata: {
+        answerSheetId: sheet.id,
+        examinationId: exam.id,
+        questionKey: evidence.questionKey,
+        kind: evidence.kind,
+        contentSha256: evidence.contentSha256 ?? null,
+      },
+    },
+  });
+  res.status(201).json({
+    data: evidence,
+    meta: {
+      automaticScoring: false,
+      reviewRequired: true,
+      guidance: "Supplementary oral/practical evidence is review material and does not independently finalize marks.",
+    },
+  });
+});
+
+router.get("/answer-sheets/:answerSheetId/evidence", async (req: AuthRequest, res) => {
+  const answerSheetId = cuid.parse(req.params.answerSheetId);
+  await answerSheetForManager(req, answerSheetId);
+  const data = await prisma.aIExaminerEvidenceAttachment.findMany({
+    where: { organizationId: req.auth!.organizationId, answerSheetId },
+    select: {
+      id: true, answerSheetId: true, questionKey: true, kind: true, status: true, fileName: true, mimeType: true, fileSize: true,
+      externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true,
+      uploadedById: true, reviewedById: true, reviewNotes: true, reviewedAt: true, createdAt: true, updatedAt: true,
+    },
+    orderBy: [{ questionKey: "asc" }, { createdAt: "asc" }],
+  });
+  res.json({
+    data,
+    meta: {
+      automaticScoring: false,
+      interpretation: "Evidence must be considered by an authorized human reviewer in the context of the active rubric.",
+    },
+  });
+});
+
+router.get("/evidence/:evidenceId/file", async (req: AuthRequest, res) => {
+  const evidenceId = cuid.parse(req.params.evidenceId);
+  const evidence = await prisma.aIExaminerEvidenceAttachment.findFirst({
+    where: { id: evidenceId, organizationId: req.auth!.organizationId },
+    select: { id: true, answerSheetId: true, fileName: true, mimeType: true, fileSize: true, fileData: true },
+  });
+  if (!evidence) throw new AppError(404, "AI_EXAMINER_EVIDENCE_NOT_FOUND", "Evidence attachment not found");
+  await answerSheetForManager(req, evidence.answerSheetId);
+  if (!evidence.fileData || !evidence.fileName || !evidence.mimeType || !evidence.fileSize) {
+    throw new AppError(404, "AI_EXAMINER_EVIDENCE_FILE_NOT_FOUND", "This evidence record does not contain an uploaded file");
+  }
+  res.set(storedDocumentHeaders({
+    fileName: evidence.fileName,
+    mimeType: evidence.mimeType,
+    fileSize: evidence.fileSize,
+    fallbackName: "ai-examiner-evidence",
+  }, "inline"));
+  res.send(storedDocumentBuffer(evidence.fileData));
+});
+
+router.patch("/evidence/:evidenceId/review", async (req: AuthRequest, res) => {
+  const evidenceId = cuid.parse(req.params.evidenceId);
+  const body = z.object({
+    status: z.enum(["VERIFIED","REJECTED"]),
+    reviewNotes: z.string().trim().min(3).max(10000),
+  }).parse(req.body);
+  const evidence = await prisma.aIExaminerEvidenceAttachment.findFirst({
+    where: { id: evidenceId, organizationId: req.auth!.organizationId },
+    select: { id: true, answerSheetId: true, status: true },
+  });
+  if (!evidence) throw new AppError(404, "AI_EXAMINER_EVIDENCE_NOT_FOUND", "Evidence attachment not found");
+  await answerSheetForManager(req, evidence.answerSheetId);
+  const updated = await prisma.aIExaminerEvidenceAttachment.update({
+    where: { id: evidence.id },
+    data: {
+      status: body.status,
+      reviewNotes: body.reviewNotes,
+      reviewedById: req.auth!.userId,
+      reviewedAt: new Date(),
+    },
+    select: {
+      id: true, answerSheetId: true, questionKey: true, kind: true, status: true, fileName: true, mimeType: true, fileSize: true,
+      externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true,
+      uploadedById: true, reviewedById: true, reviewNotes: true, reviewedAt: true, createdAt: true, updatedAt: true,
+    },
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: body.status === "VERIFIED" ? "AI_EXAMINER_EVIDENCE_VERIFIED" : "AI_EXAMINER_EVIDENCE_REJECTED",
+      entity: "AIExaminerEvidenceAttachment",
+      entityId: evidence.id,
+      metadata: { answerSheetId: evidence.answerSheetId },
+    },
+  });
+  res.json({ data: updated, meta: { automaticScoring: false } });
 });
 
 router.post("/answer-sheets/:answerSheetId/evaluate", async (req: AuthRequest, res) => {
