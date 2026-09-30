@@ -98,3 +98,54 @@ test("invalid benchmark marks or confidence fail closed", () => {
     { id: "bad", humanMarks: 2, aiMarks: 2, maxMarks: 5, confidence: 1.2 },
   ], thresholds));
 });
+
+
+test("evidence-verification metrics can gate multimodal readiness without changing legacy suites", () => {
+  const visualRows: AIExaminerBenchmarkCase[] = [
+    { id: "v1", humanMarks: 4, aiMarks: 4, maxMarks: 4, confidence: 0.95, questionType: "GRAPH", evidenceVerified: true },
+    { id: "v2", humanMarks: 3, aiMarks: 3, maxMarks: 4, confidence: 0.92, questionType: "GRAPH", evidenceVerified: false },
+  ];
+  const metrics = calculateAIExaminerBenchmarkMetrics(visualRows, thresholds);
+  assert.equal(metrics.evidenceCaseCount, 2);
+  assert.equal(metrics.evidenceVerificationRate, 0.5);
+
+  const gate = evaluateAIExaminerBenchmarkGate(visualRows, {
+    ...thresholds,
+    minimumCases: 2,
+    maximumNormalizedMae: 0,
+    minimumWithinToleranceRate: 1,
+    maximumOverrideRate: 0,
+    maximumLowConfidenceRate: 0,
+    minimumEvidenceVerificationRate: 0.75,
+  });
+  assert.equal(gate.ready, false);
+  assert.ok(gate.failures.some(value => /evidence verification rate/i.test(value)));
+
+  const legacy = evaluateAIExaminerBenchmarkGate(visualRows.map(({ evidenceVerified: _evidenceVerified, ...row }) => row), {
+    ...thresholds,
+    minimumCases: 2,
+    maximumNormalizedMae: 0,
+    minimumWithinToleranceRate: 1,
+    maximumOverrideRate: 0,
+    maximumLowConfidenceRate: 0,
+  });
+  assert.equal(legacy.ready, true);
+});
+
+test("evidence-verification drift can be monitored independently", () => {
+  const baseline = {
+    ...calculateAIExaminerBenchmarkMetrics(rows, thresholds),
+    evidenceCaseCount: 4,
+    evidenceVerificationRate: 1,
+  };
+  const current = { ...baseline, evidenceVerificationRate: 0.6 };
+  const drift = assessAIExaminerBenchmarkDrift(baseline, current, {
+    maximumNormalizedMaeIncrease: 1,
+    maximumOverrideRateIncrease: 1,
+    maximumLowConfidenceRateIncrease: 1,
+    maximumWithinToleranceRateDrop: 1,
+    maximumEvidenceVerificationRateDrop: 0.2,
+  });
+  assert.equal(drift.driftDetected, true);
+  assert.ok(drift.failures.some(value => /evidence-verification rate/i.test(value)));
+});
