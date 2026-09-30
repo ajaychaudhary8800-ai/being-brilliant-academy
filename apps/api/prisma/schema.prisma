@@ -985,6 +985,8 @@ model Organization {
   aiExaminerEvidenceAttachments AIExaminerEvidenceAttachment[]
   aiExaminerScanBindings AIExaminerScanBinding[]
   aiExaminerScanPages AIExaminerScanPage[]
+  aiExaminerScanBatches AIExaminerScanBatch[]
+  aiExaminerScanBatchPages AIExaminerScanBatchPage[]
   aiExaminerRegradeRequests AIExaminerRegradeRequest[]
   aiExaminerResultRevisions AIExaminerResultRevision[]
   feePlans               FeePlan[]
@@ -1998,6 +2000,7 @@ model User {
   aiExaminerEvidenceAttachmentsReviewed AIExaminerEvidenceAttachment[] @relation("AIExaminerEvidenceReviewer")
   aiExaminerScanBindingsCreated AIExaminerScanBinding[] @relation("AIExaminerScanBindingCreator")
   aiExaminerScanPagesIngested AIExaminerScanPage[] @relation("AIExaminerScanPageIngester")
+  aiExaminerScanBatchesCreated AIExaminerScanBatch[] @relation("AIExaminerScanBatchCreator")
   aiExaminerRegradeRequestsRequested AIExaminerRegradeRequest[] @relation("AIExaminerRegradeRequester")
   aiExaminerRegradeRequestsDecided AIExaminerRegradeRequest[] @relation("AIExaminerRegradeDecider")
   aiExaminerRegradeRequestsResolved AIExaminerRegradeRequest[] @relation("AIExaminerRegradeResolver")
@@ -2936,6 +2939,7 @@ model Examination {
   questionPaper     ExaminationQuestionPaper?
   answerSheets      ExaminationAnswerSheet[]
   aiExaminerRubrics AIExaminerRubric[]
+  aiExaminerScanBatches AIExaminerScanBatch[]
   aiExaminerExamProfileId String?
   aiExaminerExamProfileSnapshot Json?
   aiExaminerExamProfile AIExaminerExamProfile? @relation(fields: [aiExaminerExamProfileId], references: [id], onDelete: Restrict)
