@@ -730,6 +730,71 @@ function ridershipMethod(deviceKind: string, metadata: Record<string, unknown>) 
   return TransportRidershipMethod.OTHER;
 }
 
+async function createParentTransportNotifications(input: {
+  organizationId: string;
+  studentId: string;
+  sourceEntityId: string;
+  title: string;
+  body: string;
+}) {
+  const links = await systemPrisma.parentStudent.findMany({
+    where: {
+      organizationId: input.organizationId,
+      studentId: input.studentId,
+      parent: { isActive: true },
+    },
+    select: { parentId: true },
+  });
+  if (!links.length) return { recipients: 0, externalDeliveries: 0 };
+
+  const parentIds = [...new Set(links.map(link => link.parentId))];
+  const preferences = await systemPrisma.notificationPreference.findMany({
+    where: { organizationId: input.organizationId, userId: { in: parentIds } },
+    select: { userId: true, sms: true, whatsapp: true, push: true },
+  });
+  const preferenceMap = new Map(preferences.map(item => [item.userId, item]));
+  let externalDeliveries = 0;
+
+  await systemPrisma.$transaction(async tx => {
+    for (const parentId of parentIds) {
+      const preference = preferenceMap.get(parentId);
+      const channels = [
+        "IN_APP",
+        ...(preference?.push ? ["PUSH"] : []),
+        ...(preference?.sms ? ["SMS"] : []),
+        ...(preference?.whatsapp ? ["WHATSAPP"] : []),
+      ];
+      const notification = await tx.notification.create({
+        data: {
+          organizationId: input.organizationId,
+          userId: parentId,
+          title: input.title,
+          body: input.body,
+          category: "TRANSPORT",
+          sourceModule: "SMART_TRANSPORT",
+          sourceEntityId: input.sourceEntityId,
+          actionUrl: "/parent",
+          priority: "HIGH",
+          channels,
+        },
+      });
+      const external = channels.filter(channel => channel !== "IN_APP");
+      if (external.length) {
+        await tx.notificationDelivery.createMany({
+          data: external.map(channel => ({
+            organizationId: input.organizationId,
+            notificationId: notification.id,
+            channel,
+            status: "QUEUED",
+          })),
+        });
+        externalDeliveries += external.length;
+      }
+    }
+  });
+  return { recipients: parentIds.length, externalDeliveries };
+}
+
 async function processRidership(event: any, normalized: z.infer<typeof normalizedSchema>) {
   const identity = await identityBinding({
     organizationId: event.organizationId,
@@ -762,7 +827,7 @@ async function processRidership(event: any, normalized: z.infer<typeof normalize
     },
     select: {
       id: true, studentId: true, routeId: true, vehicleId: true, pickupStopId: true, dropStopId: true,
-      student: { select: { branchId: true } },
+      student: { select: { branchId: true, user: { select: { name: true } } } },
     },
     orderBy: { startsAt: "desc" },
   });
@@ -899,7 +964,25 @@ async function processRidership(event: any, normalized: z.infer<typeof normalize
     metadata: { assignmentId: assignment.id, tripId: trip?.id ?? null, stopId, method, alertIds },
   });
 
-  return { adapter: "TRANSPORT_RIDERSHIP", ridershipEventId: ridership.id, studentId: assignment.studentId, vehicleId: vehicle.id, tripId: trip?.id ?? null, alertIds };
+  const parentNotifications = await createParentTransportNotifications({
+    organizationId: event.organizationId,
+    studentId: assignment.studentId,
+    sourceEntityId: ridership.id,
+    title: type === TransportRidershipEventType.BOARD ? "Bus boarding confirmed" : "Bus drop confirmed",
+    body: type === TransportRidershipEventType.BOARD
+      ? `${assignment.student.user.name} boarded the assigned school transport.`
+      : `${assignment.student.user.name} deboarded the school transport.`,
+  });
+
+  return {
+    adapter: "TRANSPORT_RIDERSHIP",
+    ridershipEventId: ridership.id,
+    studentId: assignment.studentId,
+    vehicleId: vehicle.id,
+    tripId: trip?.id ?? null,
+    alertIds,
+    parentNotifications,
+  };
 }
 
 function isSafetySignal(eventType: string) {
@@ -960,6 +1043,102 @@ async function processSafetySignal(event: any, normalized: z.infer<typeof normal
     severity: incident.severity,
     status: incident.status,
     reviewRequired: true,
+  };
+}
+
+function sensorAlertSignal(eventType: string, metadata: Record<string, unknown>) {
+  const type = eventType.toLocaleUpperCase("en");
+  const alarm = metadata.alarm === true || metadata.alert === true;
+  const status = typeof metadata.status === "string" ? metadata.status.trim().toLocaleUpperCase("en") : "";
+  const explicitStatus = ["ALARM","ALERT","CRITICAL","FAULT","EMERGENCY"].includes(status);
+  const explicitType = /(WATER_LEAK|POWER_FAILURE|CO2_HIGH|AIR_QUALITY_ALERT|TEMPERATURE_HIGH|TEMPERATURE_LOW|SENSOR_FAULT|GAS_ALERT)/.test(type);
+  return alarm || explicitStatus || explicitType;
+}
+
+function sensorSeverity(metadata: Record<string, unknown>, alert: boolean) {
+  const raw = typeof metadata.severity === "string" ? metadata.severity.trim().toLocaleUpperCase("en") : "";
+  if (raw === "CRITICAL") return SchoolEventSeverity.CRITICAL;
+  if (raw === "HIGH") return SchoolEventSeverity.HIGH;
+  if (raw === "MEDIUM") return SchoolEventSeverity.MEDIUM;
+  if (raw === "LOW") return SchoolEventSeverity.LOW;
+  return alert ? SchoolEventSeverity.HIGH : SchoolEventSeverity.INFO;
+}
+
+async function processEnvironmentalSensor(event: any, normalized: z.infer<typeof normalizedSchema>) {
+  const alert = sensorAlertSignal(event.eventType, normalized.metadata);
+  const severity = sensorSeverity(normalized.metadata, alert);
+  const type = event.eventType.toLocaleUpperCase("en");
+  const titleRaw = typeof normalized.metadata.title === "string" ? normalized.metadata.title.trim() : "";
+  const descriptionRaw = typeof normalized.metadata.description === "string" ? normalized.metadata.description.trim() : "";
+  const schoolEvent = await recordSchoolEvent({
+    organizationId: event.organizationId,
+    branchId: event.device.branchId ?? null,
+    category: alert ? SchoolEventCategory.SAFETY : SchoolEventCategory.DEVICE,
+    type,
+    severity,
+    occurredAt: event.occurredAt,
+    sourceType: "ENVIRONMENT_SENSOR_EVENT",
+    sourceId: event.id,
+    deviceId: event.deviceId,
+    correlationKey: `device:${event.deviceId}`,
+    title: (titleRaw || `Environmental sensor: ${type}`).slice(0, 240),
+    summary: descriptionRaw ? descriptionRaw.slice(0, 5000) : null,
+    reviewRequired: alert,
+    metadata: {
+      reading: normalized.reading,
+      unit: normalized.unit,
+      sourceDeviceCode: event.device.code,
+      sensorMetadata: normalized.metadata,
+    },
+  });
+
+  let incidentId: string | null = null;
+  if (alert) {
+    if (!event.device.branchId) {
+      throw new DeviceEventProcessingError("SENSOR_ALERT_BRANCH_REQUIRED", "Environmental sensor alerts require the device to be assigned to a branch");
+    }
+    const incident = await systemPrisma.safetyIncident.upsert({
+      where: { deviceEventId: event.id },
+      create: {
+        organizationId: event.organizationId,
+        branchId: event.device.branchId,
+        code: `SENSOR-${event.id.slice(-12).toUpperCase()}`,
+        title: (titleRaw || `Environmental alert: ${type}`).slice(0, 240),
+        description: descriptionRaw ? descriptionRaw.slice(0, 5000) : null,
+        severity: severity === SchoolEventSeverity.CRITICAL
+          ? SafetyIncidentSeverity.CRITICAL
+          : severity === SchoolEventSeverity.HIGH
+            ? SafetyIncidentSeverity.HIGH
+            : severity === SchoolEventSeverity.MEDIUM
+              ? SafetyIncidentSeverity.MEDIUM
+              : SafetyIncidentSeverity.LOW,
+        sourceType: "ENVIRONMENT_SENSOR",
+        sourceId: event.deviceId,
+        schoolEventId: schoolEvent.id,
+        deviceEventId: event.id,
+        occurredAt: event.occurredAt,
+        metadata: json({
+          reading: normalized.reading,
+          unit: normalized.unit,
+          deviceCode: event.device.code,
+          eventType: type,
+          sensorMetadata: normalized.metadata,
+        }),
+      },
+      update: {},
+      select: { id: true },
+    });
+    incidentId = incident.id;
+  }
+
+  return {
+    adapter: "ENVIRONMENT_SENSOR",
+    schoolEventId: schoolEvent.id,
+    alert,
+    severity,
+    incidentId,
+    reading: normalized.reading,
+    unit: normalized.unit,
   };
 }
 
@@ -1087,6 +1266,7 @@ export async function processConnectedDeviceEvent(eventId: string) {
     else if (parsed.data.category === "LOCATION") result = await processLocation(event, parsed.data);
     else if (parsed.data.category === "ACCESS") result = await processAccess(event, parsed.data);
     else if (parsed.data.category === "VIDEO") result = await processVideo(event, parsed.data);
+    else if (parsed.data.category === "SENSOR") result = await processEnvironmentalSensor(event, parsed.data);
     else if (parsed.data.category === "HEARTBEAT") result = { adapter: "HEARTBEAT" };
     else {
       return { eventId: event.id, status: event.status, replay: false, pendingAdapter: parsed.data.category };
