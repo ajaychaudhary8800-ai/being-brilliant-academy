@@ -61,7 +61,7 @@ async function parentBranchAccess(req: AuthRequest, branchId: string) {
 
 async function recipientIds(organizationId: string, branchId: string, audience: SafetyBroadcastAudience) {
   const ids = new Set<string>();
-  if ([SafetyBroadcastAudience.ALL, SafetyBroadcastAudience.PARENTS].includes(audience)) {
+  if (audience === SafetyBroadcastAudience.ALL || audience === SafetyBroadcastAudience.PARENTS) {
     const rows = await prisma.parentStudent.findMany({
       where: {
         organizationId,
@@ -72,14 +72,14 @@ async function recipientIds(organizationId: string, branchId: string, audience: 
     });
     rows.forEach(row => ids.add(row.parentId));
   }
-  if ([SafetyBroadcastAudience.ALL, SafetyBroadcastAudience.STUDENTS].includes(audience)) {
+  if (audience === SafetyBroadcastAudience.ALL || audience === SafetyBroadcastAudience.STUDENTS) {
     const rows = await prisma.studentProfile.findMany({
       where: { organizationId, branchId, status: StudentStatus.ACTIVE, user: { isActive: true } },
       select: { userId: true },
     });
     rows.forEach(row => ids.add(row.userId));
   }
-  if ([SafetyBroadcastAudience.ALL, SafetyBroadcastAudience.STAFF].includes(audience)) {
+  if (audience === SafetyBroadcastAudience.ALL || audience === SafetyBroadcastAudience.STAFF) {
     const [teachers, employees, branchAdmins] = await Promise.all([
       prisma.teacherProfile.findMany({ where: { organizationId, branchId, user: { isActive: true } }, select: { userId: true } }),
       prisma.employee.findMany({ where: { organizationId, branchId, user: { isActive: true } }, select: { userId: true } }),
