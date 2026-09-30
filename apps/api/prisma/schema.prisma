@@ -895,6 +895,79 @@ enum SafetyAcknowledgementResponse {
   NEED_HELP
 }
 
+enum PrivacySubjectType {
+  STUDENT
+  GUARDIAN
+  EMPLOYEE
+  VISITOR
+}
+
+enum PrivacyPurpose {
+  ACADEMIC
+  ATTENDANCE
+  TRANSPORT
+  SAFETY
+  VIDEO_SECURITY
+  ASSESSMENT_AI
+  COMMUNICATION
+  ANALYTICS
+  DEVICE_INTEGRATION
+}
+
+enum PrivacyConsentStatus {
+  GRANTED
+  DENIED
+  WITHDRAWN
+  NOT_REQUIRED
+}
+
+enum PrivacyRetentionAction {
+  DELETE
+  ANONYMIZE
+  ARCHIVE
+  REVIEW
+}
+
+enum DataSubjectRequestType {
+  ACCESS
+  EXPORT
+  RECTIFY
+  DELETE
+  RESTRICT_PROCESSING
+}
+
+enum DataSubjectRequestStatus {
+  REQUESTED
+  VERIFIED
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum CapabilityCertificationKind {
+  HARDWARE_ADAPTER
+  HARDWARE_DEVICE
+  AI_GRADING
+  SECURITY_PRIVACY
+}
+
+enum CapabilityCertificationStatus {
+  DRAFT
+  IN_REVIEW
+  PASSED
+  FAILED
+  EXPIRED
+  REVOKED
+}
+
+enum CertificationEnvironment {
+  STAGING
+  PRODUCTION_LIKE
+  REAL_DEVICE
+  BENCHMARK
+}
+
 enum Role {
   SUPER_ADMIN
   BRANCH_ADMIN
@@ -6338,6 +6411,106 @@ model ConnectedCampusEdgeAgent {
 
   @@unique([organizationId, branchId, code])
   @@index([organizationId, branchId, status])
+}
+
+model PrivacyRetentionPolicy {
+  organizationId String
+  id             String                 @id @default(cuid())
+  branchId       String?
+  purpose        PrivacyPurpose
+  subjectType    PrivacySubjectType?
+  retentionDays  Int
+  action         PrivacyRetentionAction
+  legalBasis     String
+  policyVersion  String
+  isActive       Boolean                @default(true)
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@unique([organizationId, branchId, purpose, subjectType, policyVersion])
+  @@index([organizationId, purpose, isActive])
+  @@index([organizationId, branchId, isActive])
+}
+
+model PrivacyConsentRecord {
+  organizationId String
+  id             String               @id @default(cuid())
+  subjectType    PrivacySubjectType
+  subjectId      String
+  guardianId     String?
+  purpose        PrivacyPurpose
+  status         PrivacyConsentStatus
+  policyVersion  String
+  source         String
+  evidence       Json?
+  grantedAt      DateTime?
+  withdrawnAt    DateTime?
+  expiresAt      DateTime?
+  recordedById   String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([organizationId, subjectType, subjectId, purpose, createdAt])
+  @@index([organizationId, guardianId, purpose, createdAt])
+  @@index([organizationId, status, expiresAt])
+}
+
+model DataSubjectRequest {
+  organizationId String
+  id             String                   @id @default(cuid())
+  subjectType    PrivacySubjectType
+  subjectId      String
+  requestedById  String?
+  type           DataSubjectRequestType
+  status         DataSubjectRequestStatus @default(REQUESTED)
+  scope          Json?
+  reason         String?                  @db.Text
+  verifiedById   String?
+  verifiedAt     DateTime?
+  assignedToId   String?
+  completedById  String?
+  completedAt    DateTime?
+  resultRef      String?
+  rejectionReason String?                 @db.Text
+  metadata       Json?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, subjectType, subjectId, createdAt])
+  @@index([organizationId, requestedById, createdAt])
+}
+
+model CapabilityCertification {
+  organizationId String
+  id             String                        @id @default(cuid())
+  capabilityKey  String
+  kind           CapabilityCertificationKind
+  status         CapabilityCertificationStatus @default(DRAFT)
+  environment    CertificationEnvironment
+  adapterKey     String?
+  deviceId       String?
+  benchmarkRunId String?
+  vendor         String?
+  hardwareModel  String?
+  firmwareVersion String?
+  protocolVersion String?
+  evidence       Json
+  testedAt       DateTime?
+  expiresAt      DateTime?
+  testedById     String?
+  approvedById   String?
+  approvedAt     DateTime?
+  notes          String?                       @db.Text
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+
+  @@index([organizationId, capabilityKey, environment, status])
+  @@index([organizationId, kind, status, expiresAt])
+  @@index([organizationId, deviceId, status])
+  @@index([organizationId, benchmarkRunId, status])
 }
 
 model ConnectedDevice {
