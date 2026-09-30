@@ -83,7 +83,7 @@ export async function processDueDeviceRetries(limit = 50) {
           select: { id: true, status: true },
         });
         if (!event) throw new Error("Retry event no longer exists");
-        if ([ConnectedDeviceEventStatus.PROCESSED, ConnectedDeviceEventStatus.REJECTED].includes(event.status)) {
+        if (event.status === ConnectedDeviceEventStatus.PROCESSED || event.status === ConnectedDeviceEventStatus.REJECTED) {
           await systemPrisma.connectedDeviceRetryJob.update({
             where: { id: job.id },
             data: { status: DeviceRetryStatus.COMPLETED, lastErrorCode: null, lastErrorMessage: null },
