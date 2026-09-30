@@ -71,3 +71,14 @@ test("result revision history is exposed only through examination-manager access
   assert.match(section, /await examinationForManager\(req, result\.examinationId\)/);
   assert.match(section, /aIExaminerResultRevision\.findMany/);
 });
+
+
+test("appeal reviewer workspace is scoped and cannot use the generic review submit path", async () => {
+  const routes = await readFile(new URL("./ai-examiner.ts", import.meta.url), "utf8");
+
+  assert.match(routes, /round\.regradeRequest\?\.scope === AIExaminerRegradeScope\.QUESTION_SET/);
+  assert.match(routes, /round\.regradeRequest\?\.scope === AIExaminerRegradeScope\.CLERICAL_CHECK/);
+  assert.match(routes, /appealKeys\.has\(question\.questionKey\.toLowerCase\(\)\)/);
+  assert.match(routes, /AI_EXAMINER_APPEAL_USE_REGRADE_REVIEW/);
+  assert.match(routes, /priorMarksVisible: false/);
+});
