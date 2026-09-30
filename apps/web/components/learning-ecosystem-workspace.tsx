@@ -124,6 +124,50 @@ function Question({options,initial,save}:{options:R;initial?:R|null;save:(x:R)=>
     <button type="button" className={btn+" bg-blue-700 text-white md:col-span-2"} onClick={submitQuestion}>{initial?"Save changes":"Save question"}</button>
   </Form>
 }
+function AIQuestionDraftGenerator({options,generate}:{options:R;generate:(x:R)=>void}){
+  const questionTypes=["MCQ","MSQ","TRUE_FALSE","ASSERTION_REASON","FILL_BLANK","MATCHING","ONE_WORD","NUMERICAL","SHORT_ANSWER","LONG_ANSWER","CASE_STUDY","DERIVATION","PROOF","CALCULATION","DIAGRAM","GRAPH","MAP","GEOMETRY_CONSTRUCTION","CHEMISTRY_EQUATION","ACCOUNTING_STATEMENT","PROGRAMMING","ESSAY","LANGUAGE","ORAL_AUDIO_VIDEO","PRACTICAL_PROJECT_VIVA","EARLY_YEARS_VISUAL"];
+  const[v,set]=useState<R>({count:5,examCategory:"CBSE",courseId:"",subjectId:"",chapter:"",topic:"",difficulty:"MEDIUM",type:"MCQ",marks:4,negativeMarks:0,classLevel:"",academicBoard:"CBSE",customBoardName:"",syllabusCode:"",language:"English",learningOutcomes:"",additionalInstructions:"",codePrefix:"AIQ"});
+  const[error,setError]=useState("");
+  function submit(){
+    if(!v.subjectId)return setError("Select a Subject.");
+    if(!String(v.chapter??"").trim())return setError("Enter a Chapter.");
+    if(v.academicBoard==="OTHER"&&!String(v.customBoardName??"").trim())return setError("Enter the custom board name.");
+    if(Number(v.negativeMarks)>Number(v.marks))return setError("Negative marks cannot exceed maximum marks.");
+    setError("");
+    generate({
+      count:Number(v.count),examCategory:String(v.examCategory).trim(),courseId:v.courseId||undefined,subjectId:v.subjectId,
+      chapter:String(v.chapter).trim(),topic:String(v.topic??"").trim()||undefined,difficulty:v.difficulty||undefined,
+      types:[v.type],marks:Number(v.marks),negativeMarks:Number(v.negativeMarks),classLevel:v.classLevel||undefined,
+      academicBoard:v.academicBoard||undefined,customBoardName:String(v.customBoardName??"").trim()||undefined,
+      syllabusCode:String(v.syllabusCode??"").trim()||undefined,language:String(v.language??"English").trim()||"English",
+      learningOutcomes:String(v.learningOutcomes??"").split("|").map((x:string)=>x.trim()).filter(Boolean),
+      additionalInstructions:String(v.additionalInstructions??"").trim()||undefined,codePrefix:String(v.codePrefix??"AIQ").trim().toUpperCase(),
+    });
+  }
+  return <Form title="AI Question Draft Generator" icon={<Sparkles/>}>
+    <div className="md:col-span-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-950"><b>Teacher review is mandatory.</b> Generated questions are saved only as DRAFT items. They are never auto-approved or auto-published.</div>
+    <label className="text-sm font-semibold">Number of drafts<input className={input} type="number" min={1} max={25} value={v.count} onChange={e=>set({...v,count:Number(e.target.value)})}/></label>
+    <label className="text-sm font-semibold">Exam profile<input className={input} list="ai-question-exam-profiles" value={v.examCategory} onChange={e=>set({...v,examCategory:e.target.value})}/><datalist id="ai-question-exam-profiles">{["CBSE","ICSE","ISC","JEE_MAIN","JEE_ADVANCED","NEET","NDA","CUET","SCHOOL_INTERNAL","COACHING_TEST"].map(x=><option key={x} value={x}/>)}</datalist></label>
+    <Select label="Course (optional)" value={v.courseId} set={x=>set({...v,courseId:x})} rows={options.courses??[]}/>
+    <Select label="Subject" value={v.subjectId} set={x=>set({...v,subjectId:x})} rows={options.subjects??[]}/>
+    <input className={input} placeholder="Chapter" value={v.chapter} onChange={e=>set({...v,chapter:e.target.value})}/>
+    <input className={input} placeholder="Topic (optional)" value={v.topic} onChange={e=>set({...v,topic:e.target.value})}/>
+    <label className="text-sm font-semibold">Question type<select className={input} value={v.type} onChange={e=>set({...v,type:e.target.value})}>{questionTypes.map(x=><option key={x}>{x}</option>)}</select></label>
+    <label className="text-sm font-semibold">Difficulty<select className={input} value={v.difficulty} onChange={e=>set({...v,difficulty:e.target.value})}>{["EASY","MEDIUM","HARD"].map(x=><option key={x}>{x}</option>)}</select></label>
+    <label className="text-sm font-semibold">Marks<input className={input} type="number" min={0.01} max={100} step="0.01" value={v.marks} onChange={e=>set({...v,marks:Number(e.target.value)})}/></label>
+    <label className="text-sm font-semibold">Negative marks<input className={input} type="number" min={0} max={100} step="0.01" value={v.negativeMarks} onChange={e=>set({...v,negativeMarks:Number(e.target.value)})}/></label>
+    <input className={input} placeholder="Class level e.g. CLASS_12" value={v.classLevel} onChange={e=>set({...v,classLevel:e.target.value})}/>
+    <label className="text-sm font-semibold">Academic board<select className={input} value={v.academicBoard} onChange={e=>set({...v,academicBoard:e.target.value})}>{["CBSE","ICSE","ISC","STATE_BOARD","OTHER"].map(x=><option key={x}>{x}</option>)}</select></label>
+    {v.academicBoard==="OTHER"&&<input className={input} placeholder="Custom board name" value={v.customBoardName} onChange={e=>set({...v,customBoardName:e.target.value})}/>}
+    <input className={input} placeholder="Syllabus code (optional)" value={v.syllabusCode} onChange={e=>set({...v,syllabusCode:e.target.value})}/>
+    <input className={input} placeholder="Language" value={v.language} onChange={e=>set({...v,language:e.target.value})}/>
+    <input className={input} placeholder="Draft code prefix" value={v.codePrefix} onChange={e=>set({...v,codePrefix:e.target.value})}/>
+    <textarea className={input+" md:col-span-2"} rows={2} placeholder="Learning outcomes separated by |" value={v.learningOutcomes} onChange={e=>set({...v,learningOutcomes:e.target.value})}/>
+    <textarea className={input+" md:col-span-2"} rows={3} placeholder="Additional teacher constraints (optional)" value={v.additionalInstructions} onChange={e=>set({...v,additionalInstructions:e.target.value})}/>
+    {error&&<p role="alert" className="md:col-span-2 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    <button type="button" className={btn+" bg-indigo-700 text-white md:col-span-2"} onClick={submit}><Sparkles size={16}/>Generate draft questions</button>
+  </Form>
+}
 function LearningTestBuilder({options,save}:{options:R;save:(x:R)=>void}){
   const[v,set]=useState<R>({
     code:"",name:"",type:"PRACTICE",branchId:"",courseId:"",batchId:"",subjectId:"",chapter:"",
