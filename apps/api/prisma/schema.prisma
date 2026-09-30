@@ -6097,6 +6097,7 @@ model ConnectedDeviceRetryJob {
   eventId        String?
   commandId      String?
   operation      String
+  dedupeKey      String            @unique
   status         DeviceRetryStatus @default(QUEUED)
   attempts       Int               @default(0)
   maxAttempts    Int               @default(8)
@@ -6109,7 +6110,6 @@ model ConnectedDeviceRetryJob {
   updatedAt      DateTime          @updatedAt
   device         ConnectedDevice   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
-  @@unique([deviceId, operation, eventId, commandId])
   @@index([organizationId, status, nextAttemptAt])
   @@index([organizationId, deviceId, status])
 }
