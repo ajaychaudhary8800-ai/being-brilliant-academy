@@ -27,6 +27,7 @@ function row(questionKey:string, extractedAnswer:string|null, awardedMarks=3, co
     extractedAnswer,
     feedback: "Extracted.",
     rubricBreakdown: [],
+    visualObservations: [],
     concepts: [],
     flags: [],
   };
@@ -173,4 +174,39 @@ test("trusted OMR evidence replaces provider extraction only for objective OMR q
   const scored = reconcileAIExaminerProviderResult(questions, overlaid.result, 0.75);
   assert.equal(scored.questions[0]?.suggestedMarks, 4);
   assert.equal(scored.questions[1]?.suggestedMarks, 4);
+});
+
+
+test("multimodal visual criteria are passed to the provider and reconciled as structured evidence", () => {
+  const questions = resolveAIExaminerRubricQuestions({
+    questions: [{
+      key: "Q1",
+      maxMarks: 4,
+      criteria: "Draw and label the velocity-time graph.",
+      concepts: ["Graphing"],
+      questionType: "GRAPH",
+      visualValidation: {
+        minimumObservationConfidence: 0.8,
+        requiredObservations: [
+          { key: "axes", description: "Both axes are labelled", weight: 2, required: true },
+          { key: "scale", description: "Scale is consistent", weight: 1, required: true },
+        ],
+      },
+    }],
+  }, null);
+
+  const request = aiExaminerProviderQuestions(questions);
+  assert.equal(request[0]?.visualValidation?.requiredObservations.length, 2);
+
+  const providerRow = row("Q1", "Graph response", 3, 0.95);
+  providerRow.visualObservations = [
+    { key: "axes", status: "PRESENT", confidence: 0.95, evidence: "time and velocity labels visible" },
+    { key: "scale", status: "UNCLEAR", confidence: 0.7, evidence: "interval markings faint" },
+  ];
+  const result = reconcileAIExaminerProviderResult(questions, provider([providerRow]), 0.75);
+  assert.equal(result.questions[0]?.engine, "MULTIMODAL");
+  assert.equal(result.questions[0]?.reviewRequired, true);
+  assert.equal(result.questions[0]?.specializedEvidence?.engine, "MULTIMODAL");
+  assert.equal(result.questions[0]?.specializedEvidence?.reviewRequired, true);
+  assert.equal(result.questions[0]?.specializedEvidence?.checks.some(check => check.status === "REVIEW"), true);
 });
