@@ -626,6 +626,28 @@ enum ConnectedDeviceCommandStatus {
   CANCELLED
 }
 
+enum CampusAccessPointType {
+  MAIN_GATE
+  INTERNAL_GATE
+  DOOR
+  TURNSTILE
+  VEHICLE_GATE
+  OTHER
+}
+
+enum CampusAccessDecision {
+  GRANTED
+  DENIED
+  REVIEW
+}
+
+enum CampusAccessSubjectType {
+  STUDENT
+  EMPLOYEE
+  VISITOR
+  UNKNOWN
+}
+
 enum Role {
   SUPER_ADMIN
   BRANCH_ADMIN
@@ -5386,6 +5408,50 @@ model GstConfiguration {
 
   @@unique([branchId, effectiveFrom])
   @@index([organizationId])
+}
+
+model CampusAccessPoint {
+  organizationId String
+  id             String                @id @default(cuid())
+  branchId       String
+  code           String
+  name           String
+  type           CampusAccessPointType
+  zone           String?
+  deviceId       String?               @unique
+  entryDirection String?
+  isActive       Boolean               @default(true)
+  policy         Json?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  events         CampusAccessEvent[]
+
+  @@unique([organizationId, branchId, code])
+  @@index([organizationId, branchId, isActive])
+}
+
+model CampusAccessEvent {
+  organizationId String
+  id             String                  @id @default(cuid())
+  accessPointId  String
+  deviceEventId  String                  @unique
+  subjectType    CampusAccessSubjectType
+  subjectId      String?
+  externalSubjectId String?
+  direction      String?
+  decision       CampusAccessDecision
+  reasonCode     String
+  occurredAt     DateTime
+  reviewedById   String?
+  reviewNotes    String?                 @db.Text
+  reviewedAt     DateTime?
+  metadata       Json?
+  createdAt      DateTime                @default(now())
+  accessPoint    CampusAccessPoint       @relation(fields: [accessPointId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, accessPointId, occurredAt])
+  @@index([organizationId, subjectType, subjectId, occurredAt])
+  @@index([organizationId, decision, occurredAt])
 }
 
 model ConnectedDevice {
