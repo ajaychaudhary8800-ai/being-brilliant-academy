@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { env } from "../config.js";
 import type { AIExaminerQuestionType } from "./ai-examiner-assessment-router.js";
+import type { AIExaminerVisualValidationConfig } from "./ai-examiner-visual-verifier.js";
 
 export const AI_EXAMINER_ENGINE_VERSION = "3.1.0-alpha.1";
 export const AI_EXAMINER_REVIEW_THRESHOLD = env.AI_EXAMINER_REVIEW_THRESHOLD;
@@ -22,6 +23,13 @@ const rubricBreakdownSchema = z.object({
   awardedMarks: z.number().min(0).max(10000),
   rationale: z.string().trim().min(1).max(2000),
   evidenceText: z.string().trim().min(1).max(2000).nullable().optional(),
+});
+
+const visualObservationSchema = z.object({
+  key: z.string().trim().min(1).max(80),
+  status: z.enum(["PRESENT", "ABSENT", "UNCLEAR"]),
+  confidence: z.number().min(0).max(1),
+  evidence: z.string().trim().min(1).max(2000).nullable().optional(),
 });
 
 const conceptSchema = z.object({
@@ -47,6 +55,7 @@ export const aiExaminerProviderResultSchema = z.object({
     extractedAnswer: z.string().max(30000).nullable().optional(),
     feedback: z.string().trim().min(1).max(5000),
     rubricBreakdown: z.array(rubricBreakdownSchema).max(100).default([]),
+    visualObservations: z.array(visualObservationSchema).max(100).default([]),
     concepts: z.array(conceptSchema).max(50).default([]),
     flags: z.array(qualityFlagSchema).max(20).default([]),
   })).min(1).max(200),
@@ -62,6 +71,7 @@ export type AIExaminerRubricQuestion = {
   concepts: string[];
   questionType?: AIExaminerQuestionType;
   evaluationMode?: "EXTRACT_ONLY" | "RUBRIC";
+  visualValidation?: AIExaminerVisualValidationConfig;
 };
 
 export type AIExaminerDocument = {
@@ -152,6 +162,7 @@ function rubricPrompt(input: AIExaminerProviderInput) {
     evaluationMode: question.evaluationMode ?? "RUBRIC",
     modelAnswer: question.modelAnswer ?? null,
     concepts: question.concepts,
+    visualValidation: question.visualValidation ?? null,
   }));
   return `Evaluate the student's answer sheet for the following assessment.
 
@@ -187,6 +198,9 @@ Return ONLY a JSON object with this exact logical structure:
       "rubricBreakdown": [
         {"criterion":"","maxMarks":0,"awardedMarks":0,"rationale":"","evidenceText":null}
       ],
+      "visualObservations": [
+        {"key":"","status":"PRESENT|ABSENT|UNCLEAR","confidence":0.0,"evidence":null}
+      ],
       "concepts": [{"concept":"","mastery":"STRONG|PARTIAL|WEAK|NOT_ASSESSED"}],
       "flags": []
     }
@@ -213,7 +227,8 @@ Critical grading rules:
 13. For ACCOUNTING_STATEMENT questions, extractedAnswer must be a compact JSON object string with {"headings":["..."],"rows":[{"label":"...","debit":0,"credit":0,"amount":0,"side":"DEBIT|CREDIT|ASSET|LIABILITY|INCOME|EXPENSE"}]}. Include only fields actually visible or inferable from the student's written accounting layout; do not invent missing values.
 14. Never use surrounding context to guess an unreadable objective response; lower confidence and flag it for human review instead.
 15. For every positive-mark RUBRIC criterion, include evidenceText as the shortest faithful excerpt from the student's extracted answer that supports the award. Do not fabricate or paraphrase evidence. If no faithful excerpt is available, use evidenceText:null and lower confidence so the criterion can be verified by a human.
-16. For visual or multimodal evidence that cannot be represented as a literal text excerpt, use evidenceText:null and explain the visible basis in rationale; such evidence remains human-reviewable rather than being treated as text-verified.`;
+16. For visual or multimodal evidence that cannot be represented as a literal text excerpt, use evidenceText:null and explain the visible basis in rationale; such evidence remains human-reviewable rather than being treated as text-verified.
+17. For questions with visualValidation, return one visualObservations row for every configured observation key. Mark PRESENT only when the required feature is actually visible, ABSENT only when it is clearly not present, and UNCLEAR when the scan or evidence is insufficient. Do not invent labels, axes, locations, construction marks, spatial relations, or developmental evidence. Keep evidence to a short visual description and use confidence as observation certainty.`;
 }
 
 function dataUrl(document: AIExaminerDocument) {
