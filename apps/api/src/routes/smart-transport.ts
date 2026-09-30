@@ -1,4 +1,5 @@
 import {
+  Prisma,
   Role,
   SchoolEventStatus,
   TransportAlertStatus,
@@ -288,6 +289,7 @@ router.post("/transport/intelligence/geofences", async (req: AuthRequest, res) =
     data: {
       organizationId: req.auth!.organizationId,
       ...body,
+      geometry: body.geometry as Prisma.InputJsonValue,
       routeId: body.routeId ?? null,
       stopId: body.stopId ?? null,
     },
