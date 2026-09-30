@@ -102,3 +102,41 @@ test("semantic questions preserve provider suggestion and always stay teacher su
   assert.equal(result.questions[0]?.reviewRequired,true);
   assert.equal(result.questions[0]?.engine,"RUBRIC_SEMANTIC");
 });
+
+
+test("semantic evidence audit verifies linked rubric excerpts", () => {
+  const questions=resolveAIExaminerRubricQuestions({
+    questions:[{key:"Q1",maxMarks:4,criteria:"Explain.",concepts:[],questionType:"SHORT_ANSWER"}],
+  },{questions:[{key:"Q1",answer:"Expected explanation"}]});
+
+  const providerRow = row("Q1","The force increases because acceleration increases.",3,0.95);
+  providerRow.rubricBreakdown = [{
+    criterion: "Causal explanation",
+    maxMarks: 4,
+    awardedMarks: 3,
+    rationale: "Correct causal relationship.",
+    evidenceText: "acceleration increases",
+  }];
+
+  const result=reconcileAIExaminerProviderResult(questions,provider([providerRow]),0.75);
+  assert.equal(result.questions[0]?.evidenceAudit?.reviewRequired,false);
+  assert.equal(result.questions[0]?.evidenceAudit?.coverageRate,1);
+});
+
+test("semantic positive marks without linked evidence are flagged for verification", () => {
+  const questions=resolveAIExaminerRubricQuestions({
+    questions:[{key:"Q1",maxMarks:4,criteria:"Explain.",concepts:[],questionType:"LONG_ANSWER"}],
+  },{questions:[{key:"Q1",answer:"Expected explanation"}]});
+
+  const providerRow = row("Q1","A short answer.",3,0.95);
+  providerRow.rubricBreakdown = [{
+    criterion: "Explanation",
+    maxMarks: 4,
+    awardedMarks: 3,
+    rationale: "Awarded by provider.",
+  }];
+
+  const result=reconcileAIExaminerProviderResult(questions,provider([providerRow]),0.75);
+  assert.equal(result.questions[0]?.evidenceAudit?.reviewRequired,true);
+  assert.equal(result.questions[0]?.evidenceAudit?.coverageRate,0);
+});
