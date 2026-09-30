@@ -51,11 +51,13 @@ const benchmarkThresholdSchema = z.object({
   maximumOverrideRate: z.coerce.number().min(0).max(1),
   maximumLowConfidenceRate: z.coerce.number().min(0).max(1),
   lowConfidenceThreshold: z.coerce.number().min(0).max(1),
+  minimumEvidenceVerificationRate: z.coerce.number().min(0).max(1).optional(),
   drift: z.object({
     maximumNormalizedMaeIncrease: z.coerce.number().min(0).max(1),
     maximumOverrideRateIncrease: z.coerce.number().min(0).max(1),
     maximumLowConfidenceRateIncrease: z.coerce.number().min(0).max(1),
     maximumWithinToleranceRateDrop: z.coerce.number().min(0).max(1),
+    maximumEvidenceVerificationRateDrop: z.coerce.number().min(0).max(1).optional(),
   }).optional(),
 });
 
@@ -69,6 +71,8 @@ const benchmarkMetricsSchema = z.object({
   overrideRate: z.number(),
   lowConfidenceRate: z.number(),
   reviewRequiredRate: z.number(),
+  evidenceCaseCount: z.number().int().nonnegative().default(0),
+  evidenceVerificationRate: z.number().min(0).max(1).default(0),
 });
 
 function requireBenchmarkAdmin(req: AuthRequest) {
