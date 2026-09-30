@@ -2,6 +2,9 @@ name: ${BBA_COMPOSE_PROJECT_NAME:-bba-production}
 x-logging: &default-logging
   driver: json-file
   options: { max-size: "10m", max-file: "5" }
+x-api-build: &api-build
+  context: .
+  dockerfile: apps/api/Dockerfile
 x-api-env: &api-env
   NODE_ENV: production
   PORT: 4000
@@ -75,6 +78,7 @@ services:
     logging: *default-logging
   migrate:
     image: ${API_IMAGE:-bba-api:local}
+    build: *api-build
     command: ["node", "scripts/prisma-run.mjs", "migrate", "deploy"]
     environment: *api-env
     depends_on: { postgres: { condition: service_healthy } }
@@ -82,7 +86,7 @@ services:
     restart: "no"
   api:
     image: ${API_IMAGE:-bba-api:local}
-    build: { context: ., dockerfile: apps/api/Dockerfile }
+    build: *api-build
     restart: unless-stopped
     environment: *api-env
     volumes: [app_storage:/data/storage]
