@@ -18,6 +18,22 @@ export const aiExaminerAnswerKeySchema = z.union([
   z.record(aiExaminerAnswerKeyScalarSchema),
 ]);
 
+export const aiExaminerAccountingValidationSchema = z.object({
+  format: z.enum(["TRIAL_BALANCE", "LEDGER", "JOURNAL", "BALANCE_SHEET", "INCOME_STATEMENT", "OTHER"]),
+  requireBalanced: z.boolean().default(false),
+  tolerance: z.coerce.number().min(0).max(1_000_000_000).default(0.01),
+  caseSensitiveLabels: z.boolean().default(false),
+  expectedRows: z.array(z.object({
+    label: z.string().trim().min(1).max(200),
+    required: z.boolean().default(true),
+    debit: z.coerce.number().finite().optional(),
+    credit: z.coerce.number().finite().optional(),
+    amount: z.coerce.number().finite().optional(),
+    side: z.enum(["DEBIT", "CREDIT", "ASSET", "LIABILITY", "INCOME", "EXPENSE"]).optional(),
+  })).max(300).default([]),
+  requiredHeadings: z.array(z.string().trim().min(1).max(200)).max(50).default([]),
+});
+
 export const aiExaminerChemistryValidationSchema = z.object({
   expectedEquation: z.string().trim().min(1).max(12000).optional(),
   requireBalanced: z.boolean().default(true),
@@ -87,6 +103,7 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
   requiresCodeExecution: z.boolean().default(false),
   stemValidation: aiExaminerStemValidationSchema.optional(),
   chemistryValidation: aiExaminerChemistryValidationSchema.optional(),
+  accountingValidation: aiExaminerAccountingValidationSchema.optional(),
 }).superRefine((question, ctx) => {
   const route = routeAIExaminerQuestion({
     questionType: question.questionType,
@@ -142,6 +159,14 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["chemistryValidation"],
       message: "Chemistry equation validation is only supported for CHEMISTRY_EQUATION questions",
+    });
+  }
+
+  if (question.accountingValidation && question.questionType !== "ACCOUNTING_STATEMENT") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["accountingValidation"],
+      message: "Accounting validation is only supported for ACCOUNTING_STATEMENT questions",
     });
   }
 
