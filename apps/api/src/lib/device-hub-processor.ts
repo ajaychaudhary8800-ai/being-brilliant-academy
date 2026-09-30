@@ -6,6 +6,9 @@ import {
   ConnectedDeviceBindingType,
   ConnectedDeviceEventStatus,
   Prisma,
+  SchoolEventCategory,
+  SchoolEventSeverity,
+  SchoolEventStatus,
   TripStatus,
 } from "@prisma/client";
 import { z } from "zod";
@@ -58,6 +61,62 @@ function attendanceTimes(existing: { checkIn: Date | null; checkOut: Date | null
     checkIn: existing?.checkIn ?? null,
     checkOut: !existing?.checkOut || occurredAt > existing.checkOut ? occurredAt : existing.checkOut,
   };
+}
+
+async function recordSchoolEvent(input: {
+  organizationId: string;
+  branchId?: string | null;
+  category: SchoolEventCategory;
+  type: string;
+  severity?: SchoolEventSeverity;
+  status?: SchoolEventStatus;
+  occurredAt: Date;
+  sourceType: string;
+  sourceId: string;
+  correlationKey?: string | null;
+  studentId?: string | null;
+  employeeId?: string | null;
+  vehicleId?: string | null;
+  deviceId?: string | null;
+  accessPointId?: string | null;
+  cameraId?: string | null;
+  title: string;
+  summary?: string | null;
+  metadata?: Record<string, unknown>;
+  reviewRequired?: boolean;
+}) {
+  return systemPrisma.schoolEvent.upsert({
+    where: {
+      organizationId_sourceType_sourceId: {
+        organizationId: input.organizationId,
+        sourceType: input.sourceType,
+        sourceId: input.sourceId,
+      },
+    },
+    create: {
+      organizationId: input.organizationId,
+      branchId: input.branchId ?? null,
+      category: input.category,
+      type: input.type,
+      severity: input.severity ?? SchoolEventSeverity.INFO,
+      status: input.status ?? (input.reviewRequired ? SchoolEventStatus.REVIEW_REQUIRED : SchoolEventStatus.RECORDED),
+      occurredAt: input.occurredAt,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      correlationKey: input.correlationKey ?? null,
+      studentId: input.studentId ?? null,
+      employeeId: input.employeeId ?? null,
+      vehicleId: input.vehicleId ?? null,
+      deviceId: input.deviceId ?? null,
+      accessPointId: input.accessPointId ?? null,
+      cameraId: input.cameraId ?? null,
+      title: input.title,
+      summary: input.summary ?? null,
+      metadata: input.metadata ? json(input.metadata) : undefined,
+      reviewRequired: input.reviewRequired ?? false,
+    },
+    update: {},
+  });
 }
 
 async function organizationDate(organizationId: string, instant: Date) {
@@ -159,6 +218,20 @@ async function processIdentity(event: any, normalized: z.infer<typeof normalized
       },
       select: { id: true, employeeId: true, date: true, checkIn: true, checkOut: true, source: true },
     });
+    await recordSchoolEvent({
+      organizationId: event.organizationId,
+      branchId: employee.branchId,
+      category: SchoolEventCategory.ATTENDANCE,
+      type: `EMPLOYEE_${normalized.direction}`,
+      occurredAt: event.occurredAt,
+      sourceType: "HR_ATTENDANCE_DEVICE_EVENT",
+      sourceId: event.id,
+      employeeId: employee.id,
+      deviceId: event.deviceId,
+      correlationKey: `employee:${employee.id}`,
+      title: `Employee attendance ${normalized.direction === "IN" ? "check-in" : "check-out"}`,
+      metadata: { attendanceId: attendance.id, bindingId: binding.id },
+    });
     return { adapter: "HR_ATTENDANCE", bindingId: binding.id, attendanceId: attendance.id };
   }
 
@@ -193,6 +266,20 @@ async function processIdentity(event: any, normalized: z.infer<typeof normalized
       checkOut: times.checkOut,
     },
     select: { id: true, studentId: true, batchId: true, date: true, checkIn: true, checkOut: true },
+  });
+  await recordSchoolEvent({
+    organizationId: event.organizationId,
+    branchId: student.branchId,
+    category: SchoolEventCategory.ATTENDANCE,
+    type: `STUDENT_${normalized.direction}`,
+    occurredAt: event.occurredAt,
+    sourceType: "STUDENT_ATTENDANCE_DEVICE_EVENT",
+    sourceId: event.id,
+    studentId: student.id,
+    deviceId: event.deviceId,
+    correlationKey: `student:${student.id}`,
+    title: `Student attendance ${normalized.direction === "IN" ? "check-in" : "check-out"}`,
+    metadata: { attendanceId: attendance.id, bindingId: binding.id, batchId: student.batchId },
   });
   return { adapter: "STUDENT_ATTENDANCE", bindingId: binding.id, attendanceId: attendance.id };
 }
@@ -260,6 +347,26 @@ async function processLocation(event: any, normalized: z.infer<typeof normalized
     }
   });
 
+  await recordSchoolEvent({
+    organizationId: event.organizationId,
+    branchId: vehicle.branchId,
+    category: SchoolEventCategory.TRANSPORT,
+    type: geofenceEvent ? "GPS_GEOFENCE" : "GPS_POSITION",
+    occurredAt: event.occurredAt,
+    sourceType: "TRANSPORT_GPS_DEVICE_EVENT",
+    sourceId: event.id,
+    vehicleId: vehicle.id,
+    deviceId: event.deviceId,
+    correlationKey: trip?.id ? `trip:${trip.id}` : `vehicle:${vehicle.id}`,
+    title: geofenceEvent ? `Vehicle geofence event: ${geofenceEvent}` : "Vehicle location update",
+    metadata: {
+      tripId: trip?.id ?? null,
+      latitude: normalized.latitude,
+      longitude: normalized.longitude,
+      speedKph: normalized.speedKph,
+      geofenceEvent,
+    },
+  });
   return { adapter: "TRANSPORT_GPS", bindingId: binding.id, vehicleId: vehicle.id, tripId: trip?.id ?? null };
 }
 
@@ -340,6 +447,25 @@ async function processAccess(event: any, normalized: z.infer<typeof normalizedSc
     update: {},
     select: { id: true, accessPointId: true, subjectType: true, subjectId: true, decision: true, reasonCode: true },
   });
+  await recordSchoolEvent({
+    organizationId: event.organizationId,
+    branchId: accessPoint.branchId,
+    category: SchoolEventCategory.ACCESS,
+    type: `ACCESS_${created.decision}`,
+    severity: created.decision === CampusAccessDecision.DENIED ? SchoolEventSeverity.MEDIUM : SchoolEventSeverity.INFO,
+    occurredAt: event.occurredAt,
+    sourceType: "CAMPUS_ACCESS_EVENT",
+    sourceId: created.id,
+    studentId: subjectType === CampusAccessSubjectType.STUDENT ? subjectId : null,
+    employeeId: subjectType === CampusAccessSubjectType.EMPLOYEE ? subjectId : null,
+    deviceId: event.deviceId,
+    accessPointId: accessPoint.id,
+    correlationKey: subjectId ? `${subjectType.toLocaleLowerCase("en")}:${subjectId}` : `access-point:${accessPoint.id}`,
+    title: `Campus access ${created.decision.toLocaleLowerCase("en")}`,
+    summary: created.reasonCode,
+    reviewRequired: created.decision === CampusAccessDecision.REVIEW,
+    metadata: { direction: normalized.direction, externalSubjectId: normalized.subjectExternalId },
+  });
   return { adapter: "CAMPUS_ACCESS", accessEventId: created.id, decision: created.decision, reasonCode: created.reasonCode };
 }
 
@@ -401,6 +527,26 @@ async function processVideo(event: any, normalized: z.infer<typeof normalizedSch
     select: { id: true, cameraId: true, eventType: true, severity: true, status: true, reviewRequired: true, confidence: true },
   });
 
+  await recordSchoolEvent({
+    organizationId: event.organizationId,
+    branchId: camera.branchId,
+    category: SchoolEventCategory.CAMERA,
+    type: event.eventType,
+    severity: severity === CameraIncidentSeverity.CRITICAL ? SchoolEventSeverity.CRITICAL
+      : severity === CameraIncidentSeverity.HIGH ? SchoolEventSeverity.HIGH
+      : severity === CameraIncidentSeverity.MEDIUM ? SchoolEventSeverity.MEDIUM
+      : severity === CameraIncidentSeverity.LOW ? SchoolEventSeverity.LOW
+      : SchoolEventSeverity.INFO,
+    occurredAt: event.occurredAt,
+    sourceType: "CAMERA_INCIDENT",
+    sourceId: incident.id,
+    deviceId: event.deviceId,
+    cameraId: camera.id,
+    correlationKey: `camera:${camera.id}`,
+    title: incident.eventType,
+    reviewRequired: true,
+    metadata: { incidentId: incident.id, confidence, aiReviewEnabled: camera.aiReviewEnabled },
+  });
   return {
     adapter: "CAMERA_INCIDENT",
     incidentId: incident.id,
