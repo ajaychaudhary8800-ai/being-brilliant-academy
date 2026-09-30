@@ -1588,6 +1588,20 @@ enum AIExaminerScanPageStatus {
   REVIEW_REQUIRED
 }
 
+enum AIExaminerScanBatchStatus {
+  INGESTING
+  REVIEW_REQUIRED
+  ROUTED
+  FAILED
+  CANCELLED
+}
+
+enum AIExaminerScanBatchPageStatus {
+  ROUTED
+  REVIEW_REQUIRED
+  REJECTED
+}
+
 enum AIExaminerRegradeRequestStatus {
   REQUESTED
   APPROVED
@@ -3229,6 +3243,60 @@ model AIExaminerResultRevision {
   @@unique([resultId, revision])
   @@index([organizationId, resultId, createdAt])
   @@index([changedById])
+}
+
+model AIExaminerScanBatch {
+  organizationId String                    @default("org_default")
+  id             String                    @id @default(cuid())
+  examinationId  String
+  externalBatchId String?
+  scannerEngine  String
+  scannerVersion String
+  totalPages     Int
+  status         AIExaminerScanBatchStatus @default(INGESTING)
+  routedPages    Int                       @default(0)
+  reviewPages    Int                       @default(0)
+  rejectedPages  Int                       @default(0)
+  createdById    String
+  completedAt    DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  examination    Examination               @relation(fields: [examinationId], references: [id], onDelete: Restrict)
+  createdBy      User                      @relation("AIExaminerScanBatchCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  pages          AIExaminerScanBatchPage[]
+
+  @@unique([organizationId, externalBatchId])
+  @@index([organizationId, examinationId, status])
+  @@index([createdById])
+}
+
+model AIExaminerScanBatchPage {
+  organizationId String                        @default("org_default")
+  id             String                        @id @default(cuid())
+  batchId        String
+  sourcePageNumber Int
+  scanId         String
+  bindingId      String?
+  answerSheetId  String?
+  targetPageNumber Int?
+  targetTotalPages Int?
+  barcodeConfidence Decimal                    @db.Decimal(5, 4)
+  imageQuality   Decimal                       @db.Decimal(5, 4)
+  status         AIExaminerScanBatchPageStatus
+  issueCodes     String[]                      @default([])
+  routedScanPageId String?
+  metadata       Json?
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+  organization   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  batch          AIExaminerScanBatch           @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, sourcePageNumber])
+  @@unique([organizationId, scanId])
+  @@index([organizationId, status, createdAt])
+  @@index([bindingId])
+  @@index([answerSheetId])
 }
 
 model AIExaminerScanBinding {
