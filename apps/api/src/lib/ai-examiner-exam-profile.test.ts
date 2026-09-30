@@ -138,3 +138,23 @@ test("profile names do not imply fixed official marking rules", () => {
   assert.equal(rule.scoring.correctMarks, undefined);
   assert.equal(rule.scoring.incorrectMarks, undefined);
 });
+
+
+test("high-stakes behavior is explicit and never inferred from exam profile kind", () => {
+  const ordinaryNeet = parseAIExaminerExamProfile({
+    code: "NEET_CONFIGURED",
+    name: "NEET configured profile",
+    kind: "NEET",
+    version: "1",
+  });
+  assert.equal(ordinaryNeet.highStakes, false);
+
+  const supervised = parseAIExaminerExamProfile({
+    code: "SCHOOL_BOARD_FINAL",
+    name: "School board final",
+    kind: "SCHOOL",
+    version: "1",
+    highStakes: true,
+  });
+  assert.equal(supervised.highStakes, true);
+});
