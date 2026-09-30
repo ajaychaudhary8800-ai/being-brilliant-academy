@@ -130,6 +130,7 @@ model LearningTest {
   startsAt        DateTime?
   endsAt          DateTime?
   adaptive        Boolean                @default(false)
+  deliveryPolicy  Json?
   status          LearningStatus         @default(DRAFT)
   createdById     String
   createdAt       DateTime               @default(now())
@@ -178,13 +179,37 @@ model LearningTestAttempt {
   incorrectCount   Int                   @default(0)
   unansweredCount  Int                   @default(0)
   timeSpentSeconds Int                   @default(0)
+  deliverySeed     String?
+  deliveryPolicySnapshot Json?
+  accommodationSnapshot Json?
+  clientInstanceId String?
+  resumeCount      Int                   @default(0)
+  lastResumedAt    DateTime?
+  lastHeartbeatAt  DateTime?
+  offlineLeaseUntil DateTime?
   test             LearningTest          @relation(fields: [testId], references: [id], onDelete: Restrict)
   student          User                  @relation(fields: [studentId], references: [id], onDelete: Restrict)
   answers          LearningTestAnswer[]
+  integrityEvents  LearningTestIntegrityEvent[]
 
   @@unique([testId, studentId, startedAt])
   @@index([organizationId, studentId, submittedAt])
   @@index([organizationId, testId, score])
+}
+
+model LearningTestIntegrityEvent {
+  organizationId String              @default("org_default")
+  id             String              @id @default(cuid())
+  attemptId      String
+  type           String
+  severity       String              @default("INFO")
+  details        Json?
+  occurredAt     DateTime            @default(now())
+  createdAt      DateTime            @default(now())
+  attempt        LearningTestAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, attemptId, occurredAt])
+  @@index([organizationId, type, occurredAt])
 }
 
 model LearningTestAnswer {
