@@ -1,4 +1,4 @@
-import { AIExaminerEvaluationStatus, AIExaminerRubricStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AnswerSheetStatus, ExaminationStatus } from "@prisma/client";
+import { AIExaminerEvaluationStatus, AIExaminerRubricStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AnswerSheetStatus, ExaminationStatus, Prisma } from "@prisma/client";
 import { env } from "../config.js";
 import { logger } from "./logger.js";
 import { systemPrisma } from "./prisma.js";
@@ -28,6 +28,10 @@ import {
   independentAIExaminerProviderConfigured,
   independentAIExaminerProviderReadiness,
 } from "./ai-examiner-second-pass-provider.js";
+
+function prismaJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
 
 function examProfileHighStakes(snapshot: unknown) {
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return false;
@@ -352,7 +356,7 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
           suggestedMarks: total,
           confidence,
           feedback: result.overallFeedback,
-          diagnostics: {
+          diagnostics: prismaJson({
             ...result.diagnostics,
             questionDiagnostics: questionRows.map(question => ({
               questionKey: question.questionKey,
@@ -375,7 +379,7 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
             secondPassExecution,
             codeExecution: codeExecutionDiagnostics,
             omrEvidence,
-          },
+          }),
           completedAt,
           errorCode: null,
           errorMessage: null,
@@ -389,7 +393,7 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
           action: "AI_EXAMINER_EVALUATION_COMPLETED",
           entity: "AIExaminerEvaluation",
           entityId: evaluation.id,
-          metadata: {
+          metadata: prismaJson({
             answerSheetId: evaluation.answerSheetId,
             suggestedMarks: total,
             confidence,
@@ -402,7 +406,7 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
             omrEvidenceTrusted: omrEvidence.trusted,
             omrAppliedQuestionCount: omrEvidence.appliedQuestionKeys.length,
             engineVersion: AI_EXAMINER_ENGINE_VERSION,
-          },
+          }),
         },
       });
       return updated;
