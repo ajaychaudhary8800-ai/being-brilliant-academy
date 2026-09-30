@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   aiExaminerProviderQuestions,
+  overlayTrustedAIExaminerOmrAnswers,
   reconcileAIExaminerProviderResult,
   resolveAIExaminerRubricQuestions,
 } from "./ai-examiner-orchestration.js";
@@ -139,4 +140,37 @@ test("semantic positive marks without linked evidence are flagged for verificati
   const result=reconcileAIExaminerProviderResult(questions,provider([providerRow]),0.75);
   assert.equal(result.questions[0]?.evidenceAudit?.reviewRequired,true);
   assert.equal(result.questions[0]?.evidenceAudit?.coverageRate,0);
+});
+
+
+test("trusted OMR evidence replaces provider extraction only for objective OMR questions", () => {
+  const questions = resolveAIExaminerRubricQuestions({
+    questions: [
+      { key: "Q1", maxMarks: 4, criteria: "Choose.", concepts: [], questionType: "MCQ", answerKey: "B", omrValidation: { allowedOptions: ["A", "B", "C", "D"] } },
+      { key: "Q2", maxMarks: 4, criteria: "Choose all.", concepts: [], questionType: "MSQ", answerKey: ["A", "C"], omrValidation: { allowedOptions: ["A", "B", "C", "D"] } },
+      { key: "Q3", maxMarks: 4, criteria: "Explain.", concepts: [], questionType: "SHORT_ANSWER" },
+    ],
+  }, { questions: [{ key: "Q3", answer: "Explanation" }] });
+
+  const providerResult = provider([
+    row("Q1", "A", 0, 0.6),
+    row("Q2", JSON.stringify(["B"]), 0, 0.6),
+    row("Q3", "Student explanation", 3, 0.9),
+  ]);
+  const omr = new Map([
+    ["q1", { questionKey: "Q1", selections: ["B"], confidence: 0.99 }],
+    ["q2", { questionKey: "Q2", selections: ["A", "C"], confidence: 0.98 }],
+    ["q3", { questionKey: "Q3", selections: ["X"], confidence: 0.99 }],
+  ]);
+
+  const overlaid = overlayTrustedAIExaminerOmrAnswers(questions, providerResult, omr);
+  assert.deepEqual(overlaid.appliedQuestionKeys, ["Q1", "Q2"]);
+  assert.equal(overlaid.result.questions[0]?.extractedAnswer, "B");
+  assert.equal(overlaid.result.questions[0]?.confidence, 0.99);
+  assert.equal(overlaid.result.questions[1]?.extractedAnswer, JSON.stringify(["A", "C"]));
+  assert.equal(overlaid.result.questions[2]?.extractedAnswer, "Student explanation");
+
+  const scored = reconcileAIExaminerProviderResult(questions, overlaid.result, 0.75);
+  assert.equal(scored.questions[0]?.suggestedMarks, 4);
+  assert.equal(scored.questions[1]?.suggestedMarks, 4);
 });
