@@ -55,7 +55,7 @@ export const aiExaminerProviderResultSchema = z.object({
     extractedAnswer: z.string().max(30000).nullable().optional(),
     feedback: z.string().trim().min(1).max(5000),
     rubricBreakdown: z.array(rubricBreakdownSchema).max(100).default([]),
-    visualObservations: z.array(visualObservationSchema).max(100).default([]),
+    visualObservations: z.array(visualObservationSchema).max(100).optional(),
     concepts: z.array(conceptSchema).max(50).default([]),
     flags: z.array(qualityFlagSchema).max(20).default([]),
   })).min(1).max(200),
