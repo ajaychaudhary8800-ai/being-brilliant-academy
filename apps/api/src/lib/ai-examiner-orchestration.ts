@@ -50,6 +50,7 @@ export type AIExaminerResolvedRubricQuestion = {
     allowReverse: boolean;
   };
   accountingValidation?: AccountingValidationConfig;
+  omrValidation?: { allowedOptions: string[] };
 };
 
 type ProviderQuestion = AIExaminerProviderResult["questions"][number];
