@@ -29,6 +29,7 @@ import {
   resultRevisionSnapshot,
 } from "../lib/ai-examiner-regrade.js";
 import { assertExaminationManager, evaluationStatus, examinationResultFor } from "../lib/examination-policy.js";
+import { analyzeAIExaminerOriginality } from "../lib/ai-examiner-originality.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
@@ -337,6 +338,70 @@ function readiness(exam: Awaited<ReturnType<typeof examinationForManager>>, eval
     })),
   };
 }
+
+router.get("/examinations/:examinationId/originality", async (req: AuthRequest, res) => {
+  const examinationId = cuid.parse(req.params.examinationId);
+  await examinationForManager(req, examinationId);
+  const query = z.object({
+    shingleSize: z.coerce.number().int().min(2).max(12).default(5),
+    minimumTokens: z.coerce.number().int().min(5).max(5000).default(20),
+    signalThreshold: z.coerce.number().min(0.5).max(1).default(0.8),
+    maximumSignals: z.coerce.number().int().min(1).max(1000).default(200),
+  }).parse(req.query);
+
+  const evaluations = await prisma.aIExaminerEvaluation.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      status: AIExaminerEvaluationStatus.APPROVED,
+      answerSheet: { examinationId },
+    },
+    select: {
+      id: true,
+      revision: true,
+      answerSheetId: true,
+      reviewedAt: true,
+      answerSheet: { select: { studentId: true } },
+      questions: { select: { questionKey: true, extractedAnswer: true } },
+    },
+    orderBy: [{ reviewedAt: "desc" }, { revision: "desc" }],
+    take: 5000,
+  });
+
+  const latestBySheet = new Map<string, typeof evaluations[number]>();
+  for (const evaluation of evaluations) {
+    if (!latestBySheet.has(evaluation.answerSheetId)) latestBySheet.set(evaluation.answerSheetId, evaluation);
+  }
+  if (latestBySheet.size > 500) {
+    throw new AppError(422, "AI_EXAMINER_ORIGINALITY_DATASET_TOO_LARGE", "Originality analysis supports up to 500 answer sheets per run");
+  }
+
+  const answers = [...latestBySheet.values()].flatMap(evaluation =>
+    evaluation.questions.map(question => ({
+      answerSheetId: evaluation.answerSheetId,
+      studentId: evaluation.answerSheet.studentId,
+      questionKey: question.questionKey,
+      text: question.extractedAnswer,
+    }))
+  );
+  const report = analyzeAIExaminerOriginality(answers, query);
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "AI_EXAMINER_ORIGINALITY_ANALYZED",
+      entity: "Examination",
+      entityId: examinationId,
+      metadata: {
+        answerSheets: latestBySheet.size,
+        comparedAnswers: report.comparedAnswers,
+        comparedPairs: report.comparedPairs,
+        signalCount: report.signals.length,
+        methodology: report.methodology,
+      },
+    },
+  });
+  res.json({ data: report });
+});
 
 router.get("/capabilities", async (_req, res) => {
   res.json({ data: { providerConfigured: aiExaminerProviderConfigured(), providerMode: aiExaminerProviderMode(), model: env.AI_EXAMINER_MODEL, engineVersion: AI_EXAMINER_ENGINE_VERSION, reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD, evaluationExecutionAvailable: aiExaminerProviderConfigured(), questionTypes: AI_EXAMINER_QUESTION_TYPES, engines: AI_EXAMINER_ENGINES, phase: "EVALUATION_ENGINE" } });
