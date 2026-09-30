@@ -623,6 +623,7 @@ model Organization {
   specializations        Specialization[]
   examinationQuestionPapers ExaminationQuestionPaper[]
   examinationAnswerSheets ExaminationAnswerSheet[]
+  aiExaminerExamProfiles   AIExaminerExamProfile[]
   feePlans               FeePlan[]
   studentFeeAssignments  StudentFeeAssignment[]
   feePaymentOffsets       FeePaymentOffset[]
@@ -1151,6 +1152,25 @@ enum AIExaminerRubricStatus {
   ARCHIVED
 }
 
+enum AIExaminerExamProfileKind {
+  SCHOOL
+  CBSE
+  ICSE
+  ISC
+  JEE_MAIN
+  JEE_ADVANCED
+  NEET
+  NDA
+  CUET
+  INSTITUTION_DEFINED
+}
+
+enum AIExaminerExamProfileStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
 enum AIExaminerEvaluationStatus {
   QUEUED
   PROCESSING
@@ -1510,6 +1530,8 @@ model User {
   evaluatedAnswerSheets    ExaminationAnswerSheet[] @relation("AnswerSheetEvaluator")
   aiExaminerRubricsCreated AIExaminerRubric[] @relation("AIExaminerRubricCreator")
   aiExaminerRubricsApproved AIExaminerRubric[] @relation("AIExaminerRubricApprover")
+  aiExaminerExamProfilesCreated AIExaminerExamProfile[] @relation("AIExaminerExamProfileCreator")
+  aiExaminerExamProfilesApproved AIExaminerExamProfile[] @relation("AIExaminerExamProfileApprover")
   aiExaminerEvaluationsRequested AIExaminerEvaluation[] @relation("AIExaminerEvaluationRequester")
   aiExaminerEvaluationsReviewed AIExaminerEvaluation[] @relation("AIExaminerEvaluationReviewer")
   learningRecommendations  LearningRecommendation[]
@@ -1580,6 +1602,7 @@ model Branch {
   timetables            Timetable[]
   homeworks             Homework[]
   examinations          Examination[]
+  aiExaminerExamProfiles AIExaminerExamProfile[]
   lmsLessons            Lesson[]
   announcements         Announcement[]
   leaveRequests         LeaveRequest[]
@@ -2442,6 +2465,9 @@ model Examination {
   questionPaper     ExaminationQuestionPaper?
   answerSheets      ExaminationAnswerSheet[]
   aiExaminerRubrics AIExaminerRubric[]
+  aiExaminerExamProfileId String?
+  aiExaminerExamProfileSnapshot Json?
+  aiExaminerExamProfile AIExaminerExamProfile? @relation(fields: [aiExaminerExamProfileId], references: [id], onDelete: Restrict)
 
   @@unique([organizationId, code])
   @@index([branchId])
@@ -2451,6 +2477,7 @@ model Examination {
   @@index([status])
   @@index([organizationId])
   @@index([academicSessionId])
+  @@index([organizationId, aiExaminerExamProfileId])
 }
 
 model ExaminationResult {
@@ -2532,6 +2559,34 @@ model ExaminationAnswerSheet {
   @@index([organizationId, status, submittedAt])
   @@index([studentId, submittedAt])
   @@index([evaluatedById])
+}
+
+model AIExaminerExamProfile {
+  organizationId String
+  id             String                      @id @default(cuid())
+  branchId       String?
+  code           String
+  name           String
+  kind           AIExaminerExamProfileKind
+  version        String
+  status         AIExaminerExamProfileStatus @default(DRAFT)
+  config         Json
+  effectiveFrom  DateTime?
+  effectiveTo    DateTime?
+  createdById    String
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch?                     @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdBy      User                        @relation("AIExaminerExamProfileCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy     User?                       @relation("AIExaminerExamProfileApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  examinations   Examination[]
+
+  @@unique([organizationId, code, version])
+  @@index([organizationId, status, kind])
+  @@index([organizationId, branchId, status])
 }
 
 model AIExaminerRubric {
