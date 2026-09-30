@@ -688,6 +688,37 @@ enum CameraIncidentStatus {
   DISMISSED
 }
 
+enum CameraStreamKind {
+  LIVE
+  PLAYBACK
+}
+
+enum CameraSessionStatus {
+  PENDING
+  READY
+  FAILED
+  EXPIRED
+  REVOKED
+}
+
+enum CameraAccessAction {
+  LIVE_SESSION
+  PLAYBACK_SESSION
+  BOOKMARK
+  EXPORT_REQUEST
+  EXPORT_APPROVE
+  EXPORT_DOWNLOAD
+}
+
+enum CameraExportStatus {
+  PENDING_APPROVAL
+  PROCESSING
+  READY
+  REJECTED
+  FAILED
+  EXPIRED
+}
+
 enum SchoolEventCategory {
   ATTENDANCE
   ACCESS
@@ -5955,19 +5986,117 @@ model CampusCamera {
   deviceId       String               @unique
   zone           String?
   location       String?
+  building       String?
+  floor          String?
+  groupName      String?
+  mapX           Decimal?              @db.Decimal(8, 3)
+  mapY           Decimal?              @db.Decimal(8, 3)
+  nvrRef         String?
+  channelRef     String?
+  vehicleId      String?
   streamSecretRef String?
   recordingSecretRef String?
   retentionDays  Int                  @default(30)
   privacyMasking Boolean              @default(true)
+  watermarkEnabled Boolean            @default(true)
   audioEnabled   Boolean              @default(false)
   aiReviewEnabled Boolean             @default(false)
+  lastTamperAt   DateTime?
   isActive       Boolean              @default(true)
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
   incidents      CameraIncident[]
+  viewSessions   CameraViewSession[]
+  accessAudits   CameraAccessAudit[]
+  bookmarks      CameraBookmark[]
+  exportRequests CameraExportRequest[]
 
   @@unique([organizationId, branchId, code])
   @@index([organizationId, branchId, isActive])
+}
+
+model CameraViewSession {
+  organizationId String
+  id             String              @id @default(cuid())
+  cameraId       String
+  requestedById  String
+  kind           CameraStreamKind
+  status         CameraSessionStatus @default(PENDING)
+  commandId      String?
+  tokenHash      String               @unique
+  playbackFrom   DateTime?
+  playbackTo     DateTime?
+  expiresAt      DateTime
+  watermarkText  String?
+  lastAccessAt   DateTime?
+  errorCode      String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  camera         CampusCamera         @relation(fields: [cameraId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, cameraId, createdAt])
+  @@index([organizationId, requestedById, status])
+  @@index([organizationId, status, expiresAt])
+}
+
+model CameraAccessAudit {
+  organizationId String
+  id             String             @id @default(cuid())
+  cameraId       String
+  userId         String
+  action         CameraAccessAction
+  sessionId      String?
+  exportRequestId String?
+  occurredAt     DateTime           @default(now())
+  metadata       Json?
+  camera         CampusCamera       @relation(fields: [cameraId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, cameraId, occurredAt])
+  @@index([organizationId, userId, occurredAt])
+}
+
+model CameraBookmark {
+  organizationId String
+  id             String       @id @default(cuid())
+  cameraId       String
+  userId         String
+  label          String
+  occurredAt     DateTime
+  notes          String?      @db.Text
+  createdAt      DateTime     @default(now())
+  camera         CampusCamera @relation(fields: [cameraId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, cameraId, occurredAt])
+  @@index([organizationId, userId, createdAt])
+}
+
+model CameraExportRequest {
+  organizationId String
+  id             String             @id @default(cuid())
+  cameraId       String
+  requestedById  String
+  reason         String             @db.Text
+  fromAt         DateTime
+  toAt           DateTime
+  status         CameraExportStatus @default(PENDING_APPROVAL)
+  commandId      String?
+  watermarkText  String
+  approvedById   String?
+  approvedAt     DateTime?
+  rejectedById   String?
+  rejectedAt     DateTime?
+  rejectionReason String?           @db.Text
+  externalRef    String?
+  expiresAt      DateTime?
+  errorCode      String?
+  errorMessage   String?            @db.Text
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  camera         CampusCamera       @relation(fields: [cameraId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, cameraId, createdAt])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, requestedById, createdAt])
 }
 
 model CameraIncident {
@@ -6228,6 +6357,7 @@ model ConnectedDeviceCommand {
   deviceId       String
   commandType    String
   payload        Json?
+  result         Json?
   status         ConnectedDeviceCommandStatus @default(QUEUED)
   idempotencyKey String
   requestedById  String?
