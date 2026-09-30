@@ -120,6 +120,7 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
         flags: question.flags,
         scoringError: question.scoringError,
         specializedEvidence: question.specializedEvidence,
+        evidenceAudit: question.evidenceAudit,
       })),
     });
     const completedAt = new Date();
@@ -176,6 +177,9 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
               scoringError: question.scoringError,
               specializedEvidence: question.specializedEvidence
                 ? JSON.parse(JSON.stringify(question.specializedEvidence))
+                : null,
+              evidenceAudit: question.evidenceAudit
+                ? JSON.parse(JSON.stringify(question.evidenceAudit))
                 : null,
             })),
             reviewRequiredCount: questionRows.filter(row => row.reviewRequired).length,
