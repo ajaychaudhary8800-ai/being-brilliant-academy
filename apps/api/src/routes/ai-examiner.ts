@@ -246,11 +246,14 @@ async function answerSheetForManager(req: AuthRequest, answerSheetId: string) {
 }
 
 async function recomputePublishedRanks(tx: Prisma.TransactionClient, organizationId: string, examinationId: string) {
-  const ranked = await tx.examinationResult.findMany({
-    where: { organizationId, examinationId, marksObtained: { not: null } },
-    select: { id: true, marksObtained: true },
-    orderBy: [{ marksObtained: "desc" }, { id: "asc" }],
+  const rows = await tx.examinationResult.findMany({
+    where: { organizationId, examinationId },
+    select: { id: true, marksObtained: true, rank: true },
   });
+  const ranked = rows
+    .filter((row): row is typeof row & { marksObtained: NonNullable<typeof row.marksObtained> } => row.marksObtained != null)
+    .sort((a, b) => Number(b.marksObtained) - Number(a.marksObtained) || a.id.localeCompare(b.id));
+  const impacts: Array<{ resultId: string; beforeRank: number | null; afterRank: number | null }> = [];
   let rank = 0;
   let lastMarks: number | null = null;
   let position = 0;
@@ -259,12 +262,16 @@ async function recomputePublishedRanks(tx: Prisma.TransactionClient, organizatio
     const marks = Number(row.marksObtained);
     if (lastMarks === null || marks < lastMarks) rank = position;
     lastMarks = marks;
-    await tx.examinationResult.update({ where: { id: row.id }, data: { rank } });
+    if (row.rank !== rank) {
+      impacts.push({ resultId: row.id, beforeRank: row.rank, afterRank: rank });
+      await tx.examinationResult.update({ where: { id: row.id }, data: { rank } });
+    }
   }
-  await tx.examinationResult.updateMany({
-    where: { organizationId, examinationId, marksObtained: null },
-    data: { rank: null },
-  });
+  for (const row of rows.filter(row => row.marksObtained == null && row.rank != null)) {
+    impacts.push({ resultId: row.id, beforeRank: row.rank, afterRank: null });
+    await tx.examinationResult.update({ where: { id: row.id }, data: { rank: null } });
+  }
+  return impacts;
 }
 
 function rubricMarks(rubric: unknown) {
@@ -2203,9 +2210,24 @@ router.post("/regrade-requests/:requestId/resolve", async (req: AuthRequest, res
     where: { id: requestId, organizationId: req.auth!.organizationId },
     include: {
       answerSheet: { select: { id: true, examinationId: true, studentId: true } },
-      evaluation: { select: { id: true } },
+      evaluation: {
+        select: {
+          id: true,
+          questions: {
+            select: { id: true, questionKey: true, finalMarks: true, teacherComment: true, maxMarks: true },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      },
       result: true,
-      reviewRound: true,
+      reviewRound: {
+        include: {
+          decisions: {
+            select: { questionKey: true, awardedMarks: true, comment: true },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      },
     },
   });
   if (!request) throw new AppError(404, "AI_EXAMINER_REGRADE_NOT_FOUND", "Regrade request not found");
@@ -2265,7 +2287,14 @@ router.post("/regrade-requests/:requestId/resolve", async (req: AuthRequest, res
     if (!currentResult || currentResult.marksObtained == null) {
       throw new AppError(409, "AI_EXAMINER_REGRADE_RESULT_REQUIRED", "Published result is unavailable for revision");
     }
-    const beforeSnapshot = resultRevisionSnapshot(currentResult);
+    const beforeSnapshot = {
+      result: resultRevisionSnapshot(currentResult),
+      questions: request.evaluation.questions.map(question => ({
+        questionKey: question.questionKey,
+        finalMarks: question.finalMarks == null ? null : Number(question.finalMarks),
+        teacherComment: question.teacherComment,
+      })),
+    };
     const recalculated = examinationResultFor(resolvedMarks, exam.maximumMarks, exam.passingMarks, currentResult.generatedAt ?? now);
 
     await tx.examinationResult.update({
@@ -2283,10 +2312,41 @@ router.post("/regrade-requests/:requestId/resolve", async (req: AuthRequest, res
       where: { id: request.answerSheet.id },
       data: { marksObtained: resolvedMarks },
     });
-    await recomputePublishedRanks(tx, req.auth!.organizationId, exam.id);
 
-    const updatedResult = await tx.examinationResult.findUniqueOrThrow({ where: { id: currentResult.id } });
-    const afterSnapshot = resultRevisionSnapshot(updatedResult);
+    if (request.scope !== AIExaminerRegradeScope.CLERICAL_CHECK && request.reviewRound) {
+      const decisions = new Map(request.reviewRound.decisions.map(decision => [decision.questionKey.toLowerCase(), decision]));
+      for (const question of request.evaluation.questions) {
+        const decision = decisions.get(question.questionKey.toLowerCase());
+        if (!decision) continue;
+        await tx.aIExaminerQuestionEvaluation.update({
+          where: { id: question.id },
+          data: {
+            finalMarks: Number(decision.awardedMarks),
+            teacherComment: decision.comment ?? question.teacherComment,
+            reviewRequired: false,
+          },
+        });
+      }
+    }
+
+    const rankImpacts = await recomputePublishedRanks(tx, req.auth!.organizationId, exam.id);
+
+    const [updatedResult, updatedQuestions] = await Promise.all([
+      tx.examinationResult.findUniqueOrThrow({ where: { id: currentResult.id } }),
+      tx.aIExaminerQuestionEvaluation.findMany({
+        where: { evaluationId: request.evaluation.id },
+        select: { questionKey: true, finalMarks: true, teacherComment: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
+    const afterSnapshot = {
+      result: resultRevisionSnapshot(updatedResult),
+      questions: updatedQuestions.map(question => ({
+        questionKey: question.questionKey,
+        finalMarks: question.finalMarks == null ? null : Number(question.finalMarks),
+        teacherComment: question.teacherComment,
+      })),
+    };
     const latestRevision = await tx.aIExaminerResultRevision.findFirst({
       where: { organizationId: req.auth!.organizationId, resultId: currentResult.id },
       select: { revision: true },
@@ -2331,6 +2391,10 @@ router.post("/regrade-requests/:requestId/resolve", async (req: AuthRequest, res
           beforeMarks: Number(currentResult.marksObtained),
           resolvedMarks,
           scope: request.scope,
+          rankImpacts,
+          revisedQuestionKeys: request.scope === AIExaminerRegradeScope.CLERICAL_CHECK
+            ? []
+            : request.reviewRound?.decisions.map(decision => decision.questionKey) ?? [],
         },
       },
     });
