@@ -1,4 +1,4 @@
-import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
+import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config.js";
@@ -22,6 +22,12 @@ import {
 } from "../lib/ai-examiner-scan-ingestion.js";
 import { aiExaminerLifecycleBlocker, assertAIExaminerEvaluationReady, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
 import { assessAIExaminerReviewCompletion, reviewPolicyFromExamSnapshot } from "../lib/ai-examiner-review-policy.js";
+import {
+  aiExaminerRegradeWindow,
+  normalizeAIExaminerRegradeQuestionKeys,
+  regradePolicyFromExamSnapshot,
+  resultRevisionSnapshot,
+} from "../lib/ai-examiner-regrade.js";
 import { assertExaminationManager, evaluationStatus, examinationResultFor } from "../lib/examination-policy.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
@@ -74,6 +80,12 @@ function requireBenchmarkAdmin(req: AuthRequest) {
 function requireExamProfileAdmin(req: AuthRequest) {
   if (req.auth!.role === Role.TEACHER) {
     throw new AppError(403, "AI_EXAMINER_PROFILE_ADMIN_REQUIRED", "Only organization or branch administrators can manage exam profiles");
+  }
+}
+
+function requireRegradeAdmin(req: AuthRequest) {
+  if (req.auth!.role === Role.TEACHER) {
+    throw new AppError(403, "AI_EXAMINER_REGRADE_ADMIN_REQUIRED", "Only organization or branch administrators can approve, reject or resolve regrade requests");
   }
 }
 
@@ -205,6 +217,20 @@ async function examinationForManager(req: AuthRequest, examinationId: string) {
     if (!allocation) throw new AppError(403, "EXAMINATION_ALLOCATION_REQUIRED", "An effective TeacherAllocation is required for this examination");
   }
   return exam;
+}
+
+async function publicationAuditTime(organizationId: string, examinationId: string) {
+  const published = await prisma.auditLog.findFirst({
+    where: {
+      organizationId,
+      entity: "Examination",
+      entityId: examinationId,
+      action: "PUBLISH",
+    },
+    select: { createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+  return published?.createdAt ?? null;
 }
 
 async function answerSheetForManager(req: AuthRequest, answerSheetId: string) {
