@@ -13,6 +13,11 @@ import {
   aiExaminerRubricQuestionInputSchema,
   aiExaminerStoredQuestionRoute,
 } from "./ai-examiner-question-config.js";
+import {
+  verifyAIExaminerStemResponse,
+  type AIExaminerStemValidationConfig,
+  type AIExaminerStemVerification,
+} from "./ai-examiner-stem-verifier.js";
 
 export type AIExaminerResolvedRubricQuestion = {
   key: string;
@@ -25,6 +30,7 @@ export type AIExaminerResolvedRubricQuestion = {
   scoring?: AIExaminerDeterministicScoringRule;
   requiresVisualEvidence: boolean;
   requiresCodeExecution: boolean;
+  stemValidation?: AIExaminerStemValidationConfig;
 };
 
 type ProviderQuestion = AIExaminerProviderResult["questions"][number];
@@ -48,6 +54,7 @@ export type AIExaminerReconciledQuestion = {
   engine: string;
   deterministicStatus: string | null;
   scoringError: { code: string; message: string } | null;
+  specializedEvidence: AIExaminerStemVerification | null;
 };
 
 const deterministicTypes = new Set<AIExaminerQuestionType>([
@@ -186,6 +193,9 @@ export function reconcileAIExaminerProviderResult(
     const baseReview = provider.confidence < reviewThreshold || provider.flags.length > 0;
 
     if (!route.deterministic) {
+      const specializedEvidence = route.engine === "SPECIALIZED_SYMBOLIC" && question.stemValidation && provider.extractedAnswer
+        ? verifyAIExaminerStemResponse({ response: provider.extractedAnswer, config: question.stemValidation })
+        : null;
       return {
         questionKey: question.key,
         maxMarks: question.maxMarks,
@@ -200,6 +210,7 @@ export function reconcileAIExaminerProviderResult(
         engine: route.engine,
         deterministicStatus: null,
         scoringError: null,
+        specializedEvidence,
       };
     }
 
@@ -224,6 +235,7 @@ export function reconcileAIExaminerProviderResult(
         engine: route.engine,
         deterministicStatus: scored.status,
         scoringError: null,
+        specializedEvidence: null,
       };
     } catch (error) {
       const scoringError = error instanceof AIExaminerScoringError
@@ -243,6 +255,7 @@ export function reconcileAIExaminerProviderResult(
         engine: route.engine,
         deterministicStatus: null,
         scoringError,
+        specializedEvidence: null,
       };
     }
   });
