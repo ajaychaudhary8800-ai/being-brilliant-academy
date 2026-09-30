@@ -628,6 +628,8 @@ model Organization {
   aiExaminerBenchmarkCases  AIExaminerBenchmarkCase[]
   aiExaminerBenchmarkRuns   AIExaminerBenchmarkRun[]
   aiExaminerBenchmarkResults AIExaminerBenchmarkResult[]
+  aiExaminerReviewRounds   AIExaminerReviewRound[]
+  aiExaminerReviewDecisions AIExaminerReviewDecision[]
   feePlans               FeePlan[]
   studentFeeAssignments  StudentFeeAssignment[]
   feePaymentOffsets       FeePaymentOffset[]
@@ -1197,6 +1199,27 @@ enum AIExaminerEvaluationStatus {
   CANCELLED
 }
 
+enum AIExaminerReviewMode {
+  STANDARD
+  BLIND
+  DOUBLE_BLIND
+  COMMITTEE
+}
+
+enum AIExaminerReviewRoundKind {
+  PRIMARY
+  SECONDARY
+  MODERATION
+  APPEAL
+}
+
+enum AIExaminerReviewRoundStatus {
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  CANCELLED
+}
+
 enum LmsContentStatus {
   DRAFT
   PUBLISHED
@@ -1555,6 +1578,8 @@ model User {
   aiExaminerBenchmarkRunsCreated AIExaminerBenchmarkRun[] @relation("AIExaminerBenchmarkRunCreator")
   aiExaminerEvaluationsRequested AIExaminerEvaluation[] @relation("AIExaminerEvaluationRequester")
   aiExaminerEvaluationsReviewed AIExaminerEvaluation[] @relation("AIExaminerEvaluationReviewer")
+  aiExaminerReviewRoundsReviewed AIExaminerReviewRound[] @relation("AIExaminerReviewRoundReviewer")
+  aiExaminerReviewRoundsAssigned AIExaminerReviewRound[] @relation("AIExaminerReviewRoundAssigner")
   learningRecommendations  LearningRecommendation[]
   dailyLearningGoals       DailyLearningGoal[]
   teacherAllocationsCreated TeacherAllocation[] @relation("TeacherAllocationCreatedBy")
@@ -2665,6 +2690,7 @@ model AIExaminerEvaluation {
   requestedBy    User                       @relation("AIExaminerEvaluationRequester", fields: [requestedById], references: [id], onDelete: Restrict)
   reviewedBy     User?                      @relation("AIExaminerEvaluationReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
   questions      AIExaminerQuestionEvaluation[]
+  reviewRounds    AIExaminerReviewRound[]
 
   @@unique([answerSheetId, revision])
   @@index([organizationId, status, createdAt])
@@ -2688,9 +2714,58 @@ model AIExaminerQuestionEvaluation {
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
   evaluation      AIExaminerEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  reviewDecisions AIExaminerReviewDecision[]
 
   @@unique([evaluationId, questionKey])
   @@index([organizationId, reviewRequired])
+}
+
+model AIExaminerReviewRound {
+  organizationId          String                       @default("org_default")
+  id                      String                       @id @default(cuid())
+  evaluationId            String
+  sequence                Int
+  kind                    AIExaminerReviewRoundKind    @default(PRIMARY)
+  mode                    AIExaminerReviewMode         @default(STANDARD)
+  reviewerId              String
+  assignedById            String
+  anonymizeStudentIdentity Boolean                     @default(false)
+  priorMarksVisible       Boolean                      @default(true)
+  status                  AIExaminerReviewRoundStatus  @default(ASSIGNED)
+  totalMarks              Decimal?                     @db.Decimal(8, 2)
+  notes                   String?                      @db.Text
+  submittedAt             DateTime?
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
+  organization            Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  evaluation              AIExaminerEvaluation         @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  reviewer                User                         @relation("AIExaminerReviewRoundReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  assignedBy              User                         @relation("AIExaminerReviewRoundAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
+  decisions               AIExaminerReviewDecision[]
+
+  @@unique([evaluationId, sequence])
+  @@index([organizationId, reviewerId, status])
+  @@index([organizationId, evaluationId, status])
+}
+
+model AIExaminerReviewDecision {
+  organizationId      String                     @default("org_default")
+  id                  String                     @id @default(cuid())
+  reviewRoundId       String
+  questionEvaluationId String
+  questionKey         String
+  awardedMarks        Decimal                    @db.Decimal(8, 2)
+  comment             String?                    @db.Text
+  evidence            Json?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  organization        Organization               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  reviewRound         AIExaminerReviewRound      @relation(fields: [reviewRoundId], references: [id], onDelete: Cascade)
+  questionEvaluation  AIExaminerQuestionEvaluation @relation(fields: [questionEvaluationId], references: [id], onDelete: Restrict)
+
+  @@unique([reviewRoundId, questionEvaluationId])
+  @@index([organizationId, reviewRoundId])
+  @@index([questionEvaluationId])
 }
 
 model AIExaminerBenchmarkSuite {
