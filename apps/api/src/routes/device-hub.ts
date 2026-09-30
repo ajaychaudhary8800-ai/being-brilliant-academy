@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import {
   CameraIncidentSeverity,
   CameraIncidentStatus,
@@ -7,8 +8,11 @@ import {
   ConnectedDeviceKind,
   ConnectedDeviceProtocol,
   ConnectedDeviceStatus,
+  EmergencyMode,
   Prisma,
   Role,
+  SafetyIncidentSeverity,
+  SafetyIncidentStatus,
   SchoolEventCategory,
   SchoolEventSeverity,
   SchoolEventStatus,
@@ -184,6 +188,258 @@ const cameraInput = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: "Store a secret reference identifier rather than a raw endpoint URL" });
     }
   }
+});
+
+router.get("/device-hub/safety-incidents", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const q = z.object({
+    branchId: cuid.optional(),
+    status: z.nativeEnum(SafetyIncidentStatus).optional(),
+    severity: z.nativeEnum(SafetyIncidentSeverity).optional(),
+    emergencyMode: z.nativeEnum(EmergencyMode).optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+  }).parse(req.query);
+  if (q.branchId) await assertErpBranchTarget(scope, q.branchId);
+  const data = await prisma.safetyIncident.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      ...(req.auth!.role === Role.SUPER_ADMIN
+        ? q.branchId ? { branchId: q.branchId } : {}
+        : { branchId: { in: scope } }),
+      ...(q.status ? { status: q.status } : {}),
+      ...(q.severity ? { severity: q.severity } : {}),
+      ...(q.emergencyMode ? { emergencyMode: q.emergencyMode } : {}),
+    },
+    include: { updates: { orderBy: { createdAt: "asc" }, take: 100 } },
+    orderBy: [{ severity: "desc" }, { occurredAt: "desc" }],
+    take: q.limit,
+  });
+  res.json({ data });
+});
+
+router.post("/device-hub/safety-incidents", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const body = z.object({
+    branchId: cuid,
+    title: z.string().trim().min(3).max(240),
+    description: z.string().trim().max(5000).optional(),
+    severity: z.nativeEnum(SafetyIncidentSeverity),
+    occurredAt: z.coerce.date().default(() => new Date()),
+  }).parse(req.body);
+  await assertErpBranchTarget(scope, body.branchId);
+  const code = `SAFE-${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`;
+  const data = await prisma.$transaction(async tx => {
+    const incident = await tx.safetyIncident.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        branchId: body.branchId,
+        code,
+        title: body.title,
+        description: body.description ?? null,
+        severity: body.severity,
+        sourceType: "MANUAL",
+        reportedById: req.auth!.userId,
+        occurredAt: body.occurredAt,
+      },
+    });
+    const event = await tx.schoolEvent.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        branchId: body.branchId,
+        category: SchoolEventCategory.SAFETY,
+        type: "MANUAL_SAFETY_INCIDENT",
+        severity: body.severity === SafetyIncidentSeverity.CRITICAL ? SchoolEventSeverity.CRITICAL
+          : body.severity === SafetyIncidentSeverity.HIGH ? SchoolEventSeverity.HIGH
+          : body.severity === SafetyIncidentSeverity.MEDIUM ? SchoolEventSeverity.MEDIUM
+          : SchoolEventSeverity.LOW,
+        status: SchoolEventStatus.REVIEW_REQUIRED,
+        occurredAt: body.occurredAt,
+        sourceType: "SAFETY_INCIDENT",
+        sourceId: incident.id,
+        correlationKey: `safety:${incident.id}`,
+        title: body.title,
+        summary: body.description ?? null,
+        reviewRequired: true,
+      },
+    });
+    return tx.safetyIncident.update({ where: { id: incident.id }, data: { schoolEventId: event.id } });
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "SAFETY_INCIDENT_CREATED",
+      entity: "SafetyIncident",
+      entityId: data.id,
+      metadata: { branchId: data.branchId, severity: data.severity },
+    },
+  });
+  res.status(201).json({ data });
+});
+
+async function scopedSafetyIncident(req: AuthRequest, incidentId: string) {
+  const scope = await erpBranchScope(req);
+  const incident = await prisma.safetyIncident.findFirst({
+    where: { id: incidentId, organizationId: req.auth!.organizationId },
+  });
+  if (!incident) throw new AppError(404, "SAFETY_INCIDENT_NOT_FOUND", "Safety incident not found");
+  assertErpBranchAccess(scope, incident.branchId);
+  return incident;
+}
+
+router.post("/device-hub/safety-incidents/:incidentId/acknowledge", async (req: AuthRequest, res) => {
+  const incident = await scopedSafetyIncident(req, cuid.parse(req.params.incidentId));
+  if ([SafetyIncidentStatus.RESOLVED, SafetyIncidentStatus.FALSE_ALARM].includes(incident.status)) {
+    throw new AppError(409, "SAFETY_INCIDENT_CLOSED", "Closed incidents cannot be acknowledged");
+  }
+  const now = new Date();
+  const data = await prisma.safetyIncident.update({
+    where: { id: incident.id },
+    data: {
+      status: incident.status === SafetyIncidentStatus.OPEN ? SafetyIncidentStatus.ACKNOWLEDGED : incident.status,
+      acknowledgedById: incident.acknowledgedById ?? req.auth!.userId,
+      acknowledgedAt: incident.acknowledgedAt ?? now,
+      commanderId: incident.commanderId ?? req.auth!.userId,
+    },
+  });
+  await prisma.safetyIncidentUpdate.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      incidentId: incident.id,
+      type: "ACKNOWLEDGED",
+      message: "Incident acknowledged by command-center operator.",
+      createdById: req.auth!.userId,
+    },
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "SAFETY_INCIDENT_ACKNOWLEDGED",
+      entity: "SafetyIncident",
+      entityId: incident.id,
+    },
+  });
+  res.json({ data });
+});
+
+router.post("/device-hub/safety-incidents/:incidentId/mode", async (req: AuthRequest, res) => {
+  const incident = await scopedSafetyIncident(req, cuid.parse(req.params.incidentId));
+  if ([SafetyIncidentStatus.RESOLVED, SafetyIncidentStatus.FALSE_ALARM].includes(incident.status)) {
+    throw new AppError(409, "SAFETY_INCIDENT_CLOSED", "Closed incidents cannot change emergency mode");
+  }
+  const body = z.object({
+    emergencyMode: z.enum(["ALERT","SECURE_CAMPUS","EVACUATION","REUNIFICATION","ALL_CLEAR"]),
+    message: z.string().trim().min(3).max(5000),
+  }).parse(req.body);
+  const data = await prisma.$transaction(async tx => {
+    const updated = await tx.safetyIncident.update({
+      where: { id: incident.id },
+      data: {
+        emergencyMode: body.emergencyMode,
+        status: SafetyIncidentStatus.ACTIVE_RESPONSE,
+        commanderId: req.auth!.userId,
+        acknowledgedById: incident.acknowledgedById ?? req.auth!.userId,
+        acknowledgedAt: incident.acknowledgedAt ?? new Date(),
+      },
+    });
+    await tx.safetyIncidentUpdate.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        incidentId: incident.id,
+        type: "MODE_CHANGED",
+        emergencyMode: body.emergencyMode,
+        message: body.message,
+        createdById: req.auth!.userId,
+      },
+    });
+    return updated;
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "SAFETY_EMERGENCY_MODE_CHANGED",
+      entity: "SafetyIncident",
+      entityId: incident.id,
+      metadata: { emergencyMode: body.emergencyMode },
+    },
+  });
+  res.json({ data });
+});
+
+router.post("/device-hub/safety-incidents/:incidentId/updates", async (req: AuthRequest, res) => {
+  const incident = await scopedSafetyIncident(req, cuid.parse(req.params.incidentId));
+  const body = z.object({
+    type: z.string().trim().min(2).max(100),
+    message: z.string().trim().min(3).max(5000),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  }).parse(req.body);
+  const data = await prisma.safetyIncidentUpdate.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      incidentId: incident.id,
+      type: body.type.toUpperCase(),
+      message: body.message,
+      createdById: req.auth!.userId,
+      metadata: body.metadata ? profileJson(body.metadata) : undefined,
+    },
+  });
+  res.status(201).json({ data });
+});
+
+router.post("/device-hub/safety-incidents/:incidentId/resolve", async (req: AuthRequest, res) => {
+  const incident = await scopedSafetyIncident(req, cuid.parse(req.params.incidentId));
+  const body = z.object({
+    outcome: z.enum(["RESOLVED","FALSE_ALARM"]),
+    resolutionNotes: z.string().trim().min(5).max(5000),
+  }).parse(req.body);
+  const now = new Date();
+  const data = await prisma.$transaction(async tx => {
+    const updated = await tx.safetyIncident.update({
+      where: { id: incident.id },
+      data: {
+        status: body.outcome,
+        emergencyMode: EmergencyMode.ALL_CLEAR,
+        resolvedById: req.auth!.userId,
+        resolvedAt: now,
+        resolutionNotes: body.resolutionNotes,
+      },
+    });
+    await tx.safetyIncidentUpdate.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        incidentId: incident.id,
+        type: body.outcome,
+        emergencyMode: EmergencyMode.ALL_CLEAR,
+        message: body.resolutionNotes,
+        createdById: req.auth!.userId,
+      },
+    });
+    if (incident.schoolEventId) {
+      await tx.schoolEvent.updateMany({
+        where: { id: incident.schoolEventId, organizationId: req.auth!.organizationId },
+        data: {
+          status: body.outcome === "RESOLVED" ? SchoolEventStatus.RESOLVED : SchoolEventStatus.DISMISSED,
+          resolvedById: req.auth!.userId,
+          resolvedAt: now,
+          resolutionNotes: body.resolutionNotes,
+        },
+      });
+    }
+    return updated;
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "SAFETY_INCIDENT_RESOLVED",
+      entity: "SafetyIncident",
+      entityId: incident.id,
+      metadata: { outcome: body.outcome },
+    },
+  });
+  res.json({ data });
 });
 
 router.get("/device-hub/events", async (req: AuthRequest, res) => {
