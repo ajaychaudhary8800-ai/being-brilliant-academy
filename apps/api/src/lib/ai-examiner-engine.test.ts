@@ -91,7 +91,7 @@ test("AI Examiner accepts criterion evidenceText for auditable rubric grading", 
   const withEvidence = structuredClone(valid);
   withEvidence.questions[0]!.rubricBreakdown[0]!.evidenceText = "V = IR";
   const parsed = parseAIExaminerProviderText(JSON.stringify(withEvidence));
-  assert.equal(parsed.questions[0]?.rubricBreakdown[0]?.evidenceText, "V = IR");
+  assert.equal(parsed.questions[0]?.rubricBreakdown?.[0]?.evidenceText, "V = IR");
 });
 
 
@@ -101,6 +101,6 @@ test("AI Examiner accepts structured visual observations for multimodal evidence
     { key: "axes", status: "PRESENT", confidence: 0.94, evidence: "Both axes labelled" },
   ];
   const parsed = parseAIExaminerProviderText(JSON.stringify(visual));
-  assert.equal(parsed.questions[0]?.visualObservations[0]?.key, "axes");
-  assert.equal(parsed.questions[0]?.visualObservations[0]?.status, "PRESENT");
+  assert.equal(parsed.questions[0]?.visualObservations?.[0]?.key, "axes");
+  assert.equal(parsed.questions[0]?.visualObservations?.[0]?.status, "PRESENT");
 });
