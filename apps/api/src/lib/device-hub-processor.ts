@@ -1,5 +1,7 @@
 import {
   AttendanceStatus,
+  CampusAccessDecision,
+  CampusAccessSubjectType,
   ConnectedDeviceBindingType,
   ConnectedDeviceEventStatus,
   Prisma,
@@ -19,6 +21,18 @@ const normalizedSchema = z.object({
   reading: z.number().nullable(),
   unit: z.string().nullable(),
   metadata: z.record(z.string(), z.unknown()).default({}),
+});
+
+const accessPolicySchema = z.object({
+  allowStudents: z.boolean().default(false),
+  allowEmployees: z.boolean().default(false),
+  requireDirection: z.boolean().default(true),
+  allowedDirections: z.array(z.enum(["IN","OUT"])).default(["IN","OUT"]),
+}).default({
+  allowStudents: false,
+  allowEmployees: false,
+  requireDirection: true,
+  allowedDirections: ["IN","OUT"],
 });
 
 class DeviceEventProcessingError extends Error {
@@ -248,6 +262,86 @@ async function processLocation(event: any, normalized: z.infer<typeof normalized
   return { adapter: "TRANSPORT_GPS", bindingId: binding.id, vehicleId: vehicle.id, tripId: trip?.id ?? null };
 }
 
+async function processAccess(event: any, normalized: z.infer<typeof normalizedSchema>) {
+  const accessPoint = await systemPrisma.campusAccessPoint.findFirst({
+    where: {
+      organizationId: event.organizationId,
+      deviceId: event.deviceId,
+      isActive: true,
+    },
+  });
+  if (!accessPoint) {
+    throw new DeviceEventProcessingError("ACCESS_POINT_UNBOUND", "Access-control device is not bound to an active campus access point");
+  }
+  if (event.device.branchId && accessPoint.branchId !== event.device.branchId) {
+    throw new DeviceEventProcessingError("ACCESS_POINT_BRANCH_MISMATCH", "Access point and device are not in the same branch");
+  }
+
+  const policy = accessPolicySchema.parse(accessPoint.policy ?? {});
+  let subjectType = CampusAccessSubjectType.UNKNOWN;
+  let subjectId: string | null = null;
+  let reasonCode = "ACCESS_IDENTITY_UNKNOWN";
+  let decision = CampusAccessDecision.REVIEW;
+
+  const subject = normalized.subjectExternalId
+    ? await systemPrisma.connectedDeviceBinding.findMany({
+        where: {
+          organizationId: event.organizationId,
+          deviceId: event.deviceId,
+          externalSubjectId: normalized.subjectExternalId,
+          isActive: true,
+          activeFrom: { lte: event.occurredAt },
+          OR: [{ activeUntil: null }, { activeUntil: { gte: event.occurredAt } }],
+          bindingType: { in: [ConnectedDeviceBindingType.STUDENT, ConnectedDeviceBindingType.EMPLOYEE] },
+        },
+        select: { bindingType: true, entityId: true },
+      })
+    : [];
+
+  if (subject.length === 1) {
+    const binding = subject[0]!;
+    subjectType = binding.bindingType === ConnectedDeviceBindingType.STUDENT
+      ? CampusAccessSubjectType.STUDENT
+      : CampusAccessSubjectType.EMPLOYEE;
+    subjectId = binding.entityId;
+
+    if (policy.requireDirection && !normalized.direction) {
+      decision = CampusAccessDecision.REVIEW;
+      reasonCode = "ACCESS_DIRECTION_MISSING";
+    } else if (normalized.direction && !policy.allowedDirections.includes(normalized.direction)) {
+      decision = CampusAccessDecision.DENIED;
+      reasonCode = "ACCESS_DIRECTION_NOT_ALLOWED";
+    } else {
+      const allowed = subjectType === CampusAccessSubjectType.STUDENT ? policy.allowStudents : policy.allowEmployees;
+      decision = allowed ? CampusAccessDecision.GRANTED : CampusAccessDecision.DENIED;
+      reasonCode = allowed ? "ACCESS_POLICY_GRANTED" : "ACCESS_SUBJECT_TYPE_NOT_ALLOWED";
+    }
+  } else if (subject.length > 1) {
+    decision = CampusAccessDecision.REVIEW;
+    reasonCode = "ACCESS_IDENTITY_AMBIGUOUS";
+  }
+
+  const created = await systemPrisma.campusAccessEvent.upsert({
+    where: { deviceEventId: event.id },
+    create: {
+      organizationId: event.organizationId,
+      accessPointId: accessPoint.id,
+      deviceEventId: event.id,
+      subjectType,
+      subjectId,
+      externalSubjectId: normalized.subjectExternalId,
+      direction: normalized.direction,
+      decision,
+      reasonCode,
+      occurredAt: event.occurredAt,
+      metadata: json({ policyVersion: 1, deviceCode: event.device.code }),
+    },
+    update: {},
+    select: { id: true, accessPointId: true, subjectType: true, subjectId: true, decision: true, reasonCode: true },
+  });
+  return { adapter: "CAMPUS_ACCESS", accessEventId: created.id, decision: created.decision, reasonCode: created.reasonCode };
+}
+
 export async function processConnectedDeviceEvent(eventId: string) {
   const event = await systemPrisma.connectedDeviceEvent.findUnique({
     where: { id: eventId },
@@ -278,6 +372,7 @@ export async function processConnectedDeviceEvent(eventId: string) {
     let result: Record<string, unknown>;
     if (parsed.data.category === "IDENTITY") result = await processIdentity(event, parsed.data);
     else if (parsed.data.category === "LOCATION") result = await processLocation(event, parsed.data);
+    else if (parsed.data.category === "ACCESS") result = await processAccess(event, parsed.data);
     else if (parsed.data.category === "HEARTBEAT") result = { adapter: "HEARTBEAT" };
     else {
       return { eventId: event.id, status: event.status, replay: false, pendingAdapter: parsed.data.category };
