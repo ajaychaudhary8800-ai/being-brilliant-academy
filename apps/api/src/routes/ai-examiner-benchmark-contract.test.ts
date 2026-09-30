@@ -23,6 +23,7 @@ test("AI Examiner benchmark framework is tenant-scoped, auditable and separate f
   assert.match(migration, /CREATE TABLE IF NOT EXISTS "AIExaminerBenchmarkCase"/);
   assert.match(migration, /"minimumMarks" DECIMAL\(8,2\) NOT NULL DEFAULT 0/);
   assert.match(migration, /AIExaminerBenchmarkCase_suiteId_sourceAnswerSheetId_questionKey_key/);
+  assert.doesNotMatch(migration, /DO \$ BEGIN|END \$;/);
 
   assert.match(route, /router\.get\("\/benchmark-suites"/);
   assert.match(route, /router\.post\("\/benchmark-suites"/);
