@@ -32,6 +32,10 @@ import {
   type AIExaminerEvidenceAudit,
 } from "./ai-examiner-evidence.js";
 import type { AIExaminerTrustedOmrAnswer } from "./ai-examiner-scan-ingestion.js";
+import type {
+  AIExaminerCodeExecutionPolicy,
+  AIExaminerCodeVerification,
+} from "./ai-examiner-code-sandbox.js";
 import {
   verifyAIExaminerVisualEvidence,
   type AIExaminerVisualValidationConfig,
@@ -65,6 +69,7 @@ export type AIExaminerResolvedRubricQuestion = {
   accountingValidation?: AccountingValidationConfig;
   omrValidation?: { allowedOptions: string[] };
   visualValidation?: AIExaminerVisualValidationConfig;
+  codeExecution?: AIExaminerCodeExecutionPolicy;
 };
 
 type ProviderQuestion = AIExaminerProviderResult["questions"][number];
@@ -89,7 +94,7 @@ export type AIExaminerReconciledQuestion = {
   engine: string;
   deterministicStatus: string | null;
   scoringError: { code: string; message: string } | null;
-  specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | AIExaminerVisualVerification | null;
+  specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | AIExaminerVisualVerification | AIExaminerCodeVerification | null;
   evidenceAudit: AIExaminerEvidenceAudit | null;
 };
 
@@ -267,6 +272,34 @@ export function reconcileAIExaminerProviderResult(
     const baseReview = provider.confidence < reviewThreshold || provider.flags.length > 0;
 
     if (!route.deterministic) {
+      if (route.engine === "CODE_SANDBOX") {
+        return {
+          questionKey: question.key,
+          maxMarks: question.maxMarks,
+          suggestedMarks: null,
+          confidence: provider.confidence,
+          feedback: provider.extractedAnswer
+            ? "Source code extracted. Marks require verified isolated sandbox execution and human review."
+            : "Programming source code was not extracted; isolated sandbox execution cannot proceed automatically.",
+          extractedAnswer: provider.extractedAnswer ?? null,
+          rubricBreakdown: [],
+          concepts: provider.concepts,
+          flags: provider.flags,
+          reviewRequired: true,
+          engine: route.engine,
+          deterministicStatus: null,
+          scoringError: {
+            code: provider.extractedAnswer
+              ? "AI_EXAMINER_CODE_RUNNER_REQUIRED"
+              : "AI_EXAMINER_CODE_SOURCE_NOT_EXTRACTED",
+            message: provider.extractedAnswer
+              ? "Programming marks are withheld until isolated code-runner evidence is verified."
+              : "Programming marks are withheld because source code could not be extracted.",
+          },
+          specializedEvidence: null,
+          evidenceAudit: null,
+        };
+      }
       if (supplementaryEvidenceTypes.has(question.questionType)) {
         return {
           questionKey: question.key,
@@ -404,5 +437,50 @@ export function reconcileAIExaminerProviderResult(
     suggestedMarks,
     confidence: Math.min(result.confidence, questionConfidence),
     unresolvedDeterministicCount: reconciled.filter(question => question.scoringError).length,
+  };
+}
+
+
+export function applyAIExaminerCodeVerifications(input: {
+  reconciled: ReturnType<typeof reconcileAIExaminerProviderResult>;
+  questions: AIExaminerResolvedRubricQuestion[];
+  verifications: Map<string, AIExaminerCodeVerification>;
+}) {
+  const questionConfig = new Map(input.questions.map(question => [question.key.toLocaleLowerCase("en"), question]));
+  const rows = input.reconciled.questions.map(row => {
+    if (row.engine !== "CODE_SANDBOX") return row;
+    const config = questionConfig.get(row.questionKey.toLocaleLowerCase("en"));
+    const verification = input.verifications.get(row.questionKey.toLocaleLowerCase("en"));
+    if (!config || !verification) return row;
+
+    const awardedMarks = verification.executionAccepted
+      ? Math.round(config.maxMarks * verification.scoreFraction * 10000) / 10000
+      : null;
+    return {
+      ...row,
+      suggestedMarks: awardedMarks,
+      feedback: verification.executionAccepted
+        ? `Isolated runner verified ${verification.passedWeight}/${verification.totalWeight} weighted tests. Teacher review is still required.`
+        : "Isolated runner evidence was incomplete or untrusted; marks remain unresolved for teacher review.",
+      rubricBreakdown: verification.executionAccepted ? [{
+        criterion: "Isolated programming test execution",
+        maxMarks: config.maxMarks,
+        awardedMarks: awardedMarks ?? 0,
+        rationale: `Weighted sandbox score fraction ${verification.scoreFraction}.`,
+      }] : [],
+      scoringError: verification.executionAccepted ? null : {
+        code: "AI_EXAMINER_CODE_EXECUTION_UNTRUSTED",
+        message: "Isolated runner did not produce complete trusted execution evidence.",
+      },
+      specializedEvidence: verification,
+      reviewRequired: true,
+    };
+  });
+  const complete = rows.every(row => row.suggestedMarks != null);
+  return {
+    ...input.reconciled,
+    questions: rows,
+    suggestedMarks: complete ? rows.reduce((sum, row) => sum + (row.suggestedMarks ?? 0), 0) : null,
+    unresolvedDeterministicCount: rows.filter(row => row.scoringError).length,
   };
 }
