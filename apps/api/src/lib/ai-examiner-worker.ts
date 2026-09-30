@@ -10,6 +10,7 @@ import {
 } from "./ai-examiner-engine.js";
 import {
   aiExaminerProviderQuestions,
+  applyAIExaminerCodeVerifications,
   overlayTrustedAIExaminerOmrAnswers,
   reconcileAIExaminerProviderResult,
   resolveAIExaminerRubricQuestions,
@@ -18,6 +19,15 @@ import { AIExaminerScoringError } from "./ai-examiner-deterministic.js";
 import { parseAIExaminerExamProfile } from "./ai-examiner-exam-profile.js";
 import { decideAIExaminerSecondPass } from "./ai-examiner-second-pass.js";
 import { collectTrustedAIExaminerOmrAnswers } from "./ai-examiner-scan-ingestion.js";
+import {
+  AIExaminerCodeRunnerError,
+  runAIExaminerCodeSandbox,
+} from "./ai-examiner-code-runner.js";
+import {
+  evaluateWithIndependentAIExaminerProvider,
+  independentAIExaminerProviderConfigured,
+  independentAIExaminerProviderReadiness,
+} from "./ai-examiner-second-pass-provider.js";
 
 function examProfileHighStakes(snapshot: unknown) {
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return false;
@@ -155,7 +165,51 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
       }
     }
 
-    const reconciled = reconcileAIExaminerProviderResult(questions, scoringResult, AI_EXAMINER_REVIEW_THRESHOLD);
+    let reconciled = reconcileAIExaminerProviderResult(questions, scoringResult, AI_EXAMINER_REVIEW_THRESHOLD);
+
+    const codeVerifications = new Map();
+    const codeExecutionDiagnostics: Array<Record<string, unknown>> = [];
+    for (const question of questions.filter(item => item.questionType === "PROGRAMMING" || item.requiresCodeExecution)) {
+      const row = reconciled.questions.find(item => item.questionKey.toLocaleLowerCase("en") === question.key.toLocaleLowerCase("en"));
+      if (!row?.extractedAnswer || !question.codeExecution) {
+        codeExecutionDiagnostics.push({
+          questionKey: question.key,
+          status: "NOT_RUN",
+          code: !row?.extractedAnswer ? "AI_EXAMINER_CODE_SOURCE_NOT_EXTRACTED" : "AI_EXAMINER_CODE_POLICY_MISSING",
+        });
+        continue;
+      }
+      try {
+        const executed = await runAIExaminerCodeSandbox({
+          submissionId: `${evaluation.id}:${question.key}`,
+          sourceCode: row.extractedAnswer,
+          policy: question.codeExecution,
+        });
+        codeVerifications.set(question.key.toLocaleLowerCase("en"), executed.verification);
+        codeExecutionDiagnostics.push({
+          questionKey: question.key,
+          status: "COMPLETED",
+          executionId: executed.result.executionId,
+          runnerStatus: executed.result.status,
+          executionAccepted: executed.verification.executionAccepted,
+          passedWeight: executed.verification.passedWeight,
+          totalWeight: executed.verification.totalWeight,
+          scoreFraction: executed.verification.scoreFraction,
+        });
+      } catch (error) {
+        const code = error instanceof AIExaminerCodeRunnerError ? error.code : "AI_EXAMINER_CODE_RUNNER_INTERNAL_ERROR";
+        codeExecutionDiagnostics.push({
+          questionKey: question.key,
+          status: "FAILED",
+          code,
+          message: error instanceof Error ? error.message.slice(0, 1000) : "Code runner failed",
+        });
+      }
+    }
+    if (codeVerifications.size) {
+      reconciled = applyAIExaminerCodeVerifications({ reconciled, questions, verifications: codeVerifications });
+    }
+
     const total = reconciled.suggestedMarks;
     const confidence = reconciled.confidence;
     const questionRows = reconciled.questions;
@@ -176,6 +230,85 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
         evidenceAudit: question.evidenceAudit,
       })),
     });
+    let secondPassExecution: Record<string, unknown> = {
+      required: secondPass.required,
+      status: secondPass.required ? "NOT_CONFIGURED" : "NOT_REQUIRED",
+      readiness: independentAIExaminerProviderReadiness(),
+      targets: [],
+    };
+    if (secondPass.required && independentAIExaminerProviderConfigured()) {
+      try {
+        let verificationResult = await evaluateWithIndependentAIExaminerProvider({
+          examination: {
+            name: exam.name,
+            code: exam.code,
+            subjectName: exam.subject.name,
+            maximumMarks: exam.maximumMarks,
+          },
+          instructions: evaluation.rubric.instructions,
+          questions: providerQuestions,
+          questionPaper: {
+            fileName: paper.fileName,
+            mimeType: paper.mimeType,
+            bytes: Buffer.from(paper.fileData),
+          },
+          answerSheet: {
+            fileName: evaluation.answerSheet.fileName,
+            mimeType: evaluation.answerSheet.mimeType,
+            bytes: Buffer.from(evaluation.answerSheet.fileData),
+          },
+        });
+        if (omrEvidence.trusted) {
+          const trusted = collectTrustedAIExaminerOmrAnswers(scanBinding!.pages.map(page => page.validationResult));
+          if (trusted.valid) {
+            verificationResult = overlayTrustedAIExaminerOmrAnswers(questions, verificationResult, trusted.answers).result;
+          }
+        }
+        const independent = reconcileAIExaminerProviderResult(questions, verificationResult, AI_EXAMINER_REVIEW_THRESHOLD);
+        const targetSet = new Set(secondPass.questionKeys.map(key => key.toLocaleLowerCase("en")));
+        const comparisons = questionRows
+          .filter(row => targetSet.has(row.questionKey.toLocaleLowerCase("en")))
+          .map(primary => {
+            const verifier = independent.questions.find(row => row.questionKey.toLocaleLowerCase("en") === primary.questionKey.toLocaleLowerCase("en"));
+            const difference = primary.suggestedMarks != null && verifier?.suggestedMarks != null
+              ? Math.round(Math.abs(primary.suggestedMarks - verifier.suggestedMarks) * 10000) / 10000
+              : null;
+            const threshold = Math.max(0.5, primary.maxMarks * 0.1);
+            return {
+              questionKey: primary.questionKey,
+              primaryMarks: primary.suggestedMarks,
+              verifierMarks: verifier?.suggestedMarks ?? null,
+              primaryConfidence: primary.confidence,
+              verifierConfidence: verifier?.confidence ?? null,
+              marksDifference: difference,
+              discrepancyThreshold: threshold,
+              materiallyDiscrepant: difference == null ? true : difference > threshold,
+              verifierFlags: verifier?.flags ?? [],
+              verifierReviewRequired: verifier?.reviewRequired ?? true,
+            };
+          });
+        secondPassExecution = {
+          required: true,
+          status: "COMPLETED",
+          readiness: independentAIExaminerProviderReadiness(),
+          verifierProvider: new URL(env.AI_EXAMINER_SECOND_PASS_PROVIDER_URL!).hostname,
+          verifierModel: env.AI_EXAMINER_SECOND_PASS_MODEL,
+          targets: comparisons,
+          materialDiscrepancyCount: comparisons.filter(item => item.materiallyDiscrepant).length,
+          verifierOverallConfidence: independent.confidence,
+        };
+      } catch (error) {
+        secondPassExecution = {
+          required: true,
+          status: "FAILED",
+          readiness: independentAIExaminerProviderReadiness(),
+          code: error instanceof AIExaminerProviderError ? error.code : "AI_EXAMINER_SECOND_PASS_INTERNAL_ERROR",
+          message: error instanceof Error ? error.message.slice(0, 1000) : "Independent verification failed",
+          targets: secondPass.questionKeys,
+        };
+      }
+    }
+
     const completedAt = new Date();
 
     const persisted = await systemPrisma.$transaction(async tx => {
@@ -239,6 +372,8 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
             unresolvedDeterministicCount: reconciled.unresolvedDeterministicCount,
             reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD,
             secondPassVerification: secondPass,
+            secondPassExecution,
+            codeExecution: codeExecutionDiagnostics,
             omrEvidence,
           },
           completedAt,
@@ -261,6 +396,8 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
             reviewRequiredCount: questionRows.filter(row => row.reviewRequired).length,
             secondPassRequired: secondPass.required,
             secondPassReasons: secondPass.reasons,
+            secondPassExecutionStatus: secondPassExecution.status,
+            codeExecutionCompletedCount: codeExecutionDiagnostics.filter(item => item.status === "COMPLETED").length,
             highStakes,
             omrEvidenceTrusted: omrEvidence.trusted,
             omrAppliedQuestionCount: omrEvidence.appliedQuestionKeys.length,
