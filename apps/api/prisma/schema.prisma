@@ -2730,6 +2730,7 @@ model AIExaminerReviewRound {
   reviewerId              String
   assignedById            String
   anonymizeStudentIdentity Boolean                     @default(false)
+  sourceIdentityMasked    Boolean                      @default(false)
   priorMarksVisible       Boolean                      @default(true)
   status                  AIExaminerReviewRoundStatus  @default(ASSIGNED)
   totalMarks              Decimal?                     @db.Decimal(8, 2)
