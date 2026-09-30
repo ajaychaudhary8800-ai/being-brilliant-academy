@@ -86,3 +86,7 @@ CREATE INDEX IF NOT EXISTS "TransportTripChecklistItem_organizationId_checklistI
 CREATE INDEX IF NOT EXISTS "TransportTripReassignment_organizationId_tripId_createdAt_idx" ON "TransportTripReassignment"("organizationId","tripId","createdAt");
 CREATE INDEX IF NOT EXISTS "TransportTripReassignment_organizationId_newVehicleId_createdAt_idx" ON "TransportTripReassignment"("organizationId","newVehicleId","createdAt");
 CREATE INDEX IF NOT EXISTS "TransportTripReassignment_organizationId_newDriverId_createdAt_idx" ON "TransportTripReassignment"("organizationId","newDriverId","createdAt");
+
+
+ALTER TABLE "TransportSafetyPolicy"
+  ADD COLUMN IF NOT EXISTS "requirePreTripChecklist" BOOLEAN NOT NULL DEFAULT false;
