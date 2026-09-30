@@ -67,6 +67,168 @@ async function deviceForOrganization(organizationId: string, deviceId: string) {
   return device;
 }
 
+async function edgeAgentForToken(agentId: string, token: string) {
+  const agent = await prisma.connectedCampusEdgeAgent.findUnique({ where: { id: agentId } });
+  if (!agent || !verifyEdgeAgentToken(token, agent.tokenHash)) {
+    throw new AppError(401, "EDGE_AGENT_UNAUTHORIZED", "Edge Agent token is invalid");
+  }
+  if (agent.status === EdgeAgentStatus.DISABLED) {
+    throw new AppError(409, "EDGE_AGENT_DISABLED", "Edge Agent is disabled");
+  }
+  return agent;
+}
+
+router.post("/device-hub/edge-agents/:agentId/heartbeat", async (req, res) => {
+  const agentId = cuid.parse(req.params.agentId);
+  const token = req.header("x-edge-agent-token")?.trim() ?? "";
+  const agent = await edgeAgentForToken(agentId, token);
+  const body = z.object({
+    version: z.string().trim().max(100).optional(),
+    os: z.string().trim().max(180).optional(),
+    hostname: z.string().trim().max(240).optional(),
+    capabilities: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
+    lastErrorCode: z.string().trim().max(180).nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  }).parse(req.body);
+  const now = new Date();
+  const ipHash = req.ip ? crypto.createHash("sha256").update(req.ip).digest("hex") : null;
+  const data = await prisma.connectedCampusEdgeAgent.update({
+    where: { id: agent.id },
+    data: {
+      status: body.lastErrorCode ? EdgeAgentStatus.DEGRADED : EdgeAgentStatus.ONLINE,
+      lastHeartbeatAt: now,
+      lastSeenAt: now,
+      version: body.version,
+      os: body.os,
+      hostname: body.hostname,
+      capabilities: body.capabilities ? [...new Set(body.capabilities.map(item => item.toUpperCase()))] : undefined,
+      lastErrorCode: body.lastErrorCode,
+      lastIpHash: ipHash,
+      metadata: body.metadata ? profileJson(body.metadata) : undefined,
+    },
+    select: {
+      id: true, branchId: true, code: true, status: true, version: true, capabilities: true,
+      lastHeartbeatAt: true, lastSeenAt: true, lastErrorCode: true,
+    },
+  });
+  res.json({ data });
+});
+
+router.get("/device-hub/edge-agents/:agentId/commands", async (req, res) => {
+  const agentId = cuid.parse(req.params.agentId);
+  const token = req.header("x-edge-agent-token")?.trim() ?? "";
+  const agent = await edgeAgentForToken(agentId, token);
+  const now = new Date();
+  const retryCutoff = new Date(now.getTime() - 60_000);
+  const commands = await prisma.connectedDeviceCommand.findMany({
+    where: {
+      organizationId: agent.organizationId,
+      device: { branchId: agent.branchId },
+      OR: [
+        { status: ConnectedDeviceCommandStatus.QUEUED },
+        { status: ConnectedDeviceCommandStatus.SENT, sentAt: { lt: retryCutoff } },
+      ],
+    },
+    include: { device: { select: { id: true, code: true, kind: true, protocol: true, externalDeviceId: true } } },
+    orderBy: { createdAt: "asc" },
+    take: 100,
+  });
+  if (commands.length) {
+    await prisma.connectedDeviceCommand.updateMany({
+      where: { id: { in: commands.map(item => item.id) }, organizationId: agent.organizationId },
+      data: { status: ConnectedDeviceCommandStatus.SENT, sentAt: now },
+    });
+  }
+  res.json({ data: commands, meta: { agentId: agent.id, branchId: agent.branchId, polledAt: now } });
+});
+
+router.post("/device-hub/edge-agents/:agentId/commands/:commandId/ack", async (req, res) => {
+  const agentId = cuid.parse(req.params.agentId);
+  const token = req.header("x-edge-agent-token")?.trim() ?? "";
+  const agent = await edgeAgentForToken(agentId, token);
+  const body = z.object({
+    outcome: z.enum(["ACKNOWLEDGED","FAILED"]),
+    errorCode: z.string().trim().max(180).optional(),
+    errorMessage: z.string().trim().max(5000).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  }).parse(req.body);
+  const command = await prisma.connectedDeviceCommand.findFirst({
+    where: {
+      id: cuid.parse(req.params.commandId),
+      organizationId: agent.organizationId,
+      device: { branchId: agent.branchId },
+    },
+    include: { device: { select: { id: true, code: true } } },
+  });
+  if (!command) throw new AppError(404, "DEVICE_COMMAND_NOT_FOUND", "Device command not found for this Edge Agent");
+
+  const now = new Date();
+  if (body.outcome === "ACKNOWLEDGED") {
+    const data = await prisma.$transaction(async tx => {
+      const updated = await tx.connectedDeviceCommand.update({
+        where: { id: command.id },
+        data: {
+          status: ConnectedDeviceCommandStatus.ACKNOWLEDGED,
+          acknowledgedAt: now,
+          failedAt: null,
+          errorCode: null,
+          errorMessage: null,
+        },
+      });
+      await tx.connectedDeviceRetryJob.updateMany({
+        where: { organizationId: agent.organizationId, commandId: command.id, status: { in: [DeviceRetryStatus.QUEUED, DeviceRetryStatus.PROCESSING] } },
+        data: { status: DeviceRetryStatus.COMPLETED, lastAttemptAt: now },
+      });
+      return updated;
+    });
+    return res.json({ data });
+  }
+
+  const dedupeKey = `command:${command.id}`;
+  const existing = await prisma.connectedDeviceRetryJob.findUnique({ where: { dedupeKey } });
+  const retry = nextRetryState({ attempts: existing?.attempts ?? 0, maxAttempts: existing?.maxAttempts ?? 8, now });
+  const data = await prisma.$transaction(async tx => {
+    const updated = await tx.connectedDeviceCommand.update({
+      where: { id: command.id },
+      data: {
+        status: ConnectedDeviceCommandStatus.FAILED,
+        failedAt: now,
+        errorCode: body.errorCode ?? "EDGE_COMMAND_FAILED",
+        errorMessage: body.errorMessage ?? "Edge Agent reported command failure",
+      },
+    });
+    await tx.connectedDeviceRetryJob.upsert({
+      where: { dedupeKey },
+      create: {
+        organizationId: agent.organizationId,
+        deviceId: command.deviceId,
+        commandId: command.id,
+        operation: "COMMAND_DELIVERY",
+        dedupeKey,
+        status: retry.status,
+        attempts: retry.attempts,
+        maxAttempts: 8,
+        nextAttemptAt: retry.nextAttemptAt ?? now,
+        lastAttemptAt: now,
+        lastErrorCode: body.errorCode ?? "EDGE_COMMAND_FAILED",
+        lastErrorMessage: body.errorMessage ?? "Edge Agent reported command failure",
+        payload: body.metadata ? profileJson(body.metadata) : undefined,
+      },
+      update: {
+        status: retry.status,
+        attempts: retry.attempts,
+        nextAttemptAt: retry.nextAttemptAt ?? now,
+        lastAttemptAt: now,
+        lastErrorCode: body.errorCode ?? "EDGE_COMMAND_FAILED",
+        lastErrorMessage: body.errorMessage ?? "Edge Agent reported command failure",
+        payload: body.metadata ? profileJson(body.metadata) : undefined,
+      },
+    });
+    return updated;
+  });
+  res.status(202).json({ data, meta: { retryStatus: retry.status, nextAttemptAt: retry.nextAttemptAt } });
+});
+
 router.post("/device-hub/ingest/:deviceId", async (req, res) => {
   const deviceId = cuid.parse(req.params.deviceId);
   const token = req.header("x-device-token")?.trim() ?? "";
