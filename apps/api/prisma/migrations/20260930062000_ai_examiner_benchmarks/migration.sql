@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS "AIExaminerBenchmarkRun" (
   "status" "AIExaminerBenchmarkRunStatus" NOT NULL DEFAULT 'QUEUED',
   "thresholds" JSONB NOT NULL,
   "metrics" JSONB,
-  "ready" BOOLEAN NOT NULL DEFAULT false,
+  "benchmarkReady" BOOLEAN NOT NULL DEFAULT false,
   "createdById" TEXT NOT NULL,
   "startedAt" TIMESTAMP(3),
   "completedAt" TIMESTAMP(3),
