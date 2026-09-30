@@ -49,6 +49,13 @@ export type AIExaminerResolvedRubricQuestion = {
   scoring?: AIExaminerDeterministicScoringRule;
   requiresVisualEvidence: boolean;
   requiresCodeExecution: boolean;
+  languagePolicy: {
+    acceptedLanguages: string[];
+    allowCodeSwitching: boolean;
+    allowTransliteration: boolean;
+    evaluateLanguageMechanics: boolean;
+    requireOriginalLanguageEvidence: boolean;
+  };
   stemValidation?: AIExaminerStemValidationConfig;
   chemistryValidation?: {
     expectedEquation?: string;
