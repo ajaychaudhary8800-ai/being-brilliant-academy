@@ -305,6 +305,7 @@ export function reconcileAIExaminerProviderResult(
         deterministicStatus: null,
         scoringError,
         specializedEvidence: null,
+        evidenceAudit: null,
       };
     }
   });
