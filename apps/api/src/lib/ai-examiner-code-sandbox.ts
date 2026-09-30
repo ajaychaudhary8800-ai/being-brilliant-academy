@@ -212,10 +212,14 @@ export function verifyAIExaminerCodeRunnerResult(input: {
   }
 
   const scoreFraction = totalWeight > 0 ? Math.max(0, Math.min(1, passedWeight / totalWeight)) : 0;
+  const allConfiguredTestsReturned = request.policy.testCases.every(test => resultByKey.has(test.key.toLowerCase()));
+  const infrastructureEvidenceTrusted = checks
+    .filter(check => !check.criterion.startsWith("Test "))
+    .every(check => check.status !== "REVIEW");
   return {
     engine: "CODE_SANDBOX",
     reviewRequired: true,
-    executionAccepted: checks.every(check => check.criterion.startsWith("Test ") || check.status !== "REVIEW"),
+    executionAccepted: allConfiguredTestsReturned && infrastructureEvidenceTrusted,
     passedWeight: Math.round(passedWeight * 10000) / 10000,
     totalWeight: Math.round(totalWeight * 10000) / 10000,
     scoreFraction: Math.round(scoreFraction * 1000000) / 1000000,
