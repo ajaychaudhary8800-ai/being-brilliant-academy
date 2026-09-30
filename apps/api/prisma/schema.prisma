@@ -630,6 +630,7 @@ model Organization {
   aiExaminerBenchmarkResults AIExaminerBenchmarkResult[]
   aiExaminerReviewRounds   AIExaminerReviewRound[]
   aiExaminerReviewDecisions AIExaminerReviewDecision[]
+  aiExaminerReviewArtifacts AIExaminerReviewArtifact[]
   feePlans               FeePlan[]
   studentFeeAssignments  StudentFeeAssignment[]
   feePaymentOffsets       FeePaymentOffset[]
@@ -1580,6 +1581,7 @@ model User {
   aiExaminerEvaluationsReviewed AIExaminerEvaluation[] @relation("AIExaminerEvaluationReviewer")
   aiExaminerReviewRoundsReviewed AIExaminerReviewRound[] @relation("AIExaminerReviewRoundReviewer")
   aiExaminerReviewRoundsAssigned AIExaminerReviewRound[] @relation("AIExaminerReviewRoundAssigner")
+  aiExaminerReviewArtifactsUploaded AIExaminerReviewArtifact[] @relation("AIExaminerReviewArtifactUploader")
   learningRecommendations  LearningRecommendation[]
   dailyLearningGoals       DailyLearningGoal[]
   teacherAllocationsCreated TeacherAllocation[] @relation("TeacherAllocationCreatedBy")
@@ -2691,6 +2693,7 @@ model AIExaminerEvaluation {
   reviewedBy     User?                      @relation("AIExaminerEvaluationReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
   questions      AIExaminerQuestionEvaluation[]
   reviewRounds    AIExaminerReviewRound[]
+  reviewArtifact   AIExaminerReviewArtifact?
 
   @@unique([answerSheetId, revision])
   @@index([organizationId, status, createdAt])
@@ -2718,6 +2721,26 @@ model AIExaminerQuestionEvaluation {
 
   @@unique([evaluationId, questionKey])
   @@index([organizationId, reviewRequired])
+}
+
+model AIExaminerReviewArtifact {
+  organizationId String                 @default("org_default")
+  id             String                 @id @default(cuid())
+  evaluationId   String                 @unique
+  fileName       String
+  mimeType       String
+  fileSize       Int
+  fileData       Bytes
+  identityMasked Boolean                @default(true)
+  uploadedById   String
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  evaluation     AIExaminerEvaluation   @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  uploadedBy     User                   @relation("AIExaminerReviewArtifactUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt])
+  @@index([uploadedById])
 }
 
 model AIExaminerReviewRound {
