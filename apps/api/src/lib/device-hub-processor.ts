@@ -1,5 +1,6 @@
 import {
   AttendanceStatus,
+  CameraIncidentSeverity,
   CampusAccessDecision,
   CampusAccessSubjectType,
   ConnectedDeviceBindingType,
@@ -342,6 +343,72 @@ async function processAccess(event: any, normalized: z.infer<typeof normalizedSc
   return { adapter: "CAMPUS_ACCESS", accessEventId: created.id, decision: created.decision, reasonCode: created.reasonCode };
 }
 
+function cameraSeverity(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
+  return Object.values(CameraIncidentSeverity).includes(normalized as CameraIncidentSeverity)
+    ? normalized as CameraIncidentSeverity
+    : CameraIncidentSeverity.INFO;
+}
+
+async function processVideo(event: any, normalized: z.infer<typeof normalizedSchema>) {
+  const camera = await systemPrisma.campusCamera.findFirst({
+    where: {
+      organizationId: event.organizationId,
+      deviceId: event.deviceId,
+      isActive: true,
+    },
+    select: { id: true, branchId: true, code: true, name: true, aiReviewEnabled: true, privacyMasking: true },
+  });
+  if (!camera) {
+    throw new DeviceEventProcessingError("CAMERA_UNREGISTERED", "Camera device is not registered as an active campus camera");
+  }
+  if (event.device.branchId && camera.branchId !== event.device.branchId) {
+    throw new DeviceEventProcessingError("CAMERA_BRANCH_MISMATCH", "Camera and Device Hub record are not in the same branch");
+  }
+
+  const confidenceRaw = typeof normalized.metadata.confidence === "number"
+    ? normalized.metadata.confidence
+    : Number(normalized.metadata.confidence);
+  const confidence = Number.isFinite(confidenceRaw) && confidenceRaw >= 0 && confidenceRaw <= 1 ? confidenceRaw : null;
+  const severity = cameraSeverity(normalized.metadata.severity);
+  const titleRaw = typeof normalized.metadata.title === "string" ? normalized.metadata.title.trim() : "";
+  const descriptionRaw = typeof normalized.metadata.description === "string" ? normalized.metadata.description.trim() : "";
+  const clipExternalRef = typeof normalized.metadata.clipExternalRef === "string" ? normalized.metadata.clipExternalRef.trim() : null;
+  const snapshotExternalRef = typeof normalized.metadata.snapshotExternalRef === "string" ? normalized.metadata.snapshotExternalRef.trim() : null;
+
+  const incident = await systemPrisma.cameraIncident.upsert({
+    where: { deviceEventId: event.id },
+    create: {
+      organizationId: event.organizationId,
+      cameraId: camera.id,
+      deviceEventId: event.id,
+      eventType: event.eventType,
+      severity,
+      title: (titleRaw || `${camera.name}: ${event.eventType}`).slice(0, 240),
+      description: descriptionRaw ? descriptionRaw.slice(0, 5000) : null,
+      occurredAt: event.occurredAt,
+      confidence,
+      reviewRequired: true,
+      clipExternalRef: clipExternalRef ? clipExternalRef.slice(0, 1000) : null,
+      snapshotExternalRef: snapshotExternalRef ? snapshotExternalRef.slice(0, 1000) : null,
+      metadata: json({
+        aiReviewEnabled: camera.aiReviewEnabled,
+        privacyMasking: camera.privacyMasking,
+        sourceDeviceCode: event.device.code,
+      }),
+    },
+    update: {},
+    select: { id: true, cameraId: true, eventType: true, severity: true, status: true, reviewRequired: true, confidence: true },
+  });
+
+  return {
+    adapter: "CAMERA_INCIDENT",
+    incidentId: incident.id,
+    reviewRequired: true,
+    aiReviewEnabled: camera.aiReviewEnabled,
+  };
+}
+
 export async function processConnectedDeviceEvent(eventId: string) {
   const event = await systemPrisma.connectedDeviceEvent.findUnique({
     where: { id: eventId },
@@ -373,6 +440,7 @@ export async function processConnectedDeviceEvent(eventId: string) {
     if (parsed.data.category === "IDENTITY") result = await processIdentity(event, parsed.data);
     else if (parsed.data.category === "LOCATION") result = await processLocation(event, parsed.data);
     else if (parsed.data.category === "ACCESS") result = await processAccess(event, parsed.data);
+    else if (parsed.data.category === "VIDEO") result = await processVideo(event, parsed.data);
     else if (parsed.data.category === "HEARTBEAT") result = { adapter: "HEARTBEAT" };
     else {
       return { eventId: event.id, status: event.status, replay: false, pendingAdapter: parsed.data.category };
