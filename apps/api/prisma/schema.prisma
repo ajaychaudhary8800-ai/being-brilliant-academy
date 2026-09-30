@@ -633,6 +633,8 @@ model Organization {
   aiExaminerReviewArtifacts AIExaminerReviewArtifact[]
   aiExaminerScanBindings AIExaminerScanBinding[]
   aiExaminerScanPages AIExaminerScanPage[]
+  aiExaminerRegradeRequests AIExaminerRegradeRequest[]
+  aiExaminerResultRevisions AIExaminerResultRevision[]
   feePlans               FeePlan[]
   studentFeeAssignments  StudentFeeAssignment[]
   feePaymentOffsets       FeePaymentOffset[]
@@ -1234,6 +1236,21 @@ enum AIExaminerScanPageStatus {
   REVIEW_REQUIRED
 }
 
+enum AIExaminerRegradeRequestStatus {
+  REQUESTED
+  APPROVED
+  REVIEW_IN_PROGRESS
+  RESOLVED
+  REJECTED
+  CANCELLED
+}
+
+enum AIExaminerRegradeScope {
+  WHOLE_SCRIPT
+  QUESTION_SET
+  CLERICAL_CHECK
+}
+
 enum LmsContentStatus {
   DRAFT
   PUBLISHED
@@ -1597,6 +1614,10 @@ model User {
   aiExaminerReviewArtifactsUploaded AIExaminerReviewArtifact[] @relation("AIExaminerReviewArtifactUploader")
   aiExaminerScanBindingsCreated AIExaminerScanBinding[] @relation("AIExaminerScanBindingCreator")
   aiExaminerScanPagesIngested AIExaminerScanPage[] @relation("AIExaminerScanPageIngester")
+  aiExaminerRegradeRequestsRequested AIExaminerRegradeRequest[] @relation("AIExaminerRegradeRequester")
+  aiExaminerRegradeRequestsDecided AIExaminerRegradeRequest[] @relation("AIExaminerRegradeDecider")
+  aiExaminerRegradeRequestsResolved AIExaminerRegradeRequest[] @relation("AIExaminerRegradeResolver")
+  aiExaminerResultRevisionsChanged AIExaminerResultRevision[] @relation("AIExaminerResultRevisionChanger")
   learningRecommendations  LearningRecommendation[]
   dailyLearningGoals       DailyLearningGoal[]
   teacherAllocationsCreated TeacherAllocation[] @relation("TeacherAllocationCreatedBy")
@@ -2562,6 +2583,8 @@ model ExaminationResult {
   updatedAt      DateTime                @updatedAt
   examination    Examination             @relation(fields: [examinationId], references: [id], onDelete: Restrict)
   student        StudentProfile          @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  aiExaminerRegradeRequests AIExaminerRegradeRequest[]
+  aiExaminerRevisions AIExaminerResultRevision[]
 
   @@unique([examinationId, studentId])
   @@index([studentId])
@@ -2621,6 +2644,7 @@ model ExaminationAnswerSheet {
   aiEvaluations  AIExaminerEvaluation[]
   benchmarkCases AIExaminerBenchmarkCase[]
   scanBinding    AIExaminerScanBinding?
+  regradeRequests AIExaminerRegradeRequest[]
 
   @@unique([examinationId, studentId])
   @@index([organizationId, status, submittedAt])
@@ -2710,6 +2734,7 @@ model AIExaminerEvaluation {
   questions      AIExaminerQuestionEvaluation[]
   reviewRounds    AIExaminerReviewRound[]
   reviewArtifact   AIExaminerReviewArtifact?
+  regradeRequests  AIExaminerRegradeRequest[]
 
   @@unique([answerSheetId, revision])
   @@index([organizationId, status, createdAt])
@@ -2737,6 +2762,65 @@ model AIExaminerQuestionEvaluation {
 
   @@unique([evaluationId, questionKey])
   @@index([organizationId, reviewRequired])
+}
+
+model AIExaminerRegradeRequest {
+  organizationId String                         @default("org_default")
+  id             String                         @id @default(cuid())
+  answerSheetId  String
+  evaluationId   String
+  resultId       String
+  scope          AIExaminerRegradeScope         @default(WHOLE_SCRIPT)
+  questionKeys   String[]                       @default([])
+  reason         String                         @db.Text
+  status         AIExaminerRegradeRequestStatus @default(REQUESTED)
+  originalMarks  Decimal                        @db.Decimal(8, 2)
+  requestedById  String
+  decidedById    String?
+  decisionNotes  String?                        @db.Text
+  decidedAt      DateTime?
+  reviewRoundId  String?                        @unique
+  resolvedMarks  Decimal?                       @db.Decimal(8, 2)
+  resolvedById   String?
+  resolutionNotes String?                       @db.Text
+  resolvedAt     DateTime?
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+  organization   Organization                   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  answerSheet    ExaminationAnswerSheet         @relation(fields: [answerSheetId], references: [id], onDelete: Restrict)
+  evaluation     AIExaminerEvaluation            @relation(fields: [evaluationId], references: [id], onDelete: Restrict)
+  result         ExaminationResult               @relation(fields: [resultId], references: [id], onDelete: Restrict)
+  requestedBy    User                            @relation("AIExaminerRegradeRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy      User?                           @relation("AIExaminerRegradeDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  resolvedBy     User?                           @relation("AIExaminerRegradeResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+  reviewRound    AIExaminerReviewRound?          @relation("AIExaminerRegradeReviewRound", fields: [reviewRoundId], references: [id], onDelete: Restrict)
+  revision       AIExaminerResultRevision?
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, answerSheetId, status])
+  @@index([evaluationId])
+  @@index([resultId])
+  @@index([requestedById])
+}
+
+model AIExaminerResultRevision {
+  organizationId   String                   @default("org_default")
+  id               String                   @id @default(cuid())
+  resultId         String
+  regradeRequestId String                   @unique
+  revision         Int
+  beforeSnapshot   Json
+  afterSnapshot    Json
+  changedById      String
+  createdAt        DateTime                 @default(now())
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  result           ExaminationResult        @relation(fields: [resultId], references: [id], onDelete: Restrict)
+  regradeRequest   AIExaminerRegradeRequest @relation(fields: [regradeRequestId], references: [id], onDelete: Restrict)
+  changedBy        User                     @relation("AIExaminerResultRevisionChanger", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@unique([resultId, revision])
+  @@index([organizationId, resultId, createdAt])
+  @@index([changedById])
 }
 
 model AIExaminerScanBinding {
@@ -2827,6 +2911,7 @@ model AIExaminerReviewRound {
   reviewer                User                         @relation("AIExaminerReviewRoundReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
   assignedBy              User                         @relation("AIExaminerReviewRoundAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
   decisions               AIExaminerReviewDecision[]
+  regradeRequest           AIExaminerRegradeRequest? @relation("AIExaminerRegradeReviewRound")
 
   @@unique([evaluationId, sequence])
   @@index([organizationId, reviewerId, status])
