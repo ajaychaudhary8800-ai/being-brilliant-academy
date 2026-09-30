@@ -625,6 +625,9 @@ model Organization {
   examinationAnswerSheets ExaminationAnswerSheet[]
   aiExaminerExamProfiles   AIExaminerExamProfile[]
   aiExaminerBenchmarkSuites AIExaminerBenchmarkSuite[]
+  aiExaminerBenchmarkCases  AIExaminerBenchmarkCase[]
+  aiExaminerBenchmarkRuns   AIExaminerBenchmarkRun[]
+  aiExaminerBenchmarkResults AIExaminerBenchmarkResult[]
   feePlans               FeePlan[]
   studentFeeAssignments  StudentFeeAssignment[]
   feePaymentOffsets       FeePaymentOffset[]
@@ -2736,6 +2739,7 @@ model AIExaminerBenchmarkCase {
   isActive            Boolean                   @default(true)
   createdAt           DateTime                  @default(now())
   updatedAt           DateTime                  @updatedAt
+  organization        Organization               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   suite               AIExaminerBenchmarkSuite  @relation(fields: [suiteId], references: [id], onDelete: Cascade)
   sourceAnswerSheet   ExaminationAnswerSheet?   @relation(fields: [sourceAnswerSheetId], references: [id], onDelete: Restrict)
   humanReviewer       User                      @relation("AIExaminerBenchmarkHumanReviewer", fields: [humanReviewerId], references: [id], onDelete: Restrict)
@@ -2763,6 +2767,7 @@ model AIExaminerBenchmarkRun {
   completedAt    DateTime?
   createdAt      DateTime                     @default(now())
   updatedAt      DateTime                     @updatedAt
+  organization   Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   suite          AIExaminerBenchmarkSuite     @relation(fields: [suiteId], references: [id], onDelete: Cascade)
   createdBy      User                         @relation("AIExaminerBenchmarkRunCreator", fields: [createdById], references: [id], onDelete: Restrict)
   results        AIExaminerBenchmarkResult[]
@@ -2783,6 +2788,7 @@ model AIExaminerBenchmarkResult {
   diagnostics     Json?
   errorCode       String?
   createdAt       DateTime                @default(now())
+  organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   run             AIExaminerBenchmarkRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
   benchmarkCase   AIExaminerBenchmarkCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
