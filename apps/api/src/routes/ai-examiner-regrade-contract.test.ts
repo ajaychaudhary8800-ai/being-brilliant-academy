@@ -82,3 +82,26 @@ test("appeal reviewer workspace is scoped and cannot use the generic review subm
   assert.match(routes, /AI_EXAMINER_APPEAL_USE_REGRADE_REVIEW/);
   assert.match(routes, /priorMarksVisible: false/);
 });
+
+
+test("resolved question-level regrades update canonical question marks and preserve question snapshots", async () => {
+  const routes = await readFile(new URL("./ai-examiner.ts", import.meta.url), "utf8");
+
+  assert.match(routes, /questions: request\.evaluation\.questions\.map\(question => \(\{/);
+  assert.match(routes, /aIExaminerQuestionEvaluation\.update\(\{/);
+  assert.match(routes, /finalMarks: Number\(decision\.awardedMarks\)/);
+  assert.match(routes, /reviewRequired: false/);
+  assert.match(routes, /questions: updatedQuestions\.map\(question => \(\{/);
+  assert.match(routes, /beforeSnapshot: profileJson\(beforeSnapshot\)/);
+  assert.match(routes, /afterSnapshot: profileJson\(afterSnapshot\)/);
+});
+
+test("published rank recomputation returns and audits every rank impact", async () => {
+  const routes = await readFile(new URL("./ai-examiner.ts", import.meta.url), "utf8");
+
+  assert.match(routes, /const impacts: Array<\{ resultId: string; beforeRank: number \| null; afterRank: number \| null \}>/);
+  assert.match(routes, /impacts\.push\(\{ resultId: row\.id, beforeRank: row\.rank, afterRank: rank \}\)/);
+  assert.match(routes, /const rankImpacts = await recomputePublishedRanks/);
+  assert.match(routes, /rankImpacts,/);
+  assert.match(routes, /revisedQuestionKeys:/);
+});
