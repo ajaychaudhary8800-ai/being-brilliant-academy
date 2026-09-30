@@ -124,7 +124,148 @@ function Question({options,initial,save}:{options:R;initial?:R|null;save:(x:R)=>
     <button type="button" className={btn+" bg-blue-700 text-white md:col-span-2"} onClick={submitQuestion}>{initial?"Save changes":"Save question"}</button>
   </Form>
 }
-function LearningTestBuilder({options,save}:{options:R;save:(x:R)=>void}){const[v,set]=useState<R>({code:"",name:"",type:"PRACTICE",branchId:"",courseId:"",batchId:"",subjectId:"",chapter:"",instructions:"Attempt every question carefully.",durationMinutes:60,passingMarks:0,startsAt:"",endsAt:"",adaptive:false,status:"DRAFT"}),[questions,setQuestions]=useState<R[]>([]),[selected,setSelected]=useState<Record<string,boolean>>({}),[loading,setLoading]=useState(false),[error,setError]=useState("");const courses=(options.courses??[]).filter((x:R)=>!v.branchId||!x.branchId||x.branchId===v.branchId),batches=(options.batches??[]).filter((x:R)=>(!v.branchId||x.branchId===v.branchId)&&(!v.courseId||x.courseId===v.courseId)),chosen=questions.filter((x:R)=>selected[x.id]),maximumMarks=chosen.reduce((sum:number,x:R)=>sum+Number(x.marks??0),0);async function loadQuestions(){if(!v.courseId)return setError("Select a Course before loading approved questions.");setLoading(true);setError("");try{const p=new URLSearchParams({page:"1",limit:"100",approvalStatus:"APPROVED"});if(v.subjectId)p.set("subjectId",v.subjectId);if(v.chapter.trim())p.set("chapter",v.chapter.trim());const r=await call(`/learning/questions?${p}`),rows=(r.data??[]).filter((x:R)=>!x.courseId||x.courseId===v.courseId);setQuestions(rows);setSelected({})}catch(e){setError(errorMessage(e))}finally{setLoading(false)}}async function randomQuestions(){if(!v.courseId)return setError("Select a Course before generating a random set.");setLoading(true);setError("");try{const r=await call("/learning/questions/random",{method:"POST",body:JSON.stringify({count:10,courseId:v.courseId,subjectId:v.subjectId||undefined,chapter:v.chapter.trim()||undefined})}),rows=r.data??[];setQuestions(rows);setSelected(Object.fromEntries(rows.map((x:R)=>[x.id,true])))}catch(e){setError(errorMessage(e))}finally{setLoading(false)}}function submitTest(){if(!v.code.trim()||!v.name.trim())return setError("Enter Test code and name.");if(!v.courseId)return setError("Select a Course.");if(!chosen.length)return setError("Select at least one approved question.");const passing=Number(v.passingMarks||0);if(passing<0||passing>maximumMarks)return setError("Passing marks must be between 0 and the Test maximum marks.");if(v.startsAt&&v.endsAt&&new Date(v.endsAt)<=new Date(v.startsAt))return setError("End time must be after start time.");setError("");save({code:v.code.trim().toUpperCase(),name:v.name.trim(),type:v.type,branchId:v.branchId||undefined,courseId:v.courseId,batchId:v.batchId||undefined,subjectId:v.subjectId||undefined,chapter:v.chapter.trim()||undefined,instructions:v.instructions.trim()||undefined,durationMinutes:Number(v.durationMinutes),maximumMarks,passingMarks:passing,startsAt:v.startsAt?new Date(v.startsAt).toISOString():undefined,endsAt:v.endsAt?new Date(v.endsAt).toISOString():undefined,adaptive:Boolean(v.adaptive),status:"DRAFT",questions:chosen.map((q:R,i:number)=>({questionId:q.id,section:"General",position:i+1,marks:Number(q.marks??1),negativeMarks:Number(q.negativeMarks??0)}))})}return <Form title="Assessment Builder" icon={<BookOpen/>}><input className={input} placeholder="Test code" value={v.code} onChange={e=>set({...v,code:e.target.value})}/><input className={input} placeholder="Test name" value={v.name} onChange={e=>set({...v,name:e.target.value})}/><select className={input} value={v.type} onChange={e=>set({...v,type:e.target.value})}>{["PRACTICE","CHAPTER","UNIT","FULL","MOCK","ADAPTIVE"].map(x=><option key={x}>{x}</option>)}</select><Select label="Branch" value={v.branchId} set={x=>set({...v,branchId:x,courseId:"",batchId:""})} rows={options.branches??[]}/><Select label="Course" value={v.courseId} set={x=>set({...v,courseId:x,batchId:"",subjectId:""})} rows={courses}/><Select label="Batch" value={v.batchId} set={x=>set({...v,batchId:x})} rows={batches}/><Select label="Subject" value={v.subjectId} set={x=>set({...v,subjectId:x})} rows={options.subjects??[]}/><input className={input} placeholder="Chapter (optional)" value={v.chapter} onChange={e=>set({...v,chapter:e.target.value})}/><input className={input} type="number" min={1} max={360} value={v.durationMinutes} onChange={e=>set({...v,durationMinutes:Number(e.target.value)})}/><input className={input} type="number" min={0} max={maximumMarks||undefined} placeholder="Passing marks" value={v.passingMarks} onChange={e=>set({...v,passingMarks:Number(e.target.value)})}/><input className={input} type="datetime-local" value={v.startsAt} onChange={e=>set({...v,startsAt:e.target.value})}/><input className={input} type="datetime-local" value={v.endsAt} onChange={e=>set({...v,endsAt:e.target.value})}/><textarea className={`${input} md:col-span-2`} placeholder="Instructions" value={v.instructions} onChange={e=>set({...v,instructions:e.target.value})}/><div className="md:col-span-2 flex flex-wrap items-center gap-3"><button type="button" className={`${btn} border`} onClick={()=>void loadQuestions()}>{loading?"Loading…":"Load approved questions"}</button><button type="button" className={`${btn} border`} onClick={()=>void randomQuestions()} disabled={loading}>Random 10</button><span className="text-sm text-slate-500">{chosen.length} selected · {maximumMarks} marks</span></div>{error&&<p role="alert" className="md:col-span-2 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}<div className="md:col-span-2 max-h-72 space-y-2 overflow-auto rounded-xl border p-3">{questions.length?questions.map((q:R)=><label key={q.id} className="flex gap-3 rounded-lg border p-3 text-sm"><input type="checkbox" checked={Boolean(selected[q.id])} onChange={e=>set({...selected,[q.id]:e.target.checked})}/><span><b>{q.code}</b> · {q.marks} marks{Number(q.negativeMarks??0)>0?` · -${q.negativeMarks}`:""}<br/><span className="text-slate-600">{q.body}</span></span></label>):<p className="text-sm text-slate-500">Select the course/subject/chapter, then load approved Question Bank items.</p>}</div><button type="button" className={`${btn} bg-blue-700 text-white md:col-span-2`} onClick={submitTest}>Create draft Test</button></Form>}
+function LearningTestBuilder({options,save}:{options:R;save:(x:R)=>void}){
+  const[v,set]=useState<R>({
+    code:"",name:"",type:"PRACTICE",branchId:"",courseId:"",batchId:"",subjectId:"",chapter:"",
+    instructions:"Attempt every question carefully.",durationMinutes:60,passingMarks:0,startsAt:"",endsAt:"",adaptive:false,status:"DRAFT",
+    secureDelivery:false,maxAttempts:1,shuffleQuestions:true,shuffleOptions:true,maxResumes:3,heartbeatIntervalSeconds:30,offlineGraceSeconds:300,
+    bindClientInstance:true,lockdownRequired:false,lockdownProviderKey:"",proctoringRequired:false,proctoringProviderKey:"",
+  });
+  const[questions,setQuestions]=useState<R[]>([]),[selected,setSelected]=useState<Record<string,boolean>>({}),[loading,setLoading]=useState(false),[error,setError]=useState("");
+  const[accommodations,setAccommodations]=useState<R[]>([]);
+  const[accommodation,setAccommodation]=useState<R>({studentId:"",extraTimeMinutes:0,maxAttemptsOverride:"",locale:"",screenReaderOptimized:false,highContrast:false,fontScale:1,reducedMotion:false,keyboardOnly:false});
+  const courses=(options.courses??[]).filter((x:R)=>!v.branchId||!x.branchId||x.branchId===v.branchId),
+    batches=(options.batches??[]).filter((x:R)=>(!v.branchId||x.branchId===v.branchId)&&(!v.courseId||x.courseId===v.courseId)),
+    chosen=questions.filter((x:R)=>selected[x.id]),
+    maximumMarks=chosen.reduce((sum:number,x:R)=>sum+Number(x.marks??0),0);
+
+  async function loadQuestions(){
+    if(!v.courseId)return setError("Select a Course before loading approved questions.");
+    setLoading(true);setError("");
+    try{
+      const p=new URLSearchParams({page:"1",limit:"100",approvalStatus:"APPROVED"});
+      if(v.subjectId)p.set("subjectId",v.subjectId);if(v.chapter.trim())p.set("chapter",v.chapter.trim());
+      const r=await call(`/learning/questions?${p}`),rows=(r.data??[]).filter((x:R)=>!x.courseId||x.courseId===v.courseId);
+      setQuestions(rows);setSelected({});
+    }catch(e){setError(errorMessage(e))}finally{setLoading(false)}
+  }
+  async function randomQuestions(){
+    if(!v.courseId)return setError("Select a Course before generating a random set.");
+    setLoading(true);setError("");
+    try{
+      const r=await call("/learning/questions/random",{method:"POST",body:JSON.stringify({count:10,courseId:v.courseId,subjectId:v.subjectId||undefined,chapter:v.chapter.trim()||undefined})}),rows=r.data??[];
+      setQuestions(rows);setSelected(Object.fromEntries(rows.map((x:R)=>[x.id,true])));
+    }catch(e){setError(errorMessage(e))}finally{setLoading(false)}
+  }
+  function addAccommodation(){
+    if(!accommodation.studentId)return setError("Select a student for the accommodation.");
+    if(accommodations.some((row:R)=>row.studentId===accommodation.studentId))return setError("This student already has an accommodation.");
+    const row={
+      studentId:accommodation.studentId,
+      extraTimeMinutes:Number(accommodation.extraTimeMinutes||0),
+      maxAttemptsOverride:accommodation.maxAttemptsOverride?Number(accommodation.maxAttemptsOverride):null,
+      locale:String(accommodation.locale??"").trim()||null,
+      accessibility:{
+        screenReaderOptimized:Boolean(accommodation.screenReaderOptimized),
+        highContrast:Boolean(accommodation.highContrast),
+        fontScale:Number(accommodation.fontScale||1),
+        reducedMotion:Boolean(accommodation.reducedMotion),
+        keyboardOnly:Boolean(accommodation.keyboardOnly),
+      },
+    };
+    setAccommodations([...accommodations,row]);setAccommodation({studentId:"",extraTimeMinutes:0,maxAttemptsOverride:"",locale:"",screenReaderOptimized:false,highContrast:false,fontScale:1,reducedMotion:false,keyboardOnly:false});setError("");
+  }
+  function submitTest(){
+    if(!v.code.trim()||!v.name.trim())return setError("Enter Test code and name.");
+    if(!v.courseId)return setError("Select a Course.");
+    if(!chosen.length)return setError("Select at least one approved question.");
+    const passing=Number(v.passingMarks||0);
+    if(passing<0||passing>maximumMarks)return setError("Passing marks must be between 0 and the Test maximum marks.");
+    if(v.startsAt&&v.endsAt&&new Date(v.endsAt)<=new Date(v.startsAt))return setError("End time must be after start time.");
+    if(v.secureDelivery&&v.lockdownRequired&&!String(v.lockdownProviderKey??"").trim())return setError("Enter the configured Lockdown adapter key.");
+    if(v.secureDelivery&&v.proctoringRequired&&!String(v.proctoringProviderKey??"").trim())return setError("Enter the configured Proctoring adapter key.");
+    const deliveryPolicy=v.secureDelivery?{
+      version:1,
+      maxAttempts:Number(v.maxAttempts||1),
+      shuffleQuestions:Boolean(v.shuffleQuestions),
+      shuffleOptions:Boolean(v.shuffleOptions),
+      maxResumes:Number(v.maxResumes??3),
+      heartbeatIntervalSeconds:Number(v.heartbeatIntervalSeconds||30),
+      offlineGraceSeconds:Number(v.offlineGraceSeconds??300),
+      bindClientInstance:Boolean(v.bindClientInstance),
+      lockdown:{required:Boolean(v.lockdownRequired),providerKey:v.lockdownRequired?String(v.lockdownProviderKey).trim():null},
+      proctoring:{required:Boolean(v.proctoringRequired),providerKey:v.proctoringRequired?String(v.proctoringProviderKey).trim():null},
+      accommodations,
+    }:undefined;
+    setError("");
+    save({
+      code:v.code.trim().toUpperCase(),name:v.name.trim(),type:v.type,branchId:v.branchId||undefined,courseId:v.courseId,batchId:v.batchId||undefined,
+      subjectId:v.subjectId||undefined,chapter:v.chapter.trim()||undefined,instructions:v.instructions.trim()||undefined,durationMinutes:Number(v.durationMinutes),
+      maximumMarks,passingMarks:passing,startsAt:v.startsAt?new Date(v.startsAt).toISOString():undefined,endsAt:v.endsAt?new Date(v.endsAt).toISOString():undefined,
+      adaptive:Boolean(v.adaptive),deliveryPolicy,status:"DRAFT",
+      questions:chosen.map((q:R,i:number)=>({questionId:q.id,section:"General",position:i+1,marks:Number(q.marks??1),negativeMarks:Number(q.negativeMarks??0)})),
+    });
+  }
+  return <Form title="Assessment Builder" icon={<BookOpen/>}>
+    <input className={input} placeholder="Test code" value={v.code} onChange={e=>set({...v,code:e.target.value})}/>
+    <input className={input} placeholder="Test name" value={v.name} onChange={e=>set({...v,name:e.target.value})}/>
+    <select className={input} value={v.type} onChange={e=>set({...v,type:e.target.value})}>{["PRACTICE","CHAPTER","UNIT","FULL","MOCK","ADAPTIVE"].map(x=><option key={x}>{x}</option>)}</select>
+    <Select label="Branch" value={v.branchId} set={x=>set({...v,branchId:x,courseId:"",batchId:""})} rows={options.branches??[]}/>
+    <Select label="Course" value={v.courseId} set={x=>set({...v,courseId:x,batchId:"",subjectId:""})} rows={courses}/>
+    <Select label="Batch" value={v.batchId} set={x=>set({...v,batchId:x})} rows={batches}/>
+    <Select label="Subject" value={v.subjectId} set={x=>set({...v,subjectId:x})} rows={options.subjects??[]}/>
+    <input className={input} placeholder="Chapter (optional)" value={v.chapter} onChange={e=>set({...v,chapter:e.target.value})}/>
+    <label className="text-sm font-semibold">Duration (minutes)<input className={input} type="number" min={1} max={360} value={v.durationMinutes} onChange={e=>set({...v,durationMinutes:Number(e.target.value)})}/></label>
+    <label className="text-sm font-semibold">Passing marks<input className={input} type="number" min={0} max={maximumMarks||undefined} value={v.passingMarks} onChange={e=>set({...v,passingMarks:Number(e.target.value)})}/></label>
+    <label className="text-sm font-semibold">Starts at<input className={input} type="datetime-local" value={v.startsAt} onChange={e=>set({...v,startsAt:e.target.value})}/></label>
+    <label className="text-sm font-semibold">Ends at<input className={input} type="datetime-local" value={v.endsAt} onChange={e=>set({...v,endsAt:e.target.value})}/></label>
+    <textarea className={`${input} md:col-span-2`} placeholder="Instructions" value={v.instructions} onChange={e=>set({...v,instructions:e.target.value})}/>
+
+    <div className="md:col-span-2 rounded-2xl border p-4">
+      <label className="flex items-center gap-2 font-bold"><input type="checkbox" checked={Boolean(v.secureDelivery)} onChange={e=>set({...v,secureDelivery:e.target.checked})}/>Enable secure/offline assessment delivery</label>
+      <p className="mt-1 text-xs text-slate-500">Policy is frozen per attempt. Browser integrity signals are review evidence only; they never auto-penalize a student.</p>
+      {v.secureDelivery&&<div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className="text-sm font-semibold">Maximum attempts<input className={input} type="number" min={1} max={50} value={v.maxAttempts} onChange={e=>set({...v,maxAttempts:Number(e.target.value)})}/></label>
+        <label className="text-sm font-semibold">Maximum resumes<input className={input} type="number" min={0} max={50} value={v.maxResumes} onChange={e=>set({...v,maxResumes:Number(e.target.value)})}/></label>
+        <label className="text-sm font-semibold">Heartbeat seconds<input className={input} type="number" min={15} max={300} value={v.heartbeatIntervalSeconds} onChange={e=>set({...v,heartbeatIntervalSeconds:Number(e.target.value)})}/></label>
+        <label className="text-sm font-semibold">Offline grace seconds<input className={input} type="number" min={0} max={3600} value={v.offlineGraceSeconds} onChange={e=>set({...v,offlineGraceSeconds:Number(e.target.value)})}/></label>
+        <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={Boolean(v.shuffleQuestions)} onChange={e=>set({...v,shuffleQuestions:e.target.checked})}/>Shuffle questions deterministically</label>
+        <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={Boolean(v.shuffleOptions)} onChange={e=>set({...v,shuffleOptions:e.target.checked})}/>Shuffle primitive options safely</label>
+        <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={Boolean(v.bindClientInstance)} onChange={e=>set({...v,bindClientInstance:e.target.checked})}/>Bind attempt to browser session</label>
+        <span/>
+        <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={Boolean(v.lockdownRequired)} onChange={e=>set({...v,lockdownRequired:e.target.checked})}/>Require external lockdown adapter</label>
+        <input className={input} disabled={!v.lockdownRequired} placeholder="Lockdown provider key" value={v.lockdownProviderKey} onChange={e=>set({...v,lockdownProviderKey:e.target.value})}/>
+        <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={Boolean(v.proctoringRequired)} onChange={e=>set({...v,proctoringRequired:e.target.checked})}/>Require external proctoring adapter</label>
+        <input className={input} disabled={!v.proctoringRequired} placeholder="Proctoring provider key" value={v.proctoringProviderKey} onChange={e=>set({...v,proctoringProviderKey:e.target.value})}/>
+      </div>}
+    </div>
+
+    {v.secureDelivery&&<div className="md:col-span-2 rounded-2xl border p-4">
+      <h3 className="font-black">Student accommodations</h3>
+      <p className="mb-3 text-xs text-slate-500">Configure only approved accommodations. They are frozen into the student attempt.</p>
+      <div className="grid gap-3 md:grid-cols-3">
+        <Select label="Student" value={accommodation.studentId} set={x=>setAccommodation({...accommodation,studentId:x})} rows={options.students??[]}/>
+        <label className="text-sm font-semibold">Extra time (min)<input className={input} type="number" min={0} max={720} value={accommodation.extraTimeMinutes} onChange={e=>setAccommodation({...accommodation,extraTimeMinutes:Number(e.target.value)})}/></label>
+        <label className="text-sm font-semibold">Attempt override<input className={input} type="number" min={1} max={50} placeholder="Use test default" value={accommodation.maxAttemptsOverride} onChange={e=>setAccommodation({...accommodation,maxAttemptsOverride:e.target.value})}/></label>
+        <label className="text-sm font-semibold">Locale<input className={input} placeholder="e.g. hi-IN" value={accommodation.locale} onChange={e=>setAccommodation({...accommodation,locale:e.target.value})}/></label>
+        <label className="text-sm font-semibold">Font scale<input className={input} type="number" min={0.8} max={3} step={0.1} value={accommodation.fontScale} onChange={e=>setAccommodation({...accommodation,fontScale:Number(e.target.value)})}/></label>
+        <div className="flex flex-wrap gap-3 text-xs font-semibold">
+          <label><input type="checkbox" checked={Boolean(accommodation.screenReaderOptimized)} onChange={e=>setAccommodation({...accommodation,screenReaderOptimized:e.target.checked})}/> Screen reader</label>
+          <label><input type="checkbox" checked={Boolean(accommodation.highContrast)} onChange={e=>setAccommodation({...accommodation,highContrast:e.target.checked})}/> High contrast</label>
+          <label><input type="checkbox" checked={Boolean(accommodation.keyboardOnly)} onChange={e=>setAccommodation({...accommodation,keyboardOnly:e.target.checked})}/> Keyboard only</label>
+          <label><input type="checkbox" checked={Boolean(accommodation.reducedMotion)} onChange={e=>setAccommodation({...accommodation,reducedMotion:e.target.checked})}/> Reduced motion</label>
+        </div>
+      </div>
+      <button type="button" className={`${btn} mt-3 border`} onClick={addAccommodation}>Add accommodation</button>
+      {!!accommodations.length&&<div className="mt-3 space-y-2">{accommodations.map((row:R)=><div key={row.studentId} className="flex items-center justify-between rounded-xl bg-slate-50 p-3 text-sm"><span>{(options.students??[]).find((student:R)=>student.userId===row.studentId)?.user?.name??row.studentId} · +{row.extraTimeMinutes} min{row.locale?` · ${row.locale}`:""}</span><button type="button" className="font-bold text-red-700" onClick={()=>setAccommodations(accommodations.filter((item:R)=>item.studentId!==row.studentId))}>Remove</button></div>)}</div>}
+    </div>}
+
+    <div className="md:col-span-2 flex flex-wrap items-center gap-3"><button type="button" className={`${btn} border`} onClick={()=>void loadQuestions()}>{loading?"Loading…":"Load approved questions"}</button><button type="button" className={`${btn} border`} onClick={()=>void randomQuestions()} disabled={loading}>Random 10</button><span className="text-sm text-slate-500">{chosen.length} selected · {maximumMarks} marks</span></div>
+    {error&&<p role="alert" className="md:col-span-2 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    <div className="md:col-span-2 max-h-72 space-y-2 overflow-auto rounded-xl border p-3">{questions.length?questions.map((q:R)=><label key={q.id} className="flex gap-3 rounded-lg border p-3 text-sm"><input type="checkbox" checked={Boolean(selected[q.id])} onChange={e=>setSelected({...selected,[q.id]:e.target.checked})}/><span><b>{q.code}</b> · {q.marks} marks{Number(q.negativeMarks??0)>0?` · -${q.negativeMarks}`:""}<br/><span className="text-slate-600">{q.body}</span></span></label>):<p className="text-sm text-slate-500">Select the course/subject/chapter, then load approved Question Bank items.</p>}</div>
+    <button type="button" className={`${btn} bg-blue-700 text-white md:col-span-2`} onClick={submitTest}>Create draft Test</button>
+  </Form>
+}
 function Material({options,initial,save}:{options:R;initial?:R|null;save:(x:R)=>void}){const blank:R={title:"",description:"",type:"PDF",branchId:"",courseId:"",batchId:"",subjectId:"",teacherId:"",chapter:"",topic:"",externalUrl:"",status:"DRAFT",file:undefined},[v,set]=useState<R>(()=>initial?{...blank,...initial,branchId:initial.branchId??"",batchId:initial.batchId??"",subjectId:initial.subjectId??"",teacherId:initial.teacherId??"",chapter:initial.chapter??"",topic:initial.topic??"",externalUrl:initial.externalUrl??"",file:undefined}:blank);return <Form title={initial?"Edit Study Material":"Digital Study Material"} icon={<Upload/>}><input className={input} placeholder="Title" value={v.title} onChange={e=>set({...v,title:e.target.value})}/><select className={input} value={v.type} onChange={e=>set({...v,type:e.target.value})}>{["PDF","NOTES","FORMULA_SHEET","MIND_MAP","ASSIGNMENT","DPP","NCERT_SOLUTION","PYQ","SAMPLE_PAPER","REFERENCE_BOOK","BLOG","VIDEO"].map(x=><option key={x}>{x}</option>)}</select><Select label="Branch" value={v.branchId} set={x=>set({...v,branchId:x,batchId:""})} rows={options.branches}/><Select label="Course" value={v.courseId} set={x=>set({...v,courseId:x,subjectId:""})} rows={options.courses}/><Select label="Batch" value={v.batchId} set={x=>set({...v,batchId:x})} rows={options.batches}/><Select label="Subject" value={v.subjectId} set={x=>set({...v,subjectId:x})} rows={options.subjects}/><Select label="Teacher" value={v.teacherId} set={x=>set({...v,teacherId:x})} rows={options.teachers}/><input className={input} placeholder="Chapter (optional)" value={v.chapter} onChange={e=>set({...v,chapter:e.target.value})}/><input className={input} placeholder="Topic (optional)" value={v.topic} onChange={e=>set({...v,topic:e.target.value})}/><input className={input} placeholder="External HTTPS URL (optional)" value={v.externalUrl} onChange={e=>set({...v,externalUrl:e.target.value})}/><textarea className={input+" md:col-span-2"} placeholder="Description" value={v.description??""} onChange={e=>set({...v,description:e.target.value})}/><label className="text-sm font-semibold">Replacement file (optional when editing)<input className={input} type="file" onChange={async e=>set({...v,file:await fileData(e.target.files?.[0])})}/></label><select className={input} value={v.status} onChange={e=>set({...v,status:e.target.value})}><option>DRAFT</option><option>PUBLISHED</option></select><button type="button" className={btn+" bg-blue-700 text-white md:col-span-2"} onClick={()=>save({...v,branchId:v.branchId||undefined,batchId:v.batchId||undefined,subjectId:v.subjectId||undefined,teacherId:v.teacherId||undefined,chapter:v.chapter||undefined,topic:v.topic||undefined,externalUrl:v.externalUrl||undefined})}>{initial?"Save material changes":"Upload material"}</button></Form>}
 function Live({options,optionsLoading,optionsError,reloadOptions,initial,save}:{options:R;optionsLoading:boolean;optionsError:string;reloadOptions:()=>Promise<void>;initial?:R|null;save:(x:R)=>void}){
   const localDateTime=(x:any)=>{if(!x)return"";const d=new Date(x);return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16)};
