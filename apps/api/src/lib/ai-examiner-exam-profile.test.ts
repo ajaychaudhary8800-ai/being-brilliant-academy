@@ -59,7 +59,15 @@ test("exam profile resolves marking rules from most specific to least specific",
     profile,
     questionType: "MCQ",
     sectionKey: "physics-a",
-    questionScoring: { correctMarks: 5, incorrectMarks: -1 },
+    questionScoring: {
+      correctMarks: 5,
+      incorrectMarks: -1,
+      unansweredMarks: 0,
+      partialMode: "NONE",
+      caseSensitive: false,
+      trimWhitespace: true,
+      numericalTolerance: { absolute: 0, relative: 0 },
+    },
   });
   assert.equal(question.source, "QUESTION");
   assert.equal(question.scoring.correctMarks, 5);
