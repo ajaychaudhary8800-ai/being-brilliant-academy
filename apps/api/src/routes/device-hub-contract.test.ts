@@ -64,7 +64,11 @@ test("queued commands are never represented as dispatched before a protocol adap
   const start = routes.indexOf('router.post("/device-hub/devices/:deviceId/commands"');
   const section = routes.slice(start);
 
-  assert.match(section, /status.*QUEUED|ConnectedDeviceCommandStatus/);
+  const schema = await readFile(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
+  const commandModelStart = schema.indexOf("model ConnectedDeviceCommand {");
+  const commandModelEnd = schema.indexOf("\n}", commandModelStart);
+  const commandModel = schema.slice(commandModelStart, commandModelEnd);
+  assert.match(commandModel, /status\s+ConnectedDeviceCommandStatus\s+@default\(QUEUED\)/);
   assert.match(section, /dispatched: false/);
   assert.match(section, /protocol adapter must acknowledge delivery/i);
 });
