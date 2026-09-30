@@ -3112,7 +3112,8 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
 
   const activeRubric = exam.aiExaminerRubrics.find(rubric => rubric.status === AIExaminerRubricStatus.ACTIVE);
   if (!activeRubric) throw new AppError(409, "AI_EXAMINER_ACTIVE_RUBRIC_REQUIRED", "Active rubric is required before final approval");
-  const supplementaryQuestions = resolveAIExaminerRubricQuestions(activeRubric.rubric, activeRubric.modelAnswer)
+  const resolvedRubricQuestions = resolveAIExaminerRubricQuestions(activeRubric.rubric, activeRubric.modelAnswer);
+  const supplementaryQuestions = resolvedRubricQuestions
     .filter(question => question.questionType === "ORAL_AUDIO_VIDEO" || question.questionType === "PRACTICAL_PROJECT_VIVA");
   if (supplementaryQuestions.length) {
     const verifiedEvidence = await prisma.aIExaminerEvidenceAttachment.findMany({
@@ -3195,6 +3196,35 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
       update: { ...result, remarks: teacherRemarks },
       create: { organizationId: req.auth!.organizationId, examinationId: exam.id, studentId: evaluation.answerSheet.studentId, ...result, remarks: teacherRemarks },
     });
+
+    const student = await tx.studentProfile.findFirst({
+      where: { id: evaluation.answerSheet.studentId, organizationId: req.auth!.organizationId },
+      select: { userId: true },
+    });
+    if (!student) throw new AppError(409, "AI_EXAMINER_STUDENT_NOT_FOUND", "Student profile is unavailable for remediation linkage");
+    const rubricByKey = new Map(resolvedRubricQuestions.map(question => [question.key.toLocaleLowerCase("en"), question]));
+    const weakQuestions = evaluation.questions.flatMap(question => {
+      const reviewed = byKey.get(question.questionKey.toLowerCase())!;
+      const rubricQuestion = rubricByKey.get(question.questionKey.toLocaleLowerCase("en"));
+      const maximum = Number(question.maxMarks);
+      const ratio = maximum > 0 ? reviewed.finalMarks / maximum : 1;
+      if (ratio >= 0.6) return [];
+      const concepts = rubricQuestion?.concepts ?? [];
+      const conceptLabel = concepts.length ? concepts.slice(0, 4).join(", ") : question.questionKey;
+      return [{
+        organizationId: req.auth!.organizationId,
+        userId: student.userId,
+        kind: "AI_EXAMINER_REMEDIATION",
+        title: `Revise ${exam.subject.name}: ${conceptLabel}`.slice(0, 180),
+        reason: `Teacher-approved score ${reviewed.finalMarks}/${maximum} on ${question.questionKey}. Review the underlying concepts before the next assessment.`,
+        entityType: "AI_EXAMINER_QUESTION",
+        entityId: `${evaluation.id}:${question.questionKey}`,
+        priority: ratio < 0.3 ? 90 : ratio < 0.5 ? 75 : 60,
+      }];
+    });
+    if (weakQuestions.length) {
+      await tx.learningRecommendation.createMany({ data: weakQuestions });
+    }
     await tx.auditLog.create({
       data: {
         organizationId: req.auth!.organizationId,
@@ -3207,6 +3237,10 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
           examinationId: exam.id,
           aiSuggestedMarks: evaluation.suggestedMarks == null ? null : Number(evaluation.suggestedMarks),
           teacherApprovedMarks: total,
+          remediationRecommendations: evaluation.questions.filter(question => {
+            const reviewed = byKey.get(question.questionKey.toLowerCase())!;
+            return Number(question.maxMarks) > 0 && reviewed.finalMarks / Number(question.maxMarks) < 0.6;
+          }).length,
           finalized: true,
         },
       },
