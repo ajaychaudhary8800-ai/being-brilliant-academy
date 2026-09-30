@@ -102,3 +102,21 @@ test("unverified evidence links force second-pass verification", () => {
   assert.deepEqual(decision.questionKeys, ["Q1"]);
   assert.ok(decision.reasons.includes("EVIDENCE_LINK_UNVERIFIED"));
 });
+
+
+test("uncertain OMR evidence forces objective questions into second pass", () => {
+  const decision = decideAIExaminerSecondPass({
+    overallConfidence: 0.98,
+    confidenceThreshold: 0.75,
+    omrReviewRequired: true,
+    omrQuestionKeys: ["Q1", "Q2"],
+    questions: [
+      { questionKey: "Q1", confidence: 0.98, suggestedMarks: 4 },
+      { questionKey: "Q2", confidence: 0.98, suggestedMarks: 4 },
+      { questionKey: "Q3", confidence: 0.98, suggestedMarks: 5 },
+    ],
+  });
+  assert.equal(decision.required, true);
+  assert.ok(decision.reasons.includes("OMR_SCAN_UNCERTAIN"));
+  assert.deepEqual(decision.questionKeys, ["Q1", "Q2"]);
+});
