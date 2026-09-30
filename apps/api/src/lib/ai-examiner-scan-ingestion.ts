@@ -222,3 +222,51 @@ export function validateAIExaminerOmrIngestion(input: {
     issues,
   };
 }
+
+
+export type AIExaminerTrustedOmrAnswer = {
+  questionKey: string;
+  selections: string[];
+  confidence: number;
+};
+
+export function collectTrustedAIExaminerOmrAnswers(values: unknown[]): {
+  answers: Map<string, AIExaminerTrustedOmrAnswer>;
+  valid: boolean;
+  reason: string | null;
+} {
+  const answers = new Map<string, AIExaminerTrustedOmrAnswer>();
+
+  for (const value of values) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { answers: new Map(), valid: false, reason: "Stored OMR validation result is malformed" };
+    }
+    const source = value as Record<string, unknown>;
+    if (source.status !== "ACCEPTED" || !Array.isArray(source.answers) || (Array.isArray(source.issues) && source.issues.length > 0)) {
+      return { answers: new Map(), valid: false, reason: "OMR binding contains a page that is not fully accepted" };
+    }
+
+    for (const raw of source.answers) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return { answers: new Map(), valid: false, reason: "Stored OMR answer row is malformed" };
+      }
+      const row = raw as Record<string, unknown>;
+      const questionKey = typeof row.questionKey === "string" ? row.questionKey.trim() : "";
+      const confidence = typeof row.confidence === "number" ? row.confidence : Number.NaN;
+      const selections = Array.isArray(row.selections)
+        ? row.selections.filter((item): item is string => typeof item === "string").map(normalizeOption)
+        : [];
+      if (!questionKey || !Number.isFinite(confidence) || confidence < 0 || confidence > 1 || row.autoScorable !== true) {
+        return { answers: new Map(), valid: false, reason: "Stored OMR answer is not trusted for automatic scoring" };
+      }
+
+      const normalizedKey = questionKey.toLowerCase();
+      if (answers.has(normalizedKey)) {
+        return { answers: new Map(), valid: false, reason: `OMR question ${questionKey} appears on more than one accepted scan page` };
+      }
+      answers.set(normalizedKey, { questionKey, selections, confidence });
+    }
+  }
+
+  return { answers, valid: true, reason: null };
+}
