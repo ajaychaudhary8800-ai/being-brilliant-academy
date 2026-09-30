@@ -174,6 +174,7 @@ router.post("/device-hub/edge-agents/:agentId/commands/:commandId/ack", async (r
           failedAt: null,
           errorCode: null,
           errorMessage: null,
+          result: body.metadata ? profileJson(body.metadata) : undefined,
         },
       });
       await tx.connectedDeviceRetryJob.updateMany({
