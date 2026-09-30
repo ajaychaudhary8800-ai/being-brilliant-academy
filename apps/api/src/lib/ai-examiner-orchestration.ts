@@ -22,6 +22,11 @@ import {
   verifyChemistryEquation,
   type ChemistryVerification,
 } from "./ai-examiner-chemistry-verifier.js";
+import {
+  verifyAccountingStatement,
+  type AccountingValidationConfig,
+  type AccountingVerification,
+} from "./ai-examiner-accounting-verifier.js";
 
 export type AIExaminerResolvedRubricQuestion = {
   key: string;
@@ -40,6 +45,7 @@ export type AIExaminerResolvedRubricQuestion = {
     requireBalanced: boolean;
     allowReverse: boolean;
   };
+  accountingValidation?: AccountingValidationConfig;
 };
 
 type ProviderQuestion = AIExaminerProviderResult["questions"][number];
@@ -63,7 +69,7 @@ export type AIExaminerReconciledQuestion = {
   engine: string;
   deterministicStatus: string | null;
   scoringError: { code: string; message: string } | null;
-  specializedEvidence: AIExaminerStemVerification | ChemistryVerification | null;
+  specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | null;
 };
 
 const deterministicTypes = new Set<AIExaminerQuestionType>([
@@ -202,7 +208,7 @@ export function reconcileAIExaminerProviderResult(
     const baseReview = provider.confidence < reviewThreshold || provider.flags.length > 0;
 
     if (!route.deterministic) {
-      let specializedEvidence: AIExaminerStemVerification | ChemistryVerification | null = null;
+      let specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | null = null;
       if (route.engine === "SPECIALIZED_SYMBOLIC" && provider.extractedAnswer) {
         if (question.stemValidation) {
           specializedEvidence = verifyAIExaminerStemResponse({
@@ -215,6 +221,11 @@ export function reconcileAIExaminerProviderResult(
             expectedEquation: question.chemistryValidation.expectedEquation,
             requireBalanced: question.chemistryValidation.requireBalanced,
             allowReverse: question.chemistryValidation.allowReverse,
+          });
+        } else if (question.questionType === "ACCOUNTING_STATEMENT" && question.accountingValidation) {
+          specializedEvidence = verifyAccountingStatement({
+            response: provider.extractedAnswer,
+            config: question.accountingValidation,
           });
         }
       }
