@@ -7,6 +7,7 @@ export type AIExaminerVerificationReason =
   | "SPECIALIZED_CHECK_FAILED"
   | "SPECIALIZED_CHECK_REVIEW"
   | "EVIDENCE_LINK_UNVERIFIED"
+  | "OMR_SCAN_UNCERTAIN"
   | "INCOMPLETE_MARKS";
 
 export type AIExaminerSecondPassQuestion = {
@@ -38,6 +39,8 @@ export function decideAIExaminerSecondPass(input: {
   questions: AIExaminerSecondPassQuestion[];
   confidenceThreshold: number;
   highStakes?: boolean;
+  omrReviewRequired?: boolean;
+  omrQuestionKeys?: string[];
 }): AIExaminerSecondPassDecision {
   const threshold = input.confidenceThreshold;
   if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
@@ -53,6 +56,10 @@ export function decideAIExaminerSecondPass(input: {
 
   if (highStakes) reasons.add("HIGH_STAKES_ASSESSMENT");
   if (input.overallConfidence < threshold) reasons.add("LOW_OVERALL_CONFIDENCE");
+  if (input.omrReviewRequired) {
+    reasons.add("OMR_SCAN_UNCERTAIN");
+    for (const key of input.omrQuestionKeys ?? []) if (key.trim()) questionKeys.add(key);
+  }
 
   for (const question of input.questions) {
     let include = highStakes;
