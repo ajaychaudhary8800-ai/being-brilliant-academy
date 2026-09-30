@@ -33,6 +33,7 @@ import {
   verifyConnectedDeviceIngestToken,
 } from "../lib/device-hub.js";
 import { processConnectedDeviceEvent } from "../lib/device-hub-processor.js";
+import { queueDeviceEventRetry } from "../lib/device-hub-retry-worker.js";
 import {
   connectorHealth,
   generateEdgeAgentToken,
@@ -332,6 +333,31 @@ router.post("/device-hub/ingest/:deviceId", async (req, res) => {
         const processing = await processConnectedDeviceEvent(existing.id);
         return res.status(200).json({ data: { ...existing, status: processing.status }, meta: { duplicate: true, normalized: true, processing } });
       }
+    }
+    const persisted = await prisma.connectedDeviceEvent.findFirst({
+      where: { deviceId: device.id, sourceHash },
+      select: { id: true, status: true },
+    }).catch(() => null);
+    if (persisted && ![ "PROCESSED", "REJECTED" ].includes(persisted.status)) {
+      await queueDeviceEventRetry({
+        organizationId: device.organizationId,
+        deviceId: device.id,
+        eventId: persisted.id,
+        errorCode: "EVENT_PROCESS_FAILED",
+        errorMessage: error instanceof Error ? error.message : "Device event processing failed",
+      }).catch(() => {});
+      await prisma.connectedDevice.update({
+        where: { id: device.id },
+        data: {
+          status: ConnectedDeviceStatus.DEGRADED,
+          lastErrorAt: now,
+          lastErrorCode: "EVENT_PROCESS_RETRY_QUEUED",
+        },
+      }).catch(() => {});
+      return res.status(202).json({
+        data: { id: persisted.id, status: persisted.status },
+        meta: { duplicate: false, normalized: true, processing: { queuedForRetry: true } },
+      });
     }
     await prisma.connectedDevice.update({
       where: { id: device.id },
