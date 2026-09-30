@@ -1,4 +1,4 @@
-import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
+import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBatchPageStatus, AIExaminerScanBatchStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config.js";
@@ -1295,6 +1295,291 @@ router.get("/evaluations/:evaluationId", async (req: AuthRequest, res) => {
   if (!row) throw new AppError(404, "AI_EXAMINER_EVALUATION_NOT_FOUND", "AI evaluation not found");
   await examinationForManager(req, row.answerSheet.examinationId);
   res.json({ data: row });
+});
+
+
+router.post("/examinations/:examinationId/scan-batches", async (req: AuthRequest, res) => {
+  const examinationId = cuid.parse(req.params.examinationId);
+  const exam = await examinationForManager(req, examinationId);
+  if (exam.status !== ExaminationStatus.COMPLETED) {
+    throw new AppError(409, "AI_EXAMINER_SCAN_EXAM_NOT_COMPLETED", "Bulk scan routing is available after the examination is completed");
+  }
+  const activeRubric = exam.aiExaminerRubrics.find(rubric => rubric.status === AIExaminerRubricStatus.ACTIVE) ?? null;
+  if (!activeRubric) throw new AppError(409, "AI_EXAMINER_ACTIVE_RUBRIC_REQUIRED", "Activate a marking rubric before bulk scan routing");
+  const resolved = resolveAIExaminerRubricQuestions(activeRubric.rubric, activeRubric.modelAnswer);
+  const omrQuestions = resolved
+    .filter(question => (question.questionType === "MCQ" || question.questionType === "MSQ") && question.omrValidation)
+    .map(question => ({
+      questionKey: question.key,
+      mode: question.questionType as "MCQ" | "MSQ",
+      allowedOptions: question.omrValidation!.allowedOptions,
+    }));
+
+  const pageSchema = z.object({
+    sourcePageNumber: z.coerce.number().int().min(1).max(10000),
+    scanId: z.string().trim().min(1).max(160),
+    barcodeToken: z.string().trim().min(32).max(256),
+    barcodeConfidence: z.coerce.number().min(0).max(1),
+    imageQuality: z.coerce.number().min(0).max(1),
+    targetPageNumber: z.coerce.number().int().min(1).max(1000),
+    targetTotalPages: z.coerce.number().int().min(1).max(1000),
+    detections: z.array(z.object({
+      questionKey: z.string().trim().min(1).max(40),
+      selections: z.array(z.string().trim().min(1).max(40)).max(20),
+      confidence: z.coerce.number().min(0).max(1),
+      ambiguous: z.boolean().optional(),
+    })).max(500).default([]),
+  }).superRefine((value, ctx) => {
+    if (value.targetPageNumber > value.targetTotalPages) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["targetPageNumber"], message: "targetPageNumber cannot exceed targetTotalPages" });
+    }
+  });
+  const body = z.object({
+    externalBatchId: z.string().trim().min(1).max(180).optional(),
+    scannerEngine: z.string().trim().min(1).max(160),
+    scannerVersion: z.string().trim().min(1).max(80),
+    pages: z.array(pageSchema).min(1).max(2000),
+  }).superRefine((value, ctx) => {
+    const source = new Set<number>();
+    const scanIds = new Set<string>();
+    for (const [index, page] of value.pages.entries()) {
+      if (source.has(page.sourcePageNumber)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pages", index, "sourcePageNumber"], message: "sourcePageNumber must be unique inside a batch" });
+      if (scanIds.has(page.scanId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pages", index, "scanId"], message: "scanId must be unique inside a batch" });
+      source.add(page.sourcePageNumber);
+      scanIds.add(page.scanId);
+    }
+  }).parse(req.body);
+
+  if (!omrQuestions.length && body.pages.some(page => page.detections.length)) {
+    throw new AppError(422, "AI_EXAMINER_OMR_NOT_CONFIGURED", "The active rubric has no MCQ/MSQ questions with OMR option configuration");
+  }
+
+  if (body.externalBatchId) {
+    const existing = await prisma.aIExaminerScanBatch.findFirst({
+      where: { organizationId: req.auth!.organizationId, externalBatchId: body.externalBatchId },
+      include: { pages: { orderBy: { sourcePageNumber: "asc" } } },
+    });
+    if (existing) {
+      if (existing.examinationId !== exam.id) throw new AppError(409, "AI_EXAMINER_SCAN_BATCH_REUSED", "externalBatchId is already used for another examination");
+      return res.status(200).json({ data: existing, meta: { duplicate: true } });
+    }
+  }
+
+  const batch = await prisma.aIExaminerScanBatch.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      examinationId: exam.id,
+      externalBatchId: body.externalBatchId,
+      scannerEngine: body.scannerEngine,
+      scannerVersion: body.scannerVersion,
+      totalPages: body.pages.length,
+      createdById: req.auth!.userId,
+    },
+    select: { id: true, examinationId: true, externalBatchId: true, scannerEngine: true, scannerVersion: true, totalPages: true, status: true, createdAt: true },
+  });
+
+  let routedPages = 0;
+  let reviewPages = 0;
+  let rejectedPages = 0;
+  const routedBindings = new Set<string>();
+
+  for (const source of body.pages.sort((a, b) => a.sourcePageNumber - b.sourcePageNumber)) {
+    const tokenHash = hashAIExaminerScanToken(source.barcodeToken);
+    const binding = await prisma.aIExaminerScanBinding.findFirst({
+      where: { organizationId: req.auth!.organizationId, tokenHash },
+      include: { answerSheet: { select: { id: true, examinationId: true, finalizedAt: true } } },
+    });
+
+    let batchPageStatus = AIExaminerScanBatchPageStatus.REJECTED;
+    let issueCodes: string[] = [];
+    let routedScanPageId: string | null = null;
+
+    if (!binding) {
+      issueCodes = ["UNKNOWN_BARCODE_TOKEN"];
+      rejectedPages += 1;
+    } else if (binding.answerSheet.examinationId !== exam.id) {
+      issueCodes = ["BARCODE_EXAMINATION_MISMATCH"];
+      rejectedPages += 1;
+    } else if (binding.answerSheet.finalizedAt) {
+      issueCodes = ["ANSWER_SHEET_FINALIZED"];
+      rejectedPages += 1;
+    } else if (binding.status !== AIExaminerScanBindingStatus.ACTIVE) {
+      issueCodes = ["SCAN_BINDING_LOCKED"];
+      rejectedPages += 1;
+    } else {
+      const reusedScanId = await prisma.aIExaminerScanPage.findFirst({
+        where: {
+          organizationId: req.auth!.organizationId,
+          scanId: source.scanId,
+          NOT: { bindingId: binding.id, pageNumber: source.targetPageNumber },
+        },
+        select: { id: true },
+      });
+      if (reusedScanId) {
+        issueCodes = ["SCAN_ID_REUSED"];
+        rejectedPages += 1;
+      } else {
+        const validation = validateAIExaminerOmrIngestion({
+          payload: {
+            scanId: source.scanId,
+            scannerEngine: body.scannerEngine,
+            scannerVersion: body.scannerVersion,
+            pageNumber: source.targetPageNumber,
+            totalPages: source.targetTotalPages,
+            scanToken: "[redacted]",
+            barcodeConfidence: source.barcodeConfidence,
+            imageQuality: source.imageQuality,
+            detections: source.detections,
+          },
+          questions: omrQuestions,
+        });
+        const pageStatus = validation.status === "ACCEPTED" ? AIExaminerScanPageStatus.ACCEPTED : AIExaminerScanPageStatus.REVIEW_REQUIRED;
+        issueCodes = validation.issues.map(issue => issue.code);
+        const scanPage = await prisma.aIExaminerScanPage.upsert({
+          where: { bindingId_pageNumber: { bindingId: binding.id, pageNumber: source.targetPageNumber } },
+          update: {
+            scanId: source.scanId,
+            totalPages: source.targetTotalPages,
+            scannerEngine: body.scannerEngine,
+            scannerVersion: body.scannerVersion,
+            barcodeConfidence: source.barcodeConfidence,
+            imageQuality: source.imageQuality,
+            status: pageStatus,
+            payload: profileJson({
+              scanId: source.scanId,
+              scannerEngine: body.scannerEngine,
+              scannerVersion: body.scannerVersion,
+              pageNumber: source.targetPageNumber,
+              totalPages: source.targetTotalPages,
+              scanToken: "[redacted]",
+              barcodeConfidence: source.barcodeConfidence,
+              imageQuality: source.imageQuality,
+              detections: source.detections,
+              bulkBatchId: batch.id,
+              sourcePageNumber: source.sourcePageNumber,
+            }),
+            validationResult: profileJson(validation),
+            ingestedById: req.auth!.userId,
+          },
+          create: {
+            organizationId: req.auth!.organizationId,
+            bindingId: binding.id,
+            scanId: source.scanId,
+            pageNumber: source.targetPageNumber,
+            totalPages: source.targetTotalPages,
+            scannerEngine: body.scannerEngine,
+            scannerVersion: body.scannerVersion,
+            barcodeConfidence: source.barcodeConfidence,
+            imageQuality: source.imageQuality,
+            status: pageStatus,
+            payload: profileJson({
+              scanId: source.scanId,
+              scannerEngine: body.scannerEngine,
+              scannerVersion: body.scannerVersion,
+              pageNumber: source.targetPageNumber,
+              totalPages: source.targetTotalPages,
+              scanToken: "[redacted]",
+              barcodeConfidence: source.barcodeConfidence,
+              imageQuality: source.imageQuality,
+              detections: source.detections,
+              bulkBatchId: batch.id,
+              sourcePageNumber: source.sourcePageNumber,
+            }),
+            validationResult: profileJson(validation),
+            ingestedById: req.auth!.userId,
+          },
+          select: { id: true },
+        });
+        routedScanPageId = scanPage.id;
+        routedBindings.add(binding.id);
+        if (pageStatus === AIExaminerScanPageStatus.ACCEPTED) {
+          batchPageStatus = AIExaminerScanBatchPageStatus.ROUTED;
+          routedPages += 1;
+        } else {
+          batchPageStatus = AIExaminerScanBatchPageStatus.REVIEW_REQUIRED;
+          reviewPages += 1;
+        }
+      }
+    }
+
+    await prisma.aIExaminerScanBatchPage.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        batchId: batch.id,
+        sourcePageNumber: source.sourcePageNumber,
+        scanId: source.scanId,
+        bindingId: binding?.id ?? null,
+        answerSheetId: binding?.answerSheet.id ?? null,
+        targetPageNumber: binding ? source.targetPageNumber : null,
+        targetTotalPages: binding ? source.targetTotalPages : null,
+        barcodeConfidence: source.barcodeConfidence,
+        imageQuality: source.imageQuality,
+        status: batchPageStatus,
+        issueCodes,
+        routedScanPageId,
+        metadata: profileJson({
+          barcodeToken: "[redacted]",
+          detectionCount: source.detections.length,
+        }),
+      },
+    });
+  }
+
+  for (const bindingId of routedBindings) {
+    const pages = await prisma.aIExaminerScanPage.findMany({
+      where: { organizationId: req.auth!.organizationId, bindingId },
+      select: { pageNumber: true, totalPages: true, status: true },
+    });
+    if (!pages.length) continue;
+    const totalPages = pages[0]!.totalPages;
+    const sameTotal = pages.every(page => page.totalPages === totalPages);
+    const numbers = new Set(pages.map(page => page.pageNumber));
+    const complete = sameTotal && pages.length === totalPages && Array.from({ length: totalPages }, (_, index) => index + 1).every(page => numbers.has(page));
+    if (complete && pages.every(page => page.status === AIExaminerScanPageStatus.ACCEPTED)) {
+      await prisma.aIExaminerScanBinding.updateMany({
+        where: { id: bindingId, organizationId: req.auth!.organizationId, status: AIExaminerScanBindingStatus.ACTIVE },
+        data: { status: AIExaminerScanBindingStatus.LOCKED },
+      });
+    }
+  }
+
+  const status = reviewPages || rejectedPages ? AIExaminerScanBatchStatus.REVIEW_REQUIRED : AIExaminerScanBatchStatus.ROUTED;
+  const completed = await prisma.aIExaminerScanBatch.update({
+    where: { id: batch.id },
+    data: { status, routedPages, reviewPages, rejectedPages, completedAt: new Date() },
+    include: { pages: { orderBy: { sourcePageNumber: "asc" } } },
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "AI_EXAMINER_BULK_SCAN_ROUTED",
+      entity: "AIExaminerScanBatch",
+      entityId: batch.id,
+      metadata: {
+        examinationId: exam.id,
+        totalPages: body.pages.length,
+        routedPages,
+        reviewPages,
+        rejectedPages,
+        scannerEngine: body.scannerEngine,
+        scannerVersion: body.scannerVersion,
+      },
+    },
+  });
+  res.status(201).json({ data: completed });
+});
+
+router.get("/examinations/:examinationId/scan-batches", async (req: AuthRequest, res) => {
+  const examinationId = cuid.parse(req.params.examinationId);
+  await examinationForManager(req, examinationId);
+  const data = await prisma.aIExaminerScanBatch.findMany({
+    where: { organizationId: req.auth!.organizationId, examinationId },
+    include: { pages: { orderBy: { sourcePageNumber: "asc" } } },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+  res.json({ data });
 });
 
 router.post("/answer-sheets/:answerSheetId/scan-binding", async (req: AuthRequest, res) => {
