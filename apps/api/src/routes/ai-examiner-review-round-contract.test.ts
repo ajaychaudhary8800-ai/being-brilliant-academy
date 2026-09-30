@@ -66,5 +66,9 @@ test("double-blind reviewer workspace hides prior AI marks when policy forbids t
   assert.match(routes, /round\.priorMarksVisible \? \{/);
   assert.match(routes, /aiSuggestedMarks: question\.suggestedMarks/);
   assert.match(routes, /documentRoute:/);
-  assert.doesNotMatch(routes, /review-rounds\/mine[^]*fileName: true[^]*reviewArtifact/);
+  const mineStart = routes.indexOf('router.get("/review-rounds/mine"');
+  const mineEnd = routes.indexOf('router.get("/evaluations/:evaluationId/review-rounds"', mineStart);
+  assert.ok(mineStart >= 0 && mineEnd > mineStart);
+  const mineRoute = routes.slice(mineStart, mineEnd);
+  assert.doesNotMatch(mineRoute, /fileName:\s*true/);
 });
