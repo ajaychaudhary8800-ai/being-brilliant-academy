@@ -72,6 +72,13 @@ export type AIExaminerRubricQuestion = {
   questionType?: AIExaminerQuestionType;
   evaluationMode?: "EXTRACT_ONLY" | "RUBRIC";
   visualValidation?: AIExaminerVisualValidationConfig;
+  languagePolicy?: {
+    acceptedLanguages: string[];
+    allowCodeSwitching: boolean;
+    allowTransliteration: boolean;
+    evaluateLanguageMechanics: boolean;
+    requireOriginalLanguageEvidence: boolean;
+  };
 };
 
 export type AIExaminerDocument = {
@@ -163,6 +170,7 @@ function rubricPrompt(input: AIExaminerProviderInput) {
     modelAnswer: question.modelAnswer ?? null,
     concepts: question.concepts,
     visualValidation: question.visualValidation ?? null,
+    languagePolicy: question.languagePolicy ?? null,
   }));
   return `Evaluate the student's answer sheet for the following assessment.
 
@@ -228,7 +236,10 @@ Critical grading rules:
 14. Never use surrounding context to guess an unreadable objective response; lower confidence and flag it for human review instead.
 15. For every positive-mark RUBRIC criterion, include evidenceText as the shortest faithful excerpt from the student's extracted answer that supports the award. Do not fabricate or paraphrase evidence. If no faithful excerpt is available, use evidenceText:null and lower confidence so the criterion can be verified by a human.
 16. For visual or multimodal evidence that cannot be represented as a literal text excerpt, use evidenceText:null and explain the visible basis in rationale; such evidence remains human-reviewable rather than being treated as text-verified.
-17. For questions with visualValidation, return one visualObservations row for every configured observation key. Mark PRESENT only when the required feature is actually visible, ABSENT only when it is clearly not present, and UNCLEAR when the scan or evidence is insufficient. Do not invent labels, axes, locations, construction marks, spatial relations, or developmental evidence. Keep evidence to a short visual description and use confidence as observation certainty.`;
+17. For questions with visualValidation, return one visualObservations row for every configured observation key. Mark PRESENT only when the required feature is actually visible, ABSENT only when it is clearly not present, and UNCLEAR when the scan or evidence is insufficient. Do not invent labels, axes, locations, construction marks, spatial relations, or developmental evidence. Keep evidence to a short visual description and use confidence as observation certainty.
+18. Respect each question's languagePolicy. Accept only the configured academic languages, and allow code-switching or transliteration only when explicitly permitted.
+19. Unless evaluateLanguageMechanics is true, do not deduct marks for grammar, spelling, script choice, accent, or language mechanics when the academic content satisfies the rubric.
+20. When requireOriginalLanguageEvidence is true, preserve the student's original-language wording in extractedAnswer and evidenceText. Do not substitute a translation as quoted evidence. You may reason across languages, but any translation must be treated as interpretation rather than original evidence.`;
 }
 
 function dataUrl(document: AIExaminerDocument) {
