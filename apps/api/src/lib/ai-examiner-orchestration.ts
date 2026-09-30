@@ -27,6 +27,10 @@ import {
   type AccountingValidationConfig,
   type AccountingVerification,
 } from "./ai-examiner-accounting-verifier.js";
+import {
+  auditAIExaminerSemanticEvidence,
+  type AIExaminerEvidenceAudit,
+} from "./ai-examiner-evidence.js";
 
 export type AIExaminerResolvedRubricQuestion = {
   key: string;
@@ -62,6 +66,7 @@ export type AIExaminerReconciledQuestion = {
     maxMarks: number;
     awardedMarks: number;
     rationale: string;
+    evidenceText?: string | null;
   }>;
   concepts: ProviderQuestion["concepts"];
   flags: ProviderQuestion["flags"];
@@ -70,6 +75,7 @@ export type AIExaminerReconciledQuestion = {
   deterministicStatus: string | null;
   scoringError: { code: string; message: string } | null;
   specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | null;
+  evidenceAudit: AIExaminerEvidenceAudit | null;
 };
 
 const deterministicTypes = new Set<AIExaminerQuestionType>([
@@ -209,6 +215,14 @@ export function reconcileAIExaminerProviderResult(
 
     if (!route.deterministic) {
       let specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | null = null;
+      let evidenceAudit: AIExaminerEvidenceAudit | null = null;
+      if (route.engine === "RUBRIC_SEMANTIC") {
+        evidenceAudit = auditAIExaminerSemanticEvidence({
+          extractedAnswer: provider.extractedAnswer,
+          awardedMarks: provider.awardedMarks,
+          rubricBreakdown: provider.rubricBreakdown,
+        });
+      }
       if (route.engine === "SPECIALIZED_SYMBOLIC" && provider.extractedAnswer) {
         if (question.stemValidation) {
           specializedEvidence = verifyAIExaminerStemResponse({
@@ -244,6 +258,7 @@ export function reconcileAIExaminerProviderResult(
         deterministicStatus: null,
         scoringError: null,
         specializedEvidence,
+        evidenceAudit,
       };
     }
 
@@ -269,6 +284,7 @@ export function reconcileAIExaminerProviderResult(
         deterministicStatus: scored.status,
         scoringError: null,
         specializedEvidence: null,
+        evidenceAudit: null,
       };
     } catch (error) {
       const scoringError = error instanceof AIExaminerScoringError
