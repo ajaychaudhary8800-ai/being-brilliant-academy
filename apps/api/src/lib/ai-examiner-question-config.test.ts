@@ -148,3 +148,40 @@ test("programming sandbox configuration rejects network access and duplicate tes
   });
   assert.equal(result.success, false);
 });
+
+
+test("OMR configuration is optional and constrained to MCQ/MSQ", () => {
+  const parsed = aiExaminerRubricInputSchema.parse({
+    questions: [{
+      key: "Q1",
+      maxMarks: 4,
+      criteria: "Select the correct option.",
+      questionType: "MCQ",
+      answerKey: "B",
+      omrValidation: { allowedOptions: ["A", "B", "C", "D"] },
+    }],
+  });
+  assert.deepEqual(parsed.questions[0]?.omrValidation?.allowedOptions, ["A", "B", "C", "D"]);
+
+  assert.equal(aiExaminerRubricInputSchema.safeParse({
+    questions: [{
+      key: "Q2",
+      maxMarks: 5,
+      criteria: "Explain.",
+      questionType: "LONG_ANSWER",
+      modelAnswer: "Explanation",
+      omrValidation: { allowedOptions: ["A", "B"] },
+    }],
+  }).success, false);
+
+  assert.equal(aiExaminerRubricInputSchema.safeParse({
+    questions: [{
+      key: "Q3",
+      maxMarks: 4,
+      criteria: "Choose all.",
+      questionType: "MSQ",
+      answerKey: ["A"],
+      omrValidation: { allowedOptions: ["A", "a", "B"] },
+    }],
+  }).success, false);
+});
