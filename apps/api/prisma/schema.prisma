@@ -812,6 +812,25 @@ enum TransportRideCancellationScope {
   BOTH
 }
 
+enum TransportChecklistStatus {
+  DRAFT
+  SUBMITTED
+  PASSED
+  BLOCKED
+}
+
+enum TransportChecklistItemStatus {
+  PASS
+  FAIL
+  NOT_APPLICABLE
+}
+
+enum TransportReassignmentKind {
+  VEHICLE
+  DRIVER
+  BOTH
+}
+
 enum TransportGeofenceType {
   CIRCLE
   POLYGON
@@ -6911,9 +6930,70 @@ model TransportTrip {
   routeProgressPercent Decimal? @db.Decimal(5, 2)
   etaMinutes      Int?
   lastEtaAt       DateTime?
+  preTripChecklist TransportTripChecklist?
+  reassignments    TransportTripReassignment[]
 
   @@index([vehicleId, scheduledAt])
   @@index([organizationId])
+}
+
+model TransportTripChecklist {
+  organizationId String
+  id             String                   @id @default(cuid())
+  tripId         String                   @unique
+  driverId       String?
+  status         TransportChecklistStatus @default(DRAFT)
+  odometerKm     Int?
+  fuelLevelPercent Decimal?                @db.Decimal(5,2)
+  batteryPercent Decimal?                  @db.Decimal(5,2)
+  notes          String?                   @db.Text
+  submittedById  String?
+  submittedAt    DateTime?
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  trip           TransportTrip            @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  items          TransportTripChecklistItem[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, driverId, createdAt])
+}
+
+model TransportTripChecklistItem {
+  organizationId String
+  id             String                       @id @default(cuid())
+  checklistId    String
+  key            String
+  label          String
+  status         TransportChecklistItemStatus
+  required       Boolean                      @default(true)
+  notes          String?                      @db.Text
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+  checklist      TransportTripChecklist       @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+
+  @@unique([checklistId, key])
+  @@index([organizationId, checklistId])
+}
+
+model TransportTripReassignment {
+  organizationId  String                    @default("org_default")
+  id              String                    @id @default(cuid())
+  tripId          String
+  kind            TransportReassignmentKind
+  previousVehicleId String?
+  newVehicleId    String?
+  previousDriverId String?
+  newDriverId     String?
+  reason          String                    @db.Text
+  changedById     String
+  createdAt       DateTime                  @default(now())
+  trip            TransportTrip             @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, tripId, createdAt])
+  @@index([organizationId, newVehicleId, createdAt])
+  @@index([organizationId, newDriverId, createdAt])
 }
 
 model TransportGpsPoint {
