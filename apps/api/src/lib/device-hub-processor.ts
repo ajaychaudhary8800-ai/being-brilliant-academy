@@ -11,6 +11,10 @@ import {
   SchoolEventStatus,
   SafetyIncidentSeverity,
   TransportAlertType,
+  TransportRidershipEventType,
+  TransportRidershipMethod,
+  TransportRideCancellationScope,
+  TransportStatus,
   TripStatus,
 } from "@prisma/client";
 import { z } from "zod";
@@ -708,6 +712,196 @@ function cameraSeverity(value: unknown) {
     : CameraIncidentSeverity.INFO;
 }
 
+function isRidershipSignal(eventType: string) {
+  return /(BOARD|BOARDING|DEBOARD|DEBOARDING|ALIGHT)/i.test(eventType);
+}
+
+function ridershipType(eventType: string) {
+  return /(DEBOARD|DEBOARDING|ALIGHT)/i.test(eventType)
+    ? TransportRidershipEventType.DEBOARD
+    : TransportRidershipEventType.BOARD;
+}
+
+function ridershipMethod(deviceKind: string, metadata: Record<string, unknown>) {
+  const explicit = typeof metadata.method === "string" ? metadata.method.trim().toUpperCase() : "";
+  if (Object.values(TransportRidershipMethod).includes(explicit as TransportRidershipMethod)) return explicit as TransportRidershipMethod;
+  if (deviceKind === "RFID") return TransportRidershipMethod.RFID;
+  if (deviceKind === "BIOMETRIC") return TransportRidershipMethod.BIOMETRIC;
+  return TransportRidershipMethod.OTHER;
+}
+
+async function processRidership(event: any, normalized: z.infer<typeof normalizedSchema>) {
+  const identity = await identityBinding({
+    organizationId: event.organizationId,
+    deviceId: event.deviceId,
+    occurredAt: event.occurredAt,
+    externalSubjectId: normalized.subjectExternalId,
+  });
+  if (identity.bindingType !== ConnectedDeviceBindingType.STUDENT) {
+    throw new DeviceEventProcessingError("TRANSPORT_STUDENT_IDENTITY_REQUIRED", "Ridership event must resolve to a student binding");
+  }
+  const vehicleMap = await vehicleBinding({
+    organizationId: event.organizationId,
+    deviceId: event.deviceId,
+    occurredAt: event.occurredAt,
+  });
+  const vehicle = await systemPrisma.transportVehicle.findFirst({
+    where: { id: vehicleMap.entityId, organizationId: event.organizationId },
+    select: { id: true, branchId: true },
+  });
+  if (!vehicle) throw new DeviceEventProcessingError("DEVICE_VEHICLE_NOT_FOUND", "Bound vehicle no longer exists");
+
+  const date = await organizationDate(event.organizationId, event.occurredAt);
+  const assignment = await systemPrisma.studentTransportAssignment.findFirst({
+    where: {
+      organizationId: event.organizationId,
+      studentId: identity.entityId,
+      status: TransportStatus.ACTIVE,
+      startsAt: { lte: date },
+      OR: [{ endsAt: null }, { endsAt: { gte: date } }],
+    },
+    select: {
+      id: true, studentId: true, routeId: true, vehicleId: true, pickupStopId: true, dropStopId: true,
+      student: { select: { branchId: true } },
+    },
+    orderBy: { startsAt: "desc" },
+  });
+  if (!assignment) throw new DeviceEventProcessingError("TRANSPORT_ASSIGNMENT_NOT_FOUND", "Student has no active transport assignment");
+  if (assignment.student.branchId !== vehicle.branchId) {
+    throw new DeviceEventProcessingError("TRANSPORT_BRANCH_MISMATCH", "Student assignment and vehicle belong to different branches");
+  }
+
+  const trip = await systemPrisma.transportTrip.findFirst({
+    where: { organizationId: event.organizationId, vehicleId: vehicle.id, status: TripStatus.STARTED },
+    select: { id: true, routeId: true },
+    orderBy: { startedAt: "desc" },
+  });
+  const type = ridershipType(event.eventType);
+  const method = ridershipMethod(event.device.kind, normalized.metadata);
+  const stopId = typeof normalized.metadata.stopId === "string" && normalized.metadata.stopId.trim()
+    ? normalized.metadata.stopId.trim()
+    : null;
+
+  const cancellation = await systemPrisma.transportRideCancellation.findFirst({
+    where: {
+      organizationId: event.organizationId,
+      assignmentId: assignment.id,
+      date,
+      scope: { in: type === TransportRidershipEventType.BOARD
+        ? [TransportRideCancellationScope.PICKUP, TransportRideCancellationScope.BOTH]
+        : [TransportRideCancellationScope.DROP, TransportRideCancellationScope.BOTH] },
+    },
+    select: { id: true, scope: true, reason: true },
+  });
+
+  const ridership = await systemPrisma.transportRidershipEvent.upsert({
+    where: { deviceEventId: event.id },
+    create: {
+      organizationId: event.organizationId,
+      assignmentId: assignment.id,
+      tripId: trip?.id ?? null,
+      studentId: assignment.studentId,
+      vehicleId: vehicle.id,
+      stopId,
+      type,
+      method,
+      deviceEventId: event.id,
+      occurredAt: event.occurredAt,
+      metadata: json({
+        expectedVehicleId: assignment.vehicleId,
+        expectedStopId: type === TransportRidershipEventType.BOARD ? assignment.pickupStopId : assignment.dropStopId,
+        cancellationId: cancellation?.id ?? null,
+      }),
+    },
+    update: {},
+  });
+
+  await systemPrisma.transportAttendance.upsert({
+    where: { assignmentId_date: { assignmentId: assignment.id, date } },
+    create: {
+      organizationId: event.organizationId,
+      assignmentId: assignment.id,
+      studentId: assignment.studentId,
+      date,
+      pickupStatus: type === TransportRidershipEventType.BOARD ? AttendanceStatus.PRESENT : AttendanceStatus.ABSENT,
+      dropStatus: type === TransportRidershipEventType.DEBOARD ? AttendanceStatus.PRESENT : AttendanceStatus.ABSENT,
+      pickupAt: type === TransportRidershipEventType.BOARD ? event.occurredAt : null,
+      dropAt: type === TransportRidershipEventType.DEBOARD ? event.occurredAt : null,
+    },
+    update: type === TransportRidershipEventType.BOARD
+      ? { pickupStatus: AttendanceStatus.PRESENT, pickupAt: event.occurredAt }
+      : { dropStatus: AttendanceStatus.PRESENT, dropAt: event.occurredAt },
+  });
+
+  const alertIds: string[] = [];
+  if (assignment.vehicleId !== vehicle.id) {
+    const alert = await createTransportAlert({
+      organizationId: event.organizationId,
+      branchId: vehicle.branchId,
+      tripId: trip?.id ?? null,
+      vehicleId: vehicle.id,
+      sourceEventId: event.id,
+      type: TransportAlertType.WRONG_BUS,
+      severity: SchoolEventSeverity.CRITICAL,
+      title: "Student boarded/deboarded the wrong bus",
+      occurredAt: event.occurredAt,
+      metadata: { studentId: assignment.studentId, expectedVehicleId: assignment.vehicleId, actualVehicleId: vehicle.id },
+    });
+    alertIds.push(alert.id);
+  }
+  const expectedStopId = type === TransportRidershipEventType.BOARD ? assignment.pickupStopId : assignment.dropStopId;
+  if (stopId && stopId !== expectedStopId) {
+    const alert = await createTransportAlert({
+      organizationId: event.organizationId,
+      branchId: vehicle.branchId,
+      tripId: trip?.id ?? null,
+      vehicleId: vehicle.id,
+      sourceEventId: event.id,
+      type: TransportAlertType.WRONG_STOP,
+      severity: SchoolEventSeverity.HIGH,
+      title: "Student ridership event occurred at the wrong stop",
+      occurredAt: event.occurredAt,
+      metadata: { studentId: assignment.studentId, expectedStopId, actualStopId: stopId },
+    });
+    alertIds.push(alert.id);
+  }
+  if (cancellation) {
+    const alert = await createTransportAlert({
+      organizationId: event.organizationId,
+      branchId: vehicle.branchId,
+      tripId: trip?.id ?? null,
+      vehicleId: vehicle.id,
+      sourceEventId: event.id,
+      type: TransportAlertType.OTHER,
+      severity: SchoolEventSeverity.HIGH,
+      title: "Ridership event conflicts with parent ride cancellation",
+      occurredAt: event.occurredAt,
+      metadata: { studentId: assignment.studentId, cancellationId: cancellation.id, scope: cancellation.scope },
+    });
+    alertIds.push(alert.id);
+  }
+
+  await recordSchoolEvent({
+    organizationId: event.organizationId,
+    branchId: vehicle.branchId,
+    category: SchoolEventCategory.TRANSPORT,
+    type: type === TransportRidershipEventType.BOARD ? "BUS_BOARDING" : "BUS_DEBOARDING",
+    severity: alertIds.length ? SchoolEventSeverity.HIGH : SchoolEventSeverity.INFO,
+    occurredAt: event.occurredAt,
+    sourceType: "TRANSPORT_RIDERSHIP_EVENT",
+    sourceId: ridership.id,
+    studentId: assignment.studentId,
+    vehicleId: vehicle.id,
+    deviceId: event.deviceId,
+    correlationKey: `student:${assignment.studentId}`,
+    title: type === TransportRidershipEventType.BOARD ? "Student boarded transport" : "Student deboarded transport",
+    reviewRequired: alertIds.length > 0,
+    metadata: { assignmentId: assignment.id, tripId: trip?.id ?? null, stopId, method, alertIds },
+  });
+
+  return { adapter: "TRANSPORT_RIDERSHIP", ridershipEventId: ridership.id, studentId: assignment.studentId, vehicleId: vehicle.id, tripId: trip?.id ?? null, alertIds };
+}
+
 function isSafetySignal(eventType: string) {
   return /(SOS|PANIC|FIRE|EMERGENCY|DISTRESS|SMOKE_ALARM|DURESS)/i.test(eventType);
 }
@@ -877,6 +1071,7 @@ export async function processConnectedDeviceEvent(eventId: string) {
   try {
     let result: Record<string, unknown>;
     if (isSafetySignal(event.eventType)) result = await processSafetySignal(event, parsed.data);
+    else if (isRidershipSignal(event.eventType)) result = await processRidership(event, parsed.data);
     else if (parsed.data.category === "IDENTITY") result = await processIdentity(event, parsed.data);
     else if (parsed.data.category === "LOCATION") result = await processLocation(event, parsed.data);
     else if (parsed.data.category === "ACCESS") result = await processAccess(event, parsed.data);
