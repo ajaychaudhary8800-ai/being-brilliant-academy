@@ -21,6 +21,7 @@ const rubricBreakdownSchema = z.object({
   maxMarks: z.number().min(0).max(10000),
   awardedMarks: z.number().min(0).max(10000),
   rationale: z.string().trim().min(1).max(2000),
+  evidenceText: z.string().trim().min(1).max(2000).nullable().optional(),
 });
 
 const conceptSchema = z.object({
@@ -184,7 +185,7 @@ Return ONLY a JSON object with this exact logical structure:
       "extractedAnswer": "",
       "feedback": "",
       "rubricBreakdown": [
-        {"criterion":"","maxMarks":0,"awardedMarks":0,"rationale":""}
+        {"criterion":"","maxMarks":0,"awardedMarks":0,"rationale":"","evidenceText":null}
       ],
       "concepts": [{"concept":"","mastery":"STRONG|PARTIAL|WEAK|NOT_ASSESSED"}],
       "flags": []
@@ -210,7 +211,9 @@ Critical grading rules:
 11. For questions with evaluationMode EXTRACT_ONLY, transcribe the student's response faithfully, set awardedMarks to 0, and do not infer or repair the response.
 12. For EXTRACT_ONLY MSQ responses, extractedAnswer must be a compact JSON array string such as ["A","C"]. For EXTRACT_ONLY MATCHING responses, extractedAnswer must be a compact JSON object string such as {"A":"1","B":"2"}.
 13. For ACCOUNTING_STATEMENT questions, extractedAnswer must be a compact JSON object string with {"headings":["..."],"rows":[{"label":"...","debit":0,"credit":0,"amount":0,"side":"DEBIT|CREDIT|ASSET|LIABILITY|INCOME|EXPENSE"}]}. Include only fields actually visible or inferable from the student's written accounting layout; do not invent missing values.
-14. Never use surrounding context to guess an unreadable objective response; lower confidence and flag it for human review instead.`;
+14. Never use surrounding context to guess an unreadable objective response; lower confidence and flag it for human review instead.
+15. For every positive-mark RUBRIC criterion, include evidenceText as the shortest faithful excerpt from the student's extracted answer that supports the award. Do not fabricate or paraphrase evidence. If no faithful excerpt is available, use evidenceText:null and lower confidence so the criterion can be verified by a human.
+16. For visual or multimodal evidence that cannot be represented as a literal text excerpt, use evidenceText:null and explain the visible basis in rationale; such evidence remains human-reviewable rather than being treated as text-verified.`;
 }
 
 function dataUrl(document: AIExaminerDocument) {
