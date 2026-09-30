@@ -1205,6 +1205,111 @@ router.post("/evaluations/:evaluationId/review-rounds", async (req: AuthRequest,
   res.status(201).json({ data });
 });
 
+router.get("/review-rounds/:roundId/workspace", async (req: AuthRequest, res) => {
+  const roundId = cuid.parse(req.params.roundId);
+  const round = await prisma.aIExaminerReviewRound.findFirst({
+    where: { id: roundId, organizationId: req.auth!.organizationId },
+    include: {
+      evaluation: {
+        select: {
+          id: true,
+          engineVersion: true,
+          rubric: {
+            select: {
+              id: true,
+              version: true,
+              instructions: true,
+              rubric: true,
+              modelAnswer: true,
+            },
+          },
+          questions: {
+            select: {
+              id: true,
+              questionKey: true,
+              maxMarks: true,
+              suggestedMarks: true,
+              confidence: true,
+              rubricBreakdown: true,
+              feedback: true,
+              extractedAnswer: true,
+              reviewRequired: true,
+            },
+            orderBy: { createdAt: "asc" },
+          },
+          answerSheet: {
+            select: {
+              id: true,
+              mimeType: true,
+              examination: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  maximumMarks: true,
+                  subject: { select: { id: true, name: true } },
+                  questionPaper: { select: { id: true, fileName: true, mimeType: true, publishedAt: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!round) throw new AppError(404, "AI_EXAMINER_REVIEW_ROUND_NOT_FOUND", "Review round not found");
+  if (round.reviewerId !== req.auth!.userId) {
+    throw new AppError(403, "AI_EXAMINER_REVIEW_ROUND_FORBIDDEN", "Only the assigned reviewer can access this review workspace");
+  }
+  if (round.status === AIExaminerReviewRoundStatus.CANCELLED) {
+    throw new AppError(409, "AI_EXAMINER_REVIEW_ROUND_CLOSED", "Cancelled review rounds cannot access the review workspace");
+  }
+  if (round.anonymizeStudentIdentity && !round.sourceIdentityMasked) {
+    throw new AppError(409, "AI_EXAMINER_SOURCE_IDENTITY_MASK_REQUIRED", "Blind review workspace requires an identity-masked review document");
+  }
+
+  const questions = round.evaluation.questions.map(question => ({
+    id: question.id,
+    questionKey: question.questionKey,
+    maxMarks: question.maxMarks,
+    extractedAnswer: question.extractedAnswer,
+    reviewRequired: question.reviewRequired,
+    ...(round.priorMarksVisible ? {
+      aiSuggestedMarks: question.suggestedMarks,
+      aiConfidence: question.confidence,
+      aiRubricBreakdown: question.rubricBreakdown,
+      aiFeedback: question.feedback,
+    } : {}),
+  }));
+
+  res.json({
+    data: {
+      round: {
+        id: round.id,
+        sequence: round.sequence,
+        kind: round.kind,
+        mode: round.mode,
+        status: round.status,
+        anonymizeStudentIdentity: round.anonymizeStudentIdentity,
+        sourceIdentityMasked: round.sourceIdentityMasked,
+        priorMarksVisible: round.priorMarksVisible,
+      },
+      evaluation: {
+        id: round.evaluation.id,
+        engineVersion: round.evaluation.engineVersion,
+        rubric: round.evaluation.rubric,
+        assessment: round.evaluation.answerSheet.examination,
+        answerSheet: {
+          id: round.evaluation.answerSheet.id,
+          mimeType: round.evaluation.answerSheet.mimeType,
+          documentRoute: `/api/ai-examiner/review-rounds/${round.id}/document`,
+        },
+        questions,
+      },
+    },
+  });
+});
+
 router.get("/review-rounds/:roundId/document", async (req: AuthRequest, res) => {
   const roundId = cuid.parse(req.params.roundId);
   const round = await prisma.aIExaminerReviewRound.findFirst({
