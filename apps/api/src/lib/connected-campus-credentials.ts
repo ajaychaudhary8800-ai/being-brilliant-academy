@@ -29,9 +29,13 @@ export function generatePickupCredentials() {
   };
 }
 
+export function hashPickupQrToken(token: string) {
+  return digest(token);
+}
+
 export function verifyPickupQrToken(token: string, expectedHash: string | null | undefined) {
   if (!token || token.length < 20) return false;
-  return timingSafeHex(digest(token), expectedHash);
+  return timingSafeHex(hashPickupQrToken(token), expectedHash);
 }
 
 export function verifyPickupOtp(otp: string, expectedHash: string | null | undefined) {
