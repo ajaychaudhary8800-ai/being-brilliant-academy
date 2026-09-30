@@ -1303,6 +1303,259 @@ router.post("/device-hub/cameras/:cameraId/bookmarks", async (req: AuthRequest, 
   res.status(201).json({ data });
 });
 
+router.post("/device-hub/cameras/:cameraId/exports", async (req: AuthRequest, res) => {
+  const camera = await scopedCamera(req, cuid.parse(req.params.cameraId));
+  const body = z.object({
+    fromAt: z.coerce.date(),
+    toAt: z.coerce.date(),
+    reason: z.string().trim().min(5).max(5000),
+  }).parse(req.body);
+  if (body.toAt <= body.fromAt) throw new AppError(422, "CAMERA_EXPORT_RANGE_INVALID", "Export end must be after start");
+  if (body.toAt.getTime() - body.fromAt.getTime() > 2 * 60 * 60_000) {
+    throw new AppError(422, "CAMERA_EXPORT_RANGE_TOO_LARGE", "One video export cannot exceed two hours");
+  }
+  const retentionStart = new Date(Date.now() - camera.retentionDays * 24 * 60 * 60_000);
+  if (body.fromAt < retentionStart) throw new AppError(410, "CAMERA_EXPORT_OUTSIDE_RETENTION", "Requested export is outside camera retention policy");
+  const watermarkText = `${camera.code} • export • ${req.auth!.userId} • ${new Date().toISOString()}`;
+  const data = await prisma.$transaction(async tx => {
+    const request = await tx.cameraExportRequest.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        cameraId: camera.id,
+        requestedById: req.auth!.userId,
+        reason: body.reason,
+        fromAt: body.fromAt,
+        toAt: body.toAt,
+        watermarkText,
+      },
+    });
+    await tx.cameraAccessAudit.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        cameraId: camera.id,
+        userId: req.auth!.userId,
+        action: CameraAccessAction.EXPORT_REQUEST,
+        exportRequestId: request.id,
+        metadata: profileJson({ fromAt: body.fromAt.toISOString(), toAt: body.toAt.toISOString() }),
+      },
+    });
+    return request;
+  });
+  res.status(201).json({ data });
+});
+
+router.get("/device-hub/camera-exports", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const q = z.object({
+    status: z.nativeEnum(CameraExportStatus).optional(),
+    cameraId: cuid.optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+  }).parse(req.query);
+  const data = await prisma.cameraExportRequest.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      camera: {
+        ...(req.auth!.role === Role.SUPER_ADMIN ? {} : erpBranchWhere(scope)),
+        ...(q.cameraId ? { id: q.cameraId } : {}),
+      },
+      ...(q.status ? { status: q.status } : {}),
+    },
+    include: { camera: { select: { id: true, branchId: true, code: true, name: true } } },
+    orderBy: { createdAt: "desc" },
+    take: q.limit,
+  });
+  res.json({
+    data: data.map(item => ({
+      ...item,
+      externalRef: item.externalRef ? "[ready]" : null,
+    })),
+  });
+});
+
+router.post("/device-hub/camera-exports/:exportId/decision", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const request = await prisma.cameraExportRequest.findFirst({
+    where: { id: cuid.parse(req.params.exportId), organizationId: req.auth!.organizationId },
+    include: { camera: true },
+  });
+  if (!request) throw new AppError(404, "CAMERA_EXPORT_NOT_FOUND", "Camera export request not found");
+  assertErpBranchAccess(scope, request.camera.branchId);
+  if (request.status !== CameraExportStatus.PENDING_APPROVAL) {
+    throw new AppError(409, "CAMERA_EXPORT_DECISION_LOCKED", "Camera export request has already been processed");
+  }
+  if (request.requestedById === req.auth!.userId) {
+    throw new AppError(403, "CAMERA_EXPORT_SELF_APPROVAL_FORBIDDEN", "Video export requires a different authorized approver");
+  }
+  const body = z.object({
+    decision: z.enum(["APPROVE","REJECT"]),
+    reason: z.string().trim().min(3).max(5000).optional(),
+  }).parse(req.body);
+  if (body.decision === "REJECT" && !body.reason) throw new AppError(422, "CAMERA_EXPORT_REJECTION_REASON_REQUIRED", "Rejected export requires a reason");
+  const now = new Date();
+
+  if (body.decision === "REJECT") {
+    const data = await prisma.$transaction(async tx => {
+      const updated = await tx.cameraExportRequest.update({
+        where: { id: request.id },
+        data: {
+          status: CameraExportStatus.REJECTED,
+          rejectedById: req.auth!.userId,
+          rejectedAt: now,
+          rejectionReason: body.reason,
+        },
+      });
+      await tx.cameraAccessAudit.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          cameraId: request.cameraId,
+          userId: req.auth!.userId,
+          action: CameraAccessAction.EXPORT_APPROVE,
+          exportRequestId: request.id,
+          metadata: profileJson({ decision: "REJECT", reason: body.reason }),
+        },
+      });
+      return updated;
+    });
+    return res.json({ data });
+  }
+
+  const data = await prisma.$transaction(async tx => {
+    const command = await tx.connectedDeviceCommand.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        deviceId: request.camera.deviceId,
+        commandType: "CAMERA_EXPORT_CLIP",
+        idempotencyKey: `camera-export:${request.id}`,
+        requestedById: req.auth!.userId,
+        payload: profileJson({
+          exportRequestId: request.id,
+          fromAt: request.fromAt.toISOString(),
+          toAt: request.toAt.toISOString(),
+          watermarkText: request.watermarkText,
+          nvrRef: request.camera.nvrRef,
+          channelRef: request.camera.channelRef,
+          recordingSecretRef: request.camera.recordingSecretRef,
+        }),
+      },
+    });
+    const updated = await tx.cameraExportRequest.update({
+      where: { id: request.id },
+      data: {
+        status: CameraExportStatus.PROCESSING,
+        approvedById: req.auth!.userId,
+        approvedAt: now,
+        commandId: command.id,
+      },
+    });
+    await tx.cameraAccessAudit.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        cameraId: request.cameraId,
+        userId: req.auth!.userId,
+        action: CameraAccessAction.EXPORT_APPROVE,
+        exportRequestId: request.id,
+        metadata: profileJson({ decision: "APPROVE", commandId: command.id }),
+      },
+    });
+    return updated;
+  });
+  res.status(202).json({ data });
+});
+
+async function reconcileCameraExport(exportId: string, organizationId: string) {
+  const request = await prisma.cameraExportRequest.findFirst({
+    where: { id: exportId, organizationId },
+    include: { camera: { select: { branchId: true } } },
+  });
+  if (!request) return null;
+  if (request.status !== CameraExportStatus.PROCESSING || !request.commandId) return request;
+  const command = await prisma.connectedDeviceCommand.findFirst({
+    where: { id: request.commandId, organizationId },
+    select: { status: true, result: true, errorCode: true, errorMessage: true },
+  });
+  if (!command) return request;
+  if (command.status === ConnectedDeviceCommandStatus.FAILED) {
+    return prisma.cameraExportRequest.update({
+      where: { id: request.id },
+      data: {
+        status: CameraExportStatus.FAILED,
+        errorCode: command.errorCode ?? "CAMERA_EXPORT_FAILED",
+        errorMessage: command.errorMessage ?? "Camera export command failed",
+      },
+      include: { camera: { select: { branchId: true } } },
+    });
+  }
+  if (command.status !== ConnectedDeviceCommandStatus.ACKNOWLEDGED) return request;
+  const media = safeMediaResult(command.result);
+  if (!media.downloadUrl) {
+    return prisma.cameraExportRequest.update({
+      where: { id: request.id },
+      data: {
+        status: CameraExportStatus.FAILED,
+        errorCode: "CAMERA_EXPORT_RESULT_INVALID",
+        errorMessage: "Edge adapter did not return an approved HTTPS download URL",
+      },
+      include: { camera: { select: { branchId: true } } },
+    });
+  }
+  const externalExpiry = media.expiresAt ? new Date(media.expiresAt) : null;
+  const expiresAt = externalExpiry && Number.isFinite(externalExpiry.getTime()) && externalExpiry > new Date()
+    ? externalExpiry
+    : new Date(Date.now() + 15 * 60_000);
+  return prisma.cameraExportRequest.update({
+    where: { id: request.id },
+    data: {
+      status: CameraExportStatus.READY,
+      externalRef: media.downloadUrl,
+      expiresAt,
+      errorCode: null,
+      errorMessage: null,
+    },
+    include: { camera: { select: { branchId: true } } },
+  });
+}
+
+router.get("/device-hub/camera-exports/:exportId", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const request = await reconcileCameraExport(cuid.parse(req.params.exportId), req.auth!.organizationId);
+  if (!request) throw new AppError(404, "CAMERA_EXPORT_NOT_FOUND", "Camera export request not found");
+  assertErpBranchAccess(scope, request.camera.branchId);
+  res.json({
+    data: {
+      ...request,
+      externalRef: request.externalRef ? "[ready]" : null,
+    },
+  });
+});
+
+router.get("/device-hub/camera-exports/:exportId/download", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const request = await reconcileCameraExport(cuid.parse(req.params.exportId), req.auth!.organizationId);
+  if (!request) throw new AppError(404, "CAMERA_EXPORT_NOT_FOUND", "Camera export request not found");
+  assertErpBranchAccess(scope, request.camera.branchId);
+  if (request.status !== CameraExportStatus.READY || !request.externalRef) {
+    throw new AppError(409, "CAMERA_EXPORT_NOT_READY", "Camera export is not ready for download");
+  }
+  if (request.expiresAt && request.expiresAt <= new Date()) {
+    await prisma.cameraExportRequest.update({ where: { id: request.id }, data: { status: CameraExportStatus.EXPIRED, externalRef: null } });
+    throw new AppError(410, "CAMERA_EXPORT_EXPIRED", "Camera export download has expired");
+  }
+  const safe = safeMediaResult({ downloadUrl: request.externalRef });
+  if (!safe.downloadUrl) throw new AppError(502, "CAMERA_EXPORT_URL_INVALID", "Camera export URL is not an approved HTTPS endpoint");
+  await prisma.cameraAccessAudit.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      cameraId: request.cameraId,
+      userId: req.auth!.userId,
+      action: CameraAccessAction.EXPORT_DOWNLOAD,
+      exportRequestId: request.id,
+      metadata: profileJson({ expiresAt: request.expiresAt?.toISOString() ?? null }),
+    },
+  });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ data: { url: safe.downloadUrl, expiresAt: request.expiresAt, watermarkText: request.watermarkText } });
+});
+
 router.get("/device-hub/cameras/:cameraId/access-audit", async (req: AuthRequest, res) => {
   const camera = await scopedCamera(req, cuid.parse(req.params.cameraId));
   const q = z.object({ limit: z.coerce.number().int().min(1).max(1000).default(200) }).parse(req.query);
