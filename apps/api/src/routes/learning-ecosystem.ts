@@ -511,8 +511,30 @@ router.delete("/learning/tests/:id", managers, async (req: AuthRequest, res) => 
   res.status(204).send();
 });
 
+function assessmentDeliveryProviderKeys() {
+  return [
+    process.env.ASSESSMENT_LOCKDOWN_PROVIDER_KEY,
+    process.env.ASSESSMENT_PROCTORING_PROVIDER_KEY,
+  ].filter((value): value is string => Boolean(value?.trim())).map(value => value.trim());
+}
+
+function assertLearningTestClientBinding(
+  configured: boolean,
+  policy: ReturnType<typeof resolveLearningTestDeliveryPolicy>["policy"],
+  boundClientInstanceId: string | null,
+  requestedClientInstanceId?: string | null,
+) {
+  if (!configured || !policy.bindClientInstance) return;
+  if (!boundClientInstanceId || !requestedClientInstanceId || boundClientInstanceId !== requestedClientInstanceId) {
+    throw new AppError(409, "TEST_CLIENT_INSTANCE_MISMATCH", "This secured attempt is bound to a different client instance");
+  }
+}
+
+const learningTestClientInstance = z.string().trim().min(8).max(160).regex(/^[A-Za-z0-9._:-]+$/);
+
 router.post("/learning/tests/:id/start", allow(Role.STUDENT), async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
+  const startInput = z.object({ clientInstanceId: learningTestClientInstance.optional() }).parse(req.body ?? {});
   const test = await prisma.learningTest.findFirst({ where: { id: String(req.params.id), organizationId: req.auth!.organizationId, status: LearningStatus.PUBLISHED }, include: { questions: { include: { question: { select: { id: true, code: true, type: true, body: true, options: true, marks: true } } }, orderBy: { position: "asc" } } } });
 
   if (!test) throw new AppError(404, "TEST_NOT_AVAILABLE", "Test is not available");
@@ -524,12 +546,254 @@ router.post("/learning/tests/:id/start", allow(Role.STUDENT), async (req: AuthRe
     const enrollment = batch ? await resolveHistoricalAcademicEnrollment(prisma, { organizationId: req.auth!.organizationId, studentId: learner.profileId, branchId: batch.branchId, courseId: batch.courseId, batchId: test.batchId, academicSessionId: batch.academicSessionId, onDate: testDate, mode: "CURRENT_OR_NEW_WRITE" }) : null;
     if (!enrollment) throw learningDenied();
   } else if (test.courseId !== learner.courseId) throw learningDenied();
+
   const now = new Date();
-  if (test.startsAt && test.startsAt > now || test.endsAt && test.endsAt < now) throw new AppError(409, "TEST_OUTSIDE_WINDOW", "Test is outside its availability window");
-  const active = await prisma.learningTestAttempt.findFirst({ where: { testId: test.id, studentId: actor.userId, status: LearningAttemptStatus.IN_PROGRESS } });
-  const attempt = active ?? await prisma.learningTestAttempt.create({ data: { testId: test.id, studentId: actor.userId, expiresAt: new Date(Date.now() + test.durationMinutes * 60000), unansweredCount: test.questions.length } });
-  const deliveryTest = { ...test, questions: test.questions.map(row => ({ ...row, question: studentQuestionFromSnapshot(row) })) };
-  res.status(active ? 200 : 201).json({ data: { attempt, test: deliveryTest } });
+  const currentDelivery = resolveLearningTestDeliveryForStudent(test.deliveryPolicy, actor.userId);
+  const availability = learningTestAvailability({
+    testStartsAt: test.startsAt,
+    testEndsAt: test.endsAt,
+    accommodation: currentDelivery.accommodation,
+    now,
+  });
+  if (!availability.open) throw new AppError(409, "TEST_OUTSIDE_WINDOW", "Test is outside its availability window");
+
+  let attempt = await prisma.learningTestAttempt.findFirst({
+    where: {
+      organizationId: req.auth!.organizationId,
+      testId: test.id,
+      studentId: actor.userId,
+      status: LearningAttemptStatus.IN_PROGRESS,
+    },
+    orderBy: { startedAt: "desc" },
+  });
+  let deliveryConfigured = currentDelivery.configured;
+  let deliveryPolicy = currentDelivery.policy;
+  let accommodation = currentDelivery.accommodation;
+  let resumed = false;
+
+  if (attempt) {
+    if (attempt.expiresAt < now) throw new AppError(409, "ATTEMPT_EXPIRED", "Time has expired; submit the attempt before starting another");
+    const frozen = resolveLearningTestDeliveryPolicy(attempt.deliveryPolicySnapshot);
+    deliveryConfigured = frozen.configured;
+    deliveryPolicy = frozen.policy;
+    accommodation = attempt.accommodationSnapshot as typeof currentDelivery.accommodation;
+
+    const adapterState = learningTestAdapterReadiness(deliveryPolicy, assessmentDeliveryProviderKeys());
+    if (!adapterState.ready) {
+      throw new AppError(503, "TEST_SECURITY_ADAPTER_UNAVAILABLE", `Required assessment security adapter is unavailable: ${adapterState.blockers.join(", ")}`);
+    }
+    const resume = learningTestResumeDecision({
+      configured: deliveryConfigured,
+      policy: deliveryPolicy,
+      resumeCount: attempt.resumeCount,
+      boundClientInstanceId: attempt.clientInstanceId,
+      requestedClientInstanceId: startInput.clientInstanceId,
+      offlineLeaseUntil: attempt.offlineLeaseUntil,
+      now,
+    });
+    if (!resume.allowed) throw new AppError(409, `TEST_RESUME_${resume.reason}`, "This secured attempt cannot be resumed under the configured delivery policy");
+
+    if (deliveryConfigured) {
+      const lease = learningTestOfflineLease({ now, policy: deliveryPolicy });
+      attempt = await prisma.$transaction(async tx => {
+        const updated = await tx.learningTestAttempt.update({
+          where: { id: attempt!.id },
+          data: {
+            resumeCount: { increment: 1 },
+            lastResumedAt: now,
+            lastHeartbeatAt: now,
+            offlineLeaseUntil: lease,
+          },
+        });
+        await tx.learningTestIntegrityEvent.create({
+          data: {
+            organizationId: req.auth!.organizationId,
+            attemptId: updated.id,
+            type: "ATTEMPT_RESUMED",
+            details: { resumeCount: updated.resumeCount },
+            occurredAt: now,
+          },
+        });
+        return updated;
+      });
+      resumed = true;
+    }
+  } else {
+    const adapterState = learningTestAdapterReadiness(deliveryPolicy, assessmentDeliveryProviderKeys());
+    if (!adapterState.ready) {
+      throw new AppError(503, "TEST_SECURITY_ADAPTER_UNAVAILABLE", `Required assessment security adapter is unavailable: ${adapterState.blockers.join(", ")}`);
+    }
+    if (deliveryConfigured && deliveryPolicy.bindClientInstance && !startInput.clientInstanceId) {
+      throw new AppError(422, "TEST_CLIENT_INSTANCE_REQUIRED", "This secured test requires a client instance identifier");
+    }
+    if (currentDelivery.maximumAttempts !== null) {
+      const used = await prisma.learningTestAttempt.count({
+        where: { organizationId: req.auth!.organizationId, testId: test.id, studentId: actor.userId },
+      });
+      if (used >= currentDelivery.maximumAttempts) {
+        throw new AppError(409, "TEST_ATTEMPT_LIMIT_REACHED", "The configured maximum number of attempts has been reached");
+      }
+    }
+
+    const seed = newLearningTestDeliverySeed();
+    const expiresAt = learningTestAttemptExpiry({
+      startedAt: now,
+      durationMinutes: test.durationMinutes,
+      accommodation,
+      hardClosesAt: deliveryConfigured ? (accommodation?.availableUntil ?? test.endsAt) : null,
+    });
+    const lease = deliveryConfigured ? learningTestOfflineLease({ now, policy: deliveryPolicy }) : null;
+    attempt = await prisma.$transaction(async tx => {
+      const created = await tx.learningTestAttempt.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          testId: test.id,
+          studentId: actor.userId,
+          startedAt: now,
+          expiresAt,
+          unansweredCount: test.questions.length,
+          deliverySeed: seed,
+          ...(deliveryConfigured ? {
+            deliveryPolicySnapshot: questionJson(deliveryPolicy),
+            accommodationSnapshot: accommodation ? questionJson(accommodation) : undefined,
+            clientInstanceId: deliveryPolicy.bindClientInstance ? startInput.clientInstanceId : undefined,
+            lastHeartbeatAt: now,
+            offlineLeaseUntil: lease,
+          } : {}),
+        },
+      });
+      if (deliveryConfigured) {
+        await tx.learningTestIntegrityEvent.create({
+          data: {
+            organizationId: req.auth!.organizationId,
+            attemptId: created.id,
+            type: "ATTEMPT_STARTED",
+            details: {
+              secured: true,
+              clientBound: deliveryPolicy.bindClientInstance,
+              shuffleQuestions: deliveryPolicy.shuffleQuestions,
+              shuffleOptions: deliveryPolicy.shuffleOptions,
+              lockdownRequired: deliveryPolicy.lockdown.required,
+              proctoringRequired: deliveryPolicy.proctoring.required,
+            },
+            occurredAt: now,
+          },
+        });
+      }
+      return created;
+    });
+  }
+
+  const hydrated = test.questions.map(row => ({ ...row, question: studentQuestionFromSnapshot(row) }));
+  const prepared = prepareLearningTestDelivery({
+    questions: hydrated,
+    seed: attempt.deliverySeed ?? attempt.id,
+    policy: deliveryPolicy,
+  });
+  const { deliveryPolicy: _privateDeliveryPolicy, ...safeTest } = test;
+  const {
+    deliverySeed: _deliverySeed,
+    deliveryPolicySnapshot: _deliveryPolicySnapshot,
+    accommodationSnapshot: _accommodationSnapshot,
+    clientInstanceId: _clientInstanceId,
+    ...safeAttempt
+  } = attempt;
+
+  res.status(resumed || attempt.createdAt < now ? 200 : 201).json({
+    data: {
+      attempt: safeAttempt,
+      test: { ...safeTest, questions: prepared.questions },
+      delivery: {
+        configured: deliveryConfigured,
+        resumed,
+        resumeCount: attempt.resumeCount,
+        expiresAt: attempt.expiresAt,
+        heartbeatIntervalSeconds: deliveryConfigured ? deliveryPolicy.heartbeatIntervalSeconds : null,
+        offlineGraceSeconds: deliveryConfigured ? deliveryPolicy.offlineGraceSeconds : null,
+        offlineLeaseUntil: deliveryConfigured ? attempt.offlineLeaseUntil : null,
+        clientBound: deliveryConfigured && deliveryPolicy.bindClientInstance,
+        shuffleQuestions: deliveryConfigured && deliveryPolicy.shuffleQuestions,
+        shuffleOptions: deliveryConfigured && deliveryPolicy.shuffleOptions,
+        optionShuffleSkippedQuestionIds: prepared.optionShuffleSkippedQuestionIds,
+        lockdown: { required: deliveryConfigured && deliveryPolicy.lockdown.required },
+        proctoring: { required: deliveryConfigured && deliveryPolicy.proctoring.required },
+        accommodation: accommodation ? {
+          extraTimeMinutes: accommodation.extraTimeMinutes,
+          locale: accommodation.locale ?? null,
+          accessibility: accommodation.accessibility,
+        } : null,
+      },
+    },
+  });
+});
+
+const integritySignalSchema = z.object({
+  type: z.enum([
+    "FULLSCREEN_EXIT",
+    "VISIBILITY_HIDDEN",
+    "NETWORK_OFFLINE",
+    "NETWORK_ONLINE",
+    "CLIENT_RESTART",
+    "LOCKDOWN_SIGNAL",
+    "PROCTORING_SIGNAL",
+  ]),
+  details: z.record(z.string(), z.unknown()).optional(),
+  occurredAt: z.coerce.date().optional(),
+});
+
+router.post("/learning/attempts/:id/heartbeat", allow(Role.STUDENT), async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const body = z.object({
+    clientInstanceId: learningTestClientInstance.optional(),
+    signals: z.array(integritySignalSchema).max(20).default([]),
+  }).parse(req.body ?? {});
+  const attempt = await prisma.learningTestAttempt.findFirst({
+    where: { id: String(req.params.id), organizationId: req.auth!.organizationId, studentId: actor.userId },
+    include: { test: { select: { organizationId: true } } },
+  });
+  if (!attempt || attempt.status !== LearningAttemptStatus.IN_PROGRESS) throw new AppError(409, "ATTEMPT_NOT_ACTIVE", "Attempt is not active");
+  if (attempt.expiresAt < new Date()) throw new AppError(409, "ATTEMPT_EXPIRED", "Time has expired; submit the attempt");
+
+  const frozen = resolveLearningTestDeliveryPolicy(attempt.deliveryPolicySnapshot);
+  assertLearningTestClientBinding(frozen.configured, frozen.policy, attempt.clientInstanceId, body.clientInstanceId);
+  if (!frozen.configured) return res.json({ data: { secured: false, offlineLeaseUntil: null } });
+
+  const now = new Date();
+  const leaseExpired = Boolean(attempt.offlineLeaseUntil && attempt.offlineLeaseUntil < now);
+  const offlineLeaseUntil = learningTestOfflineLease({ now, policy: frozen.policy });
+  const updated = await prisma.$transaction(async tx => {
+    const row = await tx.learningTestAttempt.update({
+      where: { id: attempt.id },
+      data: { lastHeartbeatAt: now, offlineLeaseUntil },
+    });
+    if (leaseExpired) {
+      await tx.learningTestIntegrityEvent.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          attemptId: attempt.id,
+          type: "OFFLINE_LEASE_RECOVERED",
+          severity: "WARN",
+          details: { previousLeaseUntil: attempt.offlineLeaseUntil?.toISOString() ?? null },
+          occurredAt: now,
+        },
+      });
+    }
+    if (body.signals.length) {
+      await tx.learningTestIntegrityEvent.createMany({
+        data: body.signals.map(signal => ({
+          organizationId: req.auth!.organizationId,
+          attemptId: attempt.id,
+          type: signal.type,
+          severity: ["FULLSCREEN_EXIT", "VISIBILITY_HIDDEN", "NETWORK_OFFLINE", "CLIENT_RESTART"].includes(signal.type) ? "WARN" : "INFO",
+          ...(signal.details ? { details: questionJson(signal.details) } : {}),
+          occurredAt: signal.occurredAt ?? now,
+        })),
+      });
+    }
+    return row;
+  });
+
+  res.json({ data: { secured: true, lastHeartbeatAt: updated.lastHeartbeatAt, offlineLeaseUntil: updated.offlineLeaseUntil } });
 });
 
 router.put("/learning/attempts/:id/answers/:questionId", allow(Role.STUDENT), async (req: AuthRequest, res) => {
@@ -539,10 +803,13 @@ router.put("/learning/attempts/:id/answers/:questionId", allow(Role.STUDENT), as
   if (attempt.test.organizationId !== req.auth!.organizationId) throw learningDenied();
   if (attempt.expiresAt < new Date()) throw new AppError(409, "ATTEMPT_EXPIRED", "Time has expired; submit the attempt");
   const questionId = String(req.params.questionId);
-  const attached = await prisma.learningTestQuestion.findFirst({ where: { testId: attempt.testId, questionId }, select: { questionId: true } });
+  const attached = await prisma.learningTestQuestion.findFirst({ where: { organizationId: req.auth!.organizationId, testId: attempt.testId, questionId }, select: { questionId: true } });
   if (!attached) throw new AppError(404, "TEST_QUESTION_NOT_FOUND", "Question is not part of this test");
-  const d = z.object({ answer: z.unknown().optional(), markedForReview: z.boolean().default(false), bookmarked: z.boolean().default(false), timeSpentSeconds: z.number().int().min(0).max(86400).default(0) }).parse(req.body);
-  const row = await prisma.learningTestAnswer.upsert({ where: { attemptId_questionId: { attemptId: attempt.id, questionId } }, update: { ...d, answer: d.answer as object | undefined }, create: { attemptId: attempt.id, questionId, ...d, answer: d.answer as object | undefined } });
+  const d = z.object({ answer: z.unknown().optional(), markedForReview: z.boolean().default(false), bookmarked: z.boolean().default(false), timeSpentSeconds: z.number().int().min(0).max(86400).default(0), clientInstanceId: learningTestClientInstance.optional() }).parse(req.body);
+  const frozen = resolveLearningTestDeliveryPolicy(attempt.deliveryPolicySnapshot);
+  assertLearningTestClientBinding(frozen.configured, frozen.policy, attempt.clientInstanceId, d.clientInstanceId);
+  const { clientInstanceId: _clientInstanceId, ...answerData } = d;
+  const row = await prisma.learningTestAnswer.upsert({ where: { attemptId_questionId: { attemptId: attempt.id, questionId } }, update: { ...answerData, answer: answerData.answer as object | undefined }, create: { organizationId: req.auth!.organizationId, attemptId: attempt.id, questionId, ...answerData, answer: answerData.answer as object | undefined } });
   res.json({ data: row });
 });
 async function finalizeAttempt(attemptId: string, actor: LearningActor, organizationId: string) { const attempt = await prisma.learningTestAttempt.findFirst({ where: { id: attemptId, organizationId, studentId: actor.userId }, include: { test: { include: { questions: { include: { question: true } } } }, answers: true } }); if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found"); if (attempt.status !== LearningAttemptStatus.IN_PROGRESS) return attempt; const answers = new Map(attempt.answers.map(x => [x.questionId, x])), normalized = (v: unknown) => JSON.stringify(v, Object.keys((v && typeof v === "object" && !Array.isArray(v) ? v as object : {}) as object).sort()); let score = 0, correct = 0, incorrect = 0, unanswered = 0, seconds = 0; const updates = []; for (const tq of attempt.test.questions) { const answer = answers.get(tq.questionId); seconds += answer?.timeSpentSeconds ?? 0; if (!answer || answer.answer == null) { unanswered++; continue; } const ok = normalized(answer.answer) === normalized(correctAnswerForTestQuestion(tq)); const marks = ok ? Number(tq.marks) : -Number(tq.negativeMarks); score += marks; ok ? correct++ : incorrect++; updates.push(prisma.learningTestAnswer.update({ where: { id: answer.id }, data: { isCorrect: ok, awardedMarks: marks } })); } const pct = Math.max(0, Number(attempt.test.maximumMarks) ? score / Number(attempt.test.maximumMarks) * 100 : 0); const better = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED, score: { gt: score } } }), total = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED } }), rank = better + 1, percentile = total ? Math.max(0, (total - better) / total * 100) : 100; const result = await prisma.$transaction([...updates, prisma.learningTestAttempt.update({ where: { id: attempt.id }, data: { status: LearningAttemptStatus.EVALUATED, submittedAt: new Date(), score, percentage: pct, percentile, rank, correctCount: correct, incorrectCount: incorrect, unansweredCount: unanswered, timeSpentSeconds: seconds } })]); await prisma.gamificationProfile.upsert({ where: { userId: actor.userId }, update: { xp: { increment: correct * 5 }, coins: { increment: correct } }, create: { userId: actor.userId, xp: correct * 5, coins: correct } }); return result[result.length - 1]; }
