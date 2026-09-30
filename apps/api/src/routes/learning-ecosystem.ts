@@ -803,7 +803,7 @@ router.put("/learning/attempts/:id/answers/:questionId", allow(Role.STUDENT), as
   if (attempt.test.organizationId !== req.auth!.organizationId) throw learningDenied();
   if (attempt.expiresAt < new Date()) throw new AppError(409, "ATTEMPT_EXPIRED", "Time has expired; submit the attempt");
   const questionId = String(req.params.questionId);
-  const attached = await prisma.learningTestQuestion.findFirst({ where: { organizationId: req.auth!.organizationId, testId: attempt.testId, questionId }, select: { questionId: true } });
+  const attached = await prisma.learningTestQuestion.findFirst({ where: { testId: attempt.testId, questionId, organizationId: req.auth!.organizationId }, select: { questionId: true } });
   if (!attached) throw new AppError(404, "TEST_QUESTION_NOT_FOUND", "Question is not part of this test");
   const d = z.object({ answer: z.unknown().optional(), markedForReview: z.boolean().default(false), bookmarked: z.boolean().default(false), timeSpentSeconds: z.number().int().min(0).max(86400).default(0), clientInstanceId: learningTestClientInstance.optional() }).parse(req.body);
   const frozen = resolveLearningTestDeliveryPolicy(attempt.deliveryPolicySnapshot);
