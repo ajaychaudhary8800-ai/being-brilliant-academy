@@ -76,7 +76,7 @@ test("Question and doubt scopes never grant students answer-bank or organization
 test("Question answer keys and direct-ID learning operations use protected paths", () => {
   assert.match(routeSource, /router\.get\("\/learning\/questions", managers/);
   assert.match(routeSource, /question: \{ select: \{ id: true, code: true, type: true, body: true, options: true, marks: true \} \}/);
-  assert.match(routeSource, /learningTestQuestion\.findFirst\(\{ where: \{ testId: attempt\.testId, questionId \}/);
+  assert.match(routeSource, /learningTestQuestion\.findFirst\(\{ where: \{ testId: attempt\.testId, questionId, organizationId: req\.auth!\.organizationId \}/);
   assert.match(routeSource, /learningQuestionWhere\(actor\)/);
   assert.match(routeSource, /learningResourceWhere\(actor\)/);
   assert.match(routeSource, /learningAttemptStudentWhere\(actor\)/);
