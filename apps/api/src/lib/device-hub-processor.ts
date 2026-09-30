@@ -622,10 +622,10 @@ async function processAccess(event: any, normalized: z.infer<typeof normalizedSc
   }
 
   const policy = accessPolicySchema.parse(accessPoint.policy ?? {});
-  let subjectType = CampusAccessSubjectType.UNKNOWN;
+  let subjectType: CampusAccessSubjectType = CampusAccessSubjectType.UNKNOWN;
   let subjectId: string | null = null;
   let reasonCode = "ACCESS_IDENTITY_UNKNOWN";
-  let decision = CampusAccessDecision.REVIEW;
+  let decision: CampusAccessDecision = CampusAccessDecision.REVIEW;
 
   const subject = normalized.subjectExternalId
     ? await systemPrisma.connectedDeviceBinding.findMany({
