@@ -2620,6 +2620,7 @@ model ExaminationAnswerSheet {
   evaluatedBy    User? @relation("AnswerSheetEvaluator", fields: [evaluatedById], references: [id], onDelete: Restrict)
   aiEvaluations  AIExaminerEvaluation[]
   benchmarkCases AIExaminerBenchmarkCase[]
+  scanBinding    AIExaminerScanBinding?
 
   @@unique([examinationId, studentId])
   @@index([organizationId, status, submittedAt])
