@@ -983,11 +983,22 @@ async function processVideo(event: any, normalized: z.infer<typeof normalizedSch
     ? normalized.metadata.confidence
     : Number(normalized.metadata.confidence);
   const confidence = Number.isFinite(confidenceRaw) && confidenceRaw >= 0 && confidenceRaw <= 1 ? confidenceRaw : null;
-  const severity = cameraSeverity(normalized.metadata.severity);
+  const configuredSeverity = cameraSeverity(normalized.metadata.severity);
+  const tamper = /TAMPER|CAMERA_COVERED|VIDEO_LOSS/i.test(event.eventType);
+  const severity = tamper && configuredSeverity === CameraIncidentSeverity.INFO
+    ? CameraIncidentSeverity.HIGH
+    : configuredSeverity;
   const titleRaw = typeof normalized.metadata.title === "string" ? normalized.metadata.title.trim() : "";
   const descriptionRaw = typeof normalized.metadata.description === "string" ? normalized.metadata.description.trim() : "";
   const clipExternalRef = typeof normalized.metadata.clipExternalRef === "string" ? normalized.metadata.clipExternalRef.trim() : null;
   const snapshotExternalRef = typeof normalized.metadata.snapshotExternalRef === "string" ? normalized.metadata.snapshotExternalRef.trim() : null;
+
+  if (tamper) {
+    await systemPrisma.campusCamera.update({
+      where: { id: camera.id },
+      data: { lastTamperAt: event.occurredAt },
+    });
+  }
 
   const incident = await systemPrisma.cameraIncident.upsert({
     where: { deviceEventId: event.id },
