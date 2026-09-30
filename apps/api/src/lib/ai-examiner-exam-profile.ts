@@ -41,6 +41,7 @@ export const aiExaminerExamProfileSchema = z.object({
   effectiveFrom: z.coerce.date().optional(),
   effectiveTo: z.coerce.date().optional(),
   institutionDefined: z.boolean().default(false),
+  highStakes: z.boolean().default(false),
   questionRules: z.array(questionRuleSchema).max(100).default([]),
   sections: z.array(sectionRuleSchema).max(50).default([]),
   metadata: z.record(z.string(), z.unknown()).default({}),
