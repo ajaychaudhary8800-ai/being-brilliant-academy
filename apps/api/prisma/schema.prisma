@@ -763,6 +763,35 @@ enum TransportGeofenceType {
   ROUTE_CORRIDOR
 }
 
+enum CampusVisitorType {
+  VISITOR
+  CONTRACTOR
+  VENDOR
+}
+
+enum CampusVisitorStatus {
+  PRE_REGISTERED
+  PENDING_APPROVAL
+  APPROVED
+  CHECKED_IN
+  CHECKED_OUT
+  DENIED
+  EXPIRED
+}
+
+enum PickupAuthorizationStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+  USED
+}
+
+enum PickupGateDecision {
+  APPROVED
+  DENIED
+  REVIEW
+}
+
 enum SafetyIncidentSeverity {
   LOW
   MEDIUM
@@ -1801,6 +1830,7 @@ model User {
   enquiryCommunications    EnquiryCommunication[]     @relation("EnquiryCommunicationCreator")
   issuedCertificates       Certificate[]              @relation("CertificateIssuer")
   parentChildren           ParentStudent[]            @relation("ParentLinks")
+  pickupAuthorizations    PickupAuthorization[]
   sentMessages             PortalMessage[]            @relation("MessageSender")
   receivedMessages         PortalMessage[]            @relation("MessageRecipient")
   leaveRequests            LeaveRequest[] @relation("LeaveRequestSubject")
@@ -2411,6 +2441,7 @@ model StudentProfile {
   hostelAllocations    HostelAllocation[]
   hostelAttendances    HostelAttendance[]
   hostelGatePasses     HostelGatePass[]
+  pickupAuthorizations PickupAuthorization[]
   academicEnrollments  StudentAcademicEnrollment[]
   academicTransitions  StudentAcademicTransition[]
 
@@ -5530,6 +5561,89 @@ model GstConfiguration {
 
   @@unique([branchId, effectiveFrom])
   @@index([organizationId])
+}
+
+model CampusVisitor {
+  organizationId String
+  id             String              @id @default(cuid())
+  branchId       String
+  type           CampusVisitorType
+  fullName       String
+  phone          String
+  email          String?
+  company        String?
+  hostUserId     String?
+  purpose        String              @db.Text
+  vehicleNumber  String?
+  idProofType    String?
+  idProofLast4   String?
+  status         CampusVisitorStatus @default(PENDING_APPROVAL)
+  badgeCode      String?
+  validFrom      DateTime?
+  validUntil     DateTime?
+  preRegisteredById String?
+  approvedById   String?
+  approvedAt     DateTime?
+  checkedInAt    DateTime?
+  checkedOutAt   DateTime?
+  deniedById     String?
+  deniedAt       DateTime?
+  denialReason   String?             @db.Text
+  metadata       Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([organizationId, badgeCode])
+  @@index([organizationId, branchId, status, validFrom])
+  @@index([organizationId, hostUserId, status])
+  @@index([organizationId, phone, createdAt])
+}
+
+model PickupAuthorization {
+  organizationId String
+  id             String                    @id @default(cuid())
+  parentId       String
+  studentId      String
+  guardianName   String
+  guardianPhone  String
+  relationship   String
+  validFrom      DateTime
+  validUntil     DateTime
+  status         PickupAuthorizationStatus @default(ACTIVE)
+  qrTokenHash    String?                   @unique
+  otpHash        String?
+  useLimit       Int                       @default(1)
+  usedCount      Int                       @default(0)
+  createdById    String
+  revokedById    String?
+  revokedAt      DateTime?
+  notes          String?                   @db.Text
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  parent         User                      @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  student        StudentProfile            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  gateEvents     PickupGateEvent[]
+
+  @@index([organizationId, studentId, status, validUntil])
+  @@index([organizationId, parentId, status, validUntil])
+}
+
+model PickupGateEvent {
+  organizationId  String
+  id              String              @id @default(cuid())
+  authorizationId String
+  branchId        String
+  accessPointId   String?
+  decision        PickupGateDecision
+  reasonCode      String
+  processedById   String?
+  occurredAt      DateTime            @default(now())
+  metadata        Json?
+  authorization   PickupAuthorization @relation(fields: [authorizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, branchId, occurredAt])
+  @@index([organizationId, authorizationId, occurredAt])
+  @@index([organizationId, decision, occurredAt])
 }
 
 model SafetyIncident {
