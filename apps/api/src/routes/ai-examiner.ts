@@ -1390,7 +1390,7 @@ router.post("/examinations/:examinationId/scan-batches", async (req: AuthRequest
       include: { answerSheet: { select: { id: true, examinationId: true, finalizedAt: true } } },
     });
 
-    let batchPageStatus = AIExaminerScanBatchPageStatus.REJECTED;
+    let batchPageStatus: AIExaminerScanBatchPageStatus = AIExaminerScanBatchPageStatus.REJECTED;
     let issueCodes: string[] = [];
     let routedScanPageId: string | null = null;
 
