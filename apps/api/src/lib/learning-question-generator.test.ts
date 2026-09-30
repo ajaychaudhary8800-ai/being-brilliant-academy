@@ -60,9 +60,7 @@ test("question generator parser rejects malformed MCQ and MSQ structures", () =>
 });
 
 test("question generator parser handles fenced JSON but rejects non-JSON prose", () => {
-  const rows = parseGeneratedLearningQuestions(````json
-{"questions":[{"type":"TRUE_FALSE","body":"Momentum is a vector quantity.","correctAnswer":true,"solution":"Momentum has magnitude and direction.","difficulty":"EASY"}]}
-````, [QuestionType.TRUE_FALSE]);
+  const rows = parseGeneratedLearningQuestions("```json\n{\"questions\":[{\"type\":\"TRUE_FALSE\",\"body\":\"Momentum is a vector quantity.\",\"correctAnswer\":true,\"solution\":\"Momentum has magnitude and direction.\",\"difficulty\":\"EASY\"}]}\n```", [QuestionType.TRUE_FALSE]);
   assert.equal(rows[0]?.type, QuestionType.TRUE_FALSE);
   assert.throws(() => parseGeneratedLearningQuestions("Here are your questions...", [QuestionType.MCQ]));
 });
