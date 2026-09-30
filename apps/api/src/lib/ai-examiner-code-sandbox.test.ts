@@ -93,7 +93,7 @@ test("runner omissions force review even when the execution status says complete
       tests: [{ key: "visible-1", status: "PASS" }],
     },
   });
-  assert.equal(verification.executionAccepted, true);
+  assert.equal(verification.executionAccepted, false);
   assert.equal(verification.reviewRequired, true);
   assert.equal(verification.checks.find(row => row.criterion === "Test hidden-1")?.status, "REVIEW");
 });
