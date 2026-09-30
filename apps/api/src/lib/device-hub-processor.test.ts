@@ -51,10 +51,12 @@ test("expected device mapping failures are persisted as rejected events instead 
   assert.match(source, /processedAt: new Date\(\)/);
 });
 
-test("unsupported normalized categories remain pending for future adapters", async () => {
+test("supported VIDEO events are processed while unsupported SENSOR/GENERIC categories remain pending", async () => {
   const source = await readFile(new URL("./device-hub-processor.ts", import.meta.url), "utf8");
+  assert.match(source, /category === "VIDEO"\) result = await processVideo/);
   assert.match(source, /pendingAdapter: parsed\.data\.category/);
-  assert.doesNotMatch(source, /category === "VIDEO"\) result = await/);
+  assert.doesNotMatch(source, /category === "SENSOR"\) result = await/);
+  assert.doesNotMatch(source, /category === "GENERIC"\) result = await/);
 });
 
 test("transport GPS schema carries a unique source Device Hub event key", async () => {
