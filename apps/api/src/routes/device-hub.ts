@@ -17,6 +17,7 @@ import {
   normalizeConnectedDeviceEvent,
   verifyConnectedDeviceIngestToken,
 } from "../lib/device-hub.js";
+import { processConnectedDeviceEvent } from "../lib/device-hub-processor.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import {
@@ -107,7 +108,8 @@ router.post("/device-hub/ingest/:deviceId", async (req, res) => {
       });
       return created;
     });
-    res.status(202).json({ data: event, meta: { duplicate: false, normalized: true } });
+    const processing = await processConnectedDeviceEvent(event.id);
+    res.status(202).json({ data: { ...event, status: processing.status }, meta: { duplicate: false, normalized: true, processing } });
   } catch (error: any) {
     if (error?.code === "P2002") {
       const existing = await prisma.connectedDeviceEvent.findFirst({
@@ -120,7 +122,10 @@ router.post("/device-hub/ingest/:deviceId", async (req, res) => {
         },
         select: { id: true, deviceId: true, eventType: true, occurredAt: true, status: true, receivedAt: true },
       });
-      if (existing) return res.status(200).json({ data: existing, meta: { duplicate: true, normalized: true } });
+      if (existing) {
+        const processing = await processConnectedDeviceEvent(existing.id);
+        return res.status(200).json({ data: { ...existing, status: processing.status }, meta: { duplicate: true, normalized: true, processing } });
+      }
     }
     await prisma.connectedDevice.update({
       where: { id: device.id },
