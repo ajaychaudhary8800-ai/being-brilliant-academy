@@ -799,6 +799,47 @@ enum SafetyIncidentSeverity {
   CRITICAL
 }
 
+enum SafetyTaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum SafetyDrillStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum SafetyAccountabilityStatus {
+  UNKNOWN
+  SAFE
+  MISSING
+  EVACUATED
+  REUNIFIED
+}
+
+enum SafetySubjectType {
+  STUDENT
+  EMPLOYEE
+  VISITOR
+}
+
+enum SafetyBroadcastAudience {
+  ALL
+  PARENTS
+  STAFF
+  STUDENTS
+}
+
+enum SafetyAcknowledgementResponse {
+  ACKNOWLEDGED
+  SAFE
+  NEED_HELP
+}
+
 enum Role {
   SUPER_ADMIN
   BRANCH_ADMIN
@@ -5563,6 +5604,150 @@ model GstConfiguration {
   @@index([organizationId])
 }
 
+model CampusZone {
+  organizationId String
+  id             String   @id @default(cuid())
+  branchId       String
+  code           String
+  name           String
+  type           String
+  building       String?
+  floor          String?
+  capacity       Int?
+  geometry       Json?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, branchId, code])
+  @@index([organizationId, branchId, isActive])
+}
+
+model SafetyBroadcast {
+  organizationId         String
+  id                     String                  @id @default(cuid())
+  branchId               String
+  incidentId             String?
+  audience               SafetyBroadcastAudience
+  title                  String
+  message                String                  @db.Text
+  channels               String[]                @default(["IN_APP"])
+  requiresAcknowledgement Boolean                @default(true)
+  createdById            String
+  sentAt                 DateTime                @default(now())
+  expiresAt              DateTime?
+  createdAt              DateTime                @default(now())
+  incident               SafetyIncident?         @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  acknowledgements       SafetyBroadcastAcknowledgement[]
+
+  @@index([organizationId, branchId, sentAt])
+  @@index([organizationId, incidentId, sentAt])
+}
+
+model SafetyBroadcastAcknowledgement {
+  organizationId String
+  broadcastId    String
+  userId         String
+  response       SafetyAcknowledgementResponse @default(ACKNOWLEDGED)
+  message        String?                       @db.Text
+  acknowledgedAt DateTime                     @default(now())
+  broadcast      SafetyBroadcast               @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  @@id([broadcastId, userId])
+  @@index([organizationId, userId, acknowledgedAt])
+}
+
+model SafetyIncidentAcknowledgement {
+  organizationId String
+  incidentId     String
+  userId         String
+  response       SafetyAcknowledgementResponse @default(ACKNOWLEDGED)
+  message        String?                       @db.Text
+  acknowledgedAt DateTime                     @default(now())
+  incident       SafetyIncident                @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@id([incidentId, userId])
+  @@index([organizationId, userId, acknowledgedAt])
+}
+
+model SafetyTask {
+  organizationId String
+  id             String           @id @default(cuid())
+  incidentId     String
+  title          String
+  description    String?          @db.Text
+  status         SafetyTaskStatus @default(OPEN)
+  priority       SchoolEventSeverity @default(MEDIUM)
+  assignedToId   String?
+  dueAt          DateTime?
+  createdById    String
+  completedAt    DateTime?
+  completedById  String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  incident       SafetyIncident   @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, incidentId, status])
+  @@index([organizationId, assignedToId, status])
+}
+
+model SafetyDrill {
+  organizationId String
+  id             String            @id @default(cuid())
+  branchId       String
+  name           String
+  type           String
+  scenario       String?           @db.Text
+  status         SafetyDrillStatus @default(PLANNED)
+  scheduledAt    DateTime
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdById    String
+  notes          String?           @db.Text
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([organizationId, branchId, status, scheduledAt])
+}
+
+model SafetyAccountability {
+  organizationId String
+  id             String                     @id @default(cuid())
+  incidentId     String
+  subjectType    SafetySubjectType
+  subjectId      String
+  status         SafetyAccountabilityStatus @default(UNKNOWN)
+  zoneId         String?
+  lastSeenAt     DateTime?
+  recordedById   String?
+  notes          String?                    @db.Text
+  updatedAt      DateTime                   @updatedAt
+  incident       SafetyIncident             @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@unique([incidentId, subjectType, subjectId])
+  @@index([organizationId, incidentId, status])
+  @@index([organizationId, zoneId, status])
+}
+
+model SafetyReunificationRecord {
+  organizationId String
+  id             String         @id @default(cuid())
+  incidentId     String
+  studentId      String
+  authorizationId String?
+  guardianName   String
+  guardianPhone  String?
+  relationship   String?
+  verifiedById   String
+  releasedAt     DateTime       @default(now())
+  notes          String?        @db.Text
+  incident       SafetyIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@unique([incidentId, studentId])
+  @@index([organizationId, incidentId, releasedAt])
+  @@index([organizationId, studentId, releasedAt])
+}
+
 model CampusVisitor {
   organizationId String
   id             String              @id @default(cuid())
@@ -5672,6 +5857,11 @@ model SafetyIncident {
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
   updates          SafetyIncidentUpdate[]
+  broadcasts       SafetyBroadcast[]
+  acknowledgements SafetyIncidentAcknowledgement[]
+  tasks            SafetyTask[]
+  accountability   SafetyAccountability[]
+  reunifications   SafetyReunificationRecord[]
 
   @@unique([organizationId, code])
   @@index([organizationId, branchId, status, severity])
