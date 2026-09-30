@@ -5,6 +5,7 @@ import {
   AIExaminerProviderError,
   parseAIExaminerProviderText,
   validateAIExaminerResultAgainstRubric,
+  type AIExaminerProviderResult,
   type AIExaminerRubricQuestion,
 } from "./ai-examiner-engine.js";
 
@@ -13,7 +14,7 @@ const rubric: AIExaminerRubricQuestion[] = [
   { key: "Q2", maxMarks: 10, criteria: "Kirchhoff equations", concepts: ["Kirchhoff laws"], modelAnswer: "Use loop rules" },
 ];
 
-const valid = {
+const valid: AIExaminerProviderResult = {
   extractedText: "Q1 ... Q2 ...",
   overallFeedback: "Good attempt.",
   confidence: 0.91,
