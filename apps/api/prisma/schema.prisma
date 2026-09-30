@@ -2728,6 +2728,7 @@ model AIExaminerBenchmarkCase {
   sourceAnswerSheetId String?
   questionKey         String
   maxMarks            Decimal                   @db.Decimal(8, 2)
+  minimumMarks        Decimal                   @default(0) @db.Decimal(8, 2)
   humanMarks          Decimal                   @db.Decimal(8, 2)
   humanReviewerId     String
   goldNotes           String?                   @db.Text
