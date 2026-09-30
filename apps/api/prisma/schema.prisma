@@ -631,6 +631,8 @@ model Organization {
   aiExaminerReviewRounds   AIExaminerReviewRound[]
   aiExaminerReviewDecisions AIExaminerReviewDecision[]
   aiExaminerReviewArtifacts AIExaminerReviewArtifact[]
+  aiExaminerScanBindings AIExaminerScanBinding[]
+  aiExaminerScanPages AIExaminerScanPage[]
   feePlans               FeePlan[]
   studentFeeAssignments  StudentFeeAssignment[]
   feePaymentOffsets       FeePaymentOffset[]
@@ -1221,6 +1223,17 @@ enum AIExaminerReviewRoundStatus {
   CANCELLED
 }
 
+enum AIExaminerScanBindingStatus {
+  ACTIVE
+  LOCKED
+  CANCELLED
+}
+
+enum AIExaminerScanPageStatus {
+  ACCEPTED
+  REVIEW_REQUIRED
+}
+
 enum LmsContentStatus {
   DRAFT
   PUBLISHED
@@ -1582,6 +1595,8 @@ model User {
   aiExaminerReviewRoundsReviewed AIExaminerReviewRound[] @relation("AIExaminerReviewRoundReviewer")
   aiExaminerReviewRoundsAssigned AIExaminerReviewRound[] @relation("AIExaminerReviewRoundAssigner")
   aiExaminerReviewArtifactsUploaded AIExaminerReviewArtifact[] @relation("AIExaminerReviewArtifactUploader")
+  aiExaminerScanBindingsCreated AIExaminerScanBinding[] @relation("AIExaminerScanBindingCreator")
+  aiExaminerScanPagesIngested AIExaminerScanPage[] @relation("AIExaminerScanPageIngester")
   learningRecommendations  LearningRecommendation[]
   dailyLearningGoals       DailyLearningGoal[]
   teacherAllocationsCreated TeacherAllocation[] @relation("TeacherAllocationCreatedBy")
@@ -2721,6 +2736,51 @@ model AIExaminerQuestionEvaluation {
 
   @@unique([evaluationId, questionKey])
   @@index([organizationId, reviewRequired])
+}
+
+model AIExaminerScanBinding {
+  organizationId String                      @default("org_default")
+  id             String                      @id @default(cuid())
+  answerSheetId  String                      @unique
+  tokenHash      String                      @unique
+  status         AIExaminerScanBindingStatus @default(ACTIVE)
+  createdById    String
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  answerSheet    ExaminationAnswerSheet      @relation(fields: [answerSheetId], references: [id], onDelete: Cascade)
+  createdBy      User                        @relation("AIExaminerScanBindingCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  pages          AIExaminerScanPage[]
+
+  @@index([organizationId, status])
+  @@index([createdById])
+}
+
+model AIExaminerScanPage {
+  organizationId    String                   @default("org_default")
+  id                String                   @id @default(cuid())
+  bindingId         String
+  scanId            String
+  pageNumber        Int
+  totalPages        Int
+  scannerEngine     String
+  scannerVersion    String
+  barcodeConfidence Decimal                  @db.Decimal(5, 4)
+  imageQuality      Decimal                  @db.Decimal(5, 4)
+  status            AIExaminerScanPageStatus
+  payload           Json
+  validationResult  Json
+  ingestedById      String
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  organization      Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  binding           AIExaminerScanBinding    @relation(fields: [bindingId], references: [id], onDelete: Cascade)
+  ingestedBy        User                     @relation("AIExaminerScanPageIngester", fields: [ingestedById], references: [id], onDelete: Restrict)
+
+  @@unique([bindingId, pageNumber])
+  @@unique([organizationId, scanId])
+  @@index([organizationId, status, createdAt])
+  @@index([ingestedById])
 }
 
 model AIExaminerReviewArtifact {
