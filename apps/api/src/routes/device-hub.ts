@@ -1,4 +1,6 @@
 import {
+  CampusAccessDecision,
+  CampusAccessPointType,
   ConnectedDeviceBindingType,
   ConnectedDeviceKind,
   ConnectedDeviceProtocol,
@@ -152,6 +154,159 @@ const deviceInput = z.object({
   capabilities: z.array(z.string().trim().min(1).max(80)).max(100).default([]),
   config: z.record(z.string(), z.unknown()).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const accessPointInput = z.object({
+  branchId: cuid,
+  code: z.string().trim().min(2).max(80).regex(/^[A-Za-z0-9._-]+$/),
+  name: z.string().trim().min(2).max(180),
+  type: z.nativeEnum(CampusAccessPointType),
+  zone: z.string().trim().max(180).nullable().optional(),
+  deviceId: cuid.nullable().optional(),
+  entryDirection: z.enum(["IN","OUT"]).nullable().optional(),
+  isActive: z.boolean().default(true),
+  policy: z.object({
+    allowStudents: z.boolean().default(false),
+    allowEmployees: z.boolean().default(false),
+    requireDirection: z.boolean().default(true),
+    allowedDirections: z.array(z.enum(["IN","OUT"])).min(1).max(2).default(["IN","OUT"]),
+  }).default({ allowStudents: false, allowEmployees: false, requireDirection: true, allowedDirections: ["IN","OUT"] }),
+});
+
+router.get("/device-hub/access-points", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const data = await prisma.campusAccessPoint.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      ...(req.auth!.role === Role.SUPER_ADMIN ? {} : erpBranchWhere(scope)),
+    },
+    orderBy: [{ branchId: "asc" }, { name: "asc" }],
+  });
+  res.json({ data });
+});
+
+router.post("/device-hub/access-points", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const body = accessPointInput.parse(req.body);
+  await assertErpBranchTarget(scope, body.branchId);
+  if (body.deviceId) {
+    const device = await deviceForOrganization(req.auth!.organizationId, body.deviceId);
+    if (device.branchId && device.branchId !== body.branchId) {
+      throw new AppError(422, "ACCESS_POINT_DEVICE_BRANCH_MISMATCH", "Access point and connected device must belong to the same branch");
+    }
+    if (![ConnectedDeviceKind.ACCESS_CONTROL, ConnectedDeviceKind.RFID, ConnectedDeviceKind.BIOMETRIC].includes(device.kind)) {
+      throw new AppError(422, "ACCESS_POINT_DEVICE_KIND_INVALID", "Access points require an access-control, RFID, or biometric device");
+    }
+  }
+  try {
+    const data = await prisma.campusAccessPoint.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        branchId: body.branchId,
+        code: body.code.toUpperCase(),
+        name: body.name,
+        type: body.type,
+        zone: body.zone ?? null,
+        deviceId: body.deviceId ?? null,
+        entryDirection: body.entryDirection ?? null,
+        isActive: body.isActive,
+        policy: profileJson(body.policy),
+      },
+    });
+    res.status(201).json({ data });
+  } catch (error: any) {
+    if (error?.code === "P2002") throw new AppError(409, "ACCESS_POINT_EXISTS", "Access point code or device assignment already exists");
+    throw error;
+  }
+});
+
+router.patch("/device-hub/access-points/:accessPointId", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const accessPoint = await prisma.campusAccessPoint.findFirst({
+    where: { id: cuid.parse(req.params.accessPointId), organizationId: req.auth!.organizationId },
+  });
+  if (!accessPoint) throw new AppError(404, "ACCESS_POINT_NOT_FOUND", "Campus access point not found");
+  assertErpBranchAccess(scope, accessPoint.branchId);
+  const body = accessPointInput.partial().parse(req.body);
+  const targetBranchId = body.branchId ?? accessPoint.branchId;
+  await assertErpBranchTarget(scope, targetBranchId);
+  if (body.deviceId) {
+    const device = await deviceForOrganization(req.auth!.organizationId, body.deviceId);
+    if (device.branchId && device.branchId !== targetBranchId) {
+      throw new AppError(422, "ACCESS_POINT_DEVICE_BRANCH_MISMATCH", "Access point and connected device must belong to the same branch");
+    }
+  }
+  const data = await prisma.campusAccessPoint.update({
+    where: { id: accessPoint.id },
+    data: {
+      ...body,
+      code: body.code?.toUpperCase(),
+      policy: body.policy ? profileJson(body.policy) : undefined,
+    },
+  });
+  res.json({ data });
+});
+
+router.get("/device-hub/access-events", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const q = z.object({
+    decision: z.nativeEnum(CampusAccessDecision).optional(),
+    accessPointId: cuid.optional(),
+    since: z.coerce.date().optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+  }).parse(req.query);
+  const data = await prisma.campusAccessEvent.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      accessPoint: {
+        ...(req.auth!.role === Role.SUPER_ADMIN ? {} : erpBranchWhere(scope)),
+        ...(q.accessPointId ? { id: q.accessPointId } : {}),
+      },
+      ...(q.decision ? { decision: q.decision } : {}),
+      ...(q.since ? { occurredAt: { gte: q.since } } : {}),
+    },
+    include: { accessPoint: { select: { id: true, branchId: true, code: true, name: true, zone: true } } },
+    take: q.limit,
+    orderBy: { occurredAt: "desc" },
+  });
+  res.json({ data });
+});
+
+router.patch("/device-hub/access-events/:eventId/review", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const event = await prisma.campusAccessEvent.findFirst({
+    where: { id: cuid.parse(req.params.eventId), organizationId: req.auth!.organizationId },
+    include: { accessPoint: { select: { branchId: true } } },
+  });
+  if (!event) throw new AppError(404, "ACCESS_EVENT_NOT_FOUND", "Campus access event not found");
+  assertErpBranchAccess(scope, event.accessPoint.branchId);
+  const body = z.object({
+    decision: z.enum(["GRANTED","DENIED"]),
+    reviewNotes: z.string().trim().min(3).max(5000),
+  }).parse(req.body);
+  if (event.decision !== CampusAccessDecision.REVIEW && event.reviewedAt) {
+    throw new AppError(409, "ACCESS_EVENT_ALREADY_REVIEWED", "This access event has already been reviewed");
+  }
+  const data = await prisma.campusAccessEvent.update({
+    where: { id: event.id },
+    data: {
+      decision: body.decision,
+      reviewedById: req.auth!.userId,
+      reviewNotes: body.reviewNotes,
+      reviewedAt: new Date(),
+    },
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "CAMPUS_ACCESS_EVENT_REVIEWED",
+      entity: "CampusAccessEvent",
+      entityId: event.id,
+      metadata: { decision: body.decision },
+    },
+  });
+  res.json({ data });
 });
 
 router.get("/device-hub/devices", async (req: AuthRequest, res) => {
