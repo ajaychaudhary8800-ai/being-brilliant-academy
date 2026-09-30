@@ -13,7 +13,7 @@ const generatedQuestionSchema = z.object({
   learningOutcomes: z.array(z.string().trim().min(1).max(300)).max(10).default([]),
   expectedTimeSeconds: z.coerce.number().int().min(5).max(21600).optional(),
 }).superRefine((question, ctx) => {
-  if ([QuestionType.MCQ, QuestionType.MSQ].includes(question.type)) {
+  if (question.type === QuestionType.MCQ || question.type === QuestionType.MSQ) {
     if (!Array.isArray(question.options) || question.options.length < 2 || question.options.length > 10) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
