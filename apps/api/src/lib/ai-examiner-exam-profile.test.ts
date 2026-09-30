@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   parseAIExaminerExamProfile,
+  reviewDiscrepancyRequiresModeration,
   resolveAIExaminerMarkingRule,
 } from "./ai-examiner-exam-profile.js";
 
@@ -157,4 +158,97 @@ test("high-stakes behavior is explicit and never inferred from exam profile kind
     highStakes: true,
   });
   assert.equal(supervised.highStakes, true);
+});
+
+
+test("legacy exam profiles default to standard single-review governance", () => {
+  const profile = parseAIExaminerExamProfile({
+    code: "CBSE_DEFAULT",
+    name: "CBSE default",
+    kind: "CBSE",
+    version: "1",
+  });
+  assert.equal(profile.reviewPolicy.mode, "STANDARD");
+  assert.equal(profile.reviewPolicy.independentReviewers, 1);
+  assert.equal(profile.reviewPolicy.anonymizeStudentIdentity, false);
+});
+
+test("double-blind review enforces independent anonymous reviewers", () => {
+  const invalid = parseAIExaminerExamProfile;
+  assert.throws(() => invalid({
+    code: "HIGH_STAKES_BAD",
+    name: "High stakes bad",
+    kind: "INSTITUTION_DEFINED",
+    version: "1",
+    institutionDefined: true,
+    reviewPolicy: {
+      mode: "DOUBLE_BLIND",
+      independentReviewers: 1,
+      anonymizeStudentIdentity: false,
+      reviewersSeePriorMarks: true,
+    },
+  }));
+
+  const profile = parseAIExaminerExamProfile({
+    code: "HIGH_STAKES_GOOD",
+    name: "High stakes good",
+    kind: "INSTITUTION_DEFINED",
+    version: "1",
+    institutionDefined: true,
+    reviewPolicy: {
+      mode: "DOUBLE_BLIND",
+      independentReviewers: 2,
+      anonymizeStudentIdentity: true,
+      reviewersSeePriorMarks: false,
+      moderationRequired: false,
+      discrepancyThresholdMarks: 2,
+      discrepancyThresholdRatio: 0.05,
+    },
+  });
+  assert.equal(profile.reviewPolicy.mode, "DOUBLE_BLIND");
+  assert.equal(profile.reviewPolicy.independentReviewers, 2);
+});
+
+test("committee review requires at least three reviewers", () => {
+  assert.throws(() => parseAIExaminerExamProfile({
+    code: "COMMITTEE_BAD",
+    name: "Committee bad",
+    kind: "INSTITUTION_DEFINED",
+    version: "1",
+    institutionDefined: true,
+    reviewPolicy: {
+      mode: "COMMITTEE",
+      independentReviewers: 2,
+    },
+  }));
+});
+
+test("mark discrepancies trigger moderation using profile thresholds", () => {
+  const profile = parseAIExaminerExamProfile({
+    code: "MODERATION",
+    name: "Moderation profile",
+    kind: "INSTITUTION_DEFINED",
+    version: "1",
+    institutionDefined: true,
+    reviewPolicy: {
+      mode: "DOUBLE_BLIND",
+      independentReviewers: 2,
+      anonymizeStudentIdentity: true,
+      reviewersSeePriorMarks: false,
+      discrepancyThresholdMarks: 2,
+      discrepancyThresholdRatio: 0.05,
+    },
+  });
+
+  assert.equal(reviewDiscrepancyRequiresModeration({
+    policy: profile.reviewPolicy,
+    marks: [70, 71],
+    maximumMarks: 100,
+  }), false);
+
+  assert.equal(reviewDiscrepancyRequiresModeration({
+    policy: profile.reviewPolicy,
+    marks: [70, 73],
+    maximumMarks: 100,
+  }), true);
 });
