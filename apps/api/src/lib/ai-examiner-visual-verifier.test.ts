@@ -49,7 +49,7 @@ test("low confidence routes visual observations to review", () => {
       { key: "scale", status: "PRESENT", confidence: 0.95 },
     ],
   });
-  assert.equal(result.coverageRate, 1 / 3);
+  assert.equal(result.coverageRate, 0.333333);
   assert.equal(result.checks[0]?.status, "REVIEW");
 });
 
