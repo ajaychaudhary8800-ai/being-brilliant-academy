@@ -5479,6 +5479,53 @@ model GstConfiguration {
   @@index([organizationId])
 }
 
+model SafetyIncident {
+  organizationId   String
+  id               String                 @id @default(cuid())
+  branchId         String
+  code             String
+  title            String
+  description      String?                @db.Text
+  severity         SafetyIncidentSeverity
+  status           SafetyIncidentStatus   @default(OPEN)
+  emergencyMode    EmergencyMode          @default(NORMAL)
+  sourceType       String
+  sourceId         String?
+  schoolEventId    String?
+  deviceEventId    String?                @unique
+  reportedById     String?
+  occurredAt       DateTime
+  acknowledgedById String?
+  acknowledgedAt   DateTime?
+  commanderId      String?
+  resolvedById     String?
+  resolvedAt       DateTime?
+  resolutionNotes  String?                @db.Text
+  metadata         Json?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  updates          SafetyIncidentUpdate[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, branchId, status, severity])
+  @@index([organizationId, emergencyMode, status])
+}
+
+model SafetyIncidentUpdate {
+  organizationId String
+  id             String         @id @default(cuid())
+  incidentId     String
+  type           String
+  message        String         @db.Text
+  emergencyMode  EmergencyMode?
+  createdById    String?
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+  incident       SafetyIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, incidentId, createdAt])
+}
+
 model SchoolEvent {
   organizationId String
   id             String              @id @default(cuid())
