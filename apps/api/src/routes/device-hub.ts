@@ -932,7 +932,7 @@ router.post("/device-hub/safety-incidents/:incidentId/acknowledge", async (req: 
 
 router.post("/device-hub/safety-incidents/:incidentId/mode", async (req: AuthRequest, res) => {
   const incident = await scopedSafetyIncident(req, cuid.parse(req.params.incidentId));
-  if ([SafetyIncidentStatus.RESOLVED, SafetyIncidentStatus.FALSE_ALARM].includes(incident.status)) {
+  if (incident.status === SafetyIncidentStatus.RESOLVED || incident.status === SafetyIncidentStatus.FALSE_ALARM) {
     throw new AppError(409, "SAFETY_INCIDENT_CLOSED", "Closed incidents cannot change emergency mode");
   }
   const body = z.object({
@@ -2238,7 +2238,7 @@ router.post("/device-hub/devices/:deviceId/commands", async (req: AuthRequest, r
   const scope = await erpBranchScope(req);
   const device = await deviceForOrganization(req.auth!.organizationId, cuid.parse(req.params.deviceId));
   if (device.branchId) assertErpBranchAccess(scope, device.branchId);
-  if ([ConnectedDeviceStatus.DISABLED, ConnectedDeviceStatus.RETIRED].includes(device.status)) {
+  if (device.status === ConnectedDeviceStatus.DISABLED || device.status === ConnectedDeviceStatus.RETIRED) {
     throw new AppError(409, "DEVICE_COMMAND_DISABLED", "Disabled or retired devices cannot accept commands");
   }
   const body = z.object({
