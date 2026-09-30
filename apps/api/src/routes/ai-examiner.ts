@@ -1099,13 +1099,20 @@ router.post("/scan-bindings/:bindingId/pages", async (req: AuthRequest, res) => 
     throw new AppError(422, "AI_EXAMINER_OMR_NOT_CONFIGURED", "The active rubric has no MCQ/MSQ questions with OMR option configuration");
   }
 
-  const differentPageCount = binding.pages.some(page => page.totalPages !== body.totalPages && page.pageNumber !== body.pageNumber);
+  const differentPageCount = binding.pages.some(page => page.totalPages !== body.totalPages);
   if (differentPageCount) {
     throw new AppError(422, "AI_EXAMINER_SCAN_PAGE_COUNT_MISMATCH", "All pages for a scan binding must declare the same totalPages value");
   }
-  const reusedScanId = binding.pages.find(page => page.scanId === body.scanId && page.pageNumber !== body.pageNumber);
+  const reusedScanId = await prisma.aIExaminerScanPage.findFirst({
+    where: {
+      organizationId: req.auth!.organizationId,
+      scanId: body.scanId,
+      NOT: { bindingId: binding.id, pageNumber: body.pageNumber },
+    },
+    select: { id: true },
+  });
   if (reusedScanId) {
-    throw new AppError(409, "AI_EXAMINER_SCAN_ID_REUSED", "scanId is already associated with a different page");
+    throw new AppError(409, "AI_EXAMINER_SCAN_ID_REUSED", "scanId is already associated with a different scan page");
   }
 
   const validation = validateAIExaminerOmrIngestion({
