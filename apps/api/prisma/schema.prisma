@@ -710,6 +710,59 @@ enum EmergencyMode {
   ALL_CLEAR
 }
 
+enum TransportAlertType {
+  OVERSPEED
+  HARSH_BRAKING
+  HARSH_ACCELERATION
+  ROUTE_DEVIATION
+  UNAUTHORIZED_HALT
+  DELAYED_START
+  GPS_OFFLINE
+  GEOFENCE
+  WRONG_BUS
+  WRONG_STOP
+  MISSED_BUS
+  STUDENT_STILL_ONBOARD
+  DOCUMENT_EXPIRY
+  SERVICE_DUE
+  DRIVER_BEHAVIOR
+  VEHICLE_DIAGNOSTIC
+  OTHER
+}
+
+enum TransportAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+enum TransportRidershipEventType {
+  BOARD
+  DEBOARD
+}
+
+enum TransportRidershipMethod {
+  RFID
+  NFC
+  QR
+  BIOMETRIC
+  MANUAL
+  OTHER
+}
+
+enum TransportRideCancellationScope {
+  PICKUP
+  DROP
+  BOTH
+}
+
+enum TransportGeofenceType {
+  CIRCLE
+  POLYGON
+  ROUTE_CORRIDOR
+}
+
 enum SafetyIncidentSeverity {
   LOW
   MEDIUM
@@ -5788,6 +5841,11 @@ model TransportVehicle {
   currentLatitude    Decimal?                     @db.Decimal(10, 7)
   currentLongitude   Decimal?                     @db.Decimal(10, 7)
   currentSpeed       Decimal?                     @db.Decimal(7, 2)
+  currentHeading     Decimal?                     @db.Decimal(6, 2)
+  ignitionOn         Boolean?
+  odometerKm         Decimal?                     @db.Decimal(12, 2)
+  batteryPercent     Decimal?                     @db.Decimal(5, 2)
+  estimatedRangeKm   Decimal?                     @db.Decimal(8, 2)
   lastGpsAt          DateTime?
   branch             Branch                       @relation(fields: [branchId], references: [id], onDelete: Restrict)
   type               TransportVehicleType         @relation(fields: [typeId], references: [id], onDelete: Restrict)
@@ -5798,6 +5856,7 @@ model TransportVehicle {
   routes             TransportRoute[]
   studentAssignments StudentTransportAssignment[]
   trips              TransportTrip[]
+  smartAlerts         TransportAlert[]
   createdAt          DateTime                     @default(now())
   updatedAt          DateTime                     @updatedAt
 
@@ -5940,6 +5999,7 @@ model TransportRoute {
   stops            TransportRouteStop[]
   assignments      StudentTransportAssignment[]
   trips            TransportTrip[]
+  geofences        TransportGeofence[]
 
   @@unique([branchId, code])
   @@unique([branchId, name])
@@ -5986,6 +6046,8 @@ model StudentTransportAssignment {
   history         TransportRouteChange[]
   attendances     TransportAttendance[]
   feeBills        TransportFeeBill[]
+  ridershipEvents TransportRidershipEvent[]
+  rideCancellations TransportRideCancellation[]
 
   @@index([routeId, status])
   @@index([vehicleId, status])
@@ -6039,6 +6101,11 @@ model TransportTrip {
   vehicle         TransportVehicle    @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
   driver          TransportStaff?     @relation(fields: [driverId], references: [id], onDelete: Restrict)
   gpsPoints       TransportGpsPoint[]
+  smartAlerts     TransportAlert[]
+  ridershipEvents TransportRidershipEvent[]
+  routeProgressPercent Decimal? @db.Decimal(5, 2)
+  etaMinutes      Int?
+  lastEtaAt       DateTime?
 
   @@index([vehicleId, scheduledAt])
   @@index([organizationId])
@@ -6052,12 +6119,123 @@ model TransportGpsPoint {
   latitude       Decimal       @db.Decimal(10, 7)
   longitude      Decimal       @db.Decimal(10, 7)
   speed          Decimal       @db.Decimal(7, 2)
+  heading        Decimal?      @db.Decimal(6, 2)
+  ignitionOn     Boolean?
+  odometerKm     Decimal?      @db.Decimal(12, 2)
+  accelerationMps2 Decimal?    @db.Decimal(8, 3)
   recordedAt     DateTime      @default(now())
   geofenceEvent  String?
   trip           TransportTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
 
   @@index([tripId, recordedAt])
   @@index([organizationId])
+}
+
+model TransportSafetyPolicy {
+  organizationId          String
+  id                      String   @id @default(cuid())
+  branchId                String   @unique
+  overspeedKph            Decimal  @default(60) @db.Decimal(7, 2)
+  harshAccelerationMps2   Decimal  @default(3.0) @db.Decimal(8, 3)
+  harshBrakingMps2        Decimal  @default(-3.5) @db.Decimal(8, 3)
+  unauthorizedHaltMinutes Int      @default(10)
+  gpsOfflineMinutes       Int      @default(5)
+  delayedStartMinutes     Int      @default(10)
+  routeDeviationMeters    Int      @default(500)
+  stopGeofenceMeters      Int      @default(250)
+  updatedById             String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([organizationId, branchId])
+}
+
+model TransportGeofence {
+  organizationId String
+  id             String                @id @default(cuid())
+  branchId       String
+  routeId        String?
+  stopId         String?
+  name           String
+  type           TransportGeofenceType
+  geometry       Json
+  radiusMeters   Int?
+  isActive       Boolean               @default(true)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  route          TransportRoute?       @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, branchId, name])
+  @@index([organizationId, branchId, isActive])
+  @@index([organizationId, routeId, isActive])
+}
+
+model TransportAlert {
+  organizationId String
+  id             String               @id @default(cuid())
+  branchId       String
+  tripId         String?
+  vehicleId      String
+  studentId      String?
+  sourceEventId  String?              @unique
+  type           TransportAlertType
+  status         TransportAlertStatus @default(OPEN)
+  severity       SchoolEventSeverity  @default(MEDIUM)
+  title          String
+  description    String?              @db.Text
+  occurredAt     DateTime
+  acknowledgedById String?
+  acknowledgedAt DateTime?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNotes String?             @db.Text
+  metadata       Json?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  trip           TransportTrip?       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  vehicle        TransportVehicle     @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, branchId, status, occurredAt])
+  @@index([organizationId, vehicleId, occurredAt])
+  @@index([organizationId, studentId, occurredAt])
+}
+
+model TransportRidershipEvent {
+  organizationId String
+  id             String                     @id @default(cuid())
+  assignmentId   String
+  tripId         String?
+  studentId      String
+  vehicleId      String
+  stopId         String?
+  type           TransportRidershipEventType
+  method         TransportRidershipMethod
+  deviceEventId  String?                    @unique
+  occurredAt     DateTime
+  metadata       Json?
+  createdAt      DateTime                   @default(now())
+  assignment     StudentTransportAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  trip           TransportTrip?             @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, studentId, occurredAt])
+  @@index([organizationId, tripId, occurredAt])
+  @@index([organizationId, vehicleId, occurredAt])
+}
+
+model TransportRideCancellation {
+  organizationId String
+  id             String                         @id @default(cuid())
+  assignmentId   String
+  studentId      String
+  date           DateTime                       @db.Date
+  scope          TransportRideCancellationScope
+  reason         String?                        @db.Text
+  createdById    String
+  createdAt      DateTime                       @default(now())
+  assignment     StudentTransportAssignment     @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, date, scope])
+  @@index([organizationId, studentId, date])
 }
 
 model TransportFeeBill {
