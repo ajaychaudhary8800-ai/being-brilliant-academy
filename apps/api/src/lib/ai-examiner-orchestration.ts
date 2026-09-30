@@ -93,6 +93,11 @@ export type AIExaminerReconciledQuestion = {
   evidenceAudit: AIExaminerEvidenceAudit | null;
 };
 
+const supplementaryEvidenceTypes = new Set<AIExaminerQuestionType>([
+  "ORAL_AUDIO_VIDEO",
+  "PRACTICAL_PROJECT_VIVA",
+]);
+
 const deterministicTypes = new Set<AIExaminerQuestionType>([
   "MCQ",
   "MSQ",
@@ -159,9 +164,9 @@ export function aiExaminerProviderQuestions(questions: AIExaminerResolvedRubricQ
       criteria: question.criteria,
       concepts: question.concepts,
       questionType: question.questionType,
-      evaluationMode: route.deterministic ? "EXTRACT_ONLY" : "RUBRIC",
-      // Withhold deterministic answer keys from extraction to avoid anchoring/bias.
-      modelAnswer: route.deterministic ? null : question.modelAnswer ?? null,
+      evaluationMode: route.deterministic || supplementaryEvidenceTypes.has(question.questionType) ? "EXTRACT_ONLY" : "RUBRIC",
+      // Withhold deterministic and supplementary-evidence answer keys from extraction to avoid anchoring/bias.
+      modelAnswer: route.deterministic || supplementaryEvidenceTypes.has(question.questionType) ? null : question.modelAnswer ?? null,
       visualValidation: question.visualValidation,
     };
   });
@@ -262,6 +267,30 @@ export function reconcileAIExaminerProviderResult(
     const baseReview = provider.confidence < reviewThreshold || provider.flags.length > 0;
 
     if (!route.deterministic) {
+      if (supplementaryEvidenceTypes.has(question.questionType)) {
+        return {
+          questionKey: question.key,
+          maxMarks: question.maxMarks,
+          suggestedMarks: null,
+          confidence: provider.confidence,
+          feedback: provider.extractedAnswer
+            ? "Written component extracted. Oral/practical marks require verified supplementary evidence and human review."
+            : "Oral/practical marks require verified supplementary evidence and human review.",
+          extractedAnswer: provider.extractedAnswer ?? null,
+          rubricBreakdown: [],
+          concepts: provider.concepts,
+          flags: provider.flags,
+          reviewRequired: true,
+          engine: route.engine,
+          deterministicStatus: null,
+          scoringError: {
+            code: "AI_EXAMINER_SUPPLEMENTARY_EVIDENCE_REVIEW_REQUIRED",
+            message: "This question type cannot be AI-scored from the written answer sheet alone.",
+          },
+          specializedEvidence: null,
+          evidenceAudit: null,
+        };
+      }
       let specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | AIExaminerVisualVerification | null = null;
       let evidenceAudit: AIExaminerEvidenceAudit | null = null;
       if (route.engine === "MULTIMODAL" && question.visualValidation) {
