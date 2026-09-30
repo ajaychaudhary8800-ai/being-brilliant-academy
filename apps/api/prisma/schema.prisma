@@ -812,6 +812,12 @@ enum TransportRideCancellationScope {
   BOTH
 }
 
+enum TransportTripDirection {
+  PICKUP
+  DROP
+  OTHER
+}
+
 enum TransportChecklistStatus {
   DRAFT
   SUBMITTED
@@ -6915,6 +6921,7 @@ model TransportTrip {
   vehicleId       String
   driverId        String?
   scheduledAt     DateTime
+  direction       TransportTripDirection @default(OTHER)
   startedAt       DateTime?
   completedAt     DateTime?
   status          TripStatus          @default(SCHEDULED)
