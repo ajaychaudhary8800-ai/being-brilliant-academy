@@ -107,6 +107,29 @@ export const aiExaminerCodeExecutionSchema = z.object({
   });
 });
 
+export const aiExaminerVisualValidationSchema = z.object({
+  requiredObservations: z.array(z.object({
+    key: z.string().trim().min(1).max(80),
+    description: z.string().trim().min(2).max(1000),
+    weight: z.coerce.number().positive().max(10000).default(1),
+    required: z.boolean().default(true),
+  })).min(1).max(100),
+  minimumObservationConfidence: z.coerce.number().min(0).max(1).default(0.75),
+}).superRefine((value, ctx) => {
+  const keys = new Set<string>();
+  value.requiredObservations.forEach((observation, index) => {
+    const normalized = observation.key.toLocaleLowerCase("en");
+    if (keys.has(normalized)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["requiredObservations", index, "key"],
+        message: "Visual observation keys must be unique",
+      });
+    }
+    keys.add(normalized);
+  });
+});
+
 export const aiExaminerOmrValidationSchema = z.object({
   allowedOptions: z.array(z.string().trim().min(1).max(40)).min(2).max(20),
 }).superRefine((value, ctx) => {
@@ -153,6 +176,7 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
   accountingValidation: aiExaminerAccountingValidationSchema.optional(),
   codeExecution: aiExaminerCodeExecutionSchema.optional(),
   omrValidation: aiExaminerOmrValidationSchema.optional(),
+  visualValidation: aiExaminerVisualValidationSchema.optional(),
 }).superRefine((question, ctx) => {
   const route = routeAIExaminerQuestion({
     questionType: question.questionType,
@@ -216,6 +240,14 @@ export const aiExaminerRubricQuestionInputSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["accountingValidation"],
       message: "Accounting validation is only supported for ACCOUNTING_STATEMENT questions",
+    });
+  }
+
+  if (question.visualValidation && route.engine !== "MULTIMODAL") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["visualValidation"],
+      message: "Visual validation is only supported for multimodal questions",
     });
   }
 
