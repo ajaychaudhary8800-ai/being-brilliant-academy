@@ -1934,6 +1934,76 @@ router.get("/review-rounds/:roundId/document", async (req: AuthRequest, res) => 
   }, "inline")).send(storedDocumentBuffer(source.fileData));
 });
 
+router.get("/review-rounds/:roundId/evidence/:evidenceId/file", async (req: AuthRequest, res) => {
+  const roundId = cuid.parse(req.params.roundId);
+  const evidenceId = cuid.parse(req.params.evidenceId);
+  const round = await prisma.aIExaminerReviewRound.findFirst({
+    where: { id: roundId, organizationId: req.auth!.organizationId },
+    select: {
+      id: true,
+      reviewerId: true,
+      status: true,
+      anonymizeStudentIdentity: true,
+      evaluation: { select: { answerSheetId: true } },
+    },
+  });
+  if (!round) throw new AppError(404, "AI_EXAMINER_REVIEW_ROUND_NOT_FOUND", "Review round not found");
+  if (round.reviewerId !== req.auth!.userId) {
+    throw new AppError(403, "AI_EXAMINER_REVIEW_ROUND_FORBIDDEN", "Only the assigned reviewer can access supplementary evidence");
+  }
+  if (round.status === AIExaminerReviewRoundStatus.CANCELLED) {
+    throw new AppError(409, "AI_EXAMINER_REVIEW_ROUND_CLOSED", "Cancelled review rounds cannot access supplementary evidence");
+  }
+
+  const evidence = await prisma.aIExaminerEvidenceAttachment.findFirst({
+    where: {
+      id: evidenceId,
+      organizationId: req.auth!.organizationId,
+      answerSheetId: round.evaluation.answerSheetId,
+      status: "VERIFIED",
+      ...(round.anonymizeStudentIdentity ? { identityMasked: true } : {}),
+    },
+    select: {
+      id: true,
+      answerSheetId: true,
+      fileName: true,
+      mimeType: true,
+      fileSize: true,
+      fileData: true,
+      identityMasked: true,
+      questionKey: true,
+    },
+  });
+  if (!evidence) throw new AppError(404, "AI_EXAMINER_EVIDENCE_NOT_FOUND", "Verified evidence is not available in this review round");
+  if (!evidence.fileData || !evidence.fileName || !evidence.mimeType || !evidence.fileSize) {
+    throw new AppError(404, "AI_EXAMINER_EVIDENCE_FILE_NOT_FOUND", "This evidence record does not contain an uploaded file");
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "AI_EXAMINER_REVIEW_EVIDENCE_ACCESSED",
+      entity: "AIExaminerEvidenceAttachment",
+      entityId: evidence.id,
+      metadata: {
+        reviewRoundId: round.id,
+        answerSheetId: evidence.answerSheetId,
+        questionKey: evidence.questionKey,
+        anonymized: round.anonymizeStudentIdentity,
+      },
+    },
+  });
+
+  res.set(storedDocumentHeaders({
+    fileName: round.anonymizeStudentIdentity ? "anonymous-evidence" : evidence.fileName,
+    mimeType: evidence.mimeType,
+    fileSize: evidence.fileSize,
+    fallbackName: "ai-examiner-evidence",
+  }, "inline"));
+  res.send(storedDocumentBuffer(evidence.fileData));
+});
+
 router.post("/review-rounds/:roundId/submit", async (req: AuthRequest, res) => {
   const roundId = cuid.parse(req.params.roundId);
   const body = z.object({
