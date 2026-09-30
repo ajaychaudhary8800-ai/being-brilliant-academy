@@ -1158,6 +1158,173 @@ router.patch("/device-hub/events/:eventId/review", async (req: AuthRequest, res)
   res.json({ data });
 });
 
+async function scopedCamera(req: AuthRequest, cameraId: string) {
+  const scope = await erpBranchScope(req);
+  const camera = await prisma.campusCamera.findFirst({
+    where: { id: cameraId, organizationId: req.auth!.organizationId, isActive: true },
+  });
+  if (!camera) throw new AppError(404, "CAMERA_NOT_FOUND", "Active campus camera not found");
+  assertErpBranchAccess(scope, camera.branchId);
+  return camera;
+}
+
+router.post("/device-hub/cameras/:cameraId/sessions", async (req: AuthRequest, res) => {
+  const camera = await scopedCamera(req, cuid.parse(req.params.cameraId));
+  const body = z.object({
+    kind: z.nativeEnum(CameraStreamKind),
+    playbackFrom: z.coerce.date().optional(),
+    playbackTo: z.coerce.date().optional(),
+  }).superRefine((value, ctx) => {
+    if (value.kind === CameraStreamKind.PLAYBACK && (!value.playbackFrom || !value.playbackTo)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["playbackFrom"], message: "Playback requires start and end time" });
+    }
+    if (value.playbackFrom && value.playbackTo && value.playbackTo <= value.playbackFrom) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["playbackTo"], message: "Playback end must be after start" });
+    }
+    if (value.playbackFrom && value.playbackTo && value.playbackTo.getTime() - value.playbackFrom.getTime() > 4 * 60 * 60_000) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["playbackTo"], message: "One playback session cannot exceed four hours" });
+    }
+  }).parse(req.body);
+
+  const now = new Date();
+  if (body.kind === CameraStreamKind.PLAYBACK && body.playbackFrom) {
+    const retentionStart = new Date(now.getTime() - camera.retentionDays * 24 * 60 * 60_000);
+    if (body.playbackFrom < retentionStart) throw new AppError(410, "CAMERA_PLAYBACK_OUTSIDE_RETENTION", "Requested playback is outside camera retention policy");
+  }
+  const token = crypto.randomBytes(32).toString("base64url");
+  const tokenHash = cameraSessionTokenHash(token);
+  const expiresAt = new Date(now.getTime() + 10 * 60_000);
+  const watermarkText = camera.watermarkEnabled ? `${camera.code} • ${req.auth!.userId} • ${now.toISOString()}` : null;
+
+  const result = await prisma.$transaction(async tx => {
+    const session = await tx.cameraViewSession.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        cameraId: camera.id,
+        requestedById: req.auth!.userId,
+        kind: body.kind,
+        tokenHash,
+        playbackFrom: body.kind === CameraStreamKind.PLAYBACK ? body.playbackFrom : null,
+        playbackTo: body.kind === CameraStreamKind.PLAYBACK ? body.playbackTo : null,
+        expiresAt,
+        watermarkText,
+      },
+    });
+    const command = await tx.connectedDeviceCommand.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        deviceId: camera.deviceId,
+        commandType: "CAMERA_CREATE_STREAM_SESSION",
+        idempotencyKey: `camera-session:${session.id}`,
+        requestedById: req.auth!.userId,
+        payload: profileJson({
+          sessionId: session.id,
+          kind: body.kind,
+          playbackFrom: body.playbackFrom?.toISOString() ?? null,
+          playbackTo: body.playbackTo?.toISOString() ?? null,
+          expiresAt: expiresAt.toISOString(),
+          watermarkText,
+          nvrRef: camera.nvrRef,
+          channelRef: camera.channelRef,
+          streamSecretRef: camera.streamSecretRef,
+          recordingSecretRef: camera.recordingSecretRef,
+        }),
+      },
+    });
+    const updated = await tx.cameraViewSession.update({ where: { id: session.id }, data: { commandId: command.id } });
+    await tx.cameraAccessAudit.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        cameraId: camera.id,
+        userId: req.auth!.userId,
+        action: body.kind === CameraStreamKind.LIVE ? CameraAccessAction.LIVE_SESSION : CameraAccessAction.PLAYBACK_SESSION,
+        sessionId: session.id,
+        metadata: profileJson({ commandId: command.id, playbackFrom: body.playbackFrom?.toISOString() ?? null, playbackTo: body.playbackTo?.toISOString() ?? null }),
+      },
+    });
+    return updated;
+  });
+
+  res.status(202).json({
+    data: {
+      id: result.id,
+      cameraId: result.cameraId,
+      kind: result.kind,
+      status: result.status,
+      expiresAt: result.expiresAt,
+      watermarkText: result.watermarkText,
+    },
+    credential: { sessionToken: token, displayOnce: true },
+    mediaHandoff: { endpoint: `/api/v1/device-hub/camera-media/${result.id}`, header: "x-camera-session-token" },
+  });
+});
+
+router.get("/device-hub/cameras/:cameraId/bookmarks", async (req: AuthRequest, res) => {
+  const camera = await scopedCamera(req, cuid.parse(req.params.cameraId));
+  const data = await prisma.cameraBookmark.findMany({
+    where: { organizationId: req.auth!.organizationId, cameraId: camera.id },
+    orderBy: { occurredAt: "desc" },
+    take: 500,
+  });
+  res.json({ data });
+});
+
+router.post("/device-hub/cameras/:cameraId/bookmarks", async (req: AuthRequest, res) => {
+  const camera = await scopedCamera(req, cuid.parse(req.params.cameraId));
+  const body = z.object({
+    label: z.string().trim().min(2).max(180),
+    occurredAt: z.coerce.date(),
+    notes: z.string().trim().max(5000).optional(),
+  }).parse(req.body);
+  const retentionStart = new Date(Date.now() - camera.retentionDays * 24 * 60 * 60_000);
+  if (body.occurredAt < retentionStart) throw new AppError(410, "CAMERA_BOOKMARK_OUTSIDE_RETENTION", "Bookmark time is outside camera retention policy");
+  const data = await prisma.$transaction(async tx => {
+    const bookmark = await tx.cameraBookmark.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        cameraId: camera.id,
+        userId: req.auth!.userId,
+        label: body.label,
+        occurredAt: body.occurredAt,
+        notes: body.notes ?? null,
+      },
+    });
+    await tx.cameraAccessAudit.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        cameraId: camera.id,
+        userId: req.auth!.userId,
+        action: CameraAccessAction.BOOKMARK,
+        metadata: profileJson({ bookmarkId: bookmark.id, occurredAt: body.occurredAt.toISOString() }),
+      },
+    });
+    return bookmark;
+  });
+  res.status(201).json({ data });
+});
+
+router.get("/device-hub/cameras/:cameraId/access-audit", async (req: AuthRequest, res) => {
+  const camera = await scopedCamera(req, cuid.parse(req.params.cameraId));
+  const q = z.object({ limit: z.coerce.number().int().min(1).max(1000).default(200) }).parse(req.query);
+  const data = await prisma.cameraAccessAudit.findMany({
+    where: { organizationId: req.auth!.organizationId, cameraId: camera.id },
+    orderBy: { occurredAt: "desc" },
+    take: q.limit,
+  });
+  res.json({ data });
+});
+
+router.get("/device-hub/cameras/:cameraId/trip-context", async (req: AuthRequest, res) => {
+  const camera = await scopedCamera(req, cuid.parse(req.params.cameraId));
+  if (!camera.vehicleId) return res.json({ data: { camera, activeTrip: null } });
+  const activeTrip = await prisma.transportTrip.findFirst({
+    where: { organizationId: req.auth!.organizationId, vehicleId: camera.vehicleId, status: "STARTED" },
+    orderBy: { startedAt: "desc" },
+    include: { route: true, driver: true },
+  });
+  res.json({ data: { camera: { ...camera, streamSecretRef: undefined, recordingSecretRef: undefined }, activeTrip } });
+});
+
 router.get("/device-hub/cameras", async (req: AuthRequest, res) => {
   const scope = await erpBranchScope(req);
   const cameras = await prisma.campusCamera.findMany({
@@ -1200,6 +1367,13 @@ router.post("/device-hub/cameras", async (req: AuthRequest, res) => {
   const device = await deviceForOrganization(req.auth!.organizationId, body.deviceId);
   if (device.kind !== ConnectedDeviceKind.CAMERA) throw new AppError(422, "CAMERA_DEVICE_KIND_INVALID", "Campus camera requires a CAMERA Device Hub record");
   if (device.branchId && device.branchId !== body.branchId) throw new AppError(422, "CAMERA_DEVICE_BRANCH_MISMATCH", "Camera and Device Hub record must belong to the same branch");
+  if (body.vehicleId) {
+    const vehicle = await prisma.transportVehicle.findFirst({
+      where: { id: body.vehicleId, organizationId: req.auth!.organizationId, branchId: body.branchId },
+      select: { id: true },
+    });
+    if (!vehicle) throw new AppError(422, "CAMERA_VEHICLE_INVALID", "Bus camera vehicle must belong to the same branch");
+  }
   try {
     const data = await prisma.campusCamera.create({
       data: {
@@ -1213,7 +1387,9 @@ router.post("/device-hub/cameras", async (req: AuthRequest, res) => {
       },
       select: {
         id: true, organizationId: true, branchId: true, code: true, name: true, deviceId: true, zone: true, location: true,
-        retentionDays: true, privacyMasking: true, audioEnabled: true, aiReviewEnabled: true, isActive: true, createdAt: true, updatedAt: true,
+        building: true, floor: true, groupName: true, mapX: true, mapY: true, nvrRef: true, channelRef: true, vehicleId: true,
+        retentionDays: true, privacyMasking: true, watermarkEnabled: true, audioEnabled: true, aiReviewEnabled: true, lastTamperAt: true,
+        isActive: true, createdAt: true, updatedAt: true,
       },
     });
     res.status(201).json({ data, meta: { hardwareValidated: false, productionReady: false } });
@@ -1236,12 +1412,21 @@ router.patch("/device-hub/cameras/:cameraId", async (req: AuthRequest, res) => {
     if (device.kind !== ConnectedDeviceKind.CAMERA) throw new AppError(422, "CAMERA_DEVICE_KIND_INVALID", "Campus camera requires a CAMERA Device Hub record");
     if (device.branchId && device.branchId !== targetBranch) throw new AppError(422, "CAMERA_DEVICE_BRANCH_MISMATCH", "Camera and Device Hub record must belong to the same branch");
   }
+  if (body.vehicleId) {
+    const vehicle = await prisma.transportVehicle.findFirst({
+      where: { id: body.vehicleId, organizationId: req.auth!.organizationId, branchId: targetBranch },
+      select: { id: true },
+    });
+    if (!vehicle) throw new AppError(422, "CAMERA_VEHICLE_INVALID", "Bus camera vehicle must belong to the same branch");
+  }
   const data = await prisma.campusCamera.update({
     where: { id: camera.id },
     data: { ...body, code: body.code?.toUpperCase() },
     select: {
       id: true, organizationId: true, branchId: true, code: true, name: true, deviceId: true, zone: true, location: true,
-      retentionDays: true, privacyMasking: true, audioEnabled: true, aiReviewEnabled: true, isActive: true, createdAt: true, updatedAt: true,
+      building: true, floor: true, groupName: true, mapX: true, mapY: true, nvrRef: true, channelRef: true, vehicleId: true,
+      retentionDays: true, privacyMasking: true, watermarkEnabled: true, audioEnabled: true, aiReviewEnabled: true, lastTamperAt: true,
+      isActive: true, createdAt: true, updatedAt: true,
     },
   });
   res.json({ data });
