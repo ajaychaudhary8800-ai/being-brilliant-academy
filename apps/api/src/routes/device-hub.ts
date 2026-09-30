@@ -967,6 +967,8 @@ router.post("/device-hub/devices", async (req: AuthRequest, res) => {
         protocol: body.protocol,
         providerKey: body.providerKey,
         externalDeviceId: body.externalDeviceId ?? null,
+        signatureRequired: body.signatureRequired,
+        signingPublicKey: body.signingPublicKey ?? null,
         capabilities: [...new Set(body.capabilities.map(value => value.toUpperCase()))],
         config: body.config ? profileJson(body.config) : undefined,
         metadata: body.metadata ? profileJson(body.metadata) : undefined,
@@ -974,7 +976,7 @@ router.post("/device-hub/devices", async (req: AuthRequest, res) => {
       },
       select: {
         id: true, organizationId: true, branchId: true, code: true, name: true, kind: true, protocol: true,
-        providerKey: true, externalDeviceId: true, status: true, capabilities: true, config: true, metadata: true,
+        providerKey: true, externalDeviceId: true, status: true, signatureRequired: true, signingPublicKey: true, capabilities: true, config: true, metadata: true,
         createdAt: true, updatedAt: true,
       },
     });
@@ -1003,11 +1005,36 @@ router.patch("/device-hub/devices/:deviceId", async (req: AuthRequest, res) => {
   const scope = await erpBranchScope(req);
   const device = await deviceForOrganization(req.auth!.organizationId, cuid.parse(req.params.deviceId));
   if (device.branchId) assertErpBranchAccess(scope, device.branchId);
-  const body = deviceInput.partial().extend({
+  const body = z.object({
+    branchId: cuid.nullable().optional(),
+    code: z.string().trim().min(2).max(80).regex(/^[A-Za-z0-9._-]+$/).optional(),
+    name: z.string().trim().min(2).max(180).optional(),
+    kind: z.nativeEnum(ConnectedDeviceKind).optional(),
+    protocol: z.nativeEnum(ConnectedDeviceProtocol).optional(),
+    providerKey: z.string().trim().min(2).max(100).optional(),
+    externalDeviceId: z.string().trim().min(1).max(180).nullable().optional(),
+    signatureRequired: z.boolean().optional(),
+    signingPublicKey: z.string().trim().min(32).max(10000).nullable().optional(),
+    capabilities: z.array(z.string().trim().min(1).max(80)).max(100).optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     status: z.nativeEnum(ConnectedDeviceStatus).optional(),
     firmwareVersion: z.string().trim().max(100).nullable().optional(),
   }).parse(req.body);
   if (body.branchId !== undefined && body.branchId !== null) await assertErpBranchTarget(scope, body.branchId);
+  const resultingSignatureRequired = body.signatureRequired ?? device.signatureRequired;
+  const resultingSigningPublicKey = body.signingPublicKey === undefined ? device.signingPublicKey : body.signingPublicKey;
+  if (resultingSignatureRequired && !resultingSigningPublicKey) {
+    throw new AppError(422, "DEVICE_SIGNING_KEY_REQUIRED", "Signed device ingestion requires an Ed25519 public key");
+  }
+  if (resultingSigningPublicKey) {
+    try {
+      const key = crypto.createPublicKey(resultingSigningPublicKey);
+      if (key.asymmetricKeyType !== "ed25519") throw new Error("not ed25519");
+    } catch {
+      throw new AppError(422, "DEVICE_SIGNING_KEY_INVALID", "Device signing key must be a valid Ed25519 public key");
+    }
+  }
   if (req.auth!.role === Role.BRANCH_ADMIN && body.branchId === null) {
     throw new AppError(422, "DEVICE_BRANCH_REQUIRED", "Branch administrators cannot move devices to organization scope");
   }
@@ -1022,7 +1049,7 @@ router.patch("/device-hub/devices/:deviceId", async (req: AuthRequest, res) => {
     },
     select: {
       id: true, organizationId: true, branchId: true, code: true, name: true, kind: true, protocol: true,
-      providerKey: true, externalDeviceId: true, status: true, capabilities: true, config: true, metadata: true,
+      providerKey: true, externalDeviceId: true, status: true, signatureRequired: true, signingPublicKey: true, capabilities: true, config: true, metadata: true,
       firmwareVersion: true, lastHeartbeatAt: true, lastSeenAt: true, lastErrorAt: true, lastErrorCode: true, createdAt: true, updatedAt: true,
     },
   });
