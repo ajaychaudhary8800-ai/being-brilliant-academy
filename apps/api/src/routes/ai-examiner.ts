@@ -343,11 +343,21 @@ router.post("/benchmark-suites/:suiteId/cases", async (req: AuthRequest, res) =>
     where: { id: body.humanReviewerId, organizationId: req.auth!.organizationId, isActive: true },
     select: { id: true, role: true },
   });
-  if (!reviewer || ![Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER].includes(reviewer.role)) {
+  if (
+    !reviewer ||
+    (
+      reviewer.role !== Role.SUPER_ADMIN &&
+      reviewer.role !== Role.BRANCH_ADMIN &&
+      reviewer.role !== Role.TEACHER
+    )
+  ) {
     throw new AppError(422, "AI_EXAMINER_BENCHMARK_REVIEWER_INVALID", "Human benchmark reviewer must be an active teacher or administrator");
   }
 
   const { sheet, exam } = await answerSheetForManager(req, body.sourceAnswerSheetId);
+  if (!sheet.finalizedAt || sheet.marksObtained == null) {
+    throw new AppError(409, "AI_EXAMINER_BENCHMARK_SOURCE_NOT_FINAL", "Benchmark gold cases must come from a finalized, marked answer sheet");
+  }
   if (suite.branchId && suite.branchId !== exam.branchId) {
     throw new AppError(422, "AI_EXAMINER_BENCHMARK_BRANCH_MISMATCH", "Source answer sheet must belong to the benchmark suite branch");
   }
