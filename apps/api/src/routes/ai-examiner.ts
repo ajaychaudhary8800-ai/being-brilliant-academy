@@ -1,8 +1,9 @@
-import { AIExaminerEvaluationStatus, AIExaminerRubricStatus, AnswerSheetStatus, ExaminationStatus, Prisma, Role } from "@prisma/client";
+import { AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerRubricStatus, AnswerSheetStatus, ExaminationStatus, Prisma, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config.js";
 import { AI_EXAMINER_ENGINE_VERSION, AI_EXAMINER_REVIEW_THRESHOLD, aiExaminerProviderConfigured, aiExaminerProviderMode } from "../lib/ai-examiner-engine.js";
+import { parseAIExaminerExamProfile } from "../lib/ai-examiner-exam-profile.js";
 import { AI_EXAMINER_ENGINES, AI_EXAMINER_QUESTION_TYPES } from "../lib/ai-examiner-assessment-router.js";
 import { aiExaminerRubricInputSchema, aiExaminerRubricStorage } from "../lib/ai-examiner-question-config.js";
 import { aiExaminerLifecycleBlocker, assertAIExaminerEvaluationReady, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
@@ -17,6 +18,31 @@ router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER)
 
 const cuid = z.string().cuid();
 const rubricInput = aiExaminerRubricInputSchema;
+
+function requireExamProfileAdmin(req: AuthRequest) {
+  if (req.auth!.role === Role.TEACHER) {
+    throw new AppError(403, "AI_EXAMINER_PROFILE_ADMIN_REQUIRED", "Only organization or branch administrators can manage exam profiles");
+  }
+}
+
+function profileJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+async function visibleProfileBranchIds(req: AuthRequest): Promise<string[] | null> {
+  if (req.auth!.role === Role.SUPER_ADMIN) return null;
+  if (req.auth!.role === Role.BRANCH_ADMIN) {
+    return (await prisma.branchUser.findMany({
+      where: { organizationId: req.auth!.organizationId, userId: req.auth!.userId },
+      select: { branchId: true },
+    })).map(row => row.branchId);
+  }
+  const teacher = await prisma.teacherProfile.findFirst({
+    where: { organizationId: req.auth!.organizationId, userId: req.auth!.userId },
+    select: { branchId: true },
+  });
+  return teacher ? [teacher.branchId] : [];
+}
 
 async function branchAccess(req: AuthRequest, branchId: string) {
   if (req.auth!.role !== Role.BRANCH_ADMIN) return;
@@ -36,6 +62,7 @@ async function examinationForManager(req: AuthRequest, examinationId: string) {
       batch: { select: { id: true, name: true } },
       branch: { select: { id: true, branchName: true } },
       questionPaper: { select: { id: true, fileName: true, publishedAt: true } },
+      aiExaminerExamProfile: { select: { id: true, code: true, name: true, kind: true, version: true, status: true, branchId: true } },
       aiExaminerRubrics: { orderBy: { version: "desc" }, take: 20 },
       answerSheets: {
         select: {
@@ -114,6 +141,8 @@ function readiness(exam: Awaited<ReturnType<typeof examinationForManager>>, eval
       batch: exam.batch,
       branch: exam.branch,
       teacher: { id: exam.teacher.id, name: exam.teacher.user.name },
+      examProfile: exam.aiExaminerExamProfile,
+      examProfileSnapshotPresent: Boolean(exam.aiExaminerExamProfileSnapshot),
     },
     questionPaper: exam.questionPaper,
     activeRubric,
@@ -149,6 +178,209 @@ function readiness(exam: Awaited<ReturnType<typeof examinationForManager>>, eval
 
 router.get("/capabilities", async (_req, res) => {
   res.json({ data: { providerConfigured: aiExaminerProviderConfigured(), providerMode: aiExaminerProviderMode(), model: env.AI_EXAMINER_MODEL, engineVersion: AI_EXAMINER_ENGINE_VERSION, reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD, evaluationExecutionAvailable: aiExaminerProviderConfigured(), questionTypes: AI_EXAMINER_QUESTION_TYPES, engines: AI_EXAMINER_ENGINES, phase: "EVALUATION_ENGINE" } });
+});
+
+router.get("/exam-profiles", async (req: AuthRequest, res) => {
+  const branches = await visibleProfileBranchIds(req);
+  const query = z.object({
+    status: z.nativeEnum(AIExaminerExamProfileStatus).optional(),
+    branchId: cuid.optional(),
+  }).parse(req.query);
+  if (query.branchId && branches && !branches.includes(query.branchId)) {
+    throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
+  }
+  const data = await prisma.aIExaminerExamProfile.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.branchId
+        ? { OR: [{ branchId: null }, { branchId: query.branchId }] }
+        : branches
+          ? { OR: [{ branchId: null }, { branchId: { in: branches } }] }
+          : {}),
+    },
+    select: {
+      id: true, branchId: true, code: true, name: true, kind: true, version: true, status: true,
+      effectiveFrom: true, effectiveTo: true, approvedAt: true, createdAt: true, updatedAt: true,
+    },
+    orderBy: [{ code: "asc" }, { createdAt: "desc" }],
+    take: 200,
+  });
+  res.json({ data });
+});
+
+router.post("/exam-profiles", async (req: AuthRequest, res) => {
+  requireExamProfileAdmin(req);
+  const body = z.object({ branchId: cuid.nullable().optional(), profile: z.unknown() }).parse(req.body);
+  const profile = parseAIExaminerExamProfile(body.profile);
+  const branchId = body.branchId ?? null;
+  if (req.auth!.role === Role.BRANCH_ADMIN && !branchId) {
+    throw new AppError(422, "AI_EXAMINER_PROFILE_BRANCH_REQUIRED", "Branch administrators can create branch-scoped profiles only");
+  }
+  if (branchId) {
+    await branchAccess(req, branchId);
+    const branch = await prisma.branch.findFirst({ where: { id: branchId, organizationId: req.auth!.organizationId }, select: { id: true } });
+    if (!branch) throw new AppError(422, "INVALID_BRANCH", "Exam profile branch is invalid");
+  }
+  const existing = await prisma.aIExaminerExamProfile.findFirst({
+    where: { organizationId: req.auth!.organizationId, code: profile.code, version: profile.version },
+    select: { id: true },
+  });
+  if (existing) throw new AppError(409, "AI_EXAMINER_PROFILE_EXISTS", "An exam profile with this code and version already exists");
+  const data = await prisma.aIExaminerExamProfile.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      branchId,
+      code: profile.code,
+      name: profile.name,
+      kind: profile.kind,
+      version: profile.version,
+      config: profileJson(profile),
+      effectiveFrom: profile.effectiveFrom ?? null,
+      effectiveTo: profile.effectiveTo ?? null,
+      createdById: req.auth!.userId,
+    },
+  });
+  await prisma.auditLog.create({ data: {
+    organizationId: req.auth!.organizationId,
+    actorId: req.auth!.userId,
+    action: "AI_EXAMINER_EXAM_PROFILE_CREATED",
+    entity: "AIExaminerExamProfile",
+    entityId: data.id,
+    metadata: { code: data.code, version: data.version, branchId: data.branchId },
+  } }).catch(() => null);
+  res.status(201).json({ data });
+});
+
+router.put("/exam-profiles/:profileId", async (req: AuthRequest, res) => {
+  requireExamProfileAdmin(req);
+  const profileId = cuid.parse(req.params.profileId);
+  const existing = await prisma.aIExaminerExamProfile.findFirst({
+    where: { id: profileId, organizationId: req.auth!.organizationId },
+  });
+  if (!existing) throw new AppError(404, "AI_EXAMINER_PROFILE_NOT_FOUND", "Exam profile not found");
+  if (existing.status !== AIExaminerExamProfileStatus.DRAFT) {
+    throw new AppError(409, "AI_EXAMINER_PROFILE_IMMUTABLE", "Only draft exam profiles can be edited; create a new version instead");
+  }
+  if (existing.branchId) await branchAccess(req, existing.branchId);
+  if (req.auth!.role === Role.BRANCH_ADMIN && !existing.branchId) {
+    throw new AppError(403, "BRANCH_FORBIDDEN", "Organization-wide profiles can only be edited by a super administrator");
+  }
+  const profile = parseAIExaminerExamProfile(req.body);
+  if (profile.code !== existing.code || profile.version !== existing.version) {
+    throw new AppError(422, "AI_EXAMINER_PROFILE_IDENTITY_IMMUTABLE", "Profile code and version cannot change after creation");
+  }
+  const data = await prisma.aIExaminerExamProfile.update({
+    where: { id: existing.id },
+    data: {
+      name: profile.name,
+      kind: profile.kind,
+      config: profileJson(profile),
+      effectiveFrom: profile.effectiveFrom ?? null,
+      effectiveTo: profile.effectiveTo ?? null,
+    },
+  });
+  await prisma.auditLog.create({ data: {
+    organizationId: req.auth!.organizationId,
+    actorId: req.auth!.userId,
+    action: "AI_EXAMINER_EXAM_PROFILE_UPDATED",
+    entity: "AIExaminerExamProfile",
+    entityId: data.id,
+    metadata: { code: data.code, version: data.version },
+  } }).catch(() => null);
+  res.json({ data });
+});
+
+router.post("/exam-profiles/:profileId/activate", async (req: AuthRequest, res) => {
+  requireExamProfileAdmin(req);
+  const profileId = cuid.parse(req.params.profileId);
+  const profile = await prisma.aIExaminerExamProfile.findFirst({
+    where: { id: profileId, organizationId: req.auth!.organizationId },
+  });
+  if (!profile) throw new AppError(404, "AI_EXAMINER_PROFILE_NOT_FOUND", "Exam profile not found");
+  if (profile.branchId) await branchAccess(req, profile.branchId);
+  if (req.auth!.role === Role.BRANCH_ADMIN && !profile.branchId) {
+    throw new AppError(403, "BRANCH_FORBIDDEN", "Organization-wide profiles can only be activated by a super administrator");
+  }
+  if (profile.status !== AIExaminerExamProfileStatus.DRAFT) {
+    throw new AppError(409, "AI_EXAMINER_PROFILE_NOT_DRAFT", "Only a draft exam profile can be activated");
+  }
+  parseAIExaminerExamProfile(profile.config);
+  const now = new Date();
+  const data = await prisma.$transaction(async tx => {
+    await tx.aIExaminerExamProfile.updateMany({
+      where: {
+        organizationId: req.auth!.organizationId,
+        code: profile.code,
+        status: AIExaminerExamProfileStatus.ACTIVE,
+        id: { not: profile.id },
+      },
+      data: { status: AIExaminerExamProfileStatus.ARCHIVED },
+    });
+    const activated = await tx.aIExaminerExamProfile.update({
+      where: { id: profile.id },
+      data: { status: AIExaminerExamProfileStatus.ACTIVE, approvedById: req.auth!.userId, approvedAt: now },
+    });
+    await tx.auditLog.create({ data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "AI_EXAMINER_EXAM_PROFILE_ACTIVATED",
+      entity: "AIExaminerExamProfile",
+      entityId: activated.id,
+      metadata: { code: activated.code, version: activated.version, branchId: activated.branchId },
+    } });
+    return activated;
+  });
+  res.json({ data });
+});
+
+router.post("/examinations/:examinationId/exam-profile", async (req: AuthRequest, res) => {
+  const exam = await examinationForManager(req, cuid.parse(req.params.examinationId));
+  if ([ExaminationStatus.COMPLETED, ExaminationStatus.RESULTS_PUBLISHED, ExaminationStatus.ARCHIVED].includes(exam.status)) {
+    throw new AppError(409, "AI_EXAMINER_PROFILE_EXAM_LOCKED", "Exam profile cannot change after the examination is completed");
+  }
+  if (exam.aiExaminerRubrics.some(rubric => rubric.status === AIExaminerRubricStatus.ACTIVE)) {
+    throw new AppError(409, "AI_EXAMINER_PROFILE_RUBRIC_ACTIVE", "Archive or replace the active rubric before changing the exam profile");
+  }
+  const { profileId } = z.object({ profileId: cuid }).parse(req.body);
+  const profile = await prisma.aIExaminerExamProfile.findFirst({
+    where: {
+      id: profileId,
+      organizationId: req.auth!.organizationId,
+      status: AIExaminerExamProfileStatus.ACTIVE,
+      OR: [{ branchId: null }, { branchId: exam.branchId }],
+    },
+  });
+  if (!profile) throw new AppError(422, "AI_EXAMINER_PROFILE_UNAVAILABLE", "Select an active organization-wide or examination-branch profile");
+  const snapshot = {
+    id: profile.id,
+    code: profile.code,
+    name: profile.name,
+    kind: profile.kind,
+    version: profile.version,
+    branchId: profile.branchId,
+    effectiveFrom: profile.effectiveFrom,
+    effectiveTo: profile.effectiveTo,
+    config: profile.config,
+    approvedAt: profile.approvedAt,
+  };
+  const data = await prisma.examination.update({
+    where: { id: exam.id },
+    data: {
+      aiExaminerExamProfileId: profile.id,
+      aiExaminerExamProfileSnapshot: profileJson(snapshot),
+    },
+    select: { id: true, aiExaminerExamProfileId: true, aiExaminerExamProfileSnapshot: true, updatedAt: true },
+  });
+  await prisma.auditLog.create({ data: {
+    organizationId: req.auth!.organizationId,
+    actorId: req.auth!.userId,
+    action: "AI_EXAMINER_EXAM_PROFILE_ASSIGNED",
+    entity: "Examination",
+    entityId: exam.id,
+    metadata: { profileId: profile.id, code: profile.code, version: profile.version },
+  } }).catch(() => null);
+  res.json({ data });
 });
 
 router.get("/examinations", async (req: AuthRequest, res) => {
