@@ -5774,6 +5774,7 @@ model TransportGpsPoint {
   organizationId String        @default("org_default")
   id             String        @id @default(cuid())
   tripId         String
+  deviceEventId  String?       @unique
   latitude       Decimal       @db.Decimal(10, 7)
   longitude      Decimal       @db.Decimal(10, 7)
   speed          Decimal       @db.Decimal(7, 2)
