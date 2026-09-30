@@ -245,6 +245,28 @@ async function answerSheetForManager(req: AuthRequest, answerSheetId: string) {
   return { sheet, exam };
 }
 
+async function recomputePublishedRanks(tx: Prisma.TransactionClient, organizationId: string, examinationId: string) {
+  const ranked = await tx.examinationResult.findMany({
+    where: { organizationId, examinationId, marksObtained: { not: null } },
+    select: { id: true, marksObtained: true },
+    orderBy: [{ marksObtained: "desc" }, { id: "asc" }],
+  });
+  let rank = 0;
+  let lastMarks: number | null = null;
+  let position = 0;
+  for (const row of ranked) {
+    position += 1;
+    const marks = Number(row.marksObtained);
+    if (lastMarks === null || marks < lastMarks) rank = position;
+    lastMarks = marks;
+    await tx.examinationResult.update({ where: { id: row.id }, data: { rank } });
+  }
+  await tx.examinationResult.updateMany({
+    where: { organizationId, examinationId, marksObtained: null },
+    data: { rank: null },
+  });
+}
+
 function rubricMarks(rubric: unknown) {
   const parsed = z.object({ questions: z.array(z.object({ maxMarks: z.coerce.number() })) }).safeParse(rubric);
   return parsed.success ? parsed.data.questions.reduce((sum, question) => sum + question.maxMarks, 0) : 0;
@@ -1717,6 +1739,620 @@ router.post("/review-rounds/:roundId/submit", async (req: AuthRequest, res) => {
     return updated;
   });
   res.json({ data: submitted });
+});
+
+router.get("/examinations/:examinationId/regrade-requests", async (req: AuthRequest, res) => {
+  const examinationId = cuid.parse(req.params.examinationId);
+  await examinationForManager(req, examinationId);
+  const status = z.nativeEnum(AIExaminerRegradeRequestStatus).optional().parse(req.query.status);
+  const data = await prisma.aIExaminerRegradeRequest.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      answerSheet: { examinationId },
+      ...(status ? { status } : {}),
+    },
+    include: {
+      requestedBy: { select: { id: true, name: true, role: true } },
+      decidedBy: { select: { id: true, name: true, role: true } },
+      resolvedBy: { select: { id: true, name: true, role: true } },
+      reviewRound: {
+        select: {
+          id: true, sequence: true, kind: true, mode: true, reviewerId: true, status: true,
+          totalMarks: true, submittedAt: true,
+          reviewer: { select: { id: true, name: true, role: true } },
+        },
+      },
+      result: { select: { id: true, marksObtained: true, percentage: true, grade: true, rank: true, status: true } },
+      revision: { select: { id: true, revision: true, createdAt: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+  });
+  res.json({ data });
+});
+
+router.post("/answer-sheets/:answerSheetId/regrade-requests", async (req: AuthRequest, res) => {
+  const answerSheetId = cuid.parse(req.params.answerSheetId);
+  const body = z.object({
+    scope: z.nativeEnum(AIExaminerRegradeScope).default(AIExaminerRegradeScope.WHOLE_SCRIPT),
+    questionKeys: z.array(z.string().trim().min(1).max(40)).max(200).optional(),
+    reason: z.string().trim().min(10).max(5000),
+  }).parse(req.body);
+
+  const { sheet, exam } = await answerSheetForManager(req, answerSheetId);
+  if (exam.status !== ExaminationStatus.RESULTS_PUBLISHED) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_RESULTS_NOT_PUBLISHED", "Formal regrade requests are available only after results are published");
+  }
+  if (!sheet.finalizedAt) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_ANSWER_NOT_FINALIZED", "Only finalized answer sheets can enter regrade");
+  }
+
+  const policy = regradePolicyFromExamSnapshot(exam.aiExaminerExamProfileSnapshot);
+  if (!policy.enabled) throw new AppError(409, "AI_EXAMINER_REGRADE_DISABLED", "Regrade is disabled by the assigned exam profile");
+
+  const publishedAt = await publicationAuditTime(req.auth!.organizationId, exam.id);
+  const window = aiExaminerRegradeWindow({ publishedAt, requestWindowDays: policy.requestWindowDays });
+  if (!window.open) throw new AppError(409, window.reason ?? "AI_EXAMINER_REGRADE_WINDOW_CLOSED", "The configured regrade request window is closed");
+
+  const [evaluation, result, priorRequests, openRequest] = await Promise.all([
+    prisma.aIExaminerEvaluation.findFirst({
+      where: {
+        organizationId: req.auth!.organizationId,
+        answerSheetId,
+        status: AIExaminerEvaluationStatus.APPROVED,
+      },
+      include: { questions: { select: { questionKey: true, finalMarks: true, maxMarks: true } } },
+      orderBy: { revision: "desc" },
+    }),
+    prisma.examinationResult.findFirst({
+      where: {
+        organizationId: req.auth!.organizationId,
+        examinationId: exam.id,
+        studentId: sheet.studentId,
+      },
+    }),
+    prisma.aIExaminerRegradeRequest.count({
+      where: {
+        organizationId: req.auth!.organizationId,
+        answerSheetId,
+        status: { not: AIExaminerRegradeRequestStatus.CANCELLED },
+      },
+    }),
+    prisma.aIExaminerRegradeRequest.findFirst({
+      where: {
+        organizationId: req.auth!.organizationId,
+        answerSheetId,
+        status: { in: [
+          AIExaminerRegradeRequestStatus.REQUESTED,
+          AIExaminerRegradeRequestStatus.APPROVED,
+          AIExaminerRegradeRequestStatus.REVIEW_IN_PROGRESS,
+        ] },
+      },
+      select: { id: true, status: true },
+    }),
+  ]);
+
+  if (!evaluation) throw new AppError(409, "AI_EXAMINER_REGRADE_EVALUATION_REQUIRED", "An approved AI Examiner evaluation is required for formal regrade");
+  if (!result || result.marksObtained == null || !result.generatedAt) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_RESULT_REQUIRED", "A generated published result with marks is required for regrade");
+  }
+  if (openRequest) throw new AppError(409, "AI_EXAMINER_REGRADE_ALREADY_OPEN", "An open regrade request already exists for this answer sheet");
+  if (priorRequests >= policy.maxRequestsPerAnswerSheet) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_LIMIT_REACHED", "The configured maximum number of regrade requests has been reached");
+  }
+
+  let questionKeys: string[];
+  try {
+    questionKeys = normalizeAIExaminerRegradeQuestionKeys({
+      scope: body.scope,
+      questionKeys: body.questionKeys,
+      availableQuestionKeys: evaluation.questions.map(question => question.questionKey),
+    });
+  } catch (error) {
+    throw new AppError(422, "AI_EXAMINER_REGRADE_SCOPE_INVALID", error instanceof Error ? error.message : "Invalid regrade question scope");
+  }
+
+  const data = await prisma.$transaction(async tx => {
+    const request = await tx.aIExaminerRegradeRequest.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        answerSheetId,
+        evaluationId: evaluation.id,
+        resultId: result.id,
+        scope: body.scope,
+        questionKeys,
+        reason: body.reason,
+        originalMarks: Number(result.marksObtained),
+        requestedById: req.auth!.userId,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_EXAMINER_REGRADE_REQUESTED",
+        entity: "AIExaminerRegradeRequest",
+        entityId: request.id,
+        metadata: {
+          answerSheetId,
+          examinationId: exam.id,
+          evaluationId: evaluation.id,
+          resultId: result.id,
+          scope: body.scope,
+          questionKeys,
+          originalMarks: Number(result.marksObtained),
+          closesAt: window.closesAt?.toISOString() ?? null,
+        },
+      },
+    });
+    return request;
+  });
+  res.status(201).json({ data, meta: { closesAt: window.closesAt } });
+});
+
+router.post("/regrade-requests/:requestId/decision", async (req: AuthRequest, res) => {
+  requireRegradeAdmin(req);
+  const requestId = cuid.parse(req.params.requestId);
+  const body = z.object({
+    decision: z.enum(["APPROVE", "REJECT"]),
+    notes: z.string().trim().min(3).max(5000),
+  }).parse(req.body);
+
+  const request = await prisma.aIExaminerRegradeRequest.findFirst({
+    where: { id: requestId, organizationId: req.auth!.organizationId },
+    include: { answerSheet: { select: { examinationId: true } } },
+  });
+  if (!request) throw new AppError(404, "AI_EXAMINER_REGRADE_NOT_FOUND", "Regrade request not found");
+  const exam = await examinationForManager(req, request.answerSheet.examinationId);
+  if (exam.status !== ExaminationStatus.RESULTS_PUBLISHED) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_RESULTS_NOT_PUBLISHED", "Regrade decisions require published results");
+  }
+  if (request.status !== AIExaminerRegradeRequestStatus.REQUESTED) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_DECISION_CLOSED", "This regrade request has already been decided");
+  }
+
+  const nextStatus = body.decision === "APPROVE"
+    ? AIExaminerRegradeRequestStatus.APPROVED
+    : AIExaminerRegradeRequestStatus.REJECTED;
+  const now = new Date();
+  const data = await prisma.$transaction(async tx => {
+    const changed = await tx.aIExaminerRegradeRequest.updateMany({
+      where: { id: request.id, organizationId: req.auth!.organizationId, status: AIExaminerRegradeRequestStatus.REQUESTED },
+      data: {
+        status: nextStatus,
+        decidedById: req.auth!.userId,
+        decisionNotes: body.notes,
+        decidedAt: now,
+      },
+    });
+    if (changed.count !== 1) throw new AppError(409, "AI_EXAMINER_REGRADE_CHANGED", "Regrade request changed concurrently; refresh and retry");
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: body.decision === "APPROVE" ? "AI_EXAMINER_REGRADE_APPROVED" : "AI_EXAMINER_REGRADE_REJECTED",
+        entity: "AIExaminerRegradeRequest",
+        entityId: request.id,
+        metadata: { examinationId: exam.id, notes: body.notes },
+      },
+    });
+    return tx.aIExaminerRegradeRequest.findUniqueOrThrow({ where: { id: request.id } });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  res.json({ data });
+});
+
+router.post("/regrade-requests/:requestId/assign", async (req: AuthRequest, res) => {
+  requireRegradeAdmin(req);
+  const requestId = cuid.parse(req.params.requestId);
+  const body = z.object({ reviewerId: cuid }).parse(req.body);
+
+  const request = await prisma.aIExaminerRegradeRequest.findFirst({
+    where: { id: requestId, organizationId: req.auth!.organizationId },
+    include: {
+      answerSheet: { select: { examinationId: true, evaluatedById: true } },
+      evaluation: {
+        select: {
+          reviewedById: true,
+          reviewArtifact: { select: { id: true, identityMasked: true } },
+          reviewRounds: { select: { sequence: true, reviewerId: true, kind: true, status: true } },
+        },
+      },
+    },
+  });
+  if (!request) throw new AppError(404, "AI_EXAMINER_REGRADE_NOT_FOUND", "Regrade request not found");
+  if (request.status !== AIExaminerRegradeRequestStatus.APPROVED) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_ASSIGNMENT_UNAVAILABLE", "Only an approved regrade request can be assigned");
+  }
+
+  const exam = await examinationForManager(req, request.answerSheet.examinationId);
+  if (exam.status !== ExaminationStatus.RESULTS_PUBLISHED) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_RESULTS_NOT_PUBLISHED", "Regrade review requires published results");
+  }
+  const regradePolicy = regradePolicyFromExamSnapshot(exam.aiExaminerExamProfileSnapshot);
+  const reviewPolicy = reviewPolicyFromExamSnapshot(exam.aiExaminerExamProfileSnapshot);
+  await assertEligibleReviewRoundReviewer(req, body.reviewerId, exam.branchId);
+
+  if (regradePolicy.requireIndependentReviewer) {
+    const conflicted = new Set([
+      request.requestedById,
+      request.decidedById,
+      request.answerSheet.evaluatedById,
+      request.evaluation.reviewedById,
+    ].filter((value): value is string => Boolean(value)));
+    if (conflicted.has(body.reviewerId) || request.evaluation.reviewRounds.some(round =>
+      round.reviewerId === body.reviewerId && round.status !== AIExaminerReviewRoundStatus.CANCELLED
+    )) {
+      throw new AppError(409, "AI_EXAMINER_REGRADE_INDEPENDENT_REVIEWER_REQUIRED", "Regrade reviewer must be independent from the requester, decision-maker and prior reviewers");
+    }
+  }
+
+  const anonymize = reviewPolicy.anonymizeStudentIdentity;
+  if (anonymize && (!request.evaluation.reviewArtifact || !request.evaluation.reviewArtifact.identityMasked)) {
+    throw new AppError(422, "AI_EXAMINER_REVIEW_ARTIFACT_REQUIRED", "An identity-masked review artifact is required before assigning this regrade");
+  }
+
+  const sequence = Math.max(0, ...request.evaluation.reviewRounds.map(round => round.sequence)) + 1;
+  const data = await prisma.$transaction(async tx => {
+    const changed = await tx.aIExaminerRegradeRequest.updateMany({
+      where: { id: request.id, organizationId: req.auth!.organizationId, status: AIExaminerRegradeRequestStatus.APPROVED, reviewRoundId: null },
+      data: { status: AIExaminerRegradeRequestStatus.REVIEW_IN_PROGRESS },
+    });
+    if (changed.count !== 1) throw new AppError(409, "AI_EXAMINER_REGRADE_CHANGED", "Regrade assignment changed concurrently; refresh and retry");
+
+    const round = await tx.aIExaminerReviewRound.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        evaluationId: request.evaluationId,
+        sequence,
+        kind: AIExaminerReviewRoundKind.APPEAL,
+        mode: reviewPolicy.mode as AIExaminerReviewMode,
+        reviewerId: body.reviewerId,
+        assignedById: req.auth!.userId,
+        anonymizeStudentIdentity: anonymize,
+        sourceIdentityMasked: anonymize,
+        priorMarksVisible: false,
+      },
+    });
+    await tx.aIExaminerRegradeRequest.update({
+      where: { id: request.id },
+      data: { reviewRoundId: round.id },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_EXAMINER_REGRADE_REVIEW_ASSIGNED",
+        entity: "AIExaminerRegradeRequest",
+        entityId: request.id,
+        metadata: {
+          examinationId: exam.id,
+          reviewerId: body.reviewerId,
+          reviewRoundId: round.id,
+          scope: request.scope,
+          independentReviewerRequired: regradePolicy.requireIndependentReviewer,
+        },
+      },
+    });
+    return round;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+  res.status(201).json({ data });
+});
+
+router.post("/regrade-requests/:requestId/review", async (req: AuthRequest, res) => {
+  const requestId = cuid.parse(req.params.requestId);
+  const body = z.object({
+    decisions: z.array(z.object({
+      questionKey: z.string().trim().min(1).max(40),
+      awardedMarks: z.coerce.number().min(-10000).max(10000),
+      comment: z.string().trim().max(5000).nullable().optional(),
+      evidence: z.unknown().optional(),
+    })).max(200).default([]),
+    correctedTotalMarks: z.coerce.number().min(-10000).max(10000).optional(),
+    notes: z.string().trim().min(3).max(5000),
+  }).parse(req.body);
+
+  const request = await prisma.aIExaminerRegradeRequest.findFirst({
+    where: { id: requestId, organizationId: req.auth!.organizationId },
+    include: {
+      answerSheet: { select: { examinationId: true } },
+      evaluation: { include: { questions: { orderBy: { createdAt: "asc" } } } },
+      reviewRound: true,
+    },
+  });
+  if (!request) throw new AppError(404, "AI_EXAMINER_REGRADE_NOT_FOUND", "Regrade request not found");
+  if (request.status !== AIExaminerRegradeRequestStatus.REVIEW_IN_PROGRESS || !request.reviewRound) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_REVIEW_UNAVAILABLE", "This regrade request is not awaiting an assigned review");
+  }
+  if (request.reviewRound.reviewerId !== req.auth!.userId) {
+    throw new AppError(403, "AI_EXAMINER_REGRADE_REVIEW_FORBIDDEN", "Only the assigned independent reviewer can submit this regrade review");
+  }
+  if (request.reviewRound.status !== AIExaminerReviewRoundStatus.ASSIGNED && request.reviewRound.status !== AIExaminerReviewRoundStatus.IN_PROGRESS) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_REVIEW_CLOSED", "This regrade review round is already closed");
+  }
+
+  const exam = await prisma.examination.findFirst({
+    where: { id: request.answerSheet.examinationId, organizationId: req.auth!.organizationId },
+    select: { id: true, maximumMarks: true, status: true },
+  });
+  if (!exam) throw new AppError(404, "EXAMINATION_NOT_FOUND", "Examination not found");
+  if (exam.status !== ExaminationStatus.RESULTS_PUBLISHED) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_RESULTS_NOT_PUBLISHED", "Regrade review requires published results");
+  }
+
+  let revisedTotal = 0;
+  const expectedKeys = request.scope === AIExaminerRegradeScope.WHOLE_SCRIPT
+    ? request.evaluation.questions.map(question => question.questionKey)
+    : request.scope === AIExaminerRegradeScope.QUESTION_SET
+      ? request.questionKeys
+      : [];
+  const expected = new Set(expectedKeys.map(key => key.toLowerCase()));
+  const byKey = new Map(body.decisions.map(decision => [decision.questionKey.toLowerCase(), decision]));
+  if (byKey.size !== body.decisions.length) {
+    throw new AppError(422, "AI_EXAMINER_REGRADE_DUPLICATE_QUESTION", "Regrade review contains duplicate question decisions");
+  }
+
+  if (request.scope === AIExaminerRegradeScope.CLERICAL_CHECK) {
+    if (body.decisions.length) throw new AppError(422, "AI_EXAMINER_REGRADE_SCOPE_INVALID", "Clerical checks accept a corrected total, not question-level decisions");
+    if (body.correctedTotalMarks == null) throw new AppError(422, "AI_EXAMINER_REGRADE_TOTAL_REQUIRED", "Clerical check requires correctedTotalMarks");
+    revisedTotal = body.correctedTotalMarks;
+  } else {
+    if (body.correctedTotalMarks != null) throw new AppError(422, "AI_EXAMINER_REGRADE_SCOPE_INVALID", "Question review derives the revised total from question-level decisions");
+    if (byKey.size !== expected.size || [...byKey.keys()].some(key => !expected.has(key))) {
+      throw new AppError(422, "AI_EXAMINER_REGRADE_REVIEW_INCOMPLETE", "Regrade review must contain exactly the configured question scope");
+    }
+
+    for (const question of request.evaluation.questions) {
+      const decision = byKey.get(question.questionKey.toLowerCase());
+      const existing = question.finalMarks == null ? null : Number(question.finalMarks);
+      if (expected.has(question.questionKey.toLowerCase())) {
+        if (!decision) throw new AppError(422, "AI_EXAMINER_REGRADE_REVIEW_INCOMPLETE", `Missing regrade decision for ${question.questionKey}`);
+        const maximum = Number(question.maxMarks);
+        if (decision.awardedMarks > maximum + 0.001 || decision.awardedMarks < -maximum - 0.001) {
+          throw new AppError(422, "AI_EXAMINER_REGRADE_MARKS_OUT_OF_RANGE", `Regrade marks for ${question.questionKey} must remain within the question mark range`);
+        }
+        revisedTotal += decision.awardedMarks;
+      } else {
+        if (existing == null) throw new AppError(409, "AI_EXAMINER_REGRADE_BASE_MARKS_MISSING", `Existing final marks are unavailable for ${question.questionKey}`);
+        revisedTotal += existing;
+      }
+    }
+  }
+
+  if (revisedTotal > exam.maximumMarks + 0.001 || revisedTotal < -exam.maximumMarks - 0.001) {
+    throw new AppError(422, "AI_EXAMINER_REGRADE_TOTAL_OUT_OF_RANGE", "Regrade total is outside the examination mark range");
+  }
+
+  const now = new Date();
+  const data = await prisma.$transaction(async tx => {
+    await tx.aIExaminerReviewDecision.deleteMany({ where: { reviewRoundId: request.reviewRound!.id } });
+    for (const question of request.evaluation.questions) {
+      const decision = byKey.get(question.questionKey.toLowerCase());
+      if (!decision) continue;
+      await tx.aIExaminerReviewDecision.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          reviewRoundId: request.reviewRound!.id,
+          questionEvaluationId: question.id,
+          questionKey: question.questionKey,
+          awardedMarks: decision.awardedMarks,
+          comment: decision.comment ?? null,
+          ...(decision.evidence !== undefined ? { evidence: profileJson(decision.evidence) } : {}),
+        },
+      });
+    }
+    const changed = await tx.aIExaminerReviewRound.updateMany({
+      where: {
+        id: request.reviewRound!.id,
+        organizationId: req.auth!.organizationId,
+        reviewerId: req.auth!.userId,
+        status: { in: [AIExaminerReviewRoundStatus.ASSIGNED, AIExaminerReviewRoundStatus.IN_PROGRESS] },
+      },
+      data: {
+        status: AIExaminerReviewRoundStatus.SUBMITTED,
+        totalMarks: revisedTotal,
+        notes: body.notes,
+        submittedAt: now,
+      },
+    });
+    if (changed.count !== 1) throw new AppError(409, "AI_EXAMINER_REGRADE_REVIEW_CHANGED", "Regrade review changed concurrently; refresh and retry");
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_EXAMINER_REGRADE_REVIEW_SUBMITTED",
+        entity: "AIExaminerRegradeRequest",
+        entityId: request.id,
+        metadata: {
+          reviewRoundId: request.reviewRound!.id,
+          scope: request.scope,
+          questionKeys: expectedKeys,
+          revisedTotal,
+        },
+      },
+    });
+    return tx.aIExaminerReviewRound.findUniqueOrThrow({
+      where: { id: request.reviewRound!.id },
+      include: { decisions: { orderBy: { createdAt: "asc" } } },
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+  res.json({ data, meta: { revisedTotal } });
+});
+
+router.post("/regrade-requests/:requestId/resolve", async (req: AuthRequest, res) => {
+  requireRegradeAdmin(req);
+  const requestId = cuid.parse(req.params.requestId);
+  const body = z.object({
+    correctedMarks: z.coerce.number().min(-10000).max(10000).optional(),
+    notes: z.string().trim().min(3).max(5000),
+  }).parse(req.body);
+
+  const request = await prisma.aIExaminerRegradeRequest.findFirst({
+    where: { id: requestId, organizationId: req.auth!.organizationId },
+    include: {
+      answerSheet: { select: { id: true, examinationId: true, studentId: true } },
+      evaluation: { select: { id: true } },
+      result: true,
+      reviewRound: true,
+    },
+  });
+  if (!request) throw new AppError(404, "AI_EXAMINER_REGRADE_NOT_FOUND", "Regrade request not found");
+  const exam = await examinationForManager(req, request.answerSheet.examinationId);
+  if (exam.status !== ExaminationStatus.RESULTS_PUBLISHED) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_RESULTS_NOT_PUBLISHED", "Regrade resolution requires published results");
+  }
+  const policy = regradePolicyFromExamSnapshot(exam.aiExaminerExamProfileSnapshot);
+
+  let resolvedMarks: number;
+  if (request.reviewRound) {
+    if (request.status !== AIExaminerRegradeRequestStatus.REVIEW_IN_PROGRESS || request.reviewRound.status !== AIExaminerReviewRoundStatus.SUBMITTED || request.reviewRound.totalMarks == null) {
+      throw new AppError(409, "AI_EXAMINER_REGRADE_REVIEW_INCOMPLETE", "Assigned regrade review must be submitted before resolution");
+    }
+    if (policy.requireIndependentReviewer && request.reviewRound.reviewerId === req.auth!.userId) {
+      throw new AppError(409, "AI_EXAMINER_REGRADE_RESOLVER_INDEPENDENCE_REQUIRED", "The independent reviewer cannot also finalize the result revision");
+    }
+    resolvedMarks = Number(request.reviewRound.totalMarks);
+    if (body.correctedMarks != null && Math.abs(body.correctedMarks - resolvedMarks) > 0.001) {
+      throw new AppError(422, "AI_EXAMINER_REGRADE_RESOLUTION_MISMATCH", "Resolution marks must match the submitted independent review");
+    }
+  } else {
+    if (request.scope !== AIExaminerRegradeScope.CLERICAL_CHECK || policy.requireIndependentReviewer) {
+      throw new AppError(409, "AI_EXAMINER_REGRADE_REVIEW_REQUIRED", "This regrade policy requires an assigned review before resolution");
+    }
+    if (request.status !== AIExaminerRegradeRequestStatus.APPROVED || body.correctedMarks == null) {
+      throw new AppError(422, "AI_EXAMINER_REGRADE_TOTAL_REQUIRED", "Approved clerical regrade requires correctedMarks");
+    }
+    resolvedMarks = body.correctedMarks;
+  }
+
+  if (resolvedMarks > exam.maximumMarks + 0.001 || resolvedMarks < -exam.maximumMarks - 0.001) {
+    throw new AppError(422, "AI_EXAMINER_REGRADE_TOTAL_OUT_OF_RANGE", "Resolved marks are outside the examination mark range");
+  }
+
+  const now = new Date();
+  const data = await prisma.$transaction(async tx => {
+    const changed = await tx.aIExaminerRegradeRequest.updateMany({
+      where: {
+        id: request.id,
+        organizationId: req.auth!.organizationId,
+        status: request.status,
+        resolvedAt: null,
+      },
+      data: { updatedAt: now },
+    });
+    if (changed.count !== 1) throw new AppError(409, "AI_EXAMINER_REGRADE_CHANGED", "Regrade request changed concurrently; refresh and retry");
+
+    const currentResult = await tx.examinationResult.findFirst({
+      where: {
+        id: request.resultId,
+        organizationId: req.auth!.organizationId,
+        examinationId: exam.id,
+        studentId: request.answerSheet.studentId,
+      },
+    });
+    if (!currentResult || currentResult.marksObtained == null) {
+      throw new AppError(409, "AI_EXAMINER_REGRADE_RESULT_REQUIRED", "Published result is unavailable for revision");
+    }
+    const beforeSnapshot = resultRevisionSnapshot(currentResult);
+    const recalculated = examinationResultFor(resolvedMarks, exam.maximumMarks, exam.passingMarks, currentResult.generatedAt ?? now);
+
+    await tx.examinationResult.update({
+      where: { id: currentResult.id },
+      data: {
+        marksObtained: recalculated.marksObtained,
+        percentage: recalculated.percentage,
+        grade: recalculated.grade,
+        gpa: recalculated.gpa,
+        status: recalculated.status,
+        generatedAt: currentResult.generatedAt ?? now,
+      },
+    });
+    await tx.examinationAnswerSheet.update({
+      where: { id: request.answerSheet.id },
+      data: { marksObtained: resolvedMarks },
+    });
+    await recomputePublishedRanks(tx, req.auth!.organizationId, exam.id);
+
+    const updatedResult = await tx.examinationResult.findUniqueOrThrow({ where: { id: currentResult.id } });
+    const afterSnapshot = resultRevisionSnapshot(updatedResult);
+    const latestRevision = await tx.aIExaminerResultRevision.findFirst({
+      where: { organizationId: req.auth!.organizationId, resultId: currentResult.id },
+      select: { revision: true },
+      orderBy: { revision: "desc" },
+    });
+    const revision = (latestRevision?.revision ?? 0) + 1;
+
+    const revisionRow = await tx.aIExaminerResultRevision.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        resultId: currentResult.id,
+        regradeRequestId: request.id,
+        revision,
+        beforeSnapshot: profileJson(beforeSnapshot),
+        afterSnapshot: profileJson(afterSnapshot),
+        changedById: req.auth!.userId,
+      },
+    });
+    await tx.aIExaminerRegradeRequest.update({
+      where: { id: request.id },
+      data: {
+        status: AIExaminerRegradeRequestStatus.RESOLVED,
+        resolvedMarks,
+        resolvedById: req.auth!.userId,
+        resolutionNotes: body.notes,
+        resolvedAt: now,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_EXAMINER_REGRADE_RESOLVED",
+        entity: "AIExaminerRegradeRequest",
+        entityId: request.id,
+        metadata: {
+          examinationId: exam.id,
+          resultId: currentResult.id,
+          resultRevisionId: revisionRow.id,
+          revision,
+          originalMarks: Number(request.originalMarks),
+          beforeMarks: Number(currentResult.marksObtained),
+          resolvedMarks,
+          scope: request.scope,
+        },
+      },
+    });
+
+    return {
+      request: await tx.aIExaminerRegradeRequest.findUniqueOrThrow({ where: { id: request.id } }),
+      result: updatedResult,
+      revision: revisionRow,
+    };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+  res.json({ data });
+});
+
+router.get("/results/:resultId/revisions", async (req: AuthRequest, res) => {
+  const resultId = cuid.parse(req.params.resultId);
+  const result = await prisma.examinationResult.findFirst({
+    where: { id: resultId, organizationId: req.auth!.organizationId },
+    select: { id: true, examinationId: true },
+  });
+  if (!result) throw new AppError(404, "EXAMINATION_RESULT_NOT_FOUND", "Examination result not found");
+  await examinationForManager(req, result.examinationId);
+  const data = await prisma.aIExaminerResultRevision.findMany({
+    where: { organizationId: req.auth!.organizationId, resultId },
+    include: {
+      changedBy: { select: { id: true, name: true, role: true } },
+      regradeRequest: {
+        select: { id: true, scope: true, questionKeys: true, reason: true, resolutionNotes: true, resolvedAt: true },
+      },
+    },
+    orderBy: { revision: "desc" },
+  });
+  res.json({ data });
 });
 
 router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) => {
