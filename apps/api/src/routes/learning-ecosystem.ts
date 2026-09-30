@@ -813,7 +813,69 @@ router.put("/learning/attempts/:id/answers/:questionId", allow(Role.STUDENT), as
   res.json({ data: row });
 });
 async function finalizeAttempt(attemptId: string, actor: LearningActor, organizationId: string) { const attempt = await prisma.learningTestAttempt.findFirst({ where: { id: attemptId, organizationId, studentId: actor.userId }, include: { test: { include: { questions: { include: { question: true } } } }, answers: true } }); if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found"); if (attempt.status !== LearningAttemptStatus.IN_PROGRESS) return attempt; const answers = new Map(attempt.answers.map(x => [x.questionId, x])), normalized = (v: unknown) => JSON.stringify(v, Object.keys((v && typeof v === "object" && !Array.isArray(v) ? v as object : {}) as object).sort()); let score = 0, correct = 0, incorrect = 0, unanswered = 0, seconds = 0; const updates = []; for (const tq of attempt.test.questions) { const answer = answers.get(tq.questionId); seconds += answer?.timeSpentSeconds ?? 0; if (!answer || answer.answer == null) { unanswered++; continue; } const ok = normalized(answer.answer) === normalized(correctAnswerForTestQuestion(tq)); const marks = ok ? Number(tq.marks) : -Number(tq.negativeMarks); score += marks; ok ? correct++ : incorrect++; updates.push(prisma.learningTestAnswer.update({ where: { id: answer.id }, data: { isCorrect: ok, awardedMarks: marks } })); } const pct = Math.max(0, Number(attempt.test.maximumMarks) ? score / Number(attempt.test.maximumMarks) * 100 : 0); const better = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED, score: { gt: score } } }), total = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED } }), rank = better + 1, percentile = total ? Math.max(0, (total - better) / total * 100) : 100; const result = await prisma.$transaction([...updates, prisma.learningTestAttempt.update({ where: { id: attempt.id }, data: { status: LearningAttemptStatus.EVALUATED, submittedAt: new Date(), score, percentage: pct, percentile, rank, correctCount: correct, incorrectCount: incorrect, unansweredCount: unanswered, timeSpentSeconds: seconds } })]); await prisma.gamificationProfile.upsert({ where: { userId: actor.userId }, update: { xp: { increment: correct * 5 }, coins: { increment: correct } }, create: { userId: actor.userId, xp: correct * 5, coins: correct } }); return result[result.length - 1]; }
-router.post("/learning/attempts/:id/submit", allow(Role.STUDENT), async (req: AuthRequest, res) => { const actor = await learningActorForRequest(req); const result = await finalizeAttempt(String(req.params.id), actor, req.auth!.organizationId); await audit(req, "SUBMIT", "LearningTestAttempt", String(req.params.id)); res.json({ data: result }); });
+router.post("/learning/attempts/:id/submit", allow(Role.STUDENT), async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const attemptId = String(req.params.id);
+  const body = z.object({ clientInstanceId: learningTestClientInstance.optional() }).parse(req.body ?? {});
+  const active = await prisma.learningTestAttempt.findFirst({
+    where: { id: attemptId, organizationId: req.auth!.organizationId, studentId: actor.userId },
+    select: { id: true, status: true, deliveryPolicySnapshot: true, clientInstanceId: true },
+  });
+  if (!active) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found");
+  const frozen = resolveLearningTestDeliveryPolicy(active.deliveryPolicySnapshot);
+  assertLearningTestClientBinding(frozen.configured, frozen.policy, active.clientInstanceId, body.clientInstanceId);
+  const result = await finalizeAttempt(attemptId, actor, req.auth!.organizationId);
+  if (frozen.configured && active.status === LearningAttemptStatus.IN_PROGRESS) {
+    await prisma.learningTestIntegrityEvent.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        attemptId,
+        type: "ATTEMPT_SUBMITTED",
+        details: { status: result.status },
+      },
+    });
+  }
+  await audit(req, "SUBMIT", "LearningTestAttempt", attemptId);
+  res.json({ data: result });
+});
+
+router.get("/learning/attempts/:id/integrity", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const attempt = await prisma.learningTestAttempt.findFirst({
+    where: { id: String(req.params.id), organizationId: req.auth!.organizationId },
+    include: {
+      test: { select: { id: true, branchId: true, courseId: true, batchId: true, subjectId: true, createdById: true } },
+      integrityEvents: { orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }] },
+    },
+  });
+  if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found");
+  const visible = await prisma.learningTest.findFirst({
+    where: { id: attempt.testId, ...learningResourceWhere(actor) },
+    select: { id: true },
+  });
+  if (!visible) throw learningDenied();
+
+  res.json({
+    data: {
+      attempt: {
+        id: attempt.id,
+        testId: attempt.testId,
+        studentId: attempt.studentId,
+        status: attempt.status,
+        startedAt: attempt.startedAt,
+        expiresAt: attempt.expiresAt,
+        submittedAt: attempt.submittedAt,
+        resumeCount: attempt.resumeCount,
+        lastResumedAt: attempt.lastResumedAt,
+        lastHeartbeatAt: attempt.lastHeartbeatAt,
+        offlineLeaseUntil: attempt.offlineLeaseUntil,
+        clientBound: Boolean(attempt.clientInstanceId),
+      },
+      events: attempt.integrityEvents,
+      interpretation: "Integrity events are review signals only and must not be treated as automatic evidence of misconduct.",
+    },
+  });
+});
 router.get("/learning/tests/:id/results", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const test = await prisma.learningTest.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor) }, select: { id: true } });
