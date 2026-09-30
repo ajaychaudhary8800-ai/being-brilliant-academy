@@ -70,6 +70,15 @@ const reviewPolicySchema = z.object({
   }
 });
 
+const regradePolicySchema = z.object({
+  enabled: z.boolean().default(false),
+  requestWindowDays: z.coerce.number().int().min(1).max(365).default(7),
+  maxRequestsPerAnswerSheet: z.coerce.number().int().min(1).max(10).default(1),
+  allowStudentRequest: z.boolean().default(false),
+  allowParentRequest: z.boolean().default(false),
+  requireIndependentReviewer: z.boolean().default(true),
+});
+
 const questionRuleSchema = z.object({
   questionType: aiExaminerQuestionTypeSchema,
   scoring: aiExaminerScoringRuleSchema.unwrap(),
@@ -101,6 +110,14 @@ export const aiExaminerExamProfileSchema = z.object({
     moderationRequired: false,
     discrepancyThresholdMarks: 0,
     discrepancyThresholdRatio: 0,
+  }),
+  regradePolicy: regradePolicySchema.default({
+    enabled: false,
+    requestWindowDays: 7,
+    maxRequestsPerAnswerSheet: 1,
+    allowStudentRequest: false,
+    allowParentRequest: false,
+    requireIndependentReviewer: true,
   }),
   questionRules: z.array(questionRuleSchema).max(100).default([]),
   sections: z.array(sectionRuleSchema).max(50).default([]),
