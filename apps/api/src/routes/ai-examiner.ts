@@ -987,7 +987,7 @@ router.post("/answer-sheets/:answerSheetId/scan-binding", async (req: AuthReques
   const { sheet, exam } = await answerSheetForManager(req, answerSheetId);
 
   if (sheet.finalizedAt) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Finalized answer sheets cannot create or rotate scan bindings");
-  if (![AnswerSheetStatus.SUBMITTED, AnswerSheetStatus.LATE_SUBMITTED].includes(sheet.status)) {
+  if (sheet.status !== AnswerSheetStatus.SUBMITTED && sheet.status !== AnswerSheetStatus.LATE_SUBMITTED) {
     throw new AppError(409, "AI_EXAMINER_SCAN_BINDING_UNAVAILABLE", "Scan binding requires an answer sheet that has been submitted and is not already under review");
   }
   if (exam.status !== ExaminationStatus.COMPLETED) {
