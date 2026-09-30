@@ -9,6 +9,7 @@ import {
   SchoolEventCategory,
   SchoolEventSeverity,
   SchoolEventStatus,
+  SafetyIncidentSeverity,
   TripStatus,
 } from "@prisma/client";
 import { z } from "zod";
@@ -476,6 +477,67 @@ function cameraSeverity(value: unknown) {
     : CameraIncidentSeverity.INFO;
 }
 
+function isSafetySignal(eventType: string) {
+  return /(SOS|PANIC|FIRE|EMERGENCY|DISTRESS|SMOKE_ALARM|DURESS)/i.test(eventType);
+}
+
+async function processSafetySignal(event: any, normalized: z.infer<typeof normalizedSchema>) {
+  if (!event.device.branchId) {
+    throw new DeviceEventProcessingError("SAFETY_SIGNAL_BRANCH_REQUIRED", "Safety signal device must be assigned to a branch");
+  }
+  const type = event.eventType.toLocaleUpperCase("en");
+  const severity = /(SOS|PANIC|FIRE|EMERGENCY|DISTRESS|DURESS)/.test(type)
+    ? SafetyIncidentSeverity.CRITICAL
+    : SafetyIncidentSeverity.HIGH;
+  const titleRaw = typeof normalized.metadata.title === "string" ? normalized.metadata.title.trim() : "";
+  const descriptionRaw = typeof normalized.metadata.description === "string" ? normalized.metadata.description.trim() : "";
+
+  const schoolEvent = await recordSchoolEvent({
+    organizationId: event.organizationId,
+    branchId: event.device.branchId,
+    category: SchoolEventCategory.SAFETY,
+    type,
+    severity: severity === SafetyIncidentSeverity.CRITICAL ? SchoolEventSeverity.CRITICAL : SchoolEventSeverity.HIGH,
+    occurredAt: event.occurredAt,
+    sourceType: "DEVICE_SAFETY_SIGNAL",
+    sourceId: event.id,
+    deviceId: event.deviceId,
+    correlationKey: `device:${event.deviceId}`,
+    title: (titleRaw || `Safety alert: ${type}`).slice(0, 240),
+    summary: descriptionRaw ? descriptionRaw.slice(0, 5000) : null,
+    reviewRequired: true,
+    metadata: { sourceDeviceCode: event.device.code, category: normalized.category },
+  });
+
+  const incident = await systemPrisma.safetyIncident.upsert({
+    where: { deviceEventId: event.id },
+    create: {
+      organizationId: event.organizationId,
+      branchId: event.device.branchId,
+      code: `AUTO-${event.id.slice(-12).toUpperCase()}`,
+      title: (titleRaw || `Safety alert: ${type}`).slice(0, 240),
+      description: descriptionRaw ? descriptionRaw.slice(0, 5000) : null,
+      severity,
+      sourceType: "DEVICE",
+      sourceId: event.deviceId,
+      schoolEventId: schoolEvent.id,
+      deviceEventId: event.id,
+      occurredAt: event.occurredAt,
+      metadata: json({ deviceCode: event.device.code, eventType: type }),
+    },
+    update: {},
+    select: { id: true, code: true, severity: true, status: true, emergencyMode: true },
+  });
+
+  return {
+    adapter: "SAFETY_INCIDENT",
+    incidentId: incident.id,
+    severity: incident.severity,
+    status: incident.status,
+    reviewRequired: true,
+  };
+}
+
 async function processVideo(event: any, normalized: z.infer<typeof normalizedSchema>) {
   const camera = await systemPrisma.campusCamera.findFirst({
     where: {
@@ -583,7 +645,8 @@ export async function processConnectedDeviceEvent(eventId: string) {
 
   try {
     let result: Record<string, unknown>;
-    if (parsed.data.category === "IDENTITY") result = await processIdentity(event, parsed.data);
+    if (isSafetySignal(event.eventType)) result = await processSafetySignal(event, parsed.data);
+    else if (parsed.data.category === "IDENTITY") result = await processIdentity(event, parsed.data);
     else if (parsed.data.category === "LOCATION") result = await processLocation(event, parsed.data);
     else if (parsed.data.category === "ACCESS") result = await processAccess(event, parsed.data);
     else if (parsed.data.category === "VIDEO") result = await processVideo(event, parsed.data);
