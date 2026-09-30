@@ -1482,6 +1482,7 @@ router.get("/review-rounds/:roundId/workspace", async (req: AuthRequest, res) =>
   const round = await prisma.aIExaminerReviewRound.findFirst({
     where: { id: roundId, organizationId: req.auth!.organizationId },
     include: {
+      regradeRequest: { select: { id: true, scope: true, questionKeys: true, status: true } },
       evaluation: {
         select: {
           id: true,
@@ -1540,19 +1541,25 @@ router.get("/review-rounds/:roundId/workspace", async (req: AuthRequest, res) =>
     throw new AppError(409, "AI_EXAMINER_SOURCE_IDENTITY_MASK_REQUIRED", "Blind review workspace requires an identity-masked review document");
   }
 
-  const questions = round.evaluation.questions.map(question => ({
-    id: question.id,
-    questionKey: question.questionKey,
-    maxMarks: question.maxMarks,
-    extractedAnswer: question.extractedAnswer,
-    reviewRequired: question.reviewRequired,
-    ...(round.priorMarksVisible ? {
-      aiSuggestedMarks: question.suggestedMarks,
-      aiConfidence: question.confidence,
-      aiRubricBreakdown: question.rubricBreakdown,
-      aiFeedback: question.feedback,
-    } : {}),
-  }));
+  const appealKeys = round.kind === AIExaminerReviewRoundKind.APPEAL && round.regradeRequest?.scope === AIExaminerRegradeScope.QUESTION_SET
+    ? new Set(round.regradeRequest.questionKeys.map(key => key.toLowerCase()))
+    : null;
+  const hideAllQuestions = round.kind === AIExaminerReviewRoundKind.APPEAL && round.regradeRequest?.scope === AIExaminerRegradeScope.CLERICAL_CHECK;
+  const questions = round.evaluation.questions
+    .filter(question => !hideAllQuestions && (!appealKeys || appealKeys.has(question.questionKey.toLowerCase())))
+    .map(question => ({
+      id: question.id,
+      questionKey: question.questionKey,
+      maxMarks: question.maxMarks,
+      extractedAnswer: question.extractedAnswer,
+      reviewRequired: question.reviewRequired,
+      ...(round.priorMarksVisible ? {
+        aiSuggestedMarks: question.suggestedMarks,
+        aiConfidence: question.confidence,
+        aiRubricBreakdown: question.rubricBreakdown,
+        aiFeedback: question.feedback,
+      } : {}),
+    }));
 
   res.json({
     data: {
@@ -1565,6 +1572,7 @@ router.get("/review-rounds/:roundId/workspace", async (req: AuthRequest, res) =>
         anonymizeStudentIdentity: round.anonymizeStudentIdentity,
         sourceIdentityMasked: round.sourceIdentityMasked,
         priorMarksVisible: round.priorMarksVisible,
+        regrade: round.regradeRequest,
       },
       evaluation: {
         id: round.evaluation.id,
@@ -1664,6 +1672,9 @@ router.post("/review-rounds/:roundId/submit", async (req: AuthRequest, res) => {
   if (round.reviewerId !== req.auth!.userId) throw new AppError(403, "AI_EXAMINER_REVIEW_ROUND_FORBIDDEN", "Only the assigned reviewer can submit this review round");
   if (round.status !== AIExaminerReviewRoundStatus.ASSIGNED && round.status !== AIExaminerReviewRoundStatus.IN_PROGRESS) {
     throw new AppError(409, "AI_EXAMINER_REVIEW_ROUND_CLOSED", "This review round is no longer open for submission");
+  }
+  if (round.kind === AIExaminerReviewRoundKind.APPEAL) {
+    throw new AppError(409, "AI_EXAMINER_APPEAL_USE_REGRADE_REVIEW", "Appeal rounds must be submitted through the scoped regrade-review workflow");
   }
   if (round.evaluation.answerSheet.finalizedAt) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet has already been finalized");
   if (round.anonymizeStudentIdentity && !round.sourceIdentityMasked) {
