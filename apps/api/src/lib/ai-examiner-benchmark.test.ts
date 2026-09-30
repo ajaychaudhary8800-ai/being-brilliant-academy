@@ -75,6 +75,21 @@ test("drift detection compares current performance against a baseline", () => {
   assert.ok(drift.failures.length >= 1);
 });
 
+test("benchmark cases support configured negative marking floors", () => {
+  const gate = evaluateAIExaminerBenchmarkGate([
+    { id: "negative", humanMarks: -1, aiMarks: -1, maxMarks: 4, minimumMarks: -1, confidence: 0.98 },
+  ], {
+    ...thresholds,
+    minimumCases: 1,
+    maximumNormalizedMae: 0,
+    minimumWithinToleranceRate: 1,
+    maximumOverrideRate: 0,
+    maximumLowConfidenceRate: 0,
+  });
+  assert.equal(gate.ready, true);
+  assert.equal(gate.metrics.exactAgreementRate, 1);
+});
+
 test("invalid benchmark marks or confidence fail closed", () => {
   assert.throws(() => calculateAIExaminerBenchmarkMetrics([
     { id: "bad", humanMarks: 6, aiMarks: 2, maxMarks: 5, confidence: 0.9 },
