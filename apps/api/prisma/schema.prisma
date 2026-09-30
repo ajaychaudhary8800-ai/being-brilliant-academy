@@ -6177,7 +6177,7 @@ model TransportAlert {
   tripId         String?
   vehicleId      String
   studentId      String?
-  sourceEventId  String?              @unique
+  sourceEventId  String?
   type           TransportAlertType
   status         TransportAlertStatus @default(OPEN)
   severity       SchoolEventSeverity  @default(MEDIUM)
@@ -6195,6 +6195,7 @@ model TransportAlert {
   trip           TransportTrip?       @relation(fields: [tripId], references: [id], onDelete: Cascade)
   vehicle        TransportVehicle     @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
 
+  @@unique([sourceEventId, type])
   @@index([organizationId, branchId, status, occurredAt])
   @@index([organizationId, vehicleId, occurredAt])
   @@index([organizationId, studentId, occurredAt])
