@@ -1,8 +1,24 @@
 # ERP 3.1 — Ranpal AI Examiner Advanced + Connected Campus
 
-Status: product/architecture roadmap
+Status: software implementation complete (100%); production activation gated by certification/UAT
 Base: ERP/LMS 3.0 production merge e24ff542df9c76f35e9d574b5bb9964da5c19b37
 Branch: integration/erp3.1-examiner-connected-campus
+Verified software head: a8aaed603833f4ac3bb48bf20b0db580667b065c
+Verified CI: #1083 SUCCESS
+
+## Current release state
+
+All eight ERP/LMS 3.1 software gates (3.1A–3.1H) are implemented and the software readiness calculation reports 100%.
+
+Production activation is intentionally separate from software completion. It remains blocked until applicable external release evidence is completed:
+- staging integration/UAT,
+- real-device certification for each active hardware device and adapter,
+- benchmark-ready AI Examiner runs plus approved AI grading certification for active suites,
+- active privacy/retention policy coverage for all required connected-campus purposes,
+- approved security/privacy certification.
+
+These gates are enforced by the Connected Campus governance readiness API and are visible in the Super Admin Connected Campus readiness dashboard. No connector or AI grading mode should be represented as production-certified until its required evidence is recorded and approved.
+
 
 ## Product thesis
 
