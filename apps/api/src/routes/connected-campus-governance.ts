@@ -14,6 +14,7 @@ import {
 } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
+import { evaluateERP31Readiness } from "../lib/erp-3-1-readiness.js";
 import { assertErpBranchAccess, assertErpBranchTarget, erpBranchScope } from "../lib/erp-branch-access.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
@@ -510,6 +511,156 @@ router.patch("/connected-campus/governance/certifications/:certificationId/revie
     return updated;
   });
   res.json({ data });
+});
+
+router.get("/connected-campus/governance/readiness", allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
+  const now = new Date();
+  const requiredPrivacyPurposes = Object.values(PrivacyPurpose);
+  const [
+    devices,
+    connectors,
+    certifications,
+    benchmarkSuites,
+    benchmarkRuns,
+    retentionPolicies,
+    retryCounts,
+  ] = await Promise.all([
+    prisma.connectedDevice.findMany({
+      where: {
+        organizationId: req.auth!.organizationId,
+        status: { notIn: ["DISABLED","RETIRED"] },
+      },
+      select: { id: true, status: true, kind: true, branchId: true, lastSeenAt: true, lastHeartbeatAt: true },
+    }),
+    prisma.deviceConnectorInstance.findMany({
+      where: {
+        organizationId: req.auth!.organizationId,
+        status: { not: "DISABLED" },
+      },
+      include: { adapter: { select: { key: true, name: true } } },
+    }),
+    prisma.capabilityCertification.findMany({
+      where: {
+        organizationId: req.auth!.organizationId,
+        status: CapabilityCertificationStatus.PASSED,
+        OR: [{ expiresAt: null }, { expiresAt: { gte: now } }],
+      },
+    }),
+    prisma.aIExaminerBenchmarkSuite.findMany({
+      where: {
+        organizationId: req.auth!.organizationId,
+        status: AIExaminerBenchmarkSuiteStatus.ACTIVE,
+      },
+      select: { id: true, code: true, name: true, subjectId: true, questionType: true, classLevel: true },
+    }),
+    prisma.aIExaminerBenchmarkRun.findMany({
+      where: {
+        organizationId: req.auth!.organizationId,
+        status: "COMPLETED",
+        benchmarkReady: true,
+      },
+      select: { id: true, suiteId: true, benchmarkReady: true, completedAt: true },
+      orderBy: { completedAt: "desc" },
+    }),
+    prisma.privacyRetentionPolicy.findMany({
+      where: { organizationId: req.auth!.organizationId, isActive: true },
+      select: { purpose: true, branchId: true, policyVersion: true, retentionDays: true, action: true, legalBasis: true },
+    }),
+    prisma.connectedDeviceRetryJob.groupBy({
+      by: ["status"],
+      where: { organizationId: req.auth!.organizationId },
+      _count: true,
+    }),
+  ]);
+
+  const activeAdapterKeys = connectors.map(connector => connector.adapter.key);
+  const certifiedRealDeviceIds = certifications
+    .filter(certification =>
+      certification.environment === CertificationEnvironment.REAL_DEVICE
+      && (certification.kind === CapabilityCertificationKind.HARDWARE_DEVICE || certification.kind === CapabilityCertificationKind.HARDWARE_ADAPTER)
+      && certification.deviceId
+    )
+    .map(certification => certification.deviceId!);
+  const certifiedRealAdapterKeys = certifications
+    .filter(certification =>
+      certification.environment === CertificationEnvironment.REAL_DEVICE
+      && (certification.kind === CapabilityCertificationKind.HARDWARE_ADAPTER || certification.kind === CapabilityCertificationKind.HARDWARE_DEVICE)
+      && certification.adapterKey
+    )
+    .map(certification => certification.adapterKey!);
+
+  const readySuiteIds = new Set(benchmarkRuns.map(run => run.suiteId));
+  const benchmarkReadySuiteCodes = benchmarkSuites.filter(suite => readySuiteIds.has(suite.id)).map(suite => suite.code);
+  const benchmarkRunToSuite = new Map(benchmarkRuns.map(run => [run.id, run.suiteId]));
+  const certifiedSuiteIds = new Set(
+    certifications
+      .filter(certification => certification.kind === CapabilityCertificationKind.AI_GRADING && certification.benchmarkRunId)
+      .map(certification => benchmarkRunToSuite.get(certification.benchmarkRunId!))
+      .filter((value): value is string => Boolean(value))
+  );
+  const aiCertifiedSuiteCodes = benchmarkSuites.filter(suite => certifiedSuiteIds.has(suite.id)).map(suite => suite.code);
+  const securityPrivacyCertified = certifications.some(certification =>
+    certification.kind === CapabilityCertificationKind.SECURITY_PRIVACY
+    && [CertificationEnvironment.STAGING, CertificationEnvironment.PRODUCTION_LIKE].includes(certification.environment)
+  );
+
+  const readiness = evaluateERP31Readiness({
+    activeDeviceIds: devices.map(device => device.id),
+    certifiedRealDeviceIds,
+    activeAdapterKeys,
+    certifiedRealAdapterKeys,
+    activeBenchmarkSuiteCodes: benchmarkSuites.map(suite => suite.code),
+    benchmarkReadySuiteCodes,
+    aiCertifiedSuiteCodes,
+    requiredPrivacyPurposes,
+    configuredPrivacyPurposes: retentionPolicies.map(policy => policy.purpose),
+    securityPrivacyCertified,
+  });
+
+  const deviceStatusCounts = Object.fromEntries(
+    [...new Set(devices.map(device => device.status))].map(status => [
+      status,
+      devices.filter(device => device.status === status).length,
+    ])
+  );
+  const connectorStatusCounts = Object.fromEntries(
+    [...new Set(connectors.map(connector => connector.status))].map(status => [
+      status,
+      connectors.filter(connector => connector.status === status).length,
+    ])
+  );
+
+  res.json({
+    data: {
+      ...readiness,
+      softwareVersion: "ERP/LMS 3.1",
+      evaluatedAt: now,
+      operational: {
+        deviceStatusCounts,
+        connectorStatusCounts,
+        retryQueue: Object.fromEntries(retryCounts.map(row => [row.status, row._count])),
+      },
+      evidence: {
+        activeDevices: devices,
+        activeConnectors: connectors.map(connector => ({
+          id: connector.id,
+          branchId: connector.branchId,
+          name: connector.name,
+          status: connector.status,
+          adapterKey: connector.adapter.key,
+          adapterName: connector.adapter.name,
+          lastSuccessAt: connector.lastSuccessAt,
+          lastErrorAt: connector.lastErrorAt,
+          lastErrorCode: connector.lastErrorCode,
+        })),
+        certifications,
+        benchmarkSuites,
+        benchmarkReadySuiteCodes,
+        aiCertifiedSuiteCodes,
+        retentionPolicies,
+      },
+    },
+  });
 });
 
 export default router;
