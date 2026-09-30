@@ -85,3 +85,20 @@ test("invalid confidence values are rejected", () => {
     questions: [],
   }));
 });
+
+
+test("unverified evidence links force second-pass verification", () => {
+  const decision = decideAIExaminerSecondPass({
+    overallConfidence: 0.95,
+    confidenceThreshold: 0.75,
+    questions: [{
+      questionKey: "Q1",
+      confidence: 0.95,
+      suggestedMarks: 4,
+      evidenceAudit: { reviewRequired: true, coverageRate: 0.5 },
+    }],
+  });
+  assert.equal(decision.required, true);
+  assert.deepEqual(decision.questionKeys, ["Q1"]);
+  assert.ok(decision.reasons.includes("EVIDENCE_LINK_UNVERIFIED"));
+});
