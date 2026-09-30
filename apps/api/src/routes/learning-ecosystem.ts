@@ -21,6 +21,7 @@ import {
 } from "../lib/learning-ecosystem-access.js";
 import { AppError } from "../lib/http.js";
 import { calculateLearningTestPsychometrics } from "../lib/learning-item-analysis.js";
+import { generateLearningQuestions, LearningQuestionGenerationError, learningQuestionGeneratorConfigured } from "../lib/learning-question-generator.js";
 import { resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import {
   learningTestAdapterReadiness,
@@ -318,6 +319,158 @@ function questionSimilarityHash(body: string, options?: unknown) {
 function questionJson(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
+router.post("/learning/questions/ai-generate", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  if (!learningQuestionGeneratorConfigured()) {
+    throw new AppError(503, "QUESTION_GENERATOR_NOT_CONFIGURED", "AI question-generation provider is not configured");
+  }
+  const d = z.object({
+    count: z.number().int().min(1).max(25).default(5),
+    examCategory: examCategoryCode,
+    subjectId: id,
+    courseId: id.optional(),
+    chapter: z.string().trim().min(1).max(150),
+    topic: z.string().trim().max(150).optional(),
+    difficulty: z.enum(["EASY", "MEDIUM", "HARD"]).optional(),
+    types: z.array(questionTypes).min(1).max(10),
+    marks: z.number().positive().max(100).default(1),
+    negativeMarks: z.number().min(0).max(100).default(0),
+    classLevel: z.nativeEnum(ClassLevel).optional(),
+    academicBoard: z.nativeEnum(AcademicBoard).optional(),
+    customBoardName: z.string().trim().min(2).max(120).optional(),
+    syllabusCode: z.string().trim().min(1).max(120).optional(),
+    learningOutcomes: z.array(z.string().trim().min(1).max(300)).max(20).default([]),
+    language: z.string().trim().min(2).max(80).default("English"),
+    additionalInstructions: z.string().trim().max(3000).optional(),
+    codePrefix: z.string().trim().toUpperCase().min(2).max(18).regex(/^[A-Z0-9-]+$/).default("AIQ"),
+  }).superRefine((value, ctx) => {
+    if (value.academicBoard === AcademicBoard.OTHER && !value.customBoardName) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customBoardName"], message: "Custom board name is required when academic board is OTHER" });
+    }
+    if (value.negativeMarks > value.marks) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["negativeMarks"], message: "Negative marks cannot exceed maximum marks" });
+    }
+  }).parse(req.body);
+
+  await relationCheck({ subjectId: d.subjectId, courseId: d.courseId });
+  assertManagerQuestionAccess(actor, { courseId: d.courseId, subjectId: d.subjectId });
+  const [subject, course] = await Promise.all([
+    prisma.subject.findFirst({ where: { id: d.subjectId }, select: { name: true } }),
+    d.courseId ? prisma.course.findFirst({ where: { id: d.courseId }, select: { title: true } }) : null,
+  ]);
+  if (!subject) throw new AppError(422, "INVALID_SUBJECT_RELATION", "Subject not found");
+
+  let generated;
+  try {
+    generated = await generateLearningQuestions({
+      count: d.count,
+      examCategory: d.examCategory,
+      subjectName: subject.name,
+      courseName: course?.title ?? null,
+      classLevel: d.classLevel ?? null,
+      academicBoard: d.academicBoard ?? null,
+      customBoardName: d.customBoardName ?? null,
+      syllabusCode: d.syllabusCode ?? null,
+      chapter: d.chapter,
+      topic: d.topic ?? null,
+      language: d.language,
+      types: d.types,
+      learningOutcomes: d.learningOutcomes,
+      additionalInstructions: [
+        d.difficulty ? `Every generated question must use difficulty ${d.difficulty}.` : null,
+        d.additionalInstructions ?? null,
+      ].filter(Boolean).join(" ") || null,
+    });
+  } catch (error) {
+    if (error instanceof LearningQuestionGenerationError) {
+      const status = error.code === "QUESTION_GENERATOR_NOT_CONFIGURED" ? 503
+        : error.code.includes("PROVIDER") || error.code.includes("UNAVAILABLE") || error.code.includes("TIMEOUT") ? 502
+        : 422;
+      throw new AppError(status, error.code, error.message);
+    }
+    throw error;
+  }
+  if (generated.length !== d.count) {
+    throw new AppError(422, "QUESTION_GENERATOR_COUNT_MISMATCH", "AI provider returned a different number of questions than requested");
+  }
+
+  const created = [];
+  const skippedDuplicates: Array<{ index: number; matchingQuestionId: string; matchingCode: string }> = [];
+  for (let index = 0; index < generated.length; index += 1) {
+    const question = generated[index]!;
+    const proposed = questionInput.parse({
+      code: `${d.codePrefix}-${crypto.randomBytes(5).toString("hex").toUpperCase()}`,
+      examCategory: d.examCategory,
+      type: question.type,
+      subjectId: d.subjectId,
+      courseId: d.courseId,
+      chapter: d.chapter,
+      topic: d.topic,
+      difficulty: d.difficulty ?? question.difficulty,
+      marks: d.marks,
+      negativeMarks: d.negativeMarks,
+      tags: ["AI_DRAFT"],
+      bloomLevel: question.bloomLevel,
+      classLevel: d.classLevel,
+      academicBoard: d.academicBoard,
+      customBoardName: d.customBoardName,
+      syllabusCode: d.syllabusCode,
+      learningOutcomes: question.learningOutcomes.length ? question.learningOutcomes : d.learningOutcomes,
+      expectedTimeSeconds: question.expectedTimeSeconds,
+      language: d.language,
+      aiGenerated: true,
+      body: question.body,
+      options: question.options,
+      correctAnswer: question.correctAnswer,
+      solution: question.solution,
+    });
+    const similarityHash = questionSimilarityHash(proposed.body, proposed.options);
+    const duplicate = await prisma.questionBankItem.findFirst({
+      where: {
+        ...learningQuestionWhere(actor),
+        subjectId: d.subjectId,
+        similarityHash,
+        isArchived: false,
+      },
+      select: { id: true, code: true },
+    });
+    if (duplicate) {
+      skippedDuplicates.push({ index, matchingQuestionId: duplicate.id, matchingCode: duplicate.code });
+      continue;
+    }
+    created.push(await prisma.questionBankItem.create({
+      data: {
+        ...proposed,
+        approvalStatus: ApprovalStatus.DRAFT,
+        aiGenerated: true,
+        options: proposed.options === undefined ? undefined : questionJson(proposed.options),
+        correctAnswer: questionJson(proposed.correctAnswer),
+        evaluationConfig: proposed.evaluationConfig === undefined ? undefined : questionJson(proposed.evaluationConfig),
+        similarityHash,
+        createdById: actor.userId,
+      },
+    }));
+  }
+
+  await audit(req, "AI_GENERATE_DRAFTS", "QuestionBankItem", undefined, {
+    requested: d.count,
+    created: created.length,
+    skippedDuplicates: skippedDuplicates.length,
+    subjectId: d.subjectId,
+    courseId: d.courseId ?? null,
+  });
+  res.status(201).json({
+    data: created,
+    meta: {
+      requested: d.count,
+      created: created.length,
+      skippedDuplicates,
+      approvalRequired: true,
+      status: "DRAFT",
+    },
+  });
+});
+
 router.post("/learning/questions/similarity-check", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const d = z.object({ subjectId: id, body: z.string().min(3).max(20000), options: z.unknown().optional(), limit: z.number().int().min(1).max(20).default(10) }).parse(req.body);
