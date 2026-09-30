@@ -2741,6 +2741,7 @@ model AIExaminerBenchmarkCase {
   humanReviewer       User                      @relation("AIExaminerBenchmarkHumanReviewer", fields: [humanReviewerId], references: [id], onDelete: Restrict)
   results             AIExaminerBenchmarkResult[]
 
+  @@unique([suiteId, sourceAnswerSheetId, questionKey])
   @@index([organizationId, suiteId, isActive])
   @@index([sourceAnswerSheetId, questionKey])
   @@index([humanReviewerId])
