@@ -2756,7 +2756,7 @@ model AIExaminerBenchmarkRun {
   status         AIExaminerBenchmarkRunStatus @default(QUEUED)
   thresholds     Json
   metrics        Json?
-  ready          Boolean                      @default(false)
+  benchmarkReady Boolean                      @default(false)
   createdById    String
   startedAt      DateTime?
   completedAt    DateTime?
