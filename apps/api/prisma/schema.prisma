@@ -626,6 +626,30 @@ enum ConnectedDeviceCommandStatus {
   CANCELLED
 }
 
+enum DeviceConnectorStatus {
+  CONFIGURING
+  ACTIVE
+  DEGRADED
+  DISABLED
+  ERROR
+}
+
+enum DeviceRetryStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  DEAD_LETTER
+  CANCELLED
+}
+
+enum EdgeAgentStatus {
+  PROVISIONING
+  ONLINE
+  OFFLINE
+  DEGRADED
+  DISABLED
+}
+
 enum CampusAccessPointType {
   MAIN_GATE
   INTERNAL_GATE
@@ -6019,6 +6043,102 @@ model CampusAccessEvent {
   @@index([organizationId, decision, occurredAt])
 }
 
+model DeviceAdapterRegistry {
+  id                  String                  @id @default(cuid())
+  key                 String                  @unique
+  name                String
+  vendor              String?
+  version             String
+  protocols           ConnectedDeviceProtocol[]
+  deviceKinds         ConnectedDeviceKind[]
+  capabilities        String[]                @default([])
+  configSchema        Json?
+  supportsEdgeAgent   Boolean                 @default(false)
+  supportsDiscovery   Boolean                 @default(false)
+  requiredEntitlement String?
+  isActive            Boolean                 @default(true)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  connectors          DeviceConnectorInstance[]
+
+  @@index([isActive, name])
+}
+
+model DeviceConnectorInstance {
+  organizationId String
+  id             String                @id @default(cuid())
+  branchId       String?
+  adapterId      String
+  name           String
+  status         DeviceConnectorStatus @default(CONFIGURING)
+  secretRef      String?
+  config         Json?
+  lastSyncAt     DateTime?
+  lastSuccessAt  DateTime?
+  lastErrorAt    DateTime?
+  lastErrorCode  String?
+  lastErrorMessage String?             @db.Text
+  latencyMs      Int?
+  consecutiveFailures Int              @default(0)
+  createdById    String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  adapter        DeviceAdapterRegistry @relation(fields: [adapterId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, name])
+  @@index([organizationId, branchId, status])
+  @@index([organizationId, adapterId, status])
+}
+
+model ConnectedDeviceRetryJob {
+  organizationId String
+  id             String            @id @default(cuid())
+  deviceId       String
+  eventId        String?
+  commandId      String?
+  operation      String
+  status         DeviceRetryStatus @default(QUEUED)
+  attempts       Int               @default(0)
+  maxAttempts    Int               @default(8)
+  nextAttemptAt  DateTime          @default(now())
+  lastAttemptAt  DateTime?
+  lastErrorCode  String?
+  lastErrorMessage String?         @db.Text
+  payload        Json?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  device         ConnectedDevice   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, operation, eventId, commandId])
+  @@index([organizationId, status, nextAttemptAt])
+  @@index([organizationId, deviceId, status])
+}
+
+model ConnectedCampusEdgeAgent {
+  organizationId String
+  id             String          @id @default(cuid())
+  branchId       String
+  code           String
+  name           String
+  status         EdgeAgentStatus @default(PROVISIONING)
+  tokenHash      String?
+  publicKey      String?         @db.Text
+  version        String?
+  os             String?
+  hostname       String?
+  capabilities   String[]        @default([])
+  lastHeartbeatAt DateTime?
+  lastSeenAt     DateTime?
+  lastIpHash     String?
+  lastErrorCode  String?
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([organizationId, branchId, code])
+  @@index([organizationId, branchId, status])
+}
+
 model ConnectedDevice {
   organizationId   String
   id               String                    @id @default(cuid())
@@ -6031,6 +6151,9 @@ model ConnectedDevice {
   externalDeviceId String?
   status           ConnectedDeviceStatus     @default(PROVISIONING)
   ingestTokenHash  String?
+  signatureRequired Boolean                  @default(false)
+  signingPublicKey String?                   @db.Text
+  lastSignatureAt DateTime?
   capabilities     String[]                  @default([])
   config           Json?
   metadata         Json?
@@ -6044,6 +6167,7 @@ model ConnectedDevice {
   events           ConnectedDeviceEvent[]
   bindings         ConnectedDeviceBinding[]
   commands         ConnectedDeviceCommand[]
+  retryJobs        ConnectedDeviceRetryJob[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, providerKey, externalDeviceId])
@@ -6059,6 +6183,8 @@ model ConnectedDeviceEvent {
   eventType       String
   occurredAt      DateTime
   receivedAt      DateTime                   @default(now())
+  eventDelayMs    Int?
+  signatureVerified Boolean?
   payload         Json
   normalized      Json?
   status          ConnectedDeviceEventStatus @default(RECEIVED)
