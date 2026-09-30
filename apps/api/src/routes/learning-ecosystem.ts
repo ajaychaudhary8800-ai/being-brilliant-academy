@@ -952,7 +952,7 @@ router.put("/learning/attempts/:id/answers/:questionId", allow(Role.STUDENT), as
   const row = await prisma.learningTestAnswer.upsert({ where: { attemptId_questionId: { attemptId: attempt.id, questionId } }, update: { ...answerData, answer: answerData.answer as object | undefined }, create: { organizationId: req.auth!.organizationId, attemptId: attempt.id, questionId, ...answerData, answer: answerData.answer as object | undefined } });
   res.json({ data: row });
 });
-async function finalizeAttempt(attemptId: string, actor: LearningActor, organizationId: string) { const attempt = await prisma.learningTestAttempt.findFirst({ where: { id: attemptId, organizationId, studentId: actor.userId }, include: { test: { include: { questions: { include: { question: true } } } }, answers: true } }); if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found"); if (attempt.status !== LearningAttemptStatus.IN_PROGRESS) return attempt; const answers = new Map(attempt.answers.map(x => [x.questionId, x])), normalized = (v: unknown) => JSON.stringify(v, Object.keys((v && typeof v === "object" && !Array.isArray(v) ? v as object : {}) as object).sort()); let score = 0, correct = 0, incorrect = 0, unanswered = 0, seconds = 0; const updates = []; for (const tq of attempt.test.questions) { const answer = answers.get(tq.questionId); seconds += answer?.timeSpentSeconds ?? 0; if (!answer || answer.answer == null) { unanswered++; continue; } const ok = normalized(answer.answer) === normalized(correctAnswerForTestQuestion(tq)); const marks = ok ? Number(tq.marks) : -Number(tq.negativeMarks); score += marks; ok ? correct++ : incorrect++; updates.push(prisma.learningTestAnswer.update({ where: { id: answer.id }, data: { isCorrect: ok, awardedMarks: marks } })); } const pct = Math.max(0, Number(attempt.test.maximumMarks) ? score / Number(attempt.test.maximumMarks) * 100 : 0); const better = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED, score: { gt: score } } }), total = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED } }), rank = better + 1, percentile = total ? Math.max(0, (total - better) / total * 100) : 100; const result = await prisma.$transaction([...updates, prisma.learningTestAttempt.update({ where: { id: attempt.id }, data: { status: LearningAttemptStatus.EVALUATED, submittedAt: new Date(), score, percentage: pct, percentile, rank, correctCount: correct, incorrectCount: incorrect, unansweredCount: unanswered, timeSpentSeconds: seconds } })]); await prisma.gamificationProfile.upsert({ where: { userId: actor.userId }, update: { xp: { increment: correct * 5 }, coins: { increment: correct } }, create: { userId: actor.userId, xp: correct * 5, coins: correct } }); return result[result.length - 1]; }
+async function finalizeAttempt(attemptId: string, actor: LearningActor, organizationId: string) { const attempt = await prisma.learningTestAttempt.findFirst({ where: { id: attemptId, organizationId, studentId: actor.userId }, include: { test: { include: { questions: { include: { question: true } } } }, answers: true } }); if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found"); if (attempt.status !== LearningAttemptStatus.IN_PROGRESS) return attempt; const answers = new Map(attempt.answers.map(x => [x.questionId, x])), normalized = (v: unknown) => JSON.stringify(v, Object.keys((v && typeof v === "object" && !Array.isArray(v) ? v as object : {}) as object).sort()); let score = 0, correct = 0, incorrect = 0, unanswered = 0, seconds = 0; const updates = []; for (const tq of attempt.test.questions) { const answer = answers.get(tq.questionId); seconds += answer?.timeSpentSeconds ?? 0; if (!answer || answer.answer == null) { unanswered++; continue; } const ok = normalized(answer.answer) === normalized(correctAnswerForTestQuestion(tq)); const marks = ok ? Number(tq.marks) : -Number(tq.negativeMarks); score += marks; ok ? correct++ : incorrect++; updates.push(prisma.learningTestAnswer.update({ where: { id: answer.id }, data: { isCorrect: ok, awardedMarks: marks } })); } const pct = Math.max(0, Number(attempt.test.maximumMarks) ? score / Number(attempt.test.maximumMarks) * 100 : 0); const better = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED, score: { gt: score } } }), total = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED } }), rank = better + 1, percentile = total ? Math.max(0, (total - better) / total * 100) : 100; const result = await prisma.$transaction([...updates, prisma.learningTestAttempt.update({ where: { id: attempt.id }, data: { status: LearningAttemptStatus.EVALUATED, submittedAt: new Date(), score, percentage: pct, percentile, rank, correctCount: correct, incorrectCount: incorrect, unansweredCount: unanswered, timeSpentSeconds: seconds } })]); await prisma.gamificationProfile.upsert({ where: { userId: actor.userId }, update: { xp: { increment: correct * 5 }, coins: { increment: correct } }, create: { userId: actor.userId, xp: correct * 5, coins: correct } }); try { await regenerateLearningAttemptRemediation({ organizationId, attemptId: attempt.id, studentUserId: actor.userId }); } catch { /* Result finalization must not be rolled back by optional recommendation generation. */ } return result[result.length - 1]; }
 router.post("/learning/attempts/:id/submit", allow(Role.STUDENT), async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const attemptId = String(req.params.id);
@@ -1016,6 +1016,101 @@ router.get("/learning/attempts/:id/integrity", managers, async (req: AuthRequest
     },
   });
 });
+router.get("/learning/tests/:id/item-analysis", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const test = await prisma.learningTest.findFirst({
+    where: { id: String(req.params.id), organizationId: req.auth!.organizationId, ...learningResourceWhere(actor) },
+    include: {
+      questions: {
+        select: {
+          questionId: true,
+          marks: true,
+          position: true,
+          questionSnapshot: true,
+          question: { select: { code: true, chapter: true, topic: true } },
+        },
+        orderBy: { position: "asc" },
+      },
+      attempts: {
+        where: { organizationId: req.auth!.organizationId, status: LearningAttemptStatus.EVALUATED },
+        select: {
+          studentId: true,
+          score: true,
+          answers: {
+            select: { questionId: true, answer: true, isCorrect: true, awardedMarks: true, timeSpentSeconds: true },
+          },
+        },
+      },
+    },
+  });
+  if (!test) throw new AppError(404, "TEST_NOT_FOUND", "Test not found");
+
+  const report = calculateLearningTestPsychometrics({
+    items: test.questions.map(row => ({ questionId: row.questionId, maxMarks: Number(row.marks) })),
+    attempts: test.attempts.map(attempt => ({
+      studentId: attempt.studentId,
+      totalScore: Number(attempt.score ?? 0),
+      responses: attempt.answers.map(answer => ({
+        questionId: answer.questionId,
+        answer: answer.answer,
+        isCorrect: answer.isCorrect,
+        awardedMarks: answer.awardedMarks == null ? null : Number(answer.awardedMarks),
+        timeSpentSeconds: answer.timeSpentSeconds,
+      })),
+    })),
+  });
+  const metadata = new Map(test.questions.map(row => {
+    const context = remediationQuestionContext({
+      questionId: row.questionId,
+      questionSnapshot: row.questionSnapshot,
+      question: { ...row.question, learningOutcomes: [] },
+    });
+    return [row.questionId, { code: context.code, chapter: context.chapter, topic: context.topic, position: row.position }];
+  }));
+
+  await audit(req, "ITEM_ANALYSIS", "LearningTest", test.id, {
+    attemptCount: report.attemptCount,
+    questionCount: report.questionCount,
+    reliabilityAlpha: report.reliabilityAlpha,
+  });
+  res.json({
+    data: {
+      ...report,
+      items: report.items.map(item => ({ ...item, question: metadata.get(item.questionId) ?? null })),
+    },
+  });
+});
+
+router.post("/learning/attempts/:id/remediation", allow(Role.STUDENT, Role.PARENT), async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const attempt = await prisma.learningTestAttempt.findFirst({
+    where: { id: String(req.params.id), organizationId: req.auth!.organizationId },
+    select: { id: true, studentId: true, status: true, testId: true },
+  });
+  if (!attempt || attempt.status !== LearningAttemptStatus.EVALUATED) {
+    throw new AppError(404, "ATTEMPT_NOT_FOUND", "Evaluated test attempt not found");
+  }
+  await assertStudentTargetAccess(actor, attempt.studentId);
+  const visible = await prisma.learningTest.findFirst({
+    where: { id: attempt.testId, organizationId: req.auth!.organizationId, ...learningResourceWhere(actor) },
+    select: { id: true },
+  });
+  if (!visible) throw learningDenied();
+
+  const data = await regenerateLearningAttemptRemediation({
+    organizationId: req.auth!.organizationId,
+    attemptId: attempt.id,
+    studentUserId: attempt.studentId,
+  });
+  await audit(req, "GENERATE_REMEDIATION", "LearningTestAttempt", attempt.id, {
+    studentId: attempt.studentId,
+    weakQuestionCount: data.weakQuestions.length,
+    materialCount: data.materials.length,
+    recommendationCount: data.recommendationCount,
+  });
+  res.json({ data });
+});
+
 router.get("/learning/tests/:id/results", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const test = await prisma.learningTest.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor) }, select: { id: true } });
