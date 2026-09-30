@@ -1,4 +1,4 @@
-import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
+import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config.js";
@@ -13,6 +13,13 @@ import {
 } from "../lib/ai-examiner-benchmark.js";
 import { AI_EXAMINER_ENGINES, AI_EXAMINER_QUESTION_TYPES } from "../lib/ai-examiner-assessment-router.js";
 import { aiExaminerRubricInputSchema, aiExaminerRubricStorage } from "../lib/ai-examiner-question-config.js";
+import { resolveAIExaminerRubricQuestions } from "../lib/ai-examiner-orchestration.js";
+import {
+  assertAIExaminerScanToken,
+  createAIExaminerScanToken,
+  hashAIExaminerScanToken,
+  validateAIExaminerOmrIngestion,
+} from "../lib/ai-examiner-scan-ingestion.js";
 import { aiExaminerLifecycleBlocker, assertAIExaminerEvaluationReady, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
 import { assessAIExaminerReviewCompletion, reviewPolicyFromExamSnapshot } from "../lib/ai-examiner-review-policy.js";
 import { assertExaminationManager, evaluationStatus, examinationResultFor } from "../lib/examination-policy.js";
@@ -973,6 +980,216 @@ router.get("/evaluations/:evaluationId", async (req: AuthRequest, res) => {
   if (!row) throw new AppError(404, "AI_EXAMINER_EVALUATION_NOT_FOUND", "AI evaluation not found");
   await examinationForManager(req, row.answerSheet.examinationId);
   res.json({ data: row });
+});
+
+router.post("/answer-sheets/:answerSheetId/scan-binding", async (req: AuthRequest, res) => {
+  const answerSheetId = cuid.parse(req.params.answerSheetId);
+  const { sheet, exam } = await answerSheetForManager(req, answerSheetId);
+
+  if (sheet.finalizedAt) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Finalized answer sheets cannot create or rotate scan bindings");
+  if (![AnswerSheetStatus.SUBMITTED, AnswerSheetStatus.LATE_SUBMITTED].includes(sheet.status)) {
+    throw new AppError(409, "AI_EXAMINER_SCAN_BINDING_UNAVAILABLE", "Scan binding requires an answer sheet that has been submitted and is not already under review");
+  }
+  if (exam.status !== ExaminationStatus.COMPLETED) {
+    throw new AppError(409, "AI_EXAMINER_SCAN_EXAM_NOT_COMPLETED", "OMR scan binding is available after the examination is completed");
+  }
+
+  const existing = await prisma.aIExaminerScanBinding.findFirst({
+    where: { organizationId: req.auth!.organizationId, answerSheetId },
+    include: { _count: { select: { pages: true } } },
+  });
+  if (existing?._count.pages) {
+    throw new AppError(409, "AI_EXAMINER_SCAN_BINDING_LOCKED", "A scan binding with ingested pages cannot rotate its token");
+  }
+
+  const scanToken = createAIExaminerScanToken();
+  const tokenHash = hashAIExaminerScanToken(scanToken);
+  const data = await prisma.$transaction(async tx => {
+    const binding = await tx.aIExaminerScanBinding.upsert({
+      where: { answerSheetId },
+      update: {
+        tokenHash,
+        status: AIExaminerScanBindingStatus.ACTIVE,
+        createdById: req.auth!.userId,
+      },
+      create: {
+        organizationId: req.auth!.organizationId,
+        answerSheetId,
+        tokenHash,
+        status: AIExaminerScanBindingStatus.ACTIVE,
+        createdById: req.auth!.userId,
+      },
+      select: { id: true, answerSheetId: true, status: true, createdAt: true, updatedAt: true },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: existing ? "AI_EXAMINER_SCAN_BINDING_ROTATED" : "AI_EXAMINER_SCAN_BINDING_CREATED",
+        entity: "AIExaminerScanBinding",
+        entityId: binding.id,
+        metadata: { answerSheetId, examinationId: exam.id },
+      },
+    });
+    return binding;
+  });
+
+  res.status(existing ? 200 : 201).json({
+    data: {
+      ...data,
+      scanToken,
+      tokenHandling: "Store/print this opaque token in the QR/barcode. The server stores only its SHA-256 hash and will not return the token again.",
+    },
+  });
+});
+
+router.post("/scan-bindings/:bindingId/pages", async (req: AuthRequest, res) => {
+  const bindingId = cuid.parse(req.params.bindingId);
+  const body = z.object({
+    scanId: z.string().trim().min(1).max(160),
+    scannerEngine: z.string().trim().min(1).max(160),
+    scannerVersion: z.string().trim().min(1).max(80),
+    pageNumber: z.coerce.number().int().min(1).max(1000),
+    totalPages: z.coerce.number().int().min(1).max(1000),
+    scanToken: z.string().trim().min(32).max(256),
+    barcodeConfidence: z.coerce.number().min(0).max(1),
+    imageQuality: z.coerce.number().min(0).max(1),
+    detections: z.array(z.object({
+      questionKey: z.string().trim().min(1).max(40),
+      selections: z.array(z.string().trim().min(1).max(40)).max(20),
+      confidence: z.coerce.number().min(0).max(1),
+      ambiguous: z.boolean().optional(),
+    })).max(500),
+  }).superRefine((value, ctx) => {
+    if (value.pageNumber > value.totalPages) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pageNumber"], message: "pageNumber cannot exceed totalPages" });
+    }
+  }).parse(req.body);
+
+  const binding = await prisma.aIExaminerScanBinding.findFirst({
+    where: { id: bindingId, organizationId: req.auth!.organizationId },
+    include: {
+      pages: { select: { id: true, pageNumber: true, totalPages: true, scanId: true, status: true } },
+      answerSheet: { select: { id: true, examinationId: true, finalizedAt: true } },
+    },
+  });
+  if (!binding) throw new AppError(404, "AI_EXAMINER_SCAN_BINDING_NOT_FOUND", "Scan binding not found");
+  if (binding.status !== AIExaminerScanBindingStatus.ACTIVE) {
+    throw new AppError(409, "AI_EXAMINER_SCAN_BINDING_LOCKED", "Scan binding is no longer open for page ingestion");
+  }
+  assertAIExaminerScanToken(binding.tokenHash, body.scanToken);
+
+  const { sheet, exam } = await answerSheetForManager(req, binding.answerSheetId);
+  if (sheet.finalizedAt || binding.answerSheet.finalizedAt) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Finalized answer sheets cannot ingest scan pages");
+  if (exam.status !== ExaminationStatus.COMPLETED) {
+    throw new AppError(409, "AI_EXAMINER_SCAN_EXAM_NOT_COMPLETED", "OMR scan ingestion is available after the examination is completed");
+  }
+
+  const activeRubric = exam.aiExaminerRubrics.find(rubric => rubric.status === AIExaminerRubricStatus.ACTIVE) ?? null;
+  if (!activeRubric) throw new AppError(409, "AI_EXAMINER_ACTIVE_RUBRIC_REQUIRED", "Activate a marking rubric before OMR scan ingestion");
+  const resolved = resolveAIExaminerRubricQuestions(activeRubric.rubric, activeRubric.modelAnswer);
+  const questions = resolved
+    .filter(question => (question.questionType === "MCQ" || question.questionType === "MSQ") && question.omrValidation)
+    .map(question => ({
+      questionKey: question.key,
+      mode: question.questionType as "MCQ" | "MSQ",
+      allowedOptions: question.omrValidation!.allowedOptions,
+    }));
+  if (!questions.length) {
+    throw new AppError(422, "AI_EXAMINER_OMR_NOT_CONFIGURED", "The active rubric has no MCQ/MSQ questions with OMR option configuration");
+  }
+
+  const differentPageCount = binding.pages.some(page => page.totalPages !== body.totalPages && page.pageNumber !== body.pageNumber);
+  if (differentPageCount) {
+    throw new AppError(422, "AI_EXAMINER_SCAN_PAGE_COUNT_MISMATCH", "All pages for a scan binding must declare the same totalPages value");
+  }
+  const reusedScanId = binding.pages.find(page => page.scanId === body.scanId && page.pageNumber !== body.pageNumber);
+  if (reusedScanId) {
+    throw new AppError(409, "AI_EXAMINER_SCAN_ID_REUSED", "scanId is already associated with a different page");
+  }
+
+  const validation = validateAIExaminerOmrIngestion({
+    payload: body,
+    questions,
+  });
+  const pageStatus = validation.status === "ACCEPTED"
+    ? AIExaminerScanPageStatus.ACCEPTED
+    : AIExaminerScanPageStatus.REVIEW_REQUIRED;
+  const redactedPayload = { ...body, scanToken: "[redacted]" };
+
+  const data = await prisma.$transaction(async tx => {
+    const page = await tx.aIExaminerScanPage.upsert({
+      where: { bindingId_pageNumber: { bindingId: binding.id, pageNumber: body.pageNumber } },
+      update: {
+        scanId: body.scanId,
+        totalPages: body.totalPages,
+        scannerEngine: body.scannerEngine,
+        scannerVersion: body.scannerVersion,
+        barcodeConfidence: body.barcodeConfidence,
+        imageQuality: body.imageQuality,
+        status: pageStatus,
+        payload: profileJson(redactedPayload),
+        validationResult: profileJson(validation),
+        ingestedById: req.auth!.userId,
+      },
+      create: {
+        organizationId: req.auth!.organizationId,
+        bindingId: binding.id,
+        scanId: body.scanId,
+        pageNumber: body.pageNumber,
+        totalPages: body.totalPages,
+        scannerEngine: body.scannerEngine,
+        scannerVersion: body.scannerVersion,
+        barcodeConfidence: body.barcodeConfidence,
+        imageQuality: body.imageQuality,
+        status: pageStatus,
+        payload: profileJson(redactedPayload),
+        validationResult: profileJson(validation),
+        ingestedById: req.auth!.userId,
+      },
+      select: { id: true, pageNumber: true, totalPages: true, scanId: true, status: true, createdAt: true, updatedAt: true },
+    });
+
+    const pages = await tx.aIExaminerScanPage.findMany({
+      where: { organizationId: req.auth!.organizationId, bindingId: binding.id },
+      select: { pageNumber: true, totalPages: true, status: true },
+    });
+    const pageNumbers = new Set(pages.map(item => item.pageNumber));
+    const complete = pages.length === body.totalPages &&
+      Array.from({ length: body.totalPages }, (_, index) => index + 1).every(pageNumber => pageNumbers.has(pageNumber));
+    const allAccepted = complete && pages.every(item => item.status === AIExaminerScanPageStatus.ACCEPTED);
+    if (allAccepted) {
+      await tx.aIExaminerScanBinding.update({
+        where: { id: binding.id },
+        data: { status: AIExaminerScanBindingStatus.LOCKED },
+      });
+    }
+
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_EXAMINER_OMR_SCAN_PAGE_INGESTED",
+        entity: "AIExaminerScanPage",
+        entityId: page.id,
+        metadata: {
+          bindingId: binding.id,
+          answerSheetId: binding.answerSheetId,
+          pageNumber: body.pageNumber,
+          totalPages: body.totalPages,
+          scannerEngine: body.scannerEngine,
+          scannerVersion: body.scannerVersion,
+          status: pageStatus,
+          issueCodes: validation.issues.map(issue => issue.code),
+          bindingLocked: allAccepted,
+        },
+      },
+    });
+
+    return { page, bindingLocked: allAccepted };
+  });
+
+  res.json({ data: data.page, validation, meta: { bindingLocked: data.bindingLocked } });
 });
 
 router.put("/evaluations/:evaluationId/review-artifact", async (req: AuthRequest, res) => {
