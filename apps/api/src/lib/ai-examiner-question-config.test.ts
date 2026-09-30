@@ -185,3 +185,52 @@ test("OMR configuration is optional and constrained to MCQ/MSQ", () => {
     }],
   }).success, false);
 });
+
+
+test("visual validation is optional, structured and limited to multimodal routing", () => {
+  const parsed = aiExaminerRubricInputSchema.parse({
+    questions: [{
+      key: "Q5",
+      maxMarks: 5,
+      criteria: "Draw and label a ray diagram.",
+      questionType: "DIAGRAM",
+      visualValidation: {
+        minimumObservationConfidence: 0.8,
+        requiredObservations: [
+          { key: "principal-axis", description: "Principal axis is drawn", weight: 1, required: true },
+          { key: "focus", description: "Principal focus is labelled", weight: 2, required: true },
+        ],
+      },
+    }],
+  });
+  assert.equal(aiExaminerStoredQuestionRoute(parsed.questions[0]!).engine, "MULTIMODAL");
+  assert.equal(parsed.questions[0]?.visualValidation?.requiredObservations.length, 2);
+
+  assert.equal(aiExaminerRubricInputSchema.safeParse({
+    questions: [{
+      key: "Q6",
+      maxMarks: 5,
+      criteria: "Explain.",
+      questionType: "LONG_ANSWER",
+      modelAnswer: "Explanation",
+      visualValidation: {
+        requiredObservations: [{ key: "x", description: "Visual element", weight: 1, required: true }],
+      },
+    }],
+  }).success, false);
+
+  assert.equal(aiExaminerRubricInputSchema.safeParse({
+    questions: [{
+      key: "Q7",
+      maxMarks: 5,
+      criteria: "Plot graph.",
+      questionType: "GRAPH",
+      visualValidation: {
+        requiredObservations: [
+          { key: "axis", description: "First", weight: 1, required: true },
+          { key: "AXIS", description: "Duplicate", weight: 1, required: true },
+        ],
+      },
+    }],
+  }).success, false);
+});
