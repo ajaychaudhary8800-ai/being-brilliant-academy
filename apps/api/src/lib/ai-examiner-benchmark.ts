@@ -9,6 +9,7 @@ export type AIExaminerBenchmarkCase = {
   teacherOverride?: boolean;
   subjectKey?: string;
   questionType?: string;
+  evidenceVerified?: boolean;
 };
 
 export type AIExaminerBenchmarkThresholds = {
@@ -20,6 +21,7 @@ export type AIExaminerBenchmarkThresholds = {
   maximumOverrideRate: number;
   maximumLowConfidenceRate: number;
   lowConfidenceThreshold: number;
+  minimumEvidenceVerificationRate?: number;
 };
 
 export type AIExaminerBenchmarkMetrics = {
@@ -32,6 +34,8 @@ export type AIExaminerBenchmarkMetrics = {
   overrideRate: number;
   lowConfidenceRate: number;
   reviewRequiredRate: number;
+  evidenceCaseCount: number;
+  evidenceVerificationRate: number;
 };
 
 export type AIExaminerBenchmarkGate = {
@@ -45,6 +49,7 @@ export type AIExaminerDriftThresholds = {
   maximumOverrideRateIncrease: number;
   maximumLowConfidenceRateIncrease: number;
   maximumWithinToleranceRateDrop: number;
+  maximumEvidenceVerificationRateDrop?: number;
 };
 
 function finite(value: number, label: string) {
@@ -96,6 +101,8 @@ export function calculateAIExaminerBenchmarkMetrics(
       overrideRate: 0,
       lowConfidenceRate: 0,
       reviewRequiredRate: 0,
+      evidenceCaseCount: 0,
+      evidenceVerificationRate: 0,
     };
   }
 
@@ -107,6 +114,8 @@ export function calculateAIExaminerBenchmarkMetrics(
   let overrides = 0;
   let lowConfidence = 0;
   let reviewRequired = 0;
+  let evidenceCases = 0;
+  let evidenceVerified = 0;
 
   for (const source of rows) {
     const row = validCase(source);
@@ -124,6 +133,10 @@ export function calculateAIExaminerBenchmarkMetrics(
     if (row.teacherOverride) overrides++;
     if (row.confidence < thresholds.lowConfidenceThreshold) lowConfidence++;
     if (row.reviewRequired) reviewRequired++;
+    if (row.evidenceVerified !== undefined) {
+      evidenceCases++;
+      if (row.evidenceVerified) evidenceVerified++;
+    }
   }
 
   return {
@@ -136,6 +149,8 @@ export function calculateAIExaminerBenchmarkMetrics(
     overrideRate: round(overrides / rows.length),
     lowConfidenceRate: round(lowConfidence / rows.length),
     reviewRequiredRate: round(reviewRequired / rows.length),
+    evidenceCaseCount: evidenceCases,
+    evidenceVerificationRate: evidenceCases ? round(evidenceVerified / evidenceCases) : 0,
   };
 }
 
@@ -148,6 +163,12 @@ export function evaluateAIExaminerBenchmarkGate(
   }
   if (thresholds.lowConfidenceThreshold < 0 || thresholds.lowConfidenceThreshold > 1) {
     throw new Error("lowConfidenceThreshold must be between 0 and 1");
+  }
+  if (
+    thresholds.minimumEvidenceVerificationRate !== undefined &&
+    (thresholds.minimumEvidenceVerificationRate < 0 || thresholds.minimumEvidenceVerificationRate > 1)
+  ) {
+    throw new Error("minimumEvidenceVerificationRate must be between 0 and 1");
   }
 
   const metrics = calculateAIExaminerBenchmarkMetrics(rows, thresholds);
@@ -167,6 +188,12 @@ export function evaluateAIExaminerBenchmarkGate(
   }
   if (metrics.lowConfidenceRate > thresholds.maximumLowConfidenceRate) {
     failures.push(`Low-confidence rate ${metrics.lowConfidenceRate} exceeds ${thresholds.maximumLowConfidenceRate}.`);
+  }
+  if (
+    thresholds.minimumEvidenceVerificationRate !== undefined &&
+    metrics.evidenceVerificationRate < thresholds.minimumEvidenceVerificationRate
+  ) {
+    failures.push(`Evidence verification rate ${metrics.evidenceVerificationRate} is below ${thresholds.minimumEvidenceVerificationRate}.`);
   }
 
   return { ready: failures.length === 0, metrics, failures };
@@ -202,6 +229,7 @@ export function assessAIExaminerBenchmarkDrift(
     overrideRate: round(current.overrideRate - baseline.overrideRate),
     lowConfidenceRate: round(current.lowConfidenceRate - baseline.lowConfidenceRate),
     withinToleranceRate: round(current.withinToleranceRate - baseline.withinToleranceRate),
+    evidenceVerificationRate: round(current.evidenceVerificationRate - baseline.evidenceVerificationRate),
   };
   const failures: string[] = [];
   if (deltas.normalizedMae > thresholds.maximumNormalizedMaeIncrease) {
@@ -215,6 +243,12 @@ export function assessAIExaminerBenchmarkDrift(
   }
   if (-deltas.withinToleranceRate > thresholds.maximumWithinToleranceRateDrop) {
     failures.push("Within-tolerance agreement dropped beyond threshold.");
+  }
+  if (
+    thresholds.maximumEvidenceVerificationRateDrop !== undefined &&
+    -deltas.evidenceVerificationRate > thresholds.maximumEvidenceVerificationRateDrop
+  ) {
+    failures.push("Evidence-verification rate dropped beyond threshold.");
   }
   return { driftDetected: failures.length > 0, deltas, failures };
 }
