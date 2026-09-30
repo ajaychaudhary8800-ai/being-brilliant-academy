@@ -9,6 +9,9 @@ import {
   ConnectedDeviceStatus,
   Prisma,
   Role,
+  SchoolEventCategory,
+  SchoolEventSeverity,
+  SchoolEventStatus,
 } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
@@ -181,6 +184,117 @@ const cameraInput = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: "Store a secret reference identifier rather than a raw endpoint URL" });
     }
   }
+});
+
+router.get("/device-hub/events", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const q = z.object({
+    category: z.nativeEnum(SchoolEventCategory).optional(),
+    severity: z.nativeEnum(SchoolEventSeverity).optional(),
+    status: z.nativeEnum(SchoolEventStatus).optional(),
+    branchId: cuid.optional(),
+    studentId: cuid.optional(),
+    employeeId: cuid.optional(),
+    vehicleId: cuid.optional(),
+    correlationKey: z.string().trim().max(180).optional(),
+    since: z.coerce.date().optional(),
+    until: z.coerce.date().optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+  }).superRefine((value, ctx) => {
+    if (value.since && value.until && value.until < value.since) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["until"], message: "until must not be before since" });
+    }
+  }).parse(req.query);
+  if (q.branchId) await assertErpBranchTarget(scope, q.branchId);
+  const data = await prisma.schoolEvent.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      ...(req.auth!.role === Role.SUPER_ADMIN
+        ? q.branchId ? { branchId: q.branchId } : {}
+        : { branchId: { in: scope } }),
+      ...(q.category ? { category: q.category } : {}),
+      ...(q.severity ? { severity: q.severity } : {}),
+      ...(q.status ? { status: q.status } : {}),
+      ...(q.studentId ? { studentId: q.studentId } : {}),
+      ...(q.employeeId ? { employeeId: q.employeeId } : {}),
+      ...(q.vehicleId ? { vehicleId: q.vehicleId } : {}),
+      ...(q.correlationKey ? { correlationKey: q.correlationKey } : {}),
+      ...((q.since || q.until) ? { occurredAt: { ...(q.since ? { gte: q.since } : {}), ...(q.until ? { lte: q.until } : {}) } } : {}),
+    },
+    take: q.limit,
+    orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+  });
+  res.json({ data });
+});
+
+router.get("/device-hub/events/:eventId/context", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const event = await prisma.schoolEvent.findFirst({
+    where: { id: cuid.parse(req.params.eventId), organizationId: req.auth!.organizationId },
+  });
+  if (!event) throw new AppError(404, "SCHOOL_EVENT_NOT_FOUND", "School event not found");
+  if (event.branchId) assertErpBranchAccess(scope, event.branchId);
+  const windowStart = new Date(event.occurredAt.getTime() - 15 * 60_000);
+  const windowEnd = new Date(event.occurredAt.getTime() + 15 * 60_000);
+  const OR: Prisma.SchoolEventWhereInput[] = [
+    ...(event.correlationKey ? [{ correlationKey: event.correlationKey }] : []),
+    ...(event.studentId ? [{ studentId: event.studentId }] : []),
+    ...(event.employeeId ? [{ employeeId: event.employeeId }] : []),
+    ...(event.vehicleId ? [{ vehicleId: event.vehicleId }] : []),
+    ...(event.deviceId ? [{ deviceId: event.deviceId }] : []),
+    ...(event.accessPointId ? [{ accessPointId: event.accessPointId }] : []),
+    ...(event.cameraId ? [{ cameraId: event.cameraId }] : []),
+  ];
+  const context = OR.length ? await prisma.schoolEvent.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      occurredAt: { gte: windowStart, lte: windowEnd },
+      OR,
+    },
+    orderBy: { occurredAt: "asc" },
+    take: 200,
+  }) : [event];
+  res.json({ data: { event, context, window: { startsAt: windowStart, endsAt: windowEnd } } });
+});
+
+router.patch("/device-hub/events/:eventId/review", async (req: AuthRequest, res) => {
+  const scope = await erpBranchScope(req);
+  const event = await prisma.schoolEvent.findFirst({
+    where: { id: cuid.parse(req.params.eventId), organizationId: req.auth!.organizationId },
+  });
+  if (!event) throw new AppError(404, "SCHOOL_EVENT_NOT_FOUND", "School event not found");
+  if (event.branchId) assertErpBranchAccess(scope, event.branchId);
+  const body = z.object({
+    status: z.enum(["ACKNOWLEDGED","RESOLVED","DISMISSED"]),
+    resolutionNotes: z.string().trim().min(3).max(5000).optional(),
+  }).parse(req.body);
+  if (["RESOLVED","DISMISSED"].includes(body.status) && !body.resolutionNotes) {
+    throw new AppError(422, "SCHOOL_EVENT_RESOLUTION_REQUIRED", "Resolved or dismissed events require review notes");
+  }
+  const now = new Date();
+  const data = await prisma.schoolEvent.update({
+    where: { id: event.id },
+    data: {
+      status: body.status,
+      ...(body.status === "ACKNOWLEDGED"
+        ? { acknowledgedById: req.auth!.userId, acknowledgedAt: event.acknowledgedAt ?? now }
+        : {}),
+      ...(body.status === "RESOLVED" || body.status === "DISMISSED"
+        ? { resolvedById: req.auth!.userId, resolvedAt: now, resolutionNotes: body.resolutionNotes }
+        : {}),
+    },
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "SCHOOL_EVENT_REVIEWED",
+      entity: "SchoolEvent",
+      entityId: event.id,
+      metadata: { status: body.status },
+    },
+  });
+  res.json({ data });
 });
 
 router.get("/device-hub/cameras", async (req: AuthRequest, res) => {
