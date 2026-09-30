@@ -89,3 +89,62 @@ test("MSQ and matching answer-key shapes are validated", () => {
     questions: [{ key: "Q2", maxMarks: 4, criteria: "Match.", questionType: "MATCHING", answerKey: ["A-1"] }],
   }).success, false);
 });
+
+
+test("programming questions require an explicit isolated sandbox policy", () => {
+  const missing = aiExaminerRubricInputSchema.safeParse({
+    questions: [{
+      key: "Q3",
+      maxMarks: 10,
+      criteria: "Write a program.",
+      questionType: "PROGRAMMING",
+      requiresCodeExecution: true,
+    }],
+  });
+  assert.equal(missing.success, false);
+
+  const parsed = aiExaminerRubricInputSchema.parse({
+    questions: [{
+      key: "Q3",
+      maxMarks: 10,
+      criteria: "Write a program.",
+      questionType: "PROGRAMMING",
+      requiresCodeExecution: true,
+      codeExecution: {
+        language: "PYTHON",
+        timeoutMs: 2000,
+        memoryMb: 128,
+        maxOutputBytes: 8192,
+        networkAccess: false,
+        fileSystem: "EPHEMERAL",
+        testCases: [
+          { key: "visible-1", input: "2", expectedOutput: "4", weight: 4 },
+          { key: "hidden-1", input: "10", expectedOutput: "100", weight: 6, hidden: true },
+        ],
+      },
+    }],
+  });
+  assert.equal(parsed.questions[0]?.codeExecution?.networkAccess, false);
+  assert.equal(aiExaminerStoredQuestionRoute(parsed.questions[0]!).engine, "CODE_SANDBOX");
+});
+
+test("programming sandbox configuration rejects network access and duplicate test keys", () => {
+  const result = aiExaminerRubricInputSchema.safeParse({
+    questions: [{
+      key: "Q4",
+      maxMarks: 10,
+      criteria: "Write a program.",
+      questionType: "PROGRAMMING",
+      requiresCodeExecution: true,
+      codeExecution: {
+        language: "JAVASCRIPT",
+        networkAccess: true,
+        testCases: [
+          { key: "same", weight: 5 },
+          { key: "SAME", weight: 5 },
+        ],
+      },
+    }],
+  });
+  assert.equal(result.success, false);
+});
