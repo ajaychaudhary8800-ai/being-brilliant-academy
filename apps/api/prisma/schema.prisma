@@ -656,6 +656,7 @@ model Organization {
   aiExaminerReviewRounds   AIExaminerReviewRound[]
   aiExaminerReviewDecisions AIExaminerReviewDecision[]
   aiExaminerReviewArtifacts AIExaminerReviewArtifact[]
+  aiExaminerEvidenceAttachments AIExaminerEvidenceAttachment[]
   aiExaminerScanBindings AIExaminerScanBinding[]
   aiExaminerScanPages AIExaminerScanPage[]
   aiExaminerRegradeRequests AIExaminerRegradeRequest[]
@@ -1276,6 +1277,21 @@ enum AIExaminerRegradeScope {
   CLERICAL_CHECK
 }
 
+enum AIExaminerEvidenceKind {
+  AUDIO
+  VIDEO
+  IMAGE
+  DOCUMENT
+  EXTERNAL_REFERENCE
+  STRUCTURED_OBSERVATION
+}
+
+enum AIExaminerEvidenceReviewStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
 enum LmsContentStatus {
   DRAFT
   PUBLISHED
@@ -1637,6 +1653,8 @@ model User {
   aiExaminerReviewRoundsReviewed AIExaminerReviewRound[] @relation("AIExaminerReviewRoundReviewer")
   aiExaminerReviewRoundsAssigned AIExaminerReviewRound[] @relation("AIExaminerReviewRoundAssigner")
   aiExaminerReviewArtifactsUploaded AIExaminerReviewArtifact[] @relation("AIExaminerReviewArtifactUploader")
+  aiExaminerEvidenceAttachmentsUploaded AIExaminerEvidenceAttachment[] @relation("AIExaminerEvidenceUploader")
+  aiExaminerEvidenceAttachmentsReviewed AIExaminerEvidenceAttachment[] @relation("AIExaminerEvidenceReviewer")
   aiExaminerScanBindingsCreated AIExaminerScanBinding[] @relation("AIExaminerScanBindingCreator")
   aiExaminerScanPagesIngested AIExaminerScanPage[] @relation("AIExaminerScanPageIngester")
   aiExaminerRegradeRequestsRequested AIExaminerRegradeRequest[] @relation("AIExaminerRegradeRequester")
@@ -2670,11 +2688,47 @@ model ExaminationAnswerSheet {
   benchmarkCases AIExaminerBenchmarkCase[]
   scanBinding    AIExaminerScanBinding?
   regradeRequests AIExaminerRegradeRequest[]
+  evidenceAttachments AIExaminerEvidenceAttachment[]
 
   @@unique([examinationId, studentId])
   @@index([organizationId, status, submittedAt])
   @@index([studentId, submittedAt])
   @@index([evaluatedById])
+}
+
+model AIExaminerEvidenceAttachment {
+  organizationId String
+  id             String                         @id @default(cuid())
+  answerSheetId  String
+  questionKey    String
+  kind           AIExaminerEvidenceKind
+  status         AIExaminerEvidenceReviewStatus @default(PENDING)
+  fileName       String?
+  mimeType       String?
+  fileSize       Int?
+  fileData       Bytes?
+  externalUrl    String?
+  contentSha256  String?
+  durationSeconds Int?
+  transcript     String?                        @db.Text
+  observation    Json?
+  sourceDevice   String?
+  capturedAt     DateTime?
+  uploadedById   String
+  reviewedById   String?
+  reviewNotes    String?                        @db.Text
+  reviewedAt     DateTime?
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+  organization   Organization                   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  answerSheet    ExaminationAnswerSheet         @relation(fields: [answerSheetId], references: [id], onDelete: Cascade)
+  uploadedBy     User                           @relation("AIExaminerEvidenceUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  reviewedBy     User?                          @relation("AIExaminerEvidenceReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, answerSheetId, questionKey])
+  @@index([organizationId, status, createdAt])
+  @@index([uploadedById])
+  @@index([reviewedById])
 }
 
 model AIExaminerExamProfile {
