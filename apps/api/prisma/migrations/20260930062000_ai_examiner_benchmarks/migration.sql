@@ -144,13 +144,13 @@ DO $$ BEGIN
     FOREIGN KEY ("approvedById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-DO $ BEGIN
+DO $$ BEGIN
   ALTER TABLE "AIExaminerBenchmarkCase"
     ADD CONSTRAINT "AIExaminerBenchmarkCase_organizationId_fkey"
     FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-DO $ BEGIN
+DO $$ BEGIN
   ALTER TABLE "AIExaminerBenchmarkCase"
     ADD CONSTRAINT "AIExaminerBenchmarkCase_suiteId_fkey"
     FOREIGN KEY ("suiteId") REFERENCES "AIExaminerBenchmarkSuite"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -168,13 +168,13 @@ DO $$ BEGIN
     FOREIGN KEY ("humanReviewerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-DO $ BEGIN
+DO $$ BEGIN
   ALTER TABLE "AIExaminerBenchmarkRun"
     ADD CONSTRAINT "AIExaminerBenchmarkRun_organizationId_fkey"
     FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-DO $ BEGIN
+DO $$ BEGIN
   ALTER TABLE "AIExaminerBenchmarkRun"
     ADD CONSTRAINT "AIExaminerBenchmarkRun_suiteId_fkey"
     FOREIGN KEY ("suiteId") REFERENCES "AIExaminerBenchmarkSuite"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -186,13 +186,13 @@ DO $$ BEGIN
     FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-DO $ BEGIN
+DO $$ BEGIN
   ALTER TABLE "AIExaminerBenchmarkResult"
     ADD CONSTRAINT "AIExaminerBenchmarkResult_organizationId_fkey"
     FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-DO $ BEGIN
+DO $$ BEGIN
   ALTER TABLE "AIExaminerBenchmarkResult"
     ADD CONSTRAINT "AIExaminerBenchmarkResult_runId_fkey"
     FOREIGN KEY ("runId") REFERENCES "AIExaminerBenchmarkRun"("id") ON DELETE CASCADE ON UPDATE CASCADE;
