@@ -250,10 +250,46 @@ router.post("/learning/doubts/:id/escalate", allow(Role.STUDENT), async (req: Au
 });
 
 const questionInput = z.object({ code: z.string().trim().min(2).max(50), examCategory: z.enum(["CBSE", "JEE_MAIN", "NEET", "CUET"]), type: questionTypes, subjectId: id, courseId: id.optional(), chapter: z.string().trim().min(1).max(150), topic: z.string().trim().max(150).optional(), difficulty: z.enum(["EASY", "MEDIUM", "HARD"]), marks: z.number().positive().max(100), negativeMarks: z.number().min(0).max(100).default(0), year: z.number().int().min(1990).max(2100).optional(), source: z.string().max(150).optional(), tags: z.array(z.string().max(40)).max(20).default([]), bloomLevel: z.enum(["REMEMBER", "UNDERSTAND", "APPLY", "ANALYZE", "EVALUATE", "CREATE"]).optional(), body: z.string().min(3).max(20000), options: z.unknown().optional(), correctAnswer: z.unknown(), solution: z.string().max(20000).optional() });
+const questionFilterInput = z.object({
+  search: z.string().trim().max(100).optional(),
+  examCategory: z.enum(["CBSE", "JEE_MAIN", "NEET", "CUET"]).optional(),
+  courseId: id.optional(),
+  subjectId: id.optional(),
+  chapter: z.string().trim().max(150).optional(),
+  difficulty: z.enum(["EASY", "MEDIUM", "HARD"]).optional(),
+  type: questionTypes.optional(),
+  approvalStatus: z.nativeEnum(ApprovalStatus).optional(),
+});
+function questionWhereFromFilter(actor: LearningActor, q: z.infer<typeof questionFilterInput>) {
+  return {
+    ...learningQuestionWhere(actor),
+    isArchived: false,
+    ...(q.examCategory ? { examCategory: q.examCategory } : {}),
+    ...(q.courseId ? { courseId: q.courseId } : {}),
+    ...(q.subjectId ? { subjectId: q.subjectId } : {}),
+    ...(q.chapter ? { chapter: { contains: q.chapter, mode: "insensitive" as const } } : {}),
+    ...(q.difficulty ? { difficulty: q.difficulty } : {}),
+    ...(q.type ? { type: q.type } : {}),
+    ...(q.approvalStatus ? { approvalStatus: q.approvalStatus } : {}),
+    ...(q.search ? { OR: [{ body: { contains: q.search, mode: "insensitive" as const } }, { code: { contains: q.search, mode: "insensitive" as const } }, { topic: { contains: q.search, mode: "insensitive" as const } }] } : {}),
+  };
+}
+const bulkQuestionReviewInput = z.object({
+  approvalStatus: z.enum(["APPROVED", "REJECTED"]),
+  ids: z.array(id).min(1).max(500).optional(),
+  allFiltered: z.boolean().default(false),
+  filters: questionFilterInput.optional(),
+}).superRefine((value, ctx) => {
+  if (Boolean(value.ids?.length) === Boolean(value.allFiltered)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Choose either explicit question ids or all filtered questions" });
+  if (value.allFiltered && !value.filters) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Filters are required for all-filtered review" });
+  if (value.allFiltered && value.filters && ![value.filters.courseId, value.filters.subjectId, value.filters.chapter, value.filters.search].some(Boolean)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "All-filtered review requires Course, Subject, Chapter or search scope" });
+  }
+});
 router.get("/learning/questions", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
-  const q = pageQuery.extend({ examCategory: z.string().optional(), subjectId: id.optional(), chapter: z.string().optional(), difficulty: z.string().optional(), type: questionTypes.optional(), approvalStatus: z.nativeEnum(ApprovalStatus).optional() }).parse(req.query);
-  const where: any = { ...learningQuestionWhere(actor), isArchived: false, ...(q.examCategory ? { examCategory: q.examCategory } : {}), ...(q.subjectId ? { subjectId: q.subjectId } : {}), ...(q.chapter ? { chapter: { contains: q.chapter, mode: "insensitive" } } : {}), ...(q.difficulty ? { difficulty: q.difficulty } : {}), ...(q.type ? { type: q.type } : {}), ...(q.approvalStatus ? { approvalStatus: q.approvalStatus } : {}), ...(q.search ? { OR: [{ body: { contains: q.search, mode: "insensitive" } }, { code: { contains: q.search, mode: "insensitive" } }, { topic: { contains: q.search, mode: "insensitive" } }] } : {}) };
+  const q = pageQuery.extend(questionFilterInput.shape).parse(req.query);
+  const where: any = questionWhereFromFilter(actor, q);
   const [total, data] = await prisma.$transaction([
     prisma.questionBankItem.count({ where }),
     prisma.questionBankItem.findMany({ where, include: { createdBy: { select: { name: true } }, reviewedBy: { select: { name: true } }, _count: { select: { revisions: true, testQuestions: true } } }, skip: (q.page - 1) * q.limit, take: q.limit, orderBy: { createdAt: q.sortOrder } }),
@@ -301,6 +337,32 @@ router.patch("/learning/questions/:id/approval", managers, async (req: AuthReque
   const row = await prisma.questionBankItem.update({ where: { id: question.id }, data: { approvalStatus, reviewedById: actor.userId, reviewedAt: new Date(), isArchived: approvalStatus === "ARCHIVED" } });
   await audit(req, approvalStatus, "QuestionBankItem", row.id);
   res.json({ data: row });
+});
+
+router.patch("/learning/questions/bulk-approval", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const d = bulkQuestionReviewInput.parse(req.body);
+  const selectionWhere: any = d.allFiltered
+    ? questionWhereFromFilter(actor, d.filters ?? {})
+    : { ...learningQuestionWhere(actor), isArchived: false, id: { in: d.ids ?? [] } };
+  const eligibleStatuses = [ApprovalStatus.DRAFT, ApprovalStatus.PENDING];
+  const requested = d.allFiltered
+    ? await prisma.questionBankItem.count({ where: selectionWhere })
+    : d.ids?.length ?? 0;
+  const reviewedAt = new Date();
+  const updated = await prisma.questionBankItem.updateMany({
+    where: { ...selectionWhere, approvalStatus: { in: eligibleStatuses } },
+    data: { approvalStatus: d.approvalStatus, reviewedById: actor.userId, reviewedAt },
+  });
+  const action = d.approvalStatus === "APPROVED" ? "BULK_APPROVE" : "BULK_REJECT";
+  await audit(req, action, "QuestionBankItem", undefined, {
+    requested,
+    updated: updated.count,
+    skipped: Math.max(0, requested - updated.count),
+    selectionMode: d.allFiltered ? "FILTERED" : "EXPLICIT_IDS",
+    filters: d.allFiltered ? d.filters : undefined,
+  });
+  res.json({ data: { approvalStatus: d.approvalStatus }, meta: { requested, updated: updated.count, skipped: Math.max(0, requested - updated.count) } });
 });
 
 router.post("/learning/questions/bulk", managers, async (req: AuthRequest, res) => {
