@@ -47,3 +47,16 @@ test("new Learning Tests snapshot Question Bank content and scoring keys", () =>
   assert.match(route, /studentQuestionFromSnapshot/);
   assert.match(route, /correctAnswerForTestQuestion\(tq\)/);
 });
+
+
+test("Question Bank bulk review is scope-safe, lifecycle-safe and audit logged", () => {
+  assert.match(route, /router\.patch\("\/learning\/questions\/bulk-approval"/);
+  assert.match(route, /courseId: id\.optional\(\)/);
+  assert.match(route, /All-filtered review requires Course, Subject, Chapter or search scope/);
+  assert.match(route, /ApprovalStatus\.DRAFT, ApprovalStatus\.PENDING/);
+  assert.match(route, /questionBankItem\.updateMany/);
+  assert.match(route, /BULK_APPROVE/);
+  assert.match(route, /BULK_REJECT/);
+  assert.match(route, /selectionMode/);
+  assert.match(route, /skipped/);
+});
