@@ -613,7 +613,7 @@ router.patch("/learning/questions/bulk-approval", managers, async (req: AuthRequ
     updated: updated.count,
     skipped,
     selectionMode: d.allFiltered ? "FILTERED" : "EXPLICIT_IDS",
-    filters: d.allFiltered ? d.filters : undefined,
+    ...(d.allFiltered ? { filters: d.filters } : {}),
   });
   res.json({ data: { approvalStatus: d.approvalStatus }, meta: { requested, updated: updated.count, skipped } });
 });
