@@ -794,7 +794,7 @@ router.post("/benchmark-suites/:suiteId/cases/bulk-import", async (req: AuthRequ
     where: { id: req.auth!.userId, organizationId: req.auth!.organizationId, isActive: true },
     select: { id: true, role: true },
   });
-  if (!fallbackReviewer || ![Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER].includes(fallbackReviewer.role)) {
+  if (!fallbackReviewer || (fallbackReviewer.role !== Role.SUPER_ADMIN && fallbackReviewer.role !== Role.BRANCH_ADMIN && fallbackReviewer.role !== Role.TEACHER)) {
     throw new AppError(422, "AI_EXAMINER_BENCHMARK_REVIEWER_INVALID", "Authenticated benchmark importer must be an active teacher or administrator");
   }
 
