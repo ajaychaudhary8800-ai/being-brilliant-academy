@@ -61,6 +61,43 @@ function concise(value: string | null | undefined, maximum = 140) {
   return normalized.length <= maximum ? normalized : normalized.slice(0, maximum - 1).trimEnd() + "…";
 }
 
+type RubricBreakdownRow = {
+  criterion: string;
+  maxMarks: number;
+  awardedMarks: number;
+  rationale: string;
+  evidenceText: string | null;
+};
+
+function rubricRows(value: unknown): RubricBreakdownRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(raw => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+    const row = raw as Record<string, unknown>;
+    const criterion = typeof row.criterion === "string" ? concise(row.criterion, 1000) : "";
+    const rationale = typeof row.rationale === "string" ? concise(row.rationale, 2000) : "";
+    const evidenceText = typeof row.evidenceText === "string" ? concise(row.evidenceText, 2000) : null;
+    const maxMarks = Number(row.maxMarks);
+    const awardedMarks = Number(row.awardedMarks);
+    if (!criterion || !Number.isFinite(maxMarks) || !Number.isFinite(awardedMarks) || maxMarks < 0 || awardedMarks < 0) return [];
+    return [{ criterion, maxMarks, awardedMarks, rationale, evidenceText }];
+  });
+}
+
+function normalizedEvidence(value: string | null | undefined) {
+  return value?.replace(/\s+/g, " ").trim().toLocaleLowerCase("en") ?? "";
+}
+
+function evidenceHint(hints: Hint[], evidenceText: string | null) {
+  const evidence = normalizedEvidence(evidenceText);
+  if (!evidence) return null;
+  return hints.find(hint => {
+    const text = normalizedEvidence(hint.text);
+    if (!text) return false;
+    return text.includes(evidence) || evidence.includes(text);
+  }) ?? null;
+}
+
 export function sha256Buffer(value: Buffer) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -145,6 +182,28 @@ export function buildAIExaminerCheckedCopyDraft(input: {
           pageNumber: hint.pageNumber, x: hint.x, y: hint.y, width: hint.width, height: hint.height,
           rotation: 0, placementConfidence: question.confidence ?? null, evidenceText: hint.text ?? null,
         }),
+      });
+    }
+
+    for (const criterion of rubricRows(question.rubricBreakdown)) {
+      const matchedHint = evidenceHint(hints, criterion.evidenceText);
+      const content = concise(
+        `${criterion.criterion}: +${criterion.awardedMarks}/${criterion.maxMarks}${criterion.rationale ? ` — ${criterion.rationale}` : ""}`,
+        300,
+      );
+      annotations.push({
+        questionKey: question.questionKey,
+        rubricCriterion: criterion.criterion,
+        type: "RUBRIC_NOTE",
+        content,
+        marks: criterion.awardedMarks,
+        confidence: question.confidence ?? null,
+        sourceEvidence: criterion.evidenceText,
+        vectorData: null,
+        authorType: "AI",
+        approvalState: matchedHint ? "AI_DRAFT" : "POSITION_REVIEW_REQUIRED",
+        sortOrder: order++,
+        anchor: matchedHint ? scoreAnchor(matchedHint) : null,
       });
     }
 
