@@ -32,6 +32,7 @@ import {
 import { assertExaminationManager, evaluationStatus, examinationResultFor } from "../lib/examination-policy.js";
 import { analyzeAIExaminerOriginality } from "../lib/ai-examiner-originality.js";
 import { aiExaminerEvidenceMimeTypes, assertAIExaminerEvidenceKindMatchesMime, decodeAIExaminerEvidenceUpload, normalizeAIExaminerEvidenceUrl } from "../lib/ai-examiner-evidence-upload.js";
+import { renderAIExaminerCheckedCopy } from "../lib/ai-examiner-checked-copy.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
@@ -1682,6 +1683,89 @@ router.get("/evaluations/:evaluationId", async (req: AuthRequest, res) => {
   res.json({ data: row });
 });
 
+
+router.get("/evaluations/:evaluationId/checked-copy", async (req: AuthRequest, res) => {
+  const evaluationId = cuid.parse(req.params.evaluationId);
+  const evaluation = await prisma.aIExaminerEvaluation.findFirst({
+    where: {
+      id: evaluationId,
+      organizationId: req.auth!.organizationId,
+      status: AIExaminerEvaluationStatus.APPROVED,
+    },
+    include: {
+      questions: { orderBy: { createdAt: "asc" } },
+      reviewedBy: { select: { id: true, name: true } },
+      answerSheet: {
+        select: {
+          id: true,
+          examinationId: true,
+          fileName: true,
+          mimeType: true,
+          fileData: true,
+          finalizedAt: true,
+          marksObtained: true,
+          student: { select: { user: { select: { name: true } } } },
+          examination: { select: { name: true, maximumMarks: true } },
+        },
+      },
+    },
+  });
+  if (!evaluation) throw new AppError(404, "AI_EXAMINER_CHECKED_COPY_NOT_FOUND", "Approved AI evaluation not found");
+  await examinationForManager(req, evaluation.answerSheet.examinationId);
+  if (!evaluation.answerSheet.finalizedAt || evaluation.answerSheet.marksObtained == null) {
+    throw new AppError(409, "AI_EXAMINER_CHECKED_COPY_NOT_FINAL", "Checked copy is available only after teacher approval and answer-sheet finalization");
+  }
+  if (evaluation.questions.some(question => question.finalMarks == null)) {
+    throw new AppError(409, "AI_EXAMINER_CHECKED_COPY_MARKS_INCOMPLETE", "Checked copy requires teacher-approved final marks for every question");
+  }
+
+  const rendered = await renderAIExaminerCheckedCopy({
+    source: {
+      fileName: evaluation.answerSheet.fileName,
+      mimeType: evaluation.answerSheet.mimeType,
+      bytes: Buffer.from(evaluation.answerSheet.fileData),
+    },
+    studentName: evaluation.answerSheet.student.user.name,
+    examinationName: evaluation.answerSheet.examination.name,
+    questions: evaluation.questions.map(question => ({
+      questionKey: question.questionKey,
+      maxMarks: Number(question.maxMarks),
+      finalMarks: Number(question.finalMarks),
+      teacherComment: question.teacherComment,
+      feedback: question.feedback,
+    })),
+    diagnostics: evaluation.diagnostics,
+    totalMarks: Number(evaluation.answerSheet.marksObtained),
+    maximumMarks: evaluation.answerSheet.examination.maximumMarks,
+    reviewerName: evaluation.reviewedBy?.name ?? null,
+    evaluationRevision: evaluation.revision,
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "AI_EXAMINER_CHECKED_COPY_DOWNLOADED",
+      entity: "AIExaminerEvaluation",
+      entityId: evaluation.id,
+      metadata: {
+        answerSheetId: evaluation.answerSheet.id,
+        placement: rendered.placement,
+        pageCount: rendered.pageCount,
+        exactHintCount: rendered.exactHintCount,
+      },
+    },
+  }).catch(() => null);
+
+  const baseName = evaluation.answerSheet.fileName.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 120) || "answer-sheet";
+  res.set({
+    "Content-Type": "application/pdf",
+    "Content-Disposition": `attachment; filename="${baseName}-checked.pdf"`,
+    "Cache-Control": "private, no-store",
+    "X-Checked-Copy-Placement": rendered.placement,
+    "X-Checked-Copy-Pages": String(rendered.pageCount),
+  }).send(rendered.pdf);
+});
 
 router.post("/examinations/:examinationId/scan-batches", async (req: AuthRequest, res) => {
   const examinationId = cuid.parse(req.params.examinationId);
