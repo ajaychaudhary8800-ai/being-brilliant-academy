@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ExternalLink, FileText, Loader2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, FileText, Loader2, ShieldCheck } from "lucide-react";
 import { getAccessToken } from "./auth-provider";
 import { openAuthenticatedDocument } from "./authenticated-download";
 import Sidebar from "./sidebar";
@@ -68,6 +68,18 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
     }catch(cause){setError(cause instanceof Error?cause.message:"Answer sheet unavailable");}
   }
 
+  async function openCheckedCopy(){
+    if(!evaluation||evaluation.status!=="APPROVED")return;
+    try{
+      await openAuthenticatedDocument({
+        url:`${API}/ai-examiner/evaluations/${evaluation.id}/checked-copy`,
+        token:getAccessToken()??"",
+        fileName:`${evaluation.answerSheet.fileName.replace(/\.[^.]+$/,"")}-checked.pdf`,
+        fallbackError:"Checked copy unavailable",
+      });
+    }catch(cause){setError(cause instanceof Error?cause.message:"Checked copy unavailable");}
+  }
+
   async function openQuestionPaper(){
     if(!evaluation)return;
     try{
@@ -119,7 +131,7 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
               </div>
               <div className="flex flex-wrap gap-2">
                 <button className="btn" onClick={()=>void openQuestionPaper()}><FileText size={16}/>Question Paper</button>
-                <button className="btn" onClick={()=>void openAnswerSheet()}><ExternalLink size={16}/>Answer Sheet</button>
+                <button className="btn" onClick={()=>void openAnswerSheet()}><ExternalLink size={16}/>Answer Sheet</button>{readonly&&<button className="btn border-red-200 text-red-700" onClick={()=>void openCheckedCopy()}><Download size={16}/>Checked Copy</button>}
               </div>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
