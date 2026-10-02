@@ -302,7 +302,7 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
               }):<p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No submitted answer sheets are available.</p>}
             </div>
           </section>
-          {selectedExam&&<AIExaminerBenchmarkPanel exam={selectedExam} readiness={readiness}/>}
+          {!teacherView&&selectedExam&&<AIExaminerBenchmarkPanel exam={selectedExam} readiness={readiness}/>}
           <section className="mt-5 rounded-2xl border bg-white p-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-xl font-bold">Marking Rubric</h2><p className="text-sm text-slate-500">Drafts are editable. Activating a new version preserves older rubrics for evaluation history.</p></div><div className={`rounded-full px-3 py-1 text-sm font-bold ${marksMatch?"bg-emerald-50 text-emerald-700":"bg-amber-50 text-amber-800"}`}>{totalMarks} / {maximum} marks</div></div>
             <label className="mt-4 block text-sm font-semibold">General evaluation instructions<textarea className="field mt-1.5 min-h-24" value={instructions} onChange={event=>setInstructions(event.target.value)} placeholder="Examples: award method marks, accept equivalent derivations, flag unclear diagrams for teacher review."/></label>
