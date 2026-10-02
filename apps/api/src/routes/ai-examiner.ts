@@ -967,7 +967,7 @@ router.get("/examinations", async (req: AuthRequest, res) => {
     },
     select: {
       id: true, name: true, code: true, status: true, maximumMarks: true, examDate: true,
-      subject: { select: { name: true } }, batch: { select: { name: true } }, branch: { select: { branchName: true } },
+      subject: { select: { id: true, name: true, code: true } }, batch: { select: { id: true, name: true } }, branch: { select: { id: true, branchName: true } },
       questionPaper: { select: { id: true, publishedAt: true } },
       aiExaminerRubrics: { where: { status: { in: [AIExaminerRubricStatus.DRAFT, AIExaminerRubricStatus.ACTIVE] } }, select: { id: true, version: true, status: true }, orderBy: { version: "desc" }, take: 2 },
       _count: { select: { answerSheets: true } },
