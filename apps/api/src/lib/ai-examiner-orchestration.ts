@@ -90,6 +90,7 @@ export type AIExaminerReconciledQuestion = {
   }>;
   concepts: ProviderQuestion["concepts"];
   flags: ProviderQuestion["flags"];
+  annotationHints: ProviderQuestion["annotationHints"];
   reviewRequired: boolean;
   engine: string;
   deterministicStatus: string | null;
