@@ -23,6 +23,8 @@ function provider(extractedAnswer: string): AIExaminerProviderResult {
       rubricBreakdown: [],
       concepts: [],
       flags: [],
+
+      annotationHints: [],
     }],
   };
 }
