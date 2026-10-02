@@ -31,6 +31,8 @@ function row(questionKey:string, extractedAnswer:string|null, awardedMarks=3, co
     visualObservations: [],
     concepts: [],
     flags: [],
+
+    annotationHints: [],
   };
 }
 
