@@ -557,6 +557,124 @@ router.post("/benchmark-suites/:suiteId/cases", async (req: AuthRequest, res) =>
   res.status(201).json({ data });
 });
 
+router.get("/benchmark-suites/:suiteId/cases", async (req: AuthRequest, res) => {
+  requireBenchmarkAdmin(req);
+  const suite = await benchmarkSuiteForRequest(req, cuid.parse(req.params.suiteId));
+  const data = await prisma.aIExaminerBenchmarkCase.findMany({
+    where: { organizationId: req.auth!.organizationId, suiteId: suite.id },
+    select: {
+      id: true, sourceAnswerSheetId: true, questionKey: true, maxMarks: true, minimumMarks: true,
+      humanMarks: true, goldNotes: true, metadata: true, isActive: true, createdAt: true, updatedAt: true,
+      humanReviewer: { select: { id: true, name: true } },
+      sourceAnswerSheet: {
+        select: {
+          id: true, fileName: true, finalizedAt: true, marksObtained: true,
+          student: { select: { id: true, admissionNo: true, rollNo: true, user: { select: { name: true } } } },
+          examination: { select: { id: true, name: true, code: true } },
+        },
+      },
+    },
+    orderBy: [{ isActive: "desc" }, { createdAt: "asc" }],
+    take: 100000,
+  });
+  res.json({ data });
+});
+
+router.get("/benchmark-suites/:suiteId/evaluation-results", async (req: AuthRequest, res) => {
+  requireBenchmarkAdmin(req);
+  const suite = await benchmarkSuiteForRequest(req, cuid.parse(req.params.suiteId));
+  const cases = await prisma.aIExaminerBenchmarkCase.findMany({
+    where: { organizationId: req.auth!.organizationId, suiteId: suite.id, isActive: true },
+    select: { id: true, sourceAnswerSheetId: true, questionKey: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const sourceAnswerSheetIds = [...new Set(cases.map(row => row.sourceAnswerSheetId).filter((value): value is string => Boolean(value)))];
+  const evaluations = sourceAnswerSheetIds.length
+    ? await prisma.aIExaminerEvaluation.findMany({
+        where: {
+          organizationId: req.auth!.organizationId,
+          answerSheetId: { in: sourceAnswerSheetIds },
+          status: AIExaminerEvaluationStatus.APPROVED,
+        },
+        select: {
+          id: true, answerSheetId: true, revision: true, engineVersion: true, provider: true, model: true, confidence: true,
+          questions: {
+            select: { questionKey: true, suggestedMarks: true, finalMarks: true, confidence: true, reviewRequired: true },
+          },
+        },
+        orderBy: { revision: "desc" },
+      })
+    : [];
+  const latestBySheet = new Map<string, typeof evaluations[number]>();
+  for (const evaluation of evaluations) {
+    if (!latestBySheet.has(evaluation.answerSheetId)) latestBySheet.set(evaluation.answerSheetId, evaluation);
+  }
+
+  const results: Array<{
+    caseId: string;
+    aiMarks: number;
+    confidence: number;
+    reviewRequired: boolean;
+    teacherOverride: boolean;
+    diagnostics: Record<string, unknown>;
+  }> = [];
+  const missing: Array<{ caseId: string; reason: string }> = [];
+  const executionContexts = new Set<string>();
+
+  for (const benchmarkCase of cases) {
+    if (!benchmarkCase.sourceAnswerSheetId) {
+      missing.push({ caseId: benchmarkCase.id, reason: "Benchmark case has no source answer sheet" });
+      continue;
+    }
+    const evaluation = latestBySheet.get(benchmarkCase.sourceAnswerSheetId);
+    if (!evaluation) {
+      missing.push({ caseId: benchmarkCase.id, reason: "No approved AI evaluation exists for the source answer sheet" });
+      continue;
+    }
+    const question = evaluation.questions.find(item => item.questionKey === benchmarkCase.questionKey);
+    if (!question || question.suggestedMarks == null) {
+      missing.push({ caseId: benchmarkCase.id, reason: "Approved AI evaluation has no suggested marks for the benchmark question" });
+      continue;
+    }
+    const suggestedMarks = Number(question.suggestedMarks);
+    const finalMarks = question.finalMarks == null ? null : Number(question.finalMarks);
+    results.push({
+      caseId: benchmarkCase.id,
+      aiMarks: suggestedMarks,
+      confidence: Number(question.confidence ?? evaluation.confidence ?? 0),
+      reviewRequired: question.reviewRequired,
+      teacherOverride: finalMarks != null && Math.abs(finalMarks - suggestedMarks) > 0.0001,
+      diagnostics: {
+        source: "approved-ai-evaluation",
+        evaluationId: evaluation.id,
+        revision: evaluation.revision,
+        finalMarks,
+      },
+    });
+    executionContexts.add(JSON.stringify({
+      engineVersion: evaluation.engineVersion,
+      provider: evaluation.provider ?? null,
+      model: evaluation.model ?? null,
+    }));
+  }
+
+  const contexts = [...executionContexts].map(value => JSON.parse(value) as { engineVersion: string; provider: string | null; model: string | null });
+  const context = contexts.length === 1 ? contexts[0] : null;
+  res.json({
+    data: {
+      suiteId: suite.id,
+      caseCount: cases.length,
+      readyForRun: cases.length > 0 && missing.length === 0 && Boolean(context),
+      engineVersion: context?.engineVersion ?? null,
+      provider: context?.provider ?? null,
+      model: context?.model ?? null,
+      results,
+      missing,
+      mixedExecutionContexts: contexts.length > 1 ? contexts : [],
+    },
+  });
+});
+
 router.post("/benchmark-suites/:suiteId/activate", async (req: AuthRequest, res) => {
   requireBenchmarkAdmin(req);
   const suite = await benchmarkSuiteForRequest(req, cuid.parse(req.params.suiteId));
