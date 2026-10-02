@@ -563,33 +563,6 @@ router.post("/learning/questions", managers, async (req: AuthRequest, res) => {
   }
 });
 
-router.patch("/learning/questions/:id", managers, async (req: AuthRequest, res) => {
-  const actor = await learningActorForRequest(req);
-  const old = await prisma.questionBankItem.findFirst({ where: { id: String(req.params.id), ...learningQuestionWhere(actor) } });
-  if (!old) throw new AppError(404, "QUESTION_NOT_FOUND", "Question not found");
-  const d = questionInputBase.partial().parse(req.body);
-  const target = { courseId: d.courseId === undefined ? old.courseId : d.courseId, subjectId: d.subjectId ?? old.subjectId };
-  await relationCheck(target);
-  assertManagerQuestionAccess(actor, target);
-  const snapshot = JSON.parse(JSON.stringify(old));
-  const row = await prisma.$transaction(async tx => {
-    await tx.questionBankRevision.create({ data: { questionId: old.id, version: old.version, snapshot, changedById: actor.userId } });
-    return tx.questionBankItem.update({ where: { id: old.id }, data: { ...d, options: d.options === undefined ? undefined : questionJson(d.options), correctAnswer: d.correctAnswer === undefined ? undefined : questionJson(d.correctAnswer), evaluationConfig: d.evaluationConfig === undefined ? undefined : questionJson(d.evaluationConfig), similarityHash: questionSimilarityHash(d.body ?? old.body, d.options === undefined ? old.options : d.options), version: { increment: 1 }, approvalStatus: ApprovalStatus.DRAFT } });
-  });
-  await audit(req, "UPDATE", "QuestionBankItem", row.id);
-  res.json({ data: row });
-});
-
-router.patch("/learning/questions/:id/approval", managers, async (req: AuthRequest, res) => {
-  const actor = await learningActorForRequest(req);
-  const question = await prisma.questionBankItem.findFirst({ where: { id: String(req.params.id), ...learningQuestionWhere(actor) }, select: { id: true } });
-  if (!question) throw new AppError(404, "QUESTION_NOT_FOUND", "Question not found");
-  const { approvalStatus } = z.object({ approvalStatus: z.enum(["PENDING", "APPROVED", "REJECTED", "ARCHIVED"]) }).parse(req.body);
-  const row = await prisma.questionBankItem.update({ where: { id: question.id }, data: { approvalStatus, reviewedById: actor.userId, reviewedAt: new Date(), isArchived: approvalStatus === "ARCHIVED" } });
-  await audit(req, approvalStatus, "QuestionBankItem", row.id);
-  res.json({ data: row });
-});
-
 router.patch("/learning/questions/bulk-approval", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const d = bulkQuestionReviewInput.parse(req.body);
@@ -616,6 +589,33 @@ router.patch("/learning/questions/bulk-approval", managers, async (req: AuthRequ
     ...(d.allFiltered ? { filters: d.filters } : {}),
   });
   res.json({ data: { approvalStatus: d.approvalStatus }, meta: { requested, updated: updated.count, skipped } });
+});
+
+router.patch("/learning/questions/:id", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const old = await prisma.questionBankItem.findFirst({ where: { id: String(req.params.id), ...learningQuestionWhere(actor) } });
+  if (!old) throw new AppError(404, "QUESTION_NOT_FOUND", "Question not found");
+  const d = questionInputBase.partial().parse(req.body);
+  const target = { courseId: d.courseId === undefined ? old.courseId : d.courseId, subjectId: d.subjectId ?? old.subjectId };
+  await relationCheck(target);
+  assertManagerQuestionAccess(actor, target);
+  const snapshot = JSON.parse(JSON.stringify(old));
+  const row = await prisma.$transaction(async tx => {
+    await tx.questionBankRevision.create({ data: { questionId: old.id, version: old.version, snapshot, changedById: actor.userId } });
+    return tx.questionBankItem.update({ where: { id: old.id }, data: { ...d, options: d.options === undefined ? undefined : questionJson(d.options), correctAnswer: d.correctAnswer === undefined ? undefined : questionJson(d.correctAnswer), evaluationConfig: d.evaluationConfig === undefined ? undefined : questionJson(d.evaluationConfig), similarityHash: questionSimilarityHash(d.body ?? old.body, d.options === undefined ? old.options : d.options), version: { increment: 1 }, approvalStatus: ApprovalStatus.DRAFT } });
+  });
+  await audit(req, "UPDATE", "QuestionBankItem", row.id);
+  res.json({ data: row });
+});
+
+router.patch("/learning/questions/:id/approval", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const question = await prisma.questionBankItem.findFirst({ where: { id: String(req.params.id), ...learningQuestionWhere(actor) }, select: { id: true } });
+  if (!question) throw new AppError(404, "QUESTION_NOT_FOUND", "Question not found");
+  const { approvalStatus } = z.object({ approvalStatus: z.enum(["PENDING", "APPROVED", "REJECTED", "ARCHIVED"]) }).parse(req.body);
+  const row = await prisma.questionBankItem.update({ where: { id: question.id }, data: { approvalStatus, reviewedById: actor.userId, reviewedAt: new Date(), isArchived: approvalStatus === "ARCHIVED" } });
+  await audit(req, approvalStatus, "QuestionBankItem", row.id);
+  res.json({ data: row });
 });
 
 router.post("/learning/questions/bulk", managers, async (req: AuthRequest, res) => {
