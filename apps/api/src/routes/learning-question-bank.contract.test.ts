@@ -60,3 +60,12 @@ test("Question Bank bulk review is scope-safe, lifecycle-safe and audit logged",
   assert.match(route, /selectionMode/);
   assert.match(route, /skipped/);
 });
+
+
+test("bulk approval route is declared before the generic question-id PATCH route", () => {
+  const bulk = route.indexOf('router.patch("/learning/questions/bulk-approval"');
+  const generic = route.indexOf('router.patch("/learning/questions/:id"');
+  assert.ok(bulk >= 0);
+  assert.ok(generic >= 0);
+  assert.ok(bulk < generic);
+});
