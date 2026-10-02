@@ -362,6 +362,7 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
               questionKey: question.questionKey,
               concepts: question.concepts,
               flags: question.flags,
+              annotationHints: question.annotationHints,
               engine: question.engine,
               deterministicStatus: question.deterministicStatus,
               scoringError: question.scoringError,
