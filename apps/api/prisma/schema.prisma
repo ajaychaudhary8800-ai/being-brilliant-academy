@@ -1087,6 +1087,10 @@ model Organization {
   aiExaminerScanBatchPages AIExaminerScanBatchPage[]
   aiExaminerRegradeRequests AIExaminerRegradeRequest[]
   aiExaminerResultRevisions AIExaminerResultRevision[]
+  aiExaminerCheckedCopies AIExaminerCheckedCopy[]
+  aiExaminerCheckedCopyRevisions AIExaminerCheckedCopyRevision[]
+  aiExaminerAnnotations AIExaminerAnnotation[]
+  aiExaminerAnnotationAnchors AIExaminerAnnotationAnchor[]
   feePlans               FeePlan[]
   studentFeeAssignments  StudentFeeAssignment[]
   feePaymentOffsets       FeePaymentOffset[]
@@ -1656,6 +1660,47 @@ enum AIExaminerEvaluationStatus {
   CANCELLED
 }
 
+enum AIExaminerCheckedCopyRevisionStatus {
+  DRAFT
+  APPROVED
+  RENDERED
+  PUBLISHED
+  SUPERSEDED
+}
+
+enum AIExaminerAnnotationType {
+  TICK
+  CROSS
+  UNDERLINE
+  CIRCLE
+  RECTANGLE
+  HIGHLIGHT
+  ARROW
+  FREEHAND
+  TEXT_COMMENT
+  QUESTION_MARK
+  STEP_MARK
+  QUESTION_SCORE
+  PAGE_SCORE
+  TOTAL_SCORE
+  RUBRIC_NOTE
+  ERROR_LABEL
+}
+
+enum AIExaminerAnnotationApprovalState {
+  AI_DRAFT
+  POSITION_REVIEW_REQUIRED
+  APPROVED
+  REJECTED
+}
+
+enum AIExaminerAnnotationAuthorType {
+  AI
+  TEACHER
+  MODERATOR
+  SYSTEM
+}
+
 enum AIExaminerReviewMode {
   STANDARD
   BLIND
@@ -2093,6 +2138,9 @@ model User {
   aiExaminerEvaluationsReviewed AIExaminerEvaluation[] @relation("AIExaminerEvaluationReviewer")
   aiExaminerReviewRoundsReviewed AIExaminerReviewRound[] @relation("AIExaminerReviewRoundReviewer")
   aiExaminerReviewRoundsAssigned AIExaminerReviewRound[] @relation("AIExaminerReviewRoundAssigner")
+  aiExaminerCheckedCopyRevisionsCreated AIExaminerCheckedCopyRevision[] @relation("AIExaminerCheckedCopyRevisionCreator")
+  aiExaminerCheckedCopyRevisionsApproved AIExaminerCheckedCopyRevision[] @relation("AIExaminerCheckedCopyRevisionApprover")
+  aiExaminerAnnotationsAuthored AIExaminerAnnotation[] @relation("AIExaminerAnnotationAuthor")
   aiExaminerReviewArtifactsUploaded AIExaminerReviewArtifact[] @relation("AIExaminerReviewArtifactUploader")
   aiExaminerEvidenceAttachmentsUploaded AIExaminerEvidenceAttachment[] @relation("AIExaminerEvidenceUploader")
   aiExaminerEvidenceAttachmentsReviewed AIExaminerEvidenceAttachment[] @relation("AIExaminerEvidenceReviewer")
@@ -3133,6 +3181,7 @@ model ExaminationAnswerSheet {
   scanBinding    AIExaminerScanBinding?
   regradeRequests AIExaminerRegradeRequest[]
   evidenceAttachments AIExaminerEvidenceAttachment[]
+  checkedCopy AIExaminerCheckedCopy?
 
   @@unique([examinationId, studentId])
   @@index([organizationId, status, submittedAt])
@@ -3259,6 +3308,7 @@ model AIExaminerEvaluation {
   reviewRounds    AIExaminerReviewRound[]
   reviewArtifact   AIExaminerReviewArtifact?
   regradeRequests  AIExaminerRegradeRequest[]
+  checkedCopyRevisions AIExaminerCheckedCopyRevision[]
 
   @@unique([answerSheetId, revision])
   @@index([organizationId, status, createdAt])
@@ -3286,6 +3336,107 @@ model AIExaminerQuestionEvaluation {
 
   @@unique([evaluationId, questionKey])
   @@index([organizationId, reviewRequired])
+}
+
+
+model AIExaminerCheckedCopy {
+  organizationId String
+  id             String   @id @default(cuid())
+  answerSheetId  String   @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  answerSheet    ExaminationAnswerSheet @relation(fields: [answerSheetId], references: [id], onDelete: Restrict)
+  revisions      AIExaminerCheckedCopyRevision[]
+
+  @@index([organizationId, createdAt])
+}
+
+model AIExaminerCheckedCopyRevision {
+  organizationId       String
+  id                   String   @id @default(cuid())
+  checkedCopyId        String
+  evaluationId         String
+  revision             Int
+  status               AIExaminerCheckedCopyRevisionStatus @default(DRAFT)
+  sourceAnswerSheetSha256 String
+  evaluationRevision   Int
+  rubricVersion        Int
+  resultRevision       Int      @default(0)
+  annotationRevision   Int      @default(1)
+  sourcePageCount      Int
+  renderedFileName     String?
+  renderedMimeType     String?
+  renderedFileSize     Int?
+  renderedFileData     Bytes?
+  renderedFileSha256   String?
+  renderedAt           DateTime?
+  publishedAt          DateTime?
+  createdById          String
+  approvedById         String?
+  approvedAt           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  checkedCopy          AIExaminerCheckedCopy @relation(fields: [checkedCopyId], references: [id], onDelete: Restrict)
+  evaluation           AIExaminerEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Restrict)
+  createdBy            User @relation("AIExaminerCheckedCopyRevisionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy           User? @relation("AIExaminerCheckedCopyRevisionApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  annotations          AIExaminerAnnotation[]
+
+  @@unique([checkedCopyId, revision])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, evaluationId, revision])
+  @@index([createdById])
+  @@index([approvedById])
+}
+
+model AIExaminerAnnotation {
+  organizationId String
+  id             String   @id @default(cuid())
+  revisionId     String
+  questionKey    String?
+  rubricCriterion String? @db.Text
+  type           AIExaminerAnnotationType
+  content        String?  @db.Text
+  marks          Decimal? @db.Decimal(8, 2)
+  confidence     Decimal? @db.Decimal(5, 4)
+  sourceEvidence String?  @db.Text
+  vectorData     Json?
+  authorType     AIExaminerAnnotationAuthorType
+  authorId       String?
+  approvalState  AIExaminerAnnotationApprovalState @default(AI_DRAFT)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  revision       AIExaminerCheckedCopyRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  author         User? @relation("AIExaminerAnnotationAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  anchor         AIExaminerAnnotationAnchor?
+
+  @@index([organizationId, revisionId, sortOrder])
+  @@index([organizationId, questionKey, approvalState])
+  @@index([authorId])
+}
+
+model AIExaminerAnnotationAnchor {
+  organizationId     String
+  id                 String   @id @default(cuid())
+  annotationId       String   @unique
+  pageNumber         Int
+  x                  Decimal  @db.Decimal(7, 6)
+  y                  Decimal  @db.Decimal(7, 6)
+  width              Decimal  @db.Decimal(7, 6)
+  height             Decimal  @db.Decimal(7, 6)
+  rotation           Decimal  @default(0) @db.Decimal(7, 3)
+  placementConfidence Decimal? @db.Decimal(5, 4)
+  evidenceText       String?  @db.Text
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  annotation         AIExaminerAnnotation @relation(fields: [annotationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, pageNumber])
 }
 
 model AIExaminerRegradeRequest {
