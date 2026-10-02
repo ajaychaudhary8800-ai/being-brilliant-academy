@@ -53,7 +53,7 @@ export default function Page() {
         api("/connected-campus/governance/retention-policies?activeOnly=false"),
         api("/connected-campus/governance/data-requests?limit=200"),
         api("/connected-campus/governance/certifications?limit=200"),
-        api("/admin/branches?limit=200&status=active"),
+        api("/admin/branches?limit=100&status=active"),
         api("/device-hub/devices"),
         api("/device-hub/adapters"),
       ];
