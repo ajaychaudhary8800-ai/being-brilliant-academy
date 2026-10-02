@@ -39,9 +39,11 @@ import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-downl
 import { allowedAnswerSheetTypes, assertDocumentFileExtension, decodeVerifiedUpload } from "../lib/secure-upload.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
+import checkedCopyReviewRouter from "./ai-examiner-checked-copy.js";
 
 const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER), requireCommercialFeature("examinations"));
+router.use(checkedCopyReviewRouter);
 
 const cuid = z.string().cuid();
 const rubricInput = aiExaminerRubricInputSchema;
