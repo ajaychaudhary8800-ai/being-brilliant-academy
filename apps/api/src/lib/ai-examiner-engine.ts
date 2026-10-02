@@ -32,6 +32,16 @@ const visualObservationSchema = z.object({
   evidence: z.string().trim().min(1).max(2000).nullable().optional(),
 });
 
+const annotationHintSchema = z.object({
+  kind: z.enum(["TICK", "CROSS", "UNDERLINE", "HIGHLIGHT", "NOTE"]),
+  pageNumber: z.number().int().min(1).max(1000),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  width: z.number().min(0).max(1),
+  height: z.number().min(0).max(1),
+  text: z.string().trim().max(300).nullable().optional(),
+});
+
 const conceptSchema = z.object({
   concept: z.string().trim().min(1).max(200),
   mastery: z.enum(["STRONG", "PARTIAL", "WEAK", "NOT_ASSESSED"]),
@@ -58,6 +68,7 @@ export const aiExaminerProviderResultSchema = z.object({
     visualObservations: z.array(visualObservationSchema).max(100).optional(),
     concepts: z.array(conceptSchema).max(50).default([]),
     flags: z.array(qualityFlagSchema).max(20).default([]),
+    annotationHints: z.array(annotationHintSchema).max(50).default([]),
   })).min(1).max(200),
 });
 
@@ -210,7 +221,10 @@ Return ONLY a JSON object with this exact logical structure:
         {"key":"","status":"PRESENT|ABSENT|UNCLEAR","confidence":0.0,"evidence":null}
       ],
       "concepts": [{"concept":"","mastery":"STRONG|PARTIAL|WEAK|NOT_ASSESSED"}],
-      "flags": []
+      "flags": [],
+      "annotationHints": [
+        {"kind":"TICK|CROSS|UNDERLINE|HIGHLIGHT|NOTE","pageNumber":1,"x":0.0,"y":0.0,"width":0.0,"height":0.0,"text":null}
+      ]
     }
   ]
 }
@@ -239,7 +253,10 @@ Critical grading rules:
 17. For questions with visualValidation, return one visualObservations row for every configured observation key. Mark PRESENT only when the required feature is actually visible, ABSENT only when it is clearly not present, and UNCLEAR when the scan or evidence is insufficient. Do not invent labels, axes, locations, construction marks, spatial relations, or developmental evidence. Keep evidence to a short visual description and use confidence as observation certainty.
 18. Respect each question's languagePolicy. Accept only the configured academic languages, and allow code-switching or transliteration only when explicitly permitted.
 19. Unless evaluateLanguageMechanics is true, do not deduct marks for grammar, spelling, script choice, accent, or language mechanics when the academic content satisfies the rubric.
-20. When requireOriginalLanguageEvidence is true, preserve the student's original-language wording in extractedAnswer and evidenceText. Do not substitute a translation as quoted evidence. You may reason across languages, but any translation must be treated as interpretation rather than original evidence.`;
+20. When requireOriginalLanguageEvidence is true, preserve the student's original-language wording in extractedAnswer and evidenceText. Do not substitute a translation as quoted evidence. You may reason across languages, but any translation must be treated as interpretation rather than original evidence.
+21. annotationHints are optional visual coordinates for a red-pen checked-copy layer. Use coordinates relative to the STUDENT ANSWER SHEET page, with x/y/width/height normalized from 0 to 1 and y measured from the top.
+22. Add annotationHints only when you can visually locate the relevant student work. Use TICK for correct work, CROSS for a specific incorrect item, UNDERLINE/HIGHLIGHT for a visible error region, and NOTE for a concise margin-style correction. Never invent coordinates or place annotations on the question paper.
+23. If the answer location is uncertain, return no annotation hint for that point. Checked-copy rendering will fall back to a clearly identified margin note instead.`;
 }
 
 function dataUrl(document: AIExaminerDocument) {
