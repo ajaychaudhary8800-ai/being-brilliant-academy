@@ -24,7 +24,7 @@ test("AI Examiner admin workspace exposes benchmark management without enabling 
 test("benchmark UI only offers finalized answer sheets as human-gold sources", async () => {
   const benchmark = await readFile(new URL("./ai-examiner-benchmarks.tsx", import.meta.url), "utf8");
   assert.match(benchmark, /filter\(sheet => Boolean\(sheet\.finalizedAt\)\)/);
-  assert.match(benchmark, /humanReviewerId: user\.id/);
+  assert.doesNotMatch(benchmark, /humanReviewerId/);
   assert.match(benchmark, /Human gold marks/);
   assert.match(benchmark, /Run Current Engine/);
 });
