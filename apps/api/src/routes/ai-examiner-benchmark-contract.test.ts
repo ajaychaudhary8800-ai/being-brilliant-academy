@@ -32,6 +32,11 @@ test("AI Examiner benchmark framework is tenant-scoped, auditable and separate f
   assert.match(route, /\/benchmark-suites\/:suiteId\/runs/);
   assert.match(route, /router\.get\("\/benchmark-suites\/:suiteId\/cases"/);
   assert.match(route, /router\.get\("\/benchmark-suites\/:suiteId\/evaluation-results"/);
+  assert.match(route, /router\.get\("\/benchmark-suites\/:suiteId\/candidate-pool"/);
+  assert.match(route, /router\.post\("\/benchmark-suites\/:suiteId\/cases\/bulk-import"/);
+  assert.match(route, /crypto\.createHash\("sha256"\)/);
+  assert.match(route, /duplicates source answer content already represented in the dataset/);
+  assert.match(route, /Imported from teacher-approved final question marks/);
   assert.match(route, /AIExaminerEvaluationStatus\.APPROVED/);
   assert.match(route, /readyForRun: cases\.length > 0 && missing\.length === 0 && Boolean\(context\)/);
   assert.match(route, /where: \{ id: req\.auth!\.userId, organizationId: req\.auth!\.organizationId, isActive: true \}/);
