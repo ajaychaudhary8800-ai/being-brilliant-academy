@@ -26,6 +26,7 @@ const valid: AIExaminerProviderResult = {
       rubricBreakdown: [{ criterion: "Method", maxMarks: 10, awardedMarks: 8, rationale: "Minor arithmetic error" }],
       visualObservations: [],
       concepts: [{ concept: "Ohm's law", mastery: "STRONG" }], flags: [],
+ annotationHints: [],
     },
     {
       questionKey: "Q2", maxMarks: 10, awardedMarks: 6, confidence: 0.82,
@@ -33,6 +34,7 @@ const valid: AIExaminerProviderResult = {
       rubricBreakdown: [{ criterion: "Equation", maxMarks: 10, awardedMarks: 6, rationale: "One loop omitted" }],
       visualObservations: [],
       concepts: [{ concept: "Kirchhoff laws", mastery: "PARTIAL" }], flags: [],
+ annotationHints: [],
     },
   ],
 };
