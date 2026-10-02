@@ -35,13 +35,22 @@ export function evaluateERP31Readiness(input: ConnectedCampusReadinessInput) {
   const softwareGates = ERP_3_1_SOFTWARE_GATES.map(gate => ({ ...gate }));
   const softwareComplete = softwareGates.every(gate => gate.implemented);
 
-  const missingDeviceCertifications = missing(input.activeDeviceIds, input.certifiedRealDeviceIds);
-  const missingAdapterCertifications = missing(input.activeAdapterKeys, input.certifiedRealAdapterKeys);
-  const missingBenchmarkReadiness = missing(input.activeBenchmarkSuiteCodes, input.benchmarkReadySuiteCodes);
-  const missingAICertifications = missing(input.activeBenchmarkSuiteCodes, input.aiCertifiedSuiteCodes);
+  const activeDeviceIds = unique(input.activeDeviceIds);
+  const activeAdapterKeys = unique(input.activeAdapterKeys);
+  const activeBenchmarkSuiteCodes = unique(input.activeBenchmarkSuiteCodes);
+
+  const deviceActivationScopeConfigured = activeDeviceIds.length > 0 || activeAdapterKeys.length > 0;
+  const aiActivationScopeConfigured = activeBenchmarkSuiteCodes.length > 0;
+
+  const missingDeviceCertifications = missing(activeDeviceIds, input.certifiedRealDeviceIds);
+  const missingAdapterCertifications = missing(activeAdapterKeys, input.certifiedRealAdapterKeys);
+  const missingBenchmarkReadiness = missing(activeBenchmarkSuiteCodes, input.benchmarkReadySuiteCodes);
+  const missingAICertifications = missing(activeBenchmarkSuiteCodes, input.aiCertifiedSuiteCodes);
   const missingPrivacyPurposes = missing(input.requiredPrivacyPurposes, input.configuredPrivacyPurposes);
 
   const externalCertificationComplete =
+    deviceActivationScopeConfigured &&
+    aiActivationScopeConfigured &&
     missingDeviceCertifications.length === 0 &&
     missingAdapterCertifications.length === 0 &&
     missingBenchmarkReadiness.length === 0 &&
@@ -50,6 +59,16 @@ export function evaluateERP31Readiness(input: ConnectedCampusReadinessInput) {
 
   const privacyConfigured = missingPrivacyPurposes.length === 0;
   const blockers = [
+    ...(!deviceActivationScopeConfigured ? [{
+      type: "DEVICE_ACTIVATION_SCOPE",
+      key: "connected-campus-devices",
+      message: "Configure at least one active Device Hub device or connector before activation can be declared ready.",
+    }] : []),
+    ...(!aiActivationScopeConfigured ? [{
+      type: "AI_ACTIVATION_SCOPE",
+      key: "ai-examiner-benchmarks",
+      message: "Configure at least one active AI Examiner benchmark suite before activation can be declared ready.",
+    }] : []),
     ...missingDeviceCertifications.map(id => ({ type: "REAL_DEVICE_CERTIFICATION", key: id, message: "Active Device Hub device lacks a passed, unexpired REAL_DEVICE certification." })),
     ...missingAdapterCertifications.map(key => ({ type: "ADAPTER_CERTIFICATION", key, message: "Active connector adapter lacks a passed, unexpired REAL_DEVICE certification." })),
     ...missingBenchmarkReadiness.map(code => ({ type: "AI_BENCHMARK", key: code, message: "Active AI Examiner benchmark suite has no completed benchmark-ready run." })),
@@ -67,11 +86,11 @@ export function evaluateERP31Readiness(input: ConnectedCampusReadinessInput) {
     productionActivationReady: softwareComplete && externalCertificationComplete && privacyConfigured,
     blockers,
     counts: {
-      activeDevices: unique(input.activeDeviceIds).length,
+      activeDevices: activeDeviceIds.length,
       certifiedDevices: unique(input.certifiedRealDeviceIds).length,
-      activeAdapters: unique(input.activeAdapterKeys).length,
+      activeAdapters: activeAdapterKeys.length,
       certifiedAdapters: unique(input.certifiedRealAdapterKeys).length,
-      activeBenchmarkSuites: unique(input.activeBenchmarkSuiteCodes).length,
+      activeBenchmarkSuites: activeBenchmarkSuiteCodes.length,
       benchmarkReadySuites: unique(input.benchmarkReadySuiteCodes).length,
       aiCertifiedSuites: unique(input.aiCertifiedSuiteCodes).length,
       requiredPrivacyPurposes: unique(input.requiredPrivacyPurposes).length,
