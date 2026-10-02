@@ -29,8 +29,6 @@ import type { AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
 const cuid = z.string().cuid();
-const mutableStates = [AIExaminerAnnotationApprovalState.AI_DRAFT, AIExaminerAnnotationApprovalState.POSITION_REVIEW_REQUIRED, AIExaminerAnnotationApprovalState.APPROVED] as const;
-
 type ExamAccess = {
   id: string; branchId: string; academicSessionId: string; courseId: string; batchId: string; subjectId: string; teacherId: string; examDate: Date;
   teacher: { userId: string };
@@ -306,8 +304,8 @@ router.post("/checked-copy/revisions/:revisionId/pages/:pageNumber/approve",asyn
 
 router.post("/checked-copy/revisions/:revisionId/approve",async(req:AuthRequest,res)=>{
   let revision=await revisionForManager(req,cuid.parse(req.params.revisionId));
-  if(![AIExaminerCheckedCopyRevisionStatus.DRAFT,AIExaminerCheckedCopyRevisionStatus.APPROVED].includes(revision.status)){
-    if([AIExaminerCheckedCopyRevisionStatus.RENDERED,AIExaminerCheckedCopyRevisionStatus.PUBLISHED].includes(revision.status)) return res.json({data:sanitizedRevision(revision),meta:{label:"Checked Copy — Approved",alreadyApproved:true}});
+  if(revision.status!==AIExaminerCheckedCopyRevisionStatus.DRAFT&&revision.status!==AIExaminerCheckedCopyRevisionStatus.APPROVED){
+    if(revision.status===AIExaminerCheckedCopyRevisionStatus.RENDERED||revision.status===AIExaminerCheckedCopyRevisionStatus.PUBLISHED) return res.json({data:sanitizedRevision(revision),meta:{label:"Checked Copy — Approved",alreadyApproved:true}});
     throw new AppError(409,"AI_CHECKED_COPY_IMMUTABLE","This checked-copy revision cannot be approved");
   }
   const sheet=revision.checkedCopy.answerSheet;

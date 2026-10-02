@@ -1,4 +1,4 @@
-import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBatchPageStatus, AIExaminerScanBatchStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
+import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerCheckedCopyRevisionStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBatchPageStatus, AIExaminerScanBatchStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
 import crypto from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
@@ -33,6 +33,7 @@ import { assertExaminationManager, evaluationStatus, examinationResultFor } from
 import { analyzeAIExaminerOriginality } from "../lib/ai-examiner-originality.js";
 import { aiExaminerEvidenceMimeTypes, assertAIExaminerEvidenceKindMatchesMime, decodeAIExaminerEvidenceUpload, normalizeAIExaminerEvidenceUrl } from "../lib/ai-examiner-evidence-upload.js";
 import { renderAIExaminerCheckedCopy } from "../lib/ai-examiner-checked-copy.js";
+import { buildAIExaminerCheckedCopyDraft } from "../lib/ai-examiner-checked-copy-state.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
@@ -3320,9 +3321,10 @@ router.post("/regrade-requests/:requestId/resolve", async (req: AuthRequest, res
       answerSheet: { select: { id: true, examinationId: true, studentId: true } },
       evaluation: {
         select: {
-          id: true,
+          id: true, revision: true, diagnostics: true,
+          rubric: { select: { version: true } },
           questions: {
-            select: { id: true, questionKey: true, finalMarks: true, teacherComment: true, maxMarks: true },
+            select: { id: true, questionKey: true, finalMarks: true, teacherComment: true, maxMarks: true, confidence: true, feedback: true, rubricBreakdown: true },
             orderBy: { createdAt: "asc" },
           },
         },
@@ -3443,7 +3445,7 @@ router.post("/regrade-requests/:requestId/resolve", async (req: AuthRequest, res
       tx.examinationResult.findUniqueOrThrow({ where: { id: currentResult.id } }),
       tx.aIExaminerQuestionEvaluation.findMany({
         where: { evaluationId: request.evaluation.id },
-        select: { questionKey: true, finalMarks: true, teacherComment: true },
+        select: { questionKey: true, finalMarks: true, teacherComment: true, maxMarks: true, confidence: true, feedback: true, rubricBreakdown: true },
         orderBy: { createdAt: "asc" },
       }),
     ]);
@@ -3473,6 +3475,82 @@ router.post("/regrade-requests/:requestId/resolve", async (req: AuthRequest, res
         changedById: req.auth!.userId,
       },
     });
+
+    const checkedCopy = await tx.aIExaminerCheckedCopy.findUnique({
+      where: { answerSheetId: request.answerSheet.id },
+      include: { revisions: { orderBy: { revision: "desc" }, take: 1 } },
+    });
+    if (checkedCopy?.revisions[0]) {
+      const previousCopy = checkedCopy.revisions[0];
+      const checkedRevision = previousCopy.revision + 1;
+      const draftAnnotations = buildAIExaminerCheckedCopyDraft({
+        diagnostics: request.evaluation.diagnostics,
+        questions: updatedQuestions.map(question => ({
+          questionKey: question.questionKey,
+          maxMarks: Number(question.maxMarks),
+          finalMarks: Number(question.finalMarks),
+          confidence: question.confidence == null ? null : Number(question.confidence),
+          teacherComment: question.teacherComment,
+          feedback: question.feedback,
+          rubricBreakdown: question.rubricBreakdown,
+        })),
+        totalMarks: resolvedMarks,
+        maximumMarks: exam.maximumMarks,
+      });
+      await tx.aIExaminerCheckedCopyRevision.updateMany({
+        where: { checkedCopyId: checkedCopy.id, status: { in: [AIExaminerCheckedCopyRevisionStatus.RENDERED, AIExaminerCheckedCopyRevisionStatus.PUBLISHED] } },
+        data: { status: AIExaminerCheckedCopyRevisionStatus.SUPERSEDED },
+      });
+      const newCopyRevision = await tx.aIExaminerCheckedCopyRevision.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          checkedCopyId: checkedCopy.id,
+          evaluationId: request.evaluation.id,
+          revision: checkedRevision,
+          sourceAnswerSheetSha256: previousCopy.sourceAnswerSheetSha256,
+          evaluationRevision: request.evaluation.revision,
+          rubricVersion: request.evaluation.rubric.version,
+          resultRevision: revision,
+          annotationRevision: 1,
+          sourcePageCount: previousCopy.sourcePageCount,
+          createdById: req.auth!.userId,
+        },
+      });
+      for (const annotation of draftAnnotations) {
+        await tx.aIExaminerAnnotation.create({
+          data: {
+            organizationId: req.auth!.organizationId,
+            revisionId: newCopyRevision.id,
+            questionKey: annotation.questionKey,
+            rubricCriterion: annotation.rubricCriterion,
+            type: annotation.type,
+            content: annotation.content,
+            marks: annotation.marks,
+            confidence: annotation.confidence,
+            sourceEvidence: annotation.sourceEvidence,
+            ...(annotation.vectorData == null ? {} : { vectorData: annotation.vectorData as Prisma.InputJsonValue }),
+            authorType: annotation.authorType,
+            approvalState: annotation.approvalState,
+            sortOrder: annotation.sortOrder,
+            ...(annotation.anchor ? { anchor: { create: {
+              organizationId: req.auth!.organizationId,
+              pageNumber: annotation.anchor.pageNumber,
+              x: annotation.anchor.x, y: annotation.anchor.y, width: annotation.anchor.width, height: annotation.anchor.height,
+              rotation: annotation.anchor.rotation, placementConfidence: annotation.anchor.placementConfidence ?? null,
+              evidenceText: annotation.anchor.evidenceText ?? null,
+            } } } : {}),
+          },
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "AI_CHECKED_COPY_REVISION_CREATED",
+          entity: "AIExaminerCheckedCopyRevision", entityId: newCopyRevision.id,
+          metadata: { revision: checkedRevision, resultRevision: revision, reason: "REGRADE_RESOLVED", previousRevision: previousCopy.revision },
+        },
+      });
+    }
+
     await tx.aIExaminerRegradeRequest.update({
       where: { id: request.id },
       data: {

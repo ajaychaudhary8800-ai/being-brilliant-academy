@@ -131,7 +131,9 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
               </div>
               <div className="flex flex-wrap gap-2">
                 <button className="btn" onClick={()=>void openQuestionPaper()}><FileText size={16}/>Question Paper</button>
-                <button className="btn" onClick={()=>void openAnswerSheet()}><ExternalLink size={16}/>Answer Sheet</button>{readonly&&<button className="btn border-red-200 text-red-700" onClick={()=>void openCheckedCopy()}><Download size={16}/>Checked Copy</button>}
+                <button className="btn" onClick={()=>void openAnswerSheet()}><ExternalLink size={16}/>Answer Sheet</button>
+                {readonly&&<Link className="btn border-red-200 text-red-700" href={`${teacherView?"/teacher":"/admin"}/ai-examiner/checked-copy/${evaluation.id}`}>Review Checked Copy</Link>}
+                {readonly&&<button className="btn border-red-200 text-red-700" onClick={()=>void openCheckedCopy()}><Download size={16}/>Download Approved Copy</button>}
               </div>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
