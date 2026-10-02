@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, CheckCircle2, FlaskConical, Loader2, Plus, Play, RefreshCw } from "lucide-react";
 import { getAccessToken } from "./auth-provider";
+import { AIExaminerBenchmarkDatasetBuilder } from "./ai-examiner-benchmark-dataset-builder";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 const headers = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${getAccessToken() ?? ""}` });
@@ -402,6 +403,14 @@ export function AIExaminerBenchmarkPanel({ exam, readiness }: { exam: ExamContex
             {!cases.length&&<p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">No benchmark cases added yet.</p>}
           </div>
         </div>}
+
+        {selectedSuite&&<AIExaminerBenchmarkDatasetBuilder
+          suiteId={selectedSuite.id}
+          suiteStatus={selectedSuite.status}
+          activeCaseCount={activeCaseCount}
+          minimumCases={minimumCases}
+          onChanged={async()=>{await Promise.all([loadSuites(),loadSuiteDetails(selectedSuite.id)]);}}
+        />}
 
         {selectedSuite?.status==="ACTIVE"&&<div className="rounded-xl border p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
