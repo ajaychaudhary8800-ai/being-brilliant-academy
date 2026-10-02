@@ -10,8 +10,8 @@ test("checked-copy workflow keeps teacher-approved marks authoritative and rende
     readFile(new URL("../lib/ai-examiner-checked-copy.ts", import.meta.url), "utf8"),
     readFile(new URL("ai-examiner.ts", import.meta.url), "utf8"),
     readFile(new URL("examination-workflow.ts", import.meta.url), "utf8"),
-    readFile(new URL("../../../web/components/portal-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../../web/components/ai-examiner-review.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../../web/components/portal-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../Dockerfile", import.meta.url), "utf8"),
   ]);
 
