@@ -18,6 +18,7 @@ const tools:Tool[]=["SELECT","TICK","CROSS","UNDERLINE","CIRCLE","RECTANGLE","HI
 const scoreTypes=new Set(["QUESTION_SCORE","PAGE_SCORE","TOTAL_SCORE"]);
 function pageAnnotationText(annotation:Annotation){
   const raw=annotation.content??"";
+  if(annotation.type==="ERROR_LABEL")return "✕ Recheck solution";
   if(annotation.type!=="RUBRIC_NOTE")return raw;
   const score=raw.match(/([+-]?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
   if(!score)return raw;
