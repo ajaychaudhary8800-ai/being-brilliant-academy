@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BrainCircuit, CheckCircle2, Loader2, Play, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 import { getAccessToken } from "./auth-provider";
+import { AIExaminerBenchmarkPanel } from "./ai-examiner-benchmarks";
 import Sidebar from "./sidebar";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
@@ -25,7 +26,7 @@ const DETERMINISTIC_TYPES = new Set<QuestionType>(["MCQ","MSQ","TRUE_FALSE","ASS
 
 type Exam = {
   id:string; name:string; code:string; status:string; maximumMarks:number; examDate:string;
-  subject:{name:string}; batch:{name:string}; branch:{branchName:string};
+  subject:{id:string;name:string;code:string|null}; batch:{id:string;name:string}; branch:{id:string;branchName:string};
   questionPaper:{id:string;publishedAt:string|null}|null;
   aiExaminerRubrics:{id:string;version:number;status:string}[];
   _count:{answerSheets:number};
@@ -165,6 +166,7 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
   },[readiness?.answerSheetItems,loadReadiness]);
 
 
+  const selectedExam=useMemo(()=>exams.find(exam=>exam.id===selected)??null,[exams,selected]);
   const totalMarks=useMemo(()=>questions.reduce((sum,item)=>sum+(Number(item.maxMarks)||0),0),[questions]);
   const maximum=readiness?.examination.maximumMarks??0;
   const marksMatch=Math.abs(totalMarks-maximum)<0.001;
@@ -300,6 +302,7 @@ export function AIExaminerFoundationContent({teacherView=false}:{teacherView?:bo
               }):<p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No submitted answer sheets are available.</p>}
             </div>
           </section>
+          {selectedExam&&<AIExaminerBenchmarkPanel exam={selectedExam} readiness={readiness}/>}
           <section className="mt-5 rounded-2xl border bg-white p-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-xl font-bold">Marking Rubric</h2><p className="text-sm text-slate-500">Drafts are editable. Activating a new version preserves older rubrics for evaluation history.</p></div><div className={`rounded-full px-3 py-1 text-sm font-bold ${marksMatch?"bg-emerald-50 text-emerald-700":"bg-amber-50 text-amber-800"}`}>{totalMarks} / {maximum} marks</div></div>
             <label className="mt-4 block text-sm font-semibold">General evaluation instructions<textarea className="field mt-1.5 min-h-24" value={instructions} onChange={event=>setInstructions(event.target.value)} placeholder="Examples: award method marks, accept equivalent derivations, flag unclear diagrams for teacher review."/></label>
