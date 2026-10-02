@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, CheckCircle2, FlaskConical, Loader2, Plus, Play, RefreshCw } from "lucide-react";
-import { getAccessToken, useAuth } from "./auth-provider";
+import { getAccessToken } from "./auth-provider";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 const headers = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${getAccessToken() ?? ""}` });
@@ -108,7 +108,6 @@ function safeNumber(value: unknown, fallback = 0) {
 }
 
 export function AIExaminerBenchmarkPanel({ exam, readiness }: { exam: ExamContext; readiness: ReadinessContext }) {
-  const { user } = useAuth();
   const [suites, setSuites] = useState<Suite[]>([]);
   const [selectedSuiteId, setSelectedSuiteId] = useState("");
   const [cases, setCases] = useState<BenchmarkCase[]>([]);
@@ -224,7 +223,7 @@ export function AIExaminerBenchmarkPanel({ exam, readiness }: { exam: ExamContex
   }
 
   async function addGoldCase() {
-    if (!selectedSuite || !user) return;
+    if (!selectedSuite) return;
     if (!caseForm.sourceAnswerSheetId || !caseForm.questionKey.trim() || !caseForm.maxMarks || !caseForm.humanMarks) {
       setError("Source answer sheet, question key, max marks and human marks are required.");
       return;
@@ -240,7 +239,6 @@ export function AIExaminerBenchmarkPanel({ exam, readiness }: { exam: ExamContex
           maxMarks: Number(caseForm.maxMarks),
           minimumMarks: Number(caseForm.minimumMarks || 0),
           humanMarks: Number(caseForm.humanMarks),
-          humanReviewerId: user.id,
           goldNotes: caseForm.goldNotes.trim() || undefined,
           metadata: { source: "benchmark-management-ui", examinationId: exam.id },
         }),
