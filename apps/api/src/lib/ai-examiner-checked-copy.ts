@@ -87,6 +87,15 @@ function compact(value: string | null | undefined, maximum = 120) {
   return normalized.length <= maximum ? normalized : normalized.slice(0, maximum - 1).trimEnd() + "…";
 }
 
+function checkedCopyDisplayText(annotation: CheckedCopyPersistedAnnotation) {
+  const raw = annotation.content || "";
+  if (annotation.type !== "RUBRIC_NOTE") return raw;
+  const score = raw.match(/([+-]?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+  if (!score) return raw;
+  const awarded = Number(score[1]), label = `${score[1]!.replace(/^\+/, "")}/${score[2]}`;
+  return awarded > 0 ? `✓ ${label}` : awarded === 0 ? `✕ ${label}` : label;
+}
+
 function wrap(value: string, maxCharacters: number, maxLines: number) {
   const words = value.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
@@ -258,7 +267,7 @@ function persistedAnnotationSvg(annotation: CheckedCopyPersistedAnnotation, page
     const size = Math.max(28, Math.min(Math.max(width, height), page.width * .06));
     return `${rotateOpen}<path d="M ${x} ${y + size * .55} L ${x + size * .32} ${y + size} L ${x + size} ${y}" fill="none" stroke="${RED}" stroke-width="${stroke + 2}" stroke-linecap="round" stroke-linejoin="round"/>${close}`;
   }
-  const fallback = annotation.type === "QUESTION_MARK" ? "?" : annotation.type === "STEP_MARK" ? "+1" : annotation.content || "";
+  const fallback = annotation.type === "QUESTION_MARK" ? "?" : annotation.type === "STEP_MARK" ? "+1" : checkedCopyDisplayText(annotation);
   const text = xml(compact(fallback, 100));
   if (!text) return "";
   const font = Math.max(22, page.width * (["QUESTION_SCORE","PAGE_SCORE","TOTAL_SCORE"].includes(annotation.type) ? .025 : .021));
