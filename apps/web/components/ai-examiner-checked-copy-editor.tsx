@@ -1,5 +1,6 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- authenticated blob page previews must not pass through the Next.js image optimizer */
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Download, Loader2, Minus, Plus, Save, ShieldCheck } from "lucide-react";
@@ -45,15 +46,16 @@ export function AIExaminerCheckedCopyEditor({evaluationId,teacherView=false}:{ev
   },[evaluationId]);
   useEffect(()=>{void load();},[load]);
 
+  const revisionId=revision?.id;
   useEffect(()=>{
-    if(!revision)return;
+    if(!revisionId)return;
     let active=true,objectUrl="";
-    void fetch(`${API}/ai-examiner/checked-copy/revisions/${revision.id}/pages/${page}`,{headers:{Authorization:`Bearer ${getAccessToken()??""}`}})
+    void fetch(`${API}/ai-examiner/checked-copy/revisions/${revisionId}/pages/${page}`,{headers:{Authorization:`Bearer ${getAccessToken()??""}`}})
       .then(async response=>{if(!response.ok)throw new Error((await response.json().catch(()=>null))?.error?.message??"Page preview unavailable");return response.blob();})
       .then(blob=>{if(active){objectUrl=URL.createObjectURL(blob);setPageUrl(objectUrl);}})
       .catch(cause=>{if(active)setError(cause instanceof Error?cause.message:"Page preview unavailable");});
     return()=>{active=false;if(objectUrl)URL.revokeObjectURL(objectUrl);};
-  },[revision?.id,page]);
+  },[revisionId,page]);
 
   const selected=revision?.annotations.find(row=>row.id===selectedId)??null;
   useEffect(()=>{setEditingText(selected?.content??"");},[selectedId,selected?.content]);
