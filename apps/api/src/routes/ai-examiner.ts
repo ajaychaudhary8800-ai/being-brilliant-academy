@@ -1,4 +1,5 @@
 import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBatchPageStatus, AIExaminerScanBatchStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
+import crypto from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config.js";
@@ -577,6 +578,273 @@ router.get("/benchmark-suites/:suiteId/cases", async (req: AuthRequest, res) => 
     take: 100000,
   });
   res.json({ data });
+});
+
+async function benchmarkDatasetCandidates(req: AuthRequest, suite: Awaited<ReturnType<typeof benchmarkSuiteForRequest>>) {
+  const [existingCases, sheets] = await Promise.all([
+    prisma.aIExaminerBenchmarkCase.findMany({
+      where: { organizationId: req.auth!.organizationId, suiteId: suite.id, isActive: true },
+      select: {
+        sourceAnswerSheetId: true,
+        questionKey: true,
+        sourceAnswerSheet: { select: { id: true, fileData: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.examinationAnswerSheet.findMany({
+      where: {
+        organizationId: req.auth!.organizationId,
+        finalizedAt: { not: null },
+        marksObtained: { not: null },
+        examination: {
+          ...(suite.branchId ? { branchId: suite.branchId } : {}),
+          ...(suite.subjectId ? { subjectId: suite.subjectId } : {}),
+        },
+      },
+      select: {
+        id: true,
+        fileName: true,
+        fileData: true,
+        finalizedAt: true,
+        marksObtained: true,
+        student: { select: { id: true, admissionNo: true, rollNo: true, user: { select: { name: true } } } },
+        examination: { select: { id: true, name: true, code: true, branchId: true, subjectId: true } },
+        aiEvaluations: {
+          where: { status: AIExaminerEvaluationStatus.APPROVED },
+          select: {
+            id: true,
+            revision: true,
+            reviewedById: true,
+            reviewedAt: true,
+            engineVersion: true,
+            provider: true,
+            model: true,
+            confidence: true,
+            questions: {
+              select: {
+                questionKey: true,
+                maxMarks: true,
+                suggestedMarks: true,
+                finalMarks: true,
+                confidence: true,
+                reviewRequired: true,
+              },
+            },
+          },
+          orderBy: { revision: "desc" },
+          take: 1,
+        },
+      },
+      orderBy: [{ finalizedAt: "asc" }, { id: "asc" }],
+      take: 500,
+    }),
+  ]);
+
+  const fingerprint = (bytes: Uint8Array) => crypto.createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+  const existingPairs = new Set(existingCases.map(item => `${item.sourceAnswerSheetId ?? ""}:${item.questionKey}`));
+  const existingSourceIds = new Set(existingCases.map(item => item.sourceAnswerSheetId).filter((value): value is string => Boolean(value)));
+  const existingFingerprintSources = new Map<string, Set<string>>();
+  for (const item of existingCases) {
+    if (!item.sourceAnswerSheetId || !item.sourceAnswerSheet?.fileData) continue;
+    const hash = fingerprint(item.sourceAnswerSheet.fileData);
+    const ids = existingFingerprintSources.get(hash) ?? new Set<string>();
+    ids.add(item.sourceAnswerSheetId);
+    existingFingerprintSources.set(hash, ids);
+  }
+
+  const sheetFingerprint = new Map(sheets.map(sheet => [sheet.id, fingerprint(sheet.fileData)]));
+  const canonicalSourceByFingerprint = new Map<string, string>();
+  for (const [hash, sourceIds] of existingFingerprintSources) {
+    const first = [...sourceIds].sort()[0];
+    if (first) canonicalSourceByFingerprint.set(hash, first);
+  }
+  for (const sheet of sheets) {
+    const hash = sheetFingerprint.get(sheet.id)!;
+    if (!canonicalSourceByFingerprint.has(hash)) canonicalSourceByFingerprint.set(hash, sheet.id);
+  }
+
+  let noApprovedEvaluationSources = 0;
+  let noFinalQuestionMarksSources = 0;
+  const candidates: Array<{
+    sourceAnswerSheetId: string;
+    questionKey: string;
+    maxMarks: number;
+    humanMarks: number;
+    aiSuggestedMarks: number | null;
+    confidence: number;
+    examination: { id: string; name: string; code: string };
+    student: { id: string; admissionNo: string; rollNo: string; name: string };
+    fileName: string;
+    finalizedAt: Date | null;
+    contentFingerprint: string;
+    sourceEvaluationId: string;
+    sourceEvaluationRevision: number;
+    humanReviewerId: string | null;
+    engineVersion: string;
+    provider: string | null;
+    model: string | null;
+    alreadyAdded: boolean;
+    duplicateSourceContent: boolean;
+    eligible: boolean;
+  }> = [];
+
+  for (const sheet of sheets) {
+    const evaluation = sheet.aiEvaluations[0];
+    if (!evaluation) {
+      noApprovedEvaluationSources += 1;
+      continue;
+    }
+    const finalQuestions = evaluation.questions.filter(question => question.finalMarks != null);
+    if (!finalQuestions.length) {
+      noFinalQuestionMarksSources += 1;
+      continue;
+    }
+    const hash = sheetFingerprint.get(sheet.id)!;
+    const canonicalSourceId = canonicalSourceByFingerprint.get(hash)!;
+    const duplicateSourceContent = canonicalSourceId !== sheet.id && !existingSourceIds.has(sheet.id);
+    for (const question of finalQuestions) {
+      const pairKey = `${sheet.id}:${question.questionKey}`;
+      const alreadyAdded = existingPairs.has(pairKey);
+      candidates.push({
+        sourceAnswerSheetId: sheet.id,
+        questionKey: question.questionKey,
+        maxMarks: Number(question.maxMarks),
+        humanMarks: Number(question.finalMarks),
+        aiSuggestedMarks: question.suggestedMarks == null ? null : Number(question.suggestedMarks),
+        confidence: Number(question.confidence ?? evaluation.confidence ?? 0),
+        examination: sheet.examination,
+        student: {
+          id: sheet.student.id,
+          admissionNo: sheet.student.admissionNo,
+          rollNo: sheet.student.rollNo,
+          name: sheet.student.user.name,
+        },
+        fileName: sheet.fileName,
+        finalizedAt: sheet.finalizedAt,
+        contentFingerprint: hash.slice(0, 16),
+        sourceEvaluationId: evaluation.id,
+        sourceEvaluationRevision: evaluation.revision,
+        humanReviewerId: evaluation.reviewedById,
+        engineVersion: evaluation.engineVersion,
+        provider: evaluation.provider,
+        model: evaluation.model,
+        alreadyAdded,
+        duplicateSourceContent,
+        eligible: !alreadyAdded && !duplicateSourceContent,
+      });
+    }
+  }
+
+  const sourceHashes = new Set(sheets.map(sheet => sheetFingerprint.get(sheet.id)!));
+  const duplicateSourceCount = sheets.length - sourceHashes.size;
+  return {
+    suiteId: suite.id,
+    minimumCases: benchmarkThresholdSchema.parse(suite.thresholds).minimumCases,
+    existingCaseCount: existingCases.length,
+    finalizedSourceCount: sheets.length,
+    independentSourceCount: sourceHashes.size,
+    duplicateSourceCount,
+    noApprovedEvaluationSources,
+    noFinalQuestionMarksSources,
+    eligibleCaseCount: candidates.filter(candidate => candidate.eligible).length,
+    candidates,
+  };
+}
+
+router.get("/benchmark-suites/:suiteId/candidate-pool", async (req: AuthRequest, res) => {
+  requireBenchmarkAdmin(req);
+  const suite = await benchmarkSuiteForRequest(req, cuid.parse(req.params.suiteId));
+  res.json({ data: await benchmarkDatasetCandidates(req, suite) });
+});
+
+router.post("/benchmark-suites/:suiteId/cases/bulk-import", async (req: AuthRequest, res) => {
+  requireBenchmarkAdmin(req);
+  const suite = await benchmarkSuiteForRequest(req, cuid.parse(req.params.suiteId));
+  if (suite.status !== AIExaminerBenchmarkSuiteStatus.DRAFT) {
+    throw new AppError(409, "AI_EXAMINER_BENCHMARK_SUITE_IMMUTABLE", "Benchmark cases can only be imported while the suite is draft");
+  }
+  if (req.auth!.role === Role.BRANCH_ADMIN && !suite.branchId) {
+    throw new AppError(403, "BRANCH_FORBIDDEN", "Organization-wide benchmark suites can only be changed by a super administrator");
+  }
+  const body = z.object({
+    candidates: z.array(z.object({
+      sourceAnswerSheetId: cuid,
+      questionKey: z.string().trim().min(1).max(40),
+    })).min(1).max(500),
+  }).parse(req.body);
+  const requestedKeys = body.candidates.map(item => `${item.sourceAnswerSheetId}:${item.questionKey}`);
+  if (new Set(requestedKeys).size !== requestedKeys.length) {
+    throw new AppError(422, "AI_EXAMINER_BENCHMARK_IMPORT_DUPLICATE", "Each selected source question may be imported only once per request");
+  }
+
+  const pool = await benchmarkDatasetCandidates(req, suite);
+  const candidateMap = new Map(pool.candidates.map(candidate => [`${candidate.sourceAnswerSheetId}:${candidate.questionKey}`, candidate]));
+  const selected = requestedKeys.map(key => {
+    const candidate = candidateMap.get(key);
+    if (!candidate) throw new AppError(422, "AI_EXAMINER_BENCHMARK_CANDIDATE_INVALID", "Selected benchmark candidate is not available in the verified candidate pool");
+    if (!candidate.eligible) {
+      const reason = candidate.alreadyAdded ? "already exists in this suite" : "duplicates source answer content already represented in the dataset";
+      throw new AppError(409, "AI_EXAMINER_BENCHMARK_CANDIDATE_INELIGIBLE", `Benchmark candidate ${candidate.questionKey} ${reason}`);
+    }
+    return candidate;
+  });
+
+  const fallbackReviewer = await prisma.user.findFirst({
+    where: { id: req.auth!.userId, organizationId: req.auth!.organizationId, isActive: true },
+    select: { id: true, role: true },
+  });
+  if (!fallbackReviewer || ![Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER].includes(fallbackReviewer.role)) {
+    throw new AppError(422, "AI_EXAMINER_BENCHMARK_REVIEWER_INVALID", "Authenticated benchmark importer must be an active teacher or administrator");
+  }
+
+  const created = await prisma.$transaction(async tx => {
+    const rows = [];
+    for (const candidate of selected) {
+      const reviewerId = candidate.humanReviewerId ?? fallbackReviewer.id;
+      const row = await tx.aIExaminerBenchmarkCase.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          suiteId: suite.id,
+          sourceAnswerSheetId: candidate.sourceAnswerSheetId,
+          questionKey: candidate.questionKey,
+          maxMarks: candidate.maxMarks,
+          minimumMarks: 0,
+          humanMarks: candidate.humanMarks,
+          humanReviewerId: reviewerId,
+          goldNotes: "Imported from teacher-approved final question marks.",
+          metadata: profileJson({
+            source: "benchmark-dataset-builder",
+            sourceEvaluationId: candidate.sourceEvaluationId,
+            sourceEvaluationRevision: candidate.sourceEvaluationRevision,
+            sourceEngineVersion: candidate.engineVersion,
+            sourceProvider: candidate.provider,
+            sourceModel: candidate.model,
+            contentFingerprint: candidate.contentFingerprint,
+          }),
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          actorId: req.auth!.userId,
+          action: "AI_EXAMINER_BENCHMARK_CASE_IMPORTED",
+          entity: "AIExaminerBenchmarkCase",
+          entityId: row.id,
+          metadata: {
+            suiteId: suite.id,
+            answerSheetId: candidate.sourceAnswerSheetId,
+            questionKey: candidate.questionKey,
+            humanReviewerId: reviewerId,
+            sourceEvaluationId: candidate.sourceEvaluationId,
+          },
+        },
+      });
+      rows.push(row);
+    }
+    return rows;
+  });
+
+  res.status(201).json({ data: { imported: created.length, caseIds: created.map(row => row.id) } });
 });
 
 router.get("/benchmark-suites/:suiteId/evaluation-results", async (req: AuthRequest, res) => {
