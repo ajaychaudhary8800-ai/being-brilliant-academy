@@ -89,6 +89,7 @@ function compact(value: string | null | undefined, maximum = 120) {
 
 function checkedCopyDisplayText(annotation: CheckedCopyPersistedAnnotation) {
   const raw = annotation.content || "";
+  if (annotation.type === "ERROR_LABEL") return "✕ Recheck solution";
   if (annotation.type !== "RUBRIC_NOTE") return raw;
   const score = raw.match(/([+-]?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
   if (!score) return raw;
