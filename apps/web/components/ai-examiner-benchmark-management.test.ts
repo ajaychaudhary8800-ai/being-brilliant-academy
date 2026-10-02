@@ -21,6 +21,16 @@ test("AI Examiner admin workspace exposes benchmark management without enabling 
   assert.match(benchmark, /does not certify physical devices or authorize a production deployment/);
 });
 
+test("benchmark dataset builder discovers verified cases and excludes duplicate source content", async () => {
+  const builder = await readFile(new URL("./ai-examiner-benchmark-dataset-builder.tsx", import.meta.url), "utf8");
+  assert.match(builder, /Benchmark Dataset Builder/);
+  assert.match(builder, /candidate-pool/);
+  assert.match(builder, /cases\/bulk-import/);
+  assert.match(builder, /Duplicate answer-sheet content/);
+  assert.match(builder, /Human gold marks imported here come from finalized teacher-approved question marks/);
+  assert.doesNotMatch(builder, /humanMarks.*onChange/);
+});
+
 test("benchmark UI only offers finalized answer sheets as human-gold sources", async () => {
   const benchmark = await readFile(new URL("./ai-examiner-benchmarks.tsx", import.meta.url), "utf8");
   assert.match(benchmark, /filter\(sheet => Boolean\(sheet\.finalizedAt\)\)/);
