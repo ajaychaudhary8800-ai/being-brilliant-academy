@@ -1,6 +1,7 @@
 import { AIExaminerEvaluationStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ExaminationStatus, Prisma, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
+import { renderAIExaminerCheckedCopy } from "../lib/ai-examiner-checked-copy.js";
 import { AppError } from "../lib/http.js";
 import {
   answerSubmissionState,
@@ -451,6 +452,105 @@ router.get("/answer-sheets/:answerSheetId/file", async (req: AuthRequest, res) =
   const sheet = await prisma.examinationAnswerSheet.findUnique({ where: { id: authorized.id }, select: { fileName: true, mimeType: true, fileSize: true, fileData: true } });
   if (!sheet) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
   res.set(storedDocumentHeaders({ ...sheet, fallbackName: "answer-sheet" }, "inline")).send(storedDocumentBuffer(sheet.fileData));
+});
+
+router.get("/answer-sheets/:answerSheetId/checked-copy", async (req: AuthRequest, res) => {
+  const answerSheetId = id.parse(req.params.answerSheetId);
+  let authorization: Record<string, unknown>;
+  if (req.auth!.role === Role.STUDENT) authorization = { student: { userId: req.auth!.userId } };
+  else if (req.auth!.role === Role.TEACHER) authorization = { examination: { teacher: { userId: req.auth!.userId } } };
+  else if (req.auth!.role === Role.BRANCH_ADMIN) {
+    const branchIds = (await prisma.branchUser.findMany({ where: { organizationId: req.auth!.organizationId, userId: req.auth!.userId }, select: { branchId: true } })).map(row => row.branchId);
+    authorization = { examination: { branchId: { in: branchIds } } };
+  } else if (req.auth!.role === Role.SUPER_ADMIN) authorization = {};
+  else throw new AppError(404, "AI_EXAMINER_CHECKED_COPY_NOT_FOUND", "Checked copy not found");
+
+  const sheet = await prisma.examinationAnswerSheet.findFirst({
+    where: { id: answerSheetId, organizationId: req.auth!.organizationId, ...authorization },
+    select: {
+      id: true, examinationId: true, fileName: true, mimeType: true, fileData: true, finalizedAt: true, marksObtained: true,
+      student: { select: { id: true, user: { select: { name: true } } } },
+      examination: {
+        select: {
+          id: true, name: true, status: true, maximumMarks: true, branchId: true, academicSessionId: true,
+          courseId: true, batchId: true, subjectId: true, teacherId: true, examDate: true,
+          teacher: { select: { userId: true } },
+        },
+      },
+      aiEvaluations: {
+        where: { status: AIExaminerEvaluationStatus.APPROVED },
+        select: {
+          id: true, revision: true, diagnostics: true, reviewedAt: true,
+          reviewedBy: { select: { name: true } },
+          questions: {
+            select: {
+              questionKey: true, maxMarks: true, finalMarks: true, teacherComment: true, feedback: true, createdAt: true,
+            },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+        orderBy: { revision: "desc" },
+        take: 1,
+      },
+    },
+  });
+  if (!sheet || !sheet.finalizedAt || sheet.marksObtained == null) {
+    throw new AppError(404, "AI_EXAMINER_CHECKED_COPY_NOT_FOUND", "Finalized checked copy not found");
+  }
+  if (req.auth!.role === Role.STUDENT) {
+    if (sheet.examination.status !== ExaminationStatus.RESULTS_PUBLISHED) {
+      throw new AppError(404, "AI_EXAMINER_CHECKED_COPY_NOT_FOUND", "Checked copy is available to students after results are published");
+    }
+    const student = await prisma.studentProfile.findUnique({
+      where: { userId: req.auth!.userId },
+      select: { id: true, organizationId: true, status: true, user: { select: { isActive: true } } },
+    });
+    await assertHistoricalStudentEligibility(req, student, sheet.examination, "HISTORICAL_READ", true);
+  } else {
+    await branchAccess(req, sheet.examination.branchId);
+    await mayManage(req, sheet.examination);
+  }
+
+  const evaluation = sheet.aiEvaluations[0];
+  if (!evaluation || evaluation.questions.some(question => question.finalMarks == null)) {
+    throw new AppError(404, "AI_EXAMINER_CHECKED_COPY_NOT_FOUND", "Teacher-approved AI checked copy is not available");
+  }
+  const rendered = await renderAIExaminerCheckedCopy({
+    source: { fileName: sheet.fileName, mimeType: sheet.mimeType, bytes: Buffer.from(sheet.fileData) },
+    studentName: sheet.student.user.name,
+    examinationName: sheet.examination.name,
+    questions: evaluation.questions.map(question => ({
+      questionKey: question.questionKey,
+      maxMarks: Number(question.maxMarks),
+      finalMarks: Number(question.finalMarks),
+      teacherComment: question.teacherComment,
+      feedback: question.feedback,
+    })),
+    diagnostics: evaluation.diagnostics,
+    totalMarks: Number(sheet.marksObtained),
+    maximumMarks: sheet.examination.maximumMarks,
+    reviewerName: evaluation.reviewedBy?.name ?? null,
+    evaluationRevision: evaluation.revision,
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId,
+      actorId: req.auth!.userId,
+      action: "AI_EXAMINER_CHECKED_COPY_DOWNLOADED",
+      entity: "ExaminationAnswerSheet",
+      entityId: sheet.id,
+      metadata: { evaluationId: evaluation.id, placement: rendered.placement, pageCount: rendered.pageCount },
+    },
+  }).catch(() => null);
+
+  const baseName = sheet.fileName.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 120) || "answer-sheet";
+  res.set({
+    "Content-Type": "application/pdf",
+    "Content-Disposition": `attachment; filename="${baseName}-checked.pdf"`,
+    "Cache-Control": "private, no-store",
+    "X-Checked-Copy-Placement": rendered.placement,
+  }).send(rendered.pdf);
 });
 
 router.patch("/answer-sheets/:answerSheetId/evaluation", async (req: AuthRequest, res) => {
