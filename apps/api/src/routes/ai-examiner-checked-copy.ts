@@ -344,7 +344,7 @@ router.post("/checked-copy/revisions/:revisionId/approve",async(req:AuthRequest,
   const stored=await prisma.$transaction(async tx=>{
     const locked=await tx.aIExaminerCheckedCopyRevision.updateMany({
       where:{id:revision.id,organizationId:req.auth!.organizationId,status:AIExaminerCheckedCopyRevisionStatus.APPROVED},
-      data:{status:AIExaminerCheckedCopyRevisionStatus.RENDERED,renderedFileName:fileName,renderedMimeType:"application/pdf",renderedFileSize:rendered.pdf.length,renderedFileData:rendered.pdf,renderedFileSha256:renderedHash,renderedAt:new Date()},
+      data:{status:AIExaminerCheckedCopyRevisionStatus.RENDERED,renderedFileName:fileName,renderedMimeType:"application/pdf",renderedFileSize:rendered.pdf.length,renderedFileData:new Uint8Array(rendered.pdf),renderedFileSha256:renderedHash,renderedAt:new Date()},
     });
     if(locked.count!==1) throw new AppError(409,"AI_CHECKED_COPY_RENDER_CHANGED","Checked-copy render state changed; refresh before retrying");
     await tx.aIExaminerCheckedCopyRevision.updateMany({where:{checkedCopyId:revision.checkedCopyId,id:{not:revision.id},status:{in:[AIExaminerCheckedCopyRevisionStatus.RENDERED,AIExaminerCheckedCopyRevisionStatus.PUBLISHED]}},data:{status:AIExaminerCheckedCopyRevisionStatus.SUPERSEDED}});
