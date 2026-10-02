@@ -498,7 +498,6 @@ router.post("/benchmark-suites/:suiteId/cases", async (req: AuthRequest, res) =>
     maxMarks: z.coerce.number().positive().max(10000),
     minimumMarks: z.coerce.number().min(-10000).max(10000).default(0),
     humanMarks: z.coerce.number().min(-10000).max(10000),
-    humanReviewerId: cuid,
     goldNotes: z.string().trim().max(10000).nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   }).superRefine((value, ctx) => {
@@ -507,7 +506,7 @@ router.post("/benchmark-suites/:suiteId/cases", async (req: AuthRequest, res) =>
   }).parse(req.body);
 
   const reviewer = await prisma.user.findFirst({
-    where: { id: body.humanReviewerId, organizationId: req.auth!.organizationId, isActive: true },
+    where: { id: req.auth!.userId, organizationId: req.auth!.organizationId, isActive: true },
     select: { id: true, role: true },
   });
   if (
