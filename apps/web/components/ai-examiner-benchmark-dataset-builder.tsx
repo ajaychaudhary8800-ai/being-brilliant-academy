@@ -136,7 +136,7 @@ export function AIExaminerBenchmarkDatasetBuilder({
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <div className="flex items-center gap-2"><Database size={18} className="text-brand-700"/><h3 className="font-bold">Benchmark Dataset Builder</h3></div>
-        <p className="mt-1 text-xs text-slate-500">Scans finalized, teacher-approved answer sheets across this suite's branch and subject. Duplicate source content is excluded automatically.</p>
+        <p className="mt-1 text-xs text-slate-500">Scans finalized, teacher-approved answer sheets across the selected suite branch and subject. Duplicate source content is excluded automatically.</p>
       </div>
       <button type="button" className="btn" disabled={busy} onClick={()=>void load()}>{busy?<Loader2 size={16} className="animate-spin"/>:<RefreshCw size={16}/>}Scan verified sources</button>
     </div>
