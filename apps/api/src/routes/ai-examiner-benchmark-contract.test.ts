@@ -34,6 +34,8 @@ test("AI Examiner benchmark framework is tenant-scoped, auditable and separate f
   assert.match(route, /router\.get\("\/benchmark-suites\/:suiteId\/evaluation-results"/);
   assert.match(route, /AIExaminerEvaluationStatus\.APPROVED/);
   assert.match(route, /readyForRun: cases\.length > 0 && missing\.length === 0 && Boolean\(context\)/);
+  assert.match(route, /where: \\{ id: req\\.auth!\\.userId, organizationId: req\\.auth!\\.organizationId, isActive: true \\}/);
+  assert.doesNotMatch(route, /humanReviewerId: cuid/);
   assert.match(route, /AI_EXAMINER_BENCHMARK_SOURCE_NOT_FINAL/);
   assert.match(route, /benchmarkReady: gate\.ready && !driftAssessment\?\.driftDetected/);
   assert.match(route, /releaseReady: false/);
