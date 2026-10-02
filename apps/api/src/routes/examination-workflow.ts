@@ -472,7 +472,7 @@ router.get("/answer-sheets/:answerSheetId/checked-copy", async (req: AuthRequest
       student: { select: { id: true, user: { select: { name: true } } } },
       examination: {
         select: {
-          id: true, name: true, status: true, maximumMarks: true, branchId: true, academicSessionId: true,
+          id: true, organizationId: true, name: true, status: true, maximumMarks: true, branchId: true, academicSessionId: true,
           courseId: true, batchId: true, subjectId: true, teacherId: true, examDate: true,
           teacher: { select: { userId: true } },
         },
