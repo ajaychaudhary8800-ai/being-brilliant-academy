@@ -1658,6 +1658,19 @@ function StudentExaminations({ items, query }: { items: StudentExam[]; query: st
       setReportError(errorMessage(cause));
     }
   }
+  async function checkedCopy(answerSheetId: string) {
+    setReportError("");
+    try {
+      await openAuthenticatedDocument({
+        url: `${API}/exam-workflow/answer-sheets/${answerSheetId}/checked-copy`,
+        token: getAccessToken() ?? "",
+        fileName: "checked-answer-sheet.pdf",
+        fallbackError: "Checked answer sheet is not available",
+      });
+    } catch (cause) {
+      setReportError(errorMessage(cause));
+    }
+  }
   return (
     <section>
       <SectionTitle
@@ -1713,6 +1726,11 @@ function StudentExaminations({ items, query }: { items: StudentExam[]; query: st
                   <button className="mt-2 font-bold text-brand-700" onClick={() => void report(item.result!.id)}>
                     Download report card
                   </button>
+                  {item.submission?.finalizedAt && (
+                    <button className="ml-4 mt-2 font-bold text-red-700" onClick={() => void checkedCopy(item.submission!.id)}>
+                      Download checked copy
+                    </button>
+                  )}
                 </div>
               ) : (
                 <p className="mt-4 text-sm text-slate-500">Results are hidden until formally published.</p>
