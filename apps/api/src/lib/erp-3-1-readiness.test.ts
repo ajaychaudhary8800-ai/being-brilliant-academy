@@ -45,6 +45,25 @@ test("production activation becomes ready only when every external gate is satis
   assert.deepEqual(result.blockers, []);
 });
 
+test("readiness fails closed when no device or AI activation scope exists", () => {
+  const result = evaluateERP31Readiness({
+    activeDeviceIds: [],
+    certifiedRealDeviceIds: [],
+    activeAdapterKeys: [],
+    certifiedRealAdapterKeys: [],
+    activeBenchmarkSuiteCodes: [],
+    benchmarkReadySuiteCodes: [],
+    aiCertifiedSuiteCodes: [],
+    requiredPrivacyPurposes: ["SAFETY"],
+    configuredPrivacyPurposes: ["SAFETY"],
+    securityPrivacyCertified: true,
+  });
+  assert.equal(result.externalCertificationComplete, false);
+  assert.equal(result.productionActivationReady, false);
+  assert.ok(result.blockers.some(blocker => blocker.type === "DEVICE_ACTIVATION_SCOPE"));
+  assert.ok(result.blockers.some(blocker => blocker.type === "AI_ACTIVATION_SCOPE"));
+});
+
 test("readiness calculation deduplicates certification evidence", () => {
   const result = evaluateERP31Readiness({
     activeDeviceIds: ["a","a"],
@@ -61,4 +80,6 @@ test("readiness calculation deduplicates certification evidence", () => {
   assert.equal(result.counts.activeDevices, 1);
   assert.equal(result.counts.certifiedDevices, 1);
   assert.equal(result.counts.requiredPrivacyPurposes, 1);
+  assert.equal(result.productionActivationReady, false);
+  assert.ok(result.blockers.some(blocker => blocker.type === "AI_ACTIVATION_SCOPE"));
 });
