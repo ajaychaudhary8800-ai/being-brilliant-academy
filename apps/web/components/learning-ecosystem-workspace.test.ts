@@ -102,3 +102,21 @@ test("Question Bank UI exposes ERP 3.1 assessment taxonomy and metadata", () => 
   assert.match(source, /Check exact duplicate/);
   assert.match(source, /questions\/similarity-check/);
 });
+
+
+test("Question Bank manager supports scoped pagination-safe bulk review controls", () => {
+  assert.match(source, /\/learning\/questions\/bulk-approval/);
+  assert.match(source, /Question approval status/);
+  assert.match(source, /Question course/);
+  assert.match(source, /Question subject/);
+  assert.match(source, /Question chapter/);
+  assert.match(source, /Question type/);
+  assert.match(source, /Select page/);
+  assert.match(source, /Select all .* filtered/);
+  assert.match(source, /Approve selected/);
+  assert.match(source, /Reject selected/);
+  assert.match(source, /Only DRAFT\/PENDING questions will change/);
+  assert.match(source, /setSelectedQuestionIds/);
+  assert.match(source, /selectAllFiltered/);
+  assert.match(source, /window\.confirm/);
+});
