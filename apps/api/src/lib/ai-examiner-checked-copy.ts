@@ -114,6 +114,29 @@ function wrap(value: string, maxCharacters: number, maxLines: number) {
   return lines;
 }
 
+
+function teacherPenTextSvg(lines: string[], x: number, y: number, font: number, bold = false) {
+  const parts: string[] = [];
+  for (const [lineIndex, line] of lines.entries()) {
+    let cursor = x;
+    const baseY = y + font + lineIndex * (font + 3);
+    for (let index = 0; index < line.length; index++) {
+      const character = line[index]!;
+      if (character === " ") {
+        cursor += font * .34;
+        continue;
+      }
+      const jitterX = ((index % 3) - 1) * font * .018;
+      const jitterY = (((index + lineIndex) % 4) - 1.5) * font * .025;
+      const rotation = ((index * 7 + lineIndex * 3) % 5 - 2) * .65;
+      const advance = font * (/[MW]/.test(character) ? .7 : /[il1]/.test(character) ? .32 : .54);
+      parts.push(`<text x="${cursor + jitterX}" y="${baseY + jitterY}" fill="${RED}" font-family="URW Chancery L, DejaVu Sans" font-style="italic" font-weight="${bold ? "700" : "600"}" font-size="${font}" transform="rotate(${rotation} ${cursor + jitterX} ${baseY + jitterY})">${xml(character)}</text>`);
+      cursor += advance;
+    }
+  }
+  return parts.join("");
+}
+
 async function command(file: string, args: string[]) {
   try {
     return await execFileAsync(file, args, { timeout: 45_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true });
@@ -273,7 +296,7 @@ function persistedAnnotationSvg(annotation: CheckedCopyPersistedAnnotation, page
   if (!text) return "";
   const font = Math.max(22, page.width * (["QUESTION_SCORE","PAGE_SCORE","TOTAL_SCORE"].includes(annotation.type) ? .025 : .021));
   const lines = wrap(text, 42, 3);
-  return `${rotateOpen}${lines.map((line, index) => `<text x="${x}" y="${y + font + index * (font + 3)}" fill="${RED}" font-family="DejaVu Sans" font-style="italic" font-weight="${["QUESTION_SCORE","PAGE_SCORE","TOTAL_SCORE"].includes(annotation.type) ? "700" : "600"}" font-size="${font}">${xml(line)}</text>`).join("")}${close}`;
+  return `${rotateOpen}${teacherPenTextSvg(lines, x, y, font, ["QUESTION_SCORE","PAGE_SCORE","TOTAL_SCORE"].includes(annotation.type))}${close}`;
 }
 
 function marginCallout(question: CheckedCopyQuestion, page: PageRaster, slot: number) {
