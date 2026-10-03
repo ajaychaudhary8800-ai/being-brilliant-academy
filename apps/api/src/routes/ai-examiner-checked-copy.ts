@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   assertCheckedCopyApprovalReady,
   autoPlaceCheckedCopyAnnotations,
+  CHECKED_COPY_AUTO_APPROVE_PLACEMENT_CONFIDENCE,
   buildAIExaminerCheckedCopyDraft,
   checkedCopyAnchorSchema,
   checkedCopyAnnotationTypeSchema,
@@ -220,9 +221,23 @@ router.post("/checked-copy/revisions/:revisionId/auto-place", async (req:AuthReq
       }:null,
     })),
   });
-  if(!placements.length) return res.json({data:sanitizedRevision(revision),meta:{autoPlaced:0}});
+  const lowConfidenceExisting=revision.annotations.filter(row =>
+    row.authorType===AIExaminerAnnotationAuthorType.AI &&
+    row.approvalState===AIExaminerAnnotationApprovalState.AI_DRAFT &&
+    row.anchor &&
+    Number(row.anchor.placementConfidence??0)<CHECKED_COPY_AUTO_APPROVE_PLACEMENT_CONFIDENCE
+  );
+  if(!placements.length&&!lowConfidenceExisting.length) return res.json({data:sanitizedRevision(revision),meta:{autoPlaced:0,reviewRequired:0}});
 
+  let reviewRequired=0;
   await prisma.$transaction(async tx=>{
+    for(const row of lowConfidenceExisting){
+      await tx.aIExaminerAnnotation.update({
+        where:{id:row.id},
+        data:{approvalState:AIExaminerAnnotationApprovalState.POSITION_REVIEW_REQUIRED},
+      });
+      reviewRequired+=1;
+    }
     for(const placement of placements){
       await tx.aIExaminerAnnotationAnchor.upsert({
         where:{annotationId:placement.id},
@@ -236,9 +251,14 @@ router.post("/checked-copy/revisions/:revisionId/auto-place", async (req:AuthReq
           rotation:placement.anchor.rotation,placementConfidence:placement.anchor.placementConfidence??null,evidenceText:placement.anchor.evidenceText??null,
         },
       });
+      const confidence=Number(placement.anchor.placementConfidence??0);
+      const state=confidence>=CHECKED_COPY_AUTO_APPROVE_PLACEMENT_CONFIDENCE
+        ? AIExaminerAnnotationApprovalState.AI_DRAFT
+        : AIExaminerAnnotationApprovalState.POSITION_REVIEW_REQUIRED;
+      if(state===AIExaminerAnnotationApprovalState.POSITION_REVIEW_REQUIRED) reviewRequired+=1;
       await tx.aIExaminerAnnotation.update({
         where:{id:placement.id},
-        data:{approvalState:AIExaminerAnnotationApprovalState.AI_DRAFT,authorType:AIExaminerAnnotationAuthorType.AI,authorId:null},
+        data:{approvalState:state,authorType:AIExaminerAnnotationAuthorType.AI,authorId:null},
       });
     }
     await tx.aIExaminerCheckedCopyRevision.update({
@@ -248,11 +268,11 @@ router.post("/checked-copy/revisions/:revisionId/auto-place", async (req:AuthReq
     await tx.auditLog.create({data:{
       organizationId:req.auth!.organizationId,actorId:req.auth!.userId,action:"AI_CHECKED_COPY_AUTO_PLACED",
       entity:"AIExaminerCheckedCopyRevision",entityId:revision.id,
-      metadata:{count:placements.length,source:"ERP4_AUTO_RED_PEN"},
+      metadata:{count:placements.length,reviewRequired,confidenceThreshold:CHECKED_COPY_AUTO_APPROVE_PLACEMENT_CONFIDENCE,source:"ERP4_AUTO_RED_PEN"},
     }});
   });
   const refreshed=await revisionForManager(req,revision.id);
-  res.json({data:sanitizedRevision(refreshed),meta:{autoPlaced:placements.length}});
+  res.json({data:sanitizedRevision(refreshed),meta:{autoPlaced:placements.length,reviewRequired}});
 });
 
 router.get("/checked-copy/revisions/:revisionId/pages/:pageNumber", async (req:AuthRequest,res)=>{
