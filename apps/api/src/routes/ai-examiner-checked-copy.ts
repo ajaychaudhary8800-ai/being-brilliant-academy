@@ -10,6 +10,7 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   assertCheckedCopyApprovalReady,
+  autoPlaceCheckedCopyAnnotations,
   buildAIExaminerCheckedCopyDraft,
   checkedCopyAnchorSchema,
   checkedCopyAnnotationTypeSchema,
@@ -152,6 +153,7 @@ router.post("/evaluations/:evaluationId/checked-copy/draft", async (req:AuthRequ
       rubricBreakdown:question.rubricBreakdown,
     })),
     totalMarks:Number(evaluation.answerSheet.marksObtained),maximumMarks:evaluation.answerSheet.examination.maximumMarks,
+    sourcePageCount:inspected.pageCount,
   });
   const revisionNumber=(latestRevision?.revision??0)+1;
   const revision=await prisma.$transaction(async tx=>{
@@ -194,6 +196,63 @@ router.get("/evaluations/:evaluationId/checked-copy/review", async (req:AuthRequ
   if(!revision) throw new AppError(404,"AI_CHECKED_COPY_NOT_FOUND","Create the checked-copy draft first");
   await assertManager(req,revision.checkedCopy.answerSheet.examination);
   res.json({data:sanitizedRevision(revision),meta:{label:revision.status===AIExaminerCheckedCopyRevisionStatus.DRAFT?"AI Checked Copy — Draft":"Checked Copy — Approved"}});
+});
+
+
+router.post("/checked-copy/revisions/:revisionId/auto-place", async (req:AuthRequest,res)=>{
+  const revision=await revisionForManager(req,cuid.parse(req.params.revisionId));
+  if(revision.status!==AIExaminerCheckedCopyRevisionStatus.DRAFT) throw new AppError(409,"AI_CHECKED_COPY_IMMUTABLE","Only a draft checked-copy revision can be auto-placed");
+  const placements=autoPlaceCheckedCopyAnnotations({
+    diagnostics:revision.evaluation.diagnostics,
+    sourcePageCount:revision.sourcePageCount,
+    annotations:revision.annotations.map(row=>({
+      id:row.id,
+      questionKey:row.questionKey,
+      type:row.type,
+      sourceEvidence:row.sourceEvidence,
+      approvalState:row.approvalState,
+      anchor:row.anchor?{
+        pageNumber:row.anchor.pageNumber,
+        x:Number(row.anchor.x),
+        y:Number(row.anchor.y),
+        width:Number(row.anchor.width),
+        height:Number(row.anchor.height),
+      }:null,
+    })),
+  });
+  if(!placements.length) return res.json({data:sanitizedRevision(revision),meta:{autoPlaced:0}});
+
+  await prisma.$transaction(async tx=>{
+    for(const placement of placements){
+      await tx.aIExaminerAnnotationAnchor.upsert({
+        where:{annotationId:placement.id},
+        update:{
+          pageNumber:placement.anchor.pageNumber,x:placement.anchor.x,y:placement.anchor.y,width:placement.anchor.width,height:placement.anchor.height,
+          rotation:placement.anchor.rotation,placementConfidence:placement.anchor.placementConfidence??null,evidenceText:placement.anchor.evidenceText??null,
+        },
+        create:{
+          organizationId:req.auth!.organizationId,annotationId:placement.id,
+          pageNumber:placement.anchor.pageNumber,x:placement.anchor.x,y:placement.anchor.y,width:placement.anchor.width,height:placement.anchor.height,
+          rotation:placement.anchor.rotation,placementConfidence:placement.anchor.placementConfidence??null,evidenceText:placement.anchor.evidenceText??null,
+        },
+      });
+      await tx.aIExaminerAnnotation.update({
+        where:{id:placement.id},
+        data:{approvalState:AIExaminerAnnotationApprovalState.AI_DRAFT,authorType:AIExaminerAnnotationAuthorType.AI,authorId:null},
+      });
+    }
+    await tx.aIExaminerCheckedCopyRevision.update({
+      where:{id:revision.id},
+      data:{annotationRevision:{increment:1}},
+    });
+    await tx.auditLog.create({data:{
+      organizationId:req.auth!.organizationId,actorId:req.auth!.userId,action:"AI_CHECKED_COPY_AUTO_PLACED",
+      entity:"AIExaminerCheckedCopyRevision",entityId:revision.id,
+      metadata:{count:placements.length,source:"ERP4_AUTO_RED_PEN"},
+    }});
+  });
+  const refreshed=await revisionForManager(req,revision.id);
+  res.json({data:sanitizedRevision(refreshed),meta:{autoPlaced:placements.length}});
 });
 
 router.get("/checked-copy/revisions/:revisionId/pages/:pageNumber", async (req:AuthRequest,res)=>{
