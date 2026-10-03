@@ -26,6 +26,15 @@ export const checkedCopyAnnotationTypeSchema = z.enum([
   "RUBRIC_NOTE","ERROR_LABEL",
 ]);
 
+export const CHECKED_COPY_AUTO_APPROVE_PLACEMENT_CONFIDENCE = 0.8;
+
+function placementState(anchor: z.infer<typeof checkedCopyAnchorSchema> | null) {
+  const confidence = anchor?.placementConfidence ?? 0;
+  return anchor && confidence >= CHECKED_COPY_AUTO_APPROVE_PLACEMENT_CONFIDENCE
+    ? ("AI_DRAFT" as const)
+    : ("POSITION_REVIEW_REQUIRED" as const);
+}
+
 export const checkedCopyVectorDataSchema = z.object({
   points: z.array(z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })).min(2).max(5000),
 }).passthrough();
@@ -355,7 +364,7 @@ export function buildAIExaminerCheckedCopyDraft(input: {
         sourceEvidence: criterion.evidenceText,
         vectorData: null,
         authorType: "AI",
-        approvalState: inferredAnchor ? "AI_DRAFT" : "POSITION_REVIEW_REQUIRED",
+        approvalState: placementState(inferredAnchor),
         sortOrder: order++,
         anchor: inferredAnchor,
       });
@@ -373,7 +382,7 @@ export function buildAIExaminerCheckedCopyDraft(input: {
       sourceEvidence: null,
       vectorData: null,
       authorType: "AI",
-      approvalState: questionScoreAnchor ? "AI_DRAFT" : "POSITION_REVIEW_REQUIRED",
+      approvalState: placementState(questionScoreAnchor),
       sortOrder: order++,
       anchor: questionScoreAnchor,
     });
@@ -392,7 +401,7 @@ export function buildAIExaminerCheckedCopyDraft(input: {
         sourceEvidence: null,
         vectorData: null,
         authorType: "AI",
-        approvalState: noteAnchor ? "AI_DRAFT" : "POSITION_REVIEW_REQUIRED",
+        approvalState: placementState(noteAnchor),
         sortOrder: order++,
         anchor: noteAnchor,
       });
@@ -410,7 +419,7 @@ export function buildAIExaminerCheckedCopyDraft(input: {
     sourceEvidence: null,
     vectorData: null,
     authorType: "SYSTEM",
-    approvalState: totalAnchor ? "AI_DRAFT" : "POSITION_REVIEW_REQUIRED",
+    approvalState: placementState(totalAnchor),
     sortOrder: order++,
     anchor: totalAnchor,
   });
