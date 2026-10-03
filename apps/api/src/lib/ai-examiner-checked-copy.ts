@@ -90,10 +90,12 @@ function compact(value: string | null | undefined, maximum = 120) {
 
 function checkedCopyDisplayText(annotation: CheckedCopyPersistedAnnotation) {
   const raw = annotation.content || "";
-  if (annotation.type === "ERROR_LABEL") return "✕ Recheck solution";
-  if (annotation.type !== "RUBRIC_NOTE") return raw;
   const score = raw.match(/([+-]?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
-  if (!score) return raw;
+  if (annotation.type === "ERROR_LABEL") return "Recheck";
+  if (annotation.type === "QUESTION_SCORE" && score) return `${score[1]!.replace(/^\+/, "")}/${score[2]}`;
+  if (annotation.type === "PAGE_SCORE" && score) return `${score[1]!.replace(/^\+/, "")}/${score[2]}`;
+  if (annotation.type === "TOTAL_SCORE" && score) return `Total ${score[1]!.replace(/^\+/, "")}/${score[2]}`;
+  if (annotation.type !== "RUBRIC_NOTE" || !score) return raw;
   const awarded = Number(score[1]), maximum = Number(score[2]), label = `${score[1]!.replace(/^\+/, "")}/${score[2]}`;
   return awarded <= 0 ? `✕ ${label}` : Number.isFinite(maximum) && awarded >= maximum ? `✓ ${label}` : label;
 }
@@ -120,18 +122,26 @@ function teacherPenTextSvg(lines: string[], x: number, y: number, font: number, 
   const parts: string[] = [];
   for (const [lineIndex, line] of lines.entries()) {
     let cursor = x;
-    const baseY = y + font + lineIndex * (font + 3);
+    const baseY = y + font + lineIndex * (font + 4);
     for (let index = 0; index < line.length; index++) {
       const character = line[index]!;
       if (character === " ") {
-        cursor += font * .34;
+        cursor += font * (.30 + ((index + lineIndex) % 3) * .025);
         continue;
       }
-      const jitterX = ((index % 3) - 1) * font * .018;
-      const jitterY = (((index + lineIndex) % 4) - 1.5) * font * .025;
-      const rotation = ((index * 7 + lineIndex * 3) % 5 - 2) * .65;
-      const advance = font * (/[MW]/.test(character) ? .7 : /[il1]/.test(character) ? .32 : .54);
-      parts.push(`<text x="${cursor + jitterX}" y="${baseY + jitterY}" fill="${RED}" font-family="URW Chancery L, DejaVu Sans" font-style="italic" font-weight="${bold ? "700" : "600"}" font-size="${font}" transform="rotate(${rotation} ${cursor + jitterX} ${baseY + jitterY})">${xml(character)}</text>`);
+      const seed = character.charCodeAt(0) * 17 + index * 29 + lineIndex * 43;
+      const jitterX = ((seed % 7) - 3) * font * .007;
+      const jitterY = (((seed >> 2) % 7) - 3) * font * .010;
+      const rotation = (((seed >> 3) % 9) - 4) * .48;
+      const scaleX = 0.94 + ((seed % 5) * .018);
+      const scaleY = 0.96 + (((seed >> 1) % 5) * .014);
+      const size = font * (0.97 + ((seed % 4) * .012));
+      const px = cursor + jitterX, py = baseY + jitterY;
+      const advance = font * (/[MW]/.test(character) ? .67 : /[il1]/.test(character) ? .30 : /[0-9]/.test(character) ? .49 : .51);
+      const transform = `translate(${px} ${py}) rotate(${rotation}) scale(${scaleX} ${scaleY}) translate(${-px} ${-py})`;
+      const weight = bold ? "600" : "500";
+      parts.push(`<text x="${px}" y="${py}" fill="${RED}" fill-opacity=".96" font-family="URW Chancery L, cursive, DejaVu Sans" font-style="italic" font-weight="${weight}" font-size="${size}" transform="${transform}">${xml(character)}</text>`);
+      parts.push(`<text x="${px + .45}" y="${py + .35}" fill="${RED}" fill-opacity=".13" font-family="URW Chancery L, cursive, DejaVu Sans" font-style="italic" font-weight="${weight}" font-size="${size}" transform="${transform}">${xml(character)}</text>`);
       cursor += advance;
     }
   }
@@ -277,7 +287,7 @@ function persistedAnnotationSvg(annotation: CheckedCopyPersistedAnnotation, page
     return `<path d="${d}" fill="none" stroke="${RED}" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"/>`;
   }
   if (annotation.type === "HIGHLIGHT") return `${rotateOpen}<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="6" fill="${RED}" fill-opacity=".13" stroke="${RED}" stroke-opacity=".55" stroke-width="${stroke}"/>${close}`;
-  if (annotation.type === "UNDERLINE") return `${rotateOpen}<path d="M ${x} ${y + height} Q ${x + width * .5} ${y + height + stroke * 2} ${x + width} ${y + height}" fill="none" stroke="${RED}" stroke-width="${stroke}" stroke-linecap="round"/>${close}`;
+  if (annotation.type === "UNDERLINE") return `${rotateOpen}<path d="M ${x} ${y + height} C ${x + width * .23} ${y + height - stroke*.5}, ${x + width * .61} ${y + height + stroke*2.1}, ${x + width} ${y + height + stroke*.35}" fill="none" stroke="${RED}" stroke-width="${stroke}" stroke-linecap="round"/><path d="M ${x+2} ${y + height + 1.2} C ${x + width * .31} ${y + height}, ${x + width * .67} ${y + height + stroke*1.5}, ${x + width-2} ${y + height + stroke*.1}" fill="none" stroke="${RED}" stroke-opacity=".16" stroke-width="${Math.max(1,stroke*.55)}" stroke-linecap="round"/>${close}`;
   if (annotation.type === "CIRCLE") return `${rotateOpen}<ellipse cx="${centerX}" cy="${centerY}" rx="${width / 2}" ry="${height / 2}" fill="none" stroke="${RED}" stroke-width="${stroke}"/>${close}`;
   if (annotation.type === "RECTANGLE") return `${rotateOpen}<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="5" fill="none" stroke="${RED}" stroke-width="${stroke}"/>${close}`;
   if (annotation.type === "ARROW") {
@@ -286,11 +296,11 @@ function persistedAnnotationSvg(annotation: CheckedCopyPersistedAnnotation, page
   }
   if (annotation.type === "CROSS") {
     const size = Math.max(22, Math.min(width, height, page.width * .045));
-    return `${rotateOpen}<g stroke="${RED}" stroke-width="${stroke + 1}" stroke-linecap="round"><path d="M ${x} ${y} L ${x + size} ${y + size}"/><path d="M ${x + size} ${y} L ${x} ${y + size}"/></g>${close}`;
+    return `${rotateOpen}<g stroke="${RED}" fill="none" stroke-linecap="round"><path d="M ${x} ${y+1} Q ${x+size*.48} ${y+size*.48} ${x+size} ${y+size}" stroke-width="${stroke+1}"/><path d="M ${x+size} ${y} Q ${x+size*.55} ${y+size*.44} ${x+1} ${y+size}" stroke-width="${stroke+1}"/><path d="M ${x+1.2} ${y+2} L ${x+size-1} ${y+size-1}" stroke-opacity=".14" stroke-width="${Math.max(1,stroke*.6)}"/></g>${close}`;
   }
   if (annotation.type === "TICK") {
     const size = Math.max(28, Math.min(Math.max(width, height), page.width * .06));
-    return `${rotateOpen}<path d="M ${x} ${y + size * .55} L ${x + size * .32} ${y + size} L ${x + size} ${y}" fill="none" stroke="${RED}" stroke-width="${stroke + 2}" stroke-linecap="round" stroke-linejoin="round"/>${close}`;
+    return `${rotateOpen}<path d="M ${x} ${y + size*.58} Q ${x+size*.16} ${y+size*.76} ${x+size*.32} ${y+size} Q ${x+size*.62} ${y+size*.48} ${x+size} ${y}" fill="none" stroke="${RED}" stroke-width="${stroke+2}" stroke-linecap="round" stroke-linejoin="round"/><path d="M ${x+1} ${y + size*.60} Q ${x+size*.17} ${y+size*.77} ${x+size*.33} ${y+size-1}" fill="none" stroke="${RED}" stroke-opacity=".17" stroke-width="${Math.max(1,stroke*.65)}" stroke-linecap="round"/>${close}`;
   }
   const fallback = annotation.type === "QUESTION_MARK" ? "?" : annotation.type === "STEP_MARK" ? "+1" : checkedCopyDisplayText(annotation);
   const text = xml(compact(fallback, 100));
