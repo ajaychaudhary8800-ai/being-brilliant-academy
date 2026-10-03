@@ -106,3 +106,11 @@ test("AI Examiner accepts structured visual observations for multimodal evidence
   assert.equal(parsed.questions[0]?.visualObservations?.[0]?.key, "axes");
   assert.equal(parsed.questions[0]?.visualObservations?.[0]?.status, "PRESENT");
 });
+
+
+test("AI Examiner prompt requires evidence-linked checked-copy localization", async () => {
+  const source = await readFile(new URL("./ai-examiner-engine.ts", import.meta.url), "utf8");
+  assert.match(source, /matching annotationHint\.text to the same faithful excerpt/);
+  assert.match(source, /Order annotationHints in the same reading order/);
+  assert.match(source, /route the item to position review instead/);
+});
