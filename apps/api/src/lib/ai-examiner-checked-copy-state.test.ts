@@ -151,3 +151,33 @@ test("auto-place resolves existing unpositioned annotations from question hints 
   assert.ok(total);
   assert.equal(total.anchor.pageNumber, 2);
 });
+
+
+test("auto-place uses trusted same-question anchors for legacy revisions without diagnostic hints", () => {
+  const placements = autoPlaceCheckedCopyAnnotations({
+    diagnostics: {},
+    sourcePageCount: 2,
+    annotations: [
+      {
+        id: "q1-score",
+        questionKey: "Q1",
+        type: "QUESTION_SCORE",
+        sourceEvidence: null,
+        approvalState: "APPROVED",
+        anchor: { pageNumber: 1, x: 0.75, y: 0.12, width: 0.13, height: 0.04 },
+      },
+      {
+        id: "q1-rubric-unplaced",
+        questionKey: "Q1",
+        type: "RUBRIC_NOTE",
+        sourceEvidence: "Power calculation evidence",
+        approvalState: "POSITION_REVIEW_REQUIRED",
+        anchor: null,
+      },
+    ],
+  });
+  assert.equal(placements.length, 1);
+  assert.equal(placements[0]!.id, "q1-rubric-unplaced");
+  assert.equal(placements[0]!.anchor.pageNumber, 1);
+  assert.equal(placements[0]!.anchor.placementConfidence, 0.55);
+});
