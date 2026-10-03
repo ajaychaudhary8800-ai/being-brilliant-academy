@@ -107,6 +107,24 @@ function evidenceHint(hints: Hint[], evidenceText: string | null) {
   }) ?? null;
 }
 
+function lastVisibleHint(hints: Hint[]) {
+  return [...hints].sort((left, right) =>
+    right.pageNumber - left.pageNumber ||
+    (right.y + right.height) - (left.y + left.height) ||
+    (right.x + right.width) - (left.x + left.width)
+  )[0] ?? null;
+}
+
+function correctionHint(hints: Hint[]) {
+  const priority: Hint["kind"][] = ["NOTE", "CROSS", "HIGHLIGHT", "UNDERLINE", "TICK"];
+  for (const kind of priority) {
+    const candidates = hints.filter(hint => hint.kind === kind);
+    const candidate = lastVisibleHint(candidates);
+    if (candidate) return candidate;
+  }
+  return lastVisibleHint(hints);
+}
+
 export function sha256Buffer(value: Buffer) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -316,12 +334,14 @@ export function buildAIExaminerCheckedCopyDraft(input: {
     const key = question.questionKey.toLocaleLowerCase("en");
     const hints = hintsByQuestion.get(key) ?? [];
     for (const hint of hints) {
-      const content = hint.kind === "NOTE" ? concise(hint.text || question.teacherComment || question.feedback || "Check this step") : hint.text ?? null;
+      // NOTE hints are semantic locators for rubric/error comments. Rendering them directly
+      // duplicates the teacher comment and makes a fresh AI-checked copy unnecessarily noisy.
+      if (hint.kind === "NOTE") continue;
       annotations.push({
         questionKey: question.questionKey,
         rubricCriterion: null,
         type: hintType(hint.kind),
-        content,
+        content: hint.text ?? null,
         marks: null,
         confidence: question.confidence ?? null,
         sourceEvidence: hint.text ?? null,
@@ -371,7 +391,8 @@ export function buildAIExaminerCheckedCopyDraft(input: {
     }
 
     const firstHint = hints[0] ?? null;
-    const questionScoreAnchor = firstHint ? placeNearHint(firstHint, "QUESTION_SCORE", occupied, 0.84, firstHint.text ?? null, 0) : null;
+    const scoreHint = lastVisibleHint(hints);
+    const questionScoreAnchor = scoreHint ? placeNearHint(scoreHint, "QUESTION_SCORE", occupied, 0.86, scoreHint.text ?? null, 0) : null;
     annotations.push({
       questionKey: question.questionKey,
       rubricCriterion: null,
@@ -389,8 +410,9 @@ export function buildAIExaminerCheckedCopyDraft(input: {
 
     const note = concise(question.teacherComment || (question.finalMarks < question.maxMarks ? question.feedback : null));
     if (note) {
-      const noteHint = hints.find(hint => hint.kind === "NOTE") ?? firstHint;
-      const noteAnchor = noteHint ? placeNearHint(noteHint, question.finalMarks < question.maxMarks ? "ERROR_LABEL" : "TEXT_COMMENT", occupied, noteHint.kind === "NOTE" ? 0.86 : 0.66, noteHint.text ?? null, 1) : null;
+      const noteHint = question.finalMarks < question.maxMarks ? correctionHint(hints) : (hints.find(hint => hint.kind === "NOTE") ?? firstHint);
+      const explicitCorrection = Boolean(noteHint && ["NOTE","CROSS","HIGHLIGHT"].includes(noteHint.kind));
+      const noteAnchor = noteHint ? placeNearHint(noteHint, question.finalMarks < question.maxMarks ? "ERROR_LABEL" : "TEXT_COMMENT", occupied, explicitCorrection ? 0.88 : 0.66, noteHint.text ?? null, 1) : null;
       annotations.push({
         questionKey: question.questionKey,
         rubricCriterion: null,
