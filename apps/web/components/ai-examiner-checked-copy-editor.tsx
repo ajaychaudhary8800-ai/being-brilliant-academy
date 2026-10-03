@@ -22,8 +22,8 @@ function pageAnnotationText(annotation:Annotation){
   if(annotation.type!=="RUBRIC_NOTE")return raw;
   const score=raw.match(/([+-]?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
   if(!score)return raw;
-  const awarded=Number(score[1]),label=`${score[1]!.replace(/^\+/,"")}/${score[2]}`;
-  return awarded>0?`✓ ${label}`:awarded===0?`✕ ${label}`:label;
+  const awarded=Number(score[1]),maximum=Number(score[2]),label=`${score[1]!.replace(/^\+/,"")}/${score[2]}`;
+  return awarded<=0?`✕ ${label}`:Number.isFinite(maximum)&&awarded>=maximum?`✓ ${label}`:label;
 }
 
 async function jsonRequest(url:string,init?:RequestInit){
