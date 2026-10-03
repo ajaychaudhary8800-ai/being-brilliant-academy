@@ -60,6 +60,7 @@ export type CheckedCopyInput = {
   reviewerName?: string | null;
   evaluationRevision: number;
   checkedCopyRevision?: number;
+  renderLabel?: "Approved" | "Draft Preview";
 };
 
 export type CheckedCopyRenderResult = {
@@ -335,7 +336,7 @@ function overlaySvg(input: CheckedCopyInput, page: PageRaster, pageIndex: number
   }
 
   const revision = input.checkedCopyRevision ? ` • checked-copy revision ${input.checkedCopyRevision}` : "";
-  const footer = `Ranpal AI Examiner • Checked Copy • Approved • evaluation revision ${input.evaluationRevision}${revision}`;
+  const footer = `Ranpal AI Examiner • Checked Copy • ${input.renderLabel ?? "Approved"} • evaluation revision ${input.evaluationRevision}${revision}`;
   elements.push(`<rect x="0" y="${page.height-38}" width="${page.width}" height="38" fill="white" fill-opacity=".86"/><text x="18" y="${page.height-12}" fill="#5b6472" font-family="DejaVu Sans" font-size="${Math.max(14,page.width*.012)}">${xml(footer)}</text>`);
   return { svg:`<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}" viewBox="0 0 ${page.width} ${page.height}"><g>${elements.join("")}</g></svg>`, exactOnPage };
 }
