@@ -1658,6 +1658,19 @@ function StudentExaminations({ items, query }: { items: StudentExam[]; query: st
       setReportError(errorMessage(cause));
     }
   }
+  async function checkedCopy(answerSheetId: string) {
+    setReportError("");
+    try {
+      await openAuthenticatedDocument({
+        url: `${API}/exam-workflow/answer-sheets/${answerSheetId}/checked-copy`,
+        token: getAccessToken() ?? "",
+        fileName: "checked-answer-sheet.pdf",
+        fallbackError: "Checked answer sheet is not available",
+      });
+    } catch (cause) {
+      setReportError(errorMessage(cause));
+    }
+  }
   return (
     <section>
       <SectionTitle
@@ -1713,6 +1726,11 @@ function StudentExaminations({ items, query }: { items: StudentExam[]; query: st
                   <button className="mt-2 font-bold text-brand-700" onClick={() => void report(item.result!.id)}>
                     Download report card
                   </button>
+                  {item.submission?.finalizedAt && (
+                    <button className="ml-4 mt-2 font-bold text-red-700" onClick={() => void checkedCopy(item.submission!.id)}>
+                      Download checked copy
+                    </button>
+                  )}
                 </div>
               ) : (
                 <p className="mt-4 text-sm text-slate-500">Results are hidden until formally published.</p>
@@ -1777,6 +1795,70 @@ function StudentFees({ items }: { items: Fee[] }) {
           );
         })}
       </div>
+    </section>
+  );
+}
+
+function ParentExaminations({ data, query }: { data: ParentDashboard; query: string }) {
+  const terms = useGroupTerminology();
+  const [downloadError, setDownloadError] = useState("");
+  const rows = data.children
+    .flatMap((child) => child.examinations.map((exam) => ({ child, exam })))
+    .filter(({ child, exam }) => includes(query, child.profile.name, exam.name, exam.type, exam.subject.name, exam.status));
+
+  async function checkedCopy(answerSheetId: string, childName: string, examName: string) {
+    setDownloadError("");
+    try {
+      await openAuthenticatedDocument({
+        url: `${API}/exam-workflow/answer-sheets/${answerSheetId}/checked-copy`,
+        token: getAccessToken() ?? "",
+        fileName: `${childName}-${examName}-checked-copy.pdf`.replace(/[^A-Za-z0-9._-]+/g, "-"),
+        fallbackError: "Checked copy is not available",
+      });
+    } catch (cause) {
+      setDownloadError(errorMessage(cause));
+    }
+  }
+
+  return (
+    <section>
+      <SectionTitle title={`Children's ${terms.assessments.toLowerCase()}`} description="Published results and teacher-approved checked copies for linked students." />
+      {downloadError && (
+        <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          {downloadError}
+        </p>
+      )}
+      {rows.length ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {rows.map(({ child, exam }) => (
+            <article key={`${child.profile.admissionNo}-${exam.id}`} className="card p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase text-brand-700">{child.profile.name} · {exam.subject.name}</p>
+                  <h3 className="mt-1 text-lg font-black">{exam.name}</h3>
+                  <p className="text-sm text-slate-500">{shortDate(exam.examDate, child.locale)} · {exam.maximumMarks} marks</p>
+                </div>
+                <Badge value={exam.status} />
+              </div>
+              {exam.result ? (
+                <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">
+                  <p>Marks: <b>{exam.result.marksObtained ?? "Absent"}/{exam.maximumMarks}</b></p>
+                  <p>Grade: <b>{exam.result.grade ?? "—"}</b>{exam.result.rank ? ` · Rank ${exam.result.rank}` : ""}</p>
+                  {exam.submission?.finalizedAt && (
+                    <button className="mt-3 font-bold text-red-700" onClick={() => void checkedCopy(exam.submission!.id, child.profile.name, exam.name)}>
+                      Download checked copy
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Results are hidden until formally published.</p>
+              )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <Empty icon={FileCheck2}>{`No linked-student ${terms.assessments.toLowerCase()} match this view.`}</Empty>
+      )}
     </section>
   );
 }
@@ -1926,7 +2008,7 @@ function Workspace({ role }: { role: PortalRole }) {
   useEffect(() => {
     void load();
   }, [load]);
-  const tabs = role === "TEACHER" ? ["overview", "classes", "learning", "live-classes", "meetings", "students", "homework", "attendance", "examinations", "notifications", "announcements", "messages", "leave", "profile"] : role === "STUDENT" ? ["overview", "learning", "live-classes", "homework", "timetable", "attendance", "examinations", "fees", "notifications", "announcements", "messages", "leave", "profile"] : ["overview", "notifications", "announcements", "messages", "leave", "profile"];
+  const tabs = role === "TEACHER" ? ["overview", "classes", "learning", "live-classes", "meetings", "students", "homework", "attendance", "examinations", "notifications", "announcements", "messages", "leave", "profile"] : role === "STUDENT" ? ["overview", "learning", "live-classes", "homework", "timetable", "attendance", "examinations", "fees", "notifications", "announcements", "messages", "leave", "profile"] : ["overview", "examinations", "notifications", "announcements", "messages", "leave", "profile"];
   async function markRead(notificationId: string) {
     await portalRequest(`/notifications/${notificationId}/read`, {
       method: "PATCH",
@@ -2018,7 +2100,13 @@ function Workspace({ role }: { role: PortalRole }) {
                 if (active === "fees") return <StudentFees items={data.fees} />;
                 return null;
               })()}
-            {role === "PARENT" && active === "overview" && <ParentOverview data={dashboard as ParentDashboard} />}{" "}
+            {role === "PARENT" &&
+              (() => {
+                const data = dashboard as ParentDashboard;
+                if (active === "overview") return <ParentOverview data={data} />;
+                if (active === "examinations") return <ParentExaminations data={data} query={query} />;
+                return null;
+              })()}{" "}
             {active === "notifications" && (
               <>
                 <SectionTitle title="Notifications" description="Updates sent directly to your account." />

@@ -61,6 +61,17 @@ model QuestionBankItem {
   source         String?
   tags           String[]               @default([])
   bloomLevel     String?
+  classLevel     ClassLevel?
+  academicBoard  AcademicBoard?
+  customBoardName String?
+  syllabusCode   String?
+  learningOutcomes String[]              @default([])
+  expectedTimeSeconds Int?
+  variantGroupCode String?
+  similarityHash String?
+  language       String                 @default("English")
+  aiGenerated    Boolean                @default(false)
+  evaluationConfig Json?
   body           String                 @db.Text
   options        Json?
   correctAnswer  Json
@@ -81,6 +92,9 @@ model QuestionBankItem {
   @@unique([organizationId, code])
   @@index([organizationId, examCategory, subjectId, chapter])
   @@index([organizationId, difficulty, approvalStatus])
+  @@index([organizationId, classLevel, academicBoard])
+  @@index([organizationId, variantGroupCode])
+  @@index([organizationId, similarityHash])
   @@index([organizationId, createdAt])
 }
 
@@ -116,6 +130,7 @@ model LearningTest {
   startsAt        DateTime?
   endsAt          DateTime?
   adaptive        Boolean                @default(false)
+  deliveryPolicy  Json?
   status          LearningStatus         @default(DRAFT)
   createdById     String
   createdAt       DateTime               @default(now())
@@ -137,6 +152,8 @@ model LearningTestQuestion {
   position       Int
   marks          Decimal          @db.Decimal(6, 2)
   negativeMarks  Decimal          @default(0) @db.Decimal(6, 2)
+  questionVersion Int?
+  questionSnapshot Json?
   test           LearningTest     @relation(fields: [testId], references: [id], onDelete: Cascade)
   question       QuestionBankItem @relation(fields: [questionId], references: [id], onDelete: Restrict)
 
@@ -162,13 +179,37 @@ model LearningTestAttempt {
   incorrectCount   Int                   @default(0)
   unansweredCount  Int                   @default(0)
   timeSpentSeconds Int                   @default(0)
+  deliverySeed     String?
+  deliveryPolicySnapshot Json?
+  accommodationSnapshot Json?
+  clientInstanceId String?
+  resumeCount      Int                   @default(0)
+  lastResumedAt    DateTime?
+  lastHeartbeatAt  DateTime?
+  offlineLeaseUntil DateTime?
   test             LearningTest          @relation(fields: [testId], references: [id], onDelete: Restrict)
   student          User                  @relation(fields: [studentId], references: [id], onDelete: Restrict)
   answers          LearningTestAnswer[]
+  integrityEvents  LearningTestIntegrityEvent[]
 
   @@unique([testId, studentId, startedAt])
   @@index([organizationId, studentId, submittedAt])
   @@index([organizationId, testId, score])
+}
+
+model LearningTestIntegrityEvent {
+  organizationId String              @default("org_default")
+  id             String              @id @default(cuid())
+  attemptId      String
+  type           String
+  severity       String              @default("INFO")
+  details        Json?
+  occurredAt     DateTime            @default(now())
+  createdAt      DateTime            @default(now())
+  attempt        LearningTestAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, attemptId, occurredAt])
+  @@index([organizationId, type, occurredAt])
 }
 
 model LearningTestAnswer {
@@ -528,6 +569,430 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum ConnectedDeviceKind {
+  BIOMETRIC
+  RFID
+  GPS
+  CAMERA
+  ACCESS_CONTROL
+  ENVIRONMENT_SENSOR
+  EDGE_GATEWAY
+  OTHER
+}
+
+enum ConnectedDeviceProtocol {
+  WEBHOOK
+  REST_PULL
+  MQTT
+  TCP_PUSH
+  ONVIF
+  RTSP
+  SDK
+  MANUAL
+}
+
+enum ConnectedDeviceStatus {
+  PROVISIONING
+  ACTIVE
+  OFFLINE
+  DEGRADED
+  DISABLED
+  RETIRED
+}
+
+enum ConnectedDeviceEventStatus {
+  RECEIVED
+  NORMALIZED
+  PROCESSED
+  REJECTED
+  DUPLICATE
+}
+
+enum ConnectedDeviceBindingType {
+  STUDENT
+  EMPLOYEE
+  VEHICLE
+  GATE
+  CAMERA
+  ROUTE
+  OTHER
+}
+
+enum ConnectedDeviceCommandStatus {
+  QUEUED
+  SENT
+  ACKNOWLEDGED
+  FAILED
+  CANCELLED
+}
+
+enum DeviceConnectorStatus {
+  CONFIGURING
+  ACTIVE
+  DEGRADED
+  DISABLED
+  ERROR
+}
+
+enum DeviceRetryStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  DEAD_LETTER
+  CANCELLED
+}
+
+enum EdgeAgentStatus {
+  PROVISIONING
+  ONLINE
+  OFFLINE
+  DEGRADED
+  DISABLED
+}
+
+enum CampusAccessPointType {
+  MAIN_GATE
+  INTERNAL_GATE
+  DOOR
+  TURNSTILE
+  VEHICLE_GATE
+  OTHER
+}
+
+enum CampusAccessDecision {
+  GRANTED
+  DENIED
+  REVIEW
+}
+
+enum CampusAccessSubjectType {
+  STUDENT
+  EMPLOYEE
+  VISITOR
+  UNKNOWN
+}
+
+enum CameraIncidentSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum CameraIncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+}
+
+enum CameraStreamKind {
+  LIVE
+  PLAYBACK
+}
+
+enum CameraSessionStatus {
+  PENDING
+  READY
+  FAILED
+  EXPIRED
+  REVOKED
+}
+
+enum CameraAccessAction {
+  LIVE_SESSION
+  PLAYBACK_SESSION
+  BOOKMARK
+  EXPORT_REQUEST
+  EXPORT_APPROVE
+  EXPORT_DOWNLOAD
+}
+
+enum CameraExportStatus {
+  PENDING_APPROVAL
+  PROCESSING
+  READY
+  REJECTED
+  FAILED
+  EXPIRED
+}
+
+enum SchoolEventCategory {
+  ATTENDANCE
+  ACCESS
+  TRANSPORT
+  CAMERA
+  SAFETY
+  VISITOR
+  PICKUP
+  DEVICE
+  COMMUNICATION
+  OTHER
+}
+
+enum SchoolEventSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SchoolEventStatus {
+  RECORDED
+  REVIEW_REQUIRED
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+enum SafetyIncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  ACTIVE_RESPONSE
+  RESOLVED
+  FALSE_ALARM
+}
+
+enum EmergencyMode {
+  NORMAL
+  ALERT
+  SECURE_CAMPUS
+  EVACUATION
+  REUNIFICATION
+  ALL_CLEAR
+}
+
+enum TransportAlertType {
+  OVERSPEED
+  HARSH_BRAKING
+  HARSH_ACCELERATION
+  ROUTE_DEVIATION
+  UNAUTHORIZED_HALT
+  DELAYED_START
+  GPS_OFFLINE
+  GEOFENCE
+  WRONG_BUS
+  WRONG_STOP
+  MISSED_BUS
+  STUDENT_STILL_ONBOARD
+  DOCUMENT_EXPIRY
+  SERVICE_DUE
+  DRIVER_BEHAVIOR
+  VEHICLE_DIAGNOSTIC
+  OTHER
+}
+
+enum TransportAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+enum TransportRidershipEventType {
+  BOARD
+  DEBOARD
+}
+
+enum TransportRidershipMethod {
+  RFID
+  NFC
+  QR
+  BIOMETRIC
+  MANUAL
+  OTHER
+}
+
+enum TransportRideCancellationScope {
+  PICKUP
+  DROP
+  BOTH
+}
+
+enum TransportTripDirection {
+  PICKUP
+  DROP
+  OTHER
+}
+
+enum TransportChecklistStatus {
+  DRAFT
+  SUBMITTED
+  PASSED
+  BLOCKED
+}
+
+enum TransportChecklistItemStatus {
+  PASS
+  FAIL
+  NOT_APPLICABLE
+}
+
+enum TransportReassignmentKind {
+  VEHICLE
+  DRIVER
+  BOTH
+}
+
+enum TransportGeofenceType {
+  CIRCLE
+  POLYGON
+  ROUTE_CORRIDOR
+}
+
+enum CampusVisitorType {
+  VISITOR
+  CONTRACTOR
+  VENDOR
+}
+
+enum CampusVisitorStatus {
+  PRE_REGISTERED
+  PENDING_APPROVAL
+  APPROVED
+  CHECKED_IN
+  CHECKED_OUT
+  DENIED
+  EXPIRED
+}
+
+enum PickupAuthorizationStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+  USED
+}
+
+enum PickupGateDecision {
+  APPROVED
+  DENIED
+  REVIEW
+}
+
+enum SafetyIncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SafetyTaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum SafetyDrillStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum SafetyAccountabilityStatus {
+  UNKNOWN
+  SAFE
+  MISSING
+  EVACUATED
+  REUNIFIED
+}
+
+enum SafetySubjectType {
+  STUDENT
+  EMPLOYEE
+  VISITOR
+}
+
+enum SafetyBroadcastAudience {
+  ALL
+  PARENTS
+  STAFF
+  STUDENTS
+}
+
+enum SafetyAcknowledgementResponse {
+  ACKNOWLEDGED
+  SAFE
+  NEED_HELP
+}
+
+enum PrivacySubjectType {
+  STUDENT
+  GUARDIAN
+  EMPLOYEE
+  VISITOR
+}
+
+enum PrivacyPurpose {
+  ACADEMIC
+  ATTENDANCE
+  TRANSPORT
+  SAFETY
+  VIDEO_SECURITY
+  ASSESSMENT_AI
+  COMMUNICATION
+  ANALYTICS
+  DEVICE_INTEGRATION
+}
+
+enum PrivacyConsentStatus {
+  GRANTED
+  DENIED
+  WITHDRAWN
+  NOT_REQUIRED
+}
+
+enum PrivacyRetentionAction {
+  DELETE
+  ANONYMIZE
+  ARCHIVE
+  REVIEW
+}
+
+enum DataSubjectRequestType {
+  ACCESS
+  EXPORT
+  RECTIFY
+  DELETE
+  RESTRICT_PROCESSING
+}
+
+enum DataSubjectRequestStatus {
+  REQUESTED
+  VERIFIED
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum CapabilityCertificationKind {
+  HARDWARE_ADAPTER
+  HARDWARE_DEVICE
+  AI_GRADING
+  SECURITY_PRIVACY
+}
+
+enum CapabilityCertificationStatus {
+  DRAFT
+  IN_REVIEW
+  PASSED
+  FAILED
+  EXPIRED
+  REVOKED
+}
+
+enum CertificationEnvironment {
+  STAGING
+  PRODUCTION_LIKE
+  REAL_DEVICE
+  BENCHMARK
+}
+
 enum Role {
   SUPER_ADMIN
   BRANCH_ADMIN
@@ -607,6 +1072,25 @@ model Organization {
   specializations        Specialization[]
   examinationQuestionPapers ExaminationQuestionPaper[]
   examinationAnswerSheets ExaminationAnswerSheet[]
+  aiExaminerExamProfiles   AIExaminerExamProfile[]
+  aiExaminerBenchmarkSuites AIExaminerBenchmarkSuite[]
+  aiExaminerBenchmarkCases  AIExaminerBenchmarkCase[]
+  aiExaminerBenchmarkRuns   AIExaminerBenchmarkRun[]
+  aiExaminerBenchmarkResults AIExaminerBenchmarkResult[]
+  aiExaminerReviewRounds   AIExaminerReviewRound[]
+  aiExaminerReviewDecisions AIExaminerReviewDecision[]
+  aiExaminerReviewArtifacts AIExaminerReviewArtifact[]
+  aiExaminerEvidenceAttachments AIExaminerEvidenceAttachment[]
+  aiExaminerScanBindings AIExaminerScanBinding[]
+  aiExaminerScanPages AIExaminerScanPage[]
+  aiExaminerScanBatches AIExaminerScanBatch[]
+  aiExaminerScanBatchPages AIExaminerScanBatchPage[]
+  aiExaminerRegradeRequests AIExaminerRegradeRequest[]
+  aiExaminerResultRevisions AIExaminerResultRevision[]
+  aiExaminerCheckedCopies AIExaminerCheckedCopy[]
+  aiExaminerCheckedCopyRevisions AIExaminerCheckedCopyRevision[]
+  aiExaminerAnnotations AIExaminerAnnotation[]
+  aiExaminerAnnotationAnchors AIExaminerAnnotationAnchor[]
   feePlans               FeePlan[]
   studentFeeAssignments  StudentFeeAssignment[]
   feePaymentOffsets       FeePaymentOffset[]
@@ -1135,6 +1619,38 @@ enum AIExaminerRubricStatus {
   ARCHIVED
 }
 
+enum AIExaminerExamProfileKind {
+  SCHOOL
+  CBSE
+  ICSE
+  ISC
+  JEE_MAIN
+  JEE_ADVANCED
+  NEET
+  NDA
+  CUET
+  INSTITUTION_DEFINED
+}
+
+enum AIExaminerExamProfileStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum AIExaminerBenchmarkSuiteStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum AIExaminerBenchmarkRunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 enum AIExaminerEvaluationStatus {
   QUEUED
   PROCESSING
@@ -1142,6 +1658,123 @@ enum AIExaminerEvaluationStatus {
   APPROVED
   FAILED
   CANCELLED
+}
+
+enum AIExaminerCheckedCopyRevisionStatus {
+  DRAFT
+  APPROVED
+  RENDERED
+  PUBLISHED
+  SUPERSEDED
+}
+
+enum AIExaminerAnnotationType {
+  TICK
+  CROSS
+  UNDERLINE
+  CIRCLE
+  RECTANGLE
+  HIGHLIGHT
+  ARROW
+  FREEHAND
+  TEXT_COMMENT
+  QUESTION_MARK
+  STEP_MARK
+  QUESTION_SCORE
+  PAGE_SCORE
+  TOTAL_SCORE
+  RUBRIC_NOTE
+  ERROR_LABEL
+}
+
+enum AIExaminerAnnotationApprovalState {
+  AI_DRAFT
+  POSITION_REVIEW_REQUIRED
+  APPROVED
+  REJECTED
+}
+
+enum AIExaminerAnnotationAuthorType {
+  AI
+  TEACHER
+  MODERATOR
+  SYSTEM
+}
+
+enum AIExaminerReviewMode {
+  STANDARD
+  BLIND
+  DOUBLE_BLIND
+  COMMITTEE
+}
+
+enum AIExaminerReviewRoundKind {
+  PRIMARY
+  SECONDARY
+  MODERATION
+  APPEAL
+}
+
+enum AIExaminerReviewRoundStatus {
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  CANCELLED
+}
+
+enum AIExaminerScanBindingStatus {
+  ACTIVE
+  LOCKED
+  CANCELLED
+}
+
+enum AIExaminerScanPageStatus {
+  ACCEPTED
+  REVIEW_REQUIRED
+}
+
+enum AIExaminerScanBatchStatus {
+  INGESTING
+  REVIEW_REQUIRED
+  ROUTED
+  FAILED
+  CANCELLED
+}
+
+enum AIExaminerScanBatchPageStatus {
+  ROUTED
+  REVIEW_REQUIRED
+  REJECTED
+}
+
+enum AIExaminerRegradeRequestStatus {
+  REQUESTED
+  APPROVED
+  REVIEW_IN_PROGRESS
+  RESOLVED
+  REJECTED
+  CANCELLED
+}
+
+enum AIExaminerRegradeScope {
+  WHOLE_SCRIPT
+  QUESTION_SET
+  CLERICAL_CHECK
+}
+
+enum AIExaminerEvidenceKind {
+  AUDIO
+  VIDEO
+  IMAGE
+  DOCUMENT
+  EXTERNAL_REFERENCE
+  STRUCTURED_OBSERVATION
+}
+
+enum AIExaminerEvidenceReviewStatus {
+  PENDING
+  VERIFIED
+  REJECTED
 }
 
 enum LmsContentStatus {
@@ -1327,10 +1960,31 @@ enum LeaveRequestStatus {
 enum QuestionType {
   MCQ
   MSQ
-  NUMERICAL
+  TRUE_FALSE
   ASSERTION_REASON
-  PARAGRAPH
+  FILL_BLANK
   MATCHING
+  ONE_WORD
+  NUMERICAL
+  SHORT_ANSWER
+  LONG_ANSWER
+  CASE_STUDY
+  DERIVATION
+  PROOF
+  CALCULATION
+  DIAGRAM
+  GRAPH
+  MAP
+  GEOMETRY_CONSTRUCTION
+  CHEMISTRY_EQUATION
+  ACCOUNTING_STATEMENT
+  PROGRAMMING
+  ESSAY
+  LANGUAGE
+  ORAL_AUDIO_VIDEO
+  PRACTICAL_PROJECT_VIVA
+  EARLY_YEARS_VISUAL
+  PARAGRAPH
   SUBJECTIVE
 }
 
@@ -1431,6 +2085,7 @@ model User {
   enquiryCommunications    EnquiryCommunication[]     @relation("EnquiryCommunicationCreator")
   issuedCertificates       Certificate[]              @relation("CertificateIssuer")
   parentChildren           ParentStudent[]            @relation("ParentLinks")
+  pickupAuthorizations    PickupAuthorization[]
   sentMessages             PortalMessage[]            @relation("MessageSender")
   receivedMessages         PortalMessage[]            @relation("MessageRecipient")
   leaveRequests            LeaveRequest[] @relation("LeaveRequestSubject")
@@ -1473,8 +2128,29 @@ model User {
   evaluatedAnswerSheets    ExaminationAnswerSheet[] @relation("AnswerSheetEvaluator")
   aiExaminerRubricsCreated AIExaminerRubric[] @relation("AIExaminerRubricCreator")
   aiExaminerRubricsApproved AIExaminerRubric[] @relation("AIExaminerRubricApprover")
+  aiExaminerExamProfilesCreated AIExaminerExamProfile[] @relation("AIExaminerExamProfileCreator")
+  aiExaminerExamProfilesApproved AIExaminerExamProfile[] @relation("AIExaminerExamProfileApprover")
+  aiExaminerBenchmarkSuitesCreated AIExaminerBenchmarkSuite[] @relation("AIExaminerBenchmarkSuiteCreator")
+  aiExaminerBenchmarkSuitesApproved AIExaminerBenchmarkSuite[] @relation("AIExaminerBenchmarkSuiteApprover")
+  aiExaminerBenchmarkCasesReviewed AIExaminerBenchmarkCase[] @relation("AIExaminerBenchmarkHumanReviewer")
+  aiExaminerBenchmarkRunsCreated AIExaminerBenchmarkRun[] @relation("AIExaminerBenchmarkRunCreator")
   aiExaminerEvaluationsRequested AIExaminerEvaluation[] @relation("AIExaminerEvaluationRequester")
   aiExaminerEvaluationsReviewed AIExaminerEvaluation[] @relation("AIExaminerEvaluationReviewer")
+  aiExaminerReviewRoundsReviewed AIExaminerReviewRound[] @relation("AIExaminerReviewRoundReviewer")
+  aiExaminerReviewRoundsAssigned AIExaminerReviewRound[] @relation("AIExaminerReviewRoundAssigner")
+  aiExaminerCheckedCopyRevisionsCreated AIExaminerCheckedCopyRevision[] @relation("AIExaminerCheckedCopyRevisionCreator")
+  aiExaminerCheckedCopyRevisionsApproved AIExaminerCheckedCopyRevision[] @relation("AIExaminerCheckedCopyRevisionApprover")
+  aiExaminerAnnotationsAuthored AIExaminerAnnotation[] @relation("AIExaminerAnnotationAuthor")
+  aiExaminerReviewArtifactsUploaded AIExaminerReviewArtifact[] @relation("AIExaminerReviewArtifactUploader")
+  aiExaminerEvidenceAttachmentsUploaded AIExaminerEvidenceAttachment[] @relation("AIExaminerEvidenceUploader")
+  aiExaminerEvidenceAttachmentsReviewed AIExaminerEvidenceAttachment[] @relation("AIExaminerEvidenceReviewer")
+  aiExaminerScanBindingsCreated AIExaminerScanBinding[] @relation("AIExaminerScanBindingCreator")
+  aiExaminerScanPagesIngested AIExaminerScanPage[] @relation("AIExaminerScanPageIngester")
+  aiExaminerScanBatchesCreated AIExaminerScanBatch[] @relation("AIExaminerScanBatchCreator")
+  aiExaminerRegradeRequestsRequested AIExaminerRegradeRequest[] @relation("AIExaminerRegradeRequester")
+  aiExaminerRegradeRequestsDecided AIExaminerRegradeRequest[] @relation("AIExaminerRegradeDecider")
+  aiExaminerRegradeRequestsResolved AIExaminerRegradeRequest[] @relation("AIExaminerRegradeResolver")
+  aiExaminerResultRevisionsChanged AIExaminerResultRevision[] @relation("AIExaminerResultRevisionChanger")
   learningRecommendations  LearningRecommendation[]
   dailyLearningGoals       DailyLearningGoal[]
   teacherAllocationsCreated TeacherAllocation[] @relation("TeacherAllocationCreatedBy")
@@ -1543,6 +2219,8 @@ model Branch {
   timetables            Timetable[]
   homeworks             Homework[]
   examinations          Examination[]
+  aiExaminerExamProfiles AIExaminerExamProfile[]
+  aiExaminerBenchmarkSuites AIExaminerBenchmarkSuite[]
   lmsLessons            Lesson[]
   announcements         Announcement[]
   leaveRequests         LeaveRequest[]
@@ -1776,6 +2454,7 @@ model Subject {
   lmsLessons     Lesson[]
   teacherAllocations TeacherAllocation[]
   substitutions TeacherSubstitution[]
+  aiExaminerBenchmarkSuites AIExaminerBenchmarkSuite[]
 
   @@unique([organizationId, code])
   @@index([organizationId, status])
@@ -2021,6 +2700,7 @@ model StudentProfile {
   hostelAllocations    HostelAllocation[]
   hostelAttendances    HostelAttendance[]
   hostelGatePasses     HostelGatePass[]
+  pickupAuthorizations PickupAuthorization[]
   academicEnrollments  StudentAcademicEnrollment[]
   academicTransitions  StudentAcademicTransition[]
 
@@ -2405,6 +3085,10 @@ model Examination {
   questionPaper     ExaminationQuestionPaper?
   answerSheets      ExaminationAnswerSheet[]
   aiExaminerRubrics AIExaminerRubric[]
+  aiExaminerScanBatches AIExaminerScanBatch[]
+  aiExaminerExamProfileId String?
+  aiExaminerExamProfileSnapshot Json?
+  aiExaminerExamProfile AIExaminerExamProfile? @relation(fields: [aiExaminerExamProfileId], references: [id], onDelete: Restrict)
 
   @@unique([organizationId, code])
   @@index([branchId])
@@ -2414,6 +3098,7 @@ model Examination {
   @@index([status])
   @@index([organizationId])
   @@index([academicSessionId])
+  @@index([organizationId, aiExaminerExamProfileId])
 }
 
 model ExaminationResult {
@@ -2433,6 +3118,8 @@ model ExaminationResult {
   updatedAt      DateTime                @updatedAt
   examination    Examination             @relation(fields: [examinationId], references: [id], onDelete: Restrict)
   student        StudentProfile          @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  aiExaminerRegradeRequests AIExaminerRegradeRequest[]
+  aiExaminerRevisions AIExaminerResultRevision[]
 
   @@unique([examinationId, studentId])
   @@index([studentId])
@@ -2490,11 +3177,80 @@ model ExaminationAnswerSheet {
   student        StudentProfile @relation(fields: [studentId], references: [id], onDelete: Restrict)
   evaluatedBy    User? @relation("AnswerSheetEvaluator", fields: [evaluatedById], references: [id], onDelete: Restrict)
   aiEvaluations  AIExaminerEvaluation[]
+  benchmarkCases AIExaminerBenchmarkCase[]
+  scanBinding    AIExaminerScanBinding?
+  regradeRequests AIExaminerRegradeRequest[]
+  evidenceAttachments AIExaminerEvidenceAttachment[]
+  checkedCopy AIExaminerCheckedCopy?
 
   @@unique([examinationId, studentId])
   @@index([organizationId, status, submittedAt])
   @@index([studentId, submittedAt])
   @@index([evaluatedById])
+}
+
+model AIExaminerEvidenceAttachment {
+  organizationId String
+  id             String                         @id @default(cuid())
+  answerSheetId  String
+  questionKey    String
+  kind           AIExaminerEvidenceKind
+  status         AIExaminerEvidenceReviewStatus @default(PENDING)
+  fileName       String?
+  mimeType       String?
+  fileSize       Int?
+  fileData       Bytes?
+  externalUrl    String?
+  contentSha256  String?
+  durationSeconds Int?
+  transcript     String?                        @db.Text
+  observation    Json?
+  sourceDevice   String?
+  capturedAt     DateTime?
+  identityMasked Boolean                        @default(false)
+  uploadedById   String
+  reviewedById   String?
+  reviewNotes    String?                        @db.Text
+  reviewedAt     DateTime?
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+  organization   Organization                   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  answerSheet    ExaminationAnswerSheet         @relation(fields: [answerSheetId], references: [id], onDelete: Cascade)
+  uploadedBy     User                           @relation("AIExaminerEvidenceUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  reviewedBy     User?                          @relation("AIExaminerEvidenceReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, answerSheetId, questionKey])
+  @@index([organizationId, status, createdAt])
+  @@index([uploadedById])
+  @@index([reviewedById])
+}
+
+model AIExaminerExamProfile {
+  organizationId String
+  id             String                      @id @default(cuid())
+  branchId       String?
+  code           String
+  name           String
+  kind           AIExaminerExamProfileKind
+  version        String
+  status         AIExaminerExamProfileStatus @default(DRAFT)
+  config         Json
+  effectiveFrom  DateTime?
+  effectiveTo    DateTime?
+  createdById    String
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch?                     @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdBy      User                        @relation("AIExaminerExamProfileCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy     User?                       @relation("AIExaminerExamProfileApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  examinations   Examination[]
+
+  @@unique([organizationId, code, version])
+  @@index([organizationId, status, kind])
+  @@index([organizationId, branchId, status])
 }
 
 model AIExaminerRubric {
@@ -2549,6 +3305,10 @@ model AIExaminerEvaluation {
   requestedBy    User                       @relation("AIExaminerEvaluationRequester", fields: [requestedById], references: [id], onDelete: Restrict)
   reviewedBy     User?                      @relation("AIExaminerEvaluationReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
   questions      AIExaminerQuestionEvaluation[]
+  reviewRounds    AIExaminerReviewRound[]
+  reviewArtifact   AIExaminerReviewArtifact?
+  regradeRequests  AIExaminerRegradeRequest[]
+  checkedCopyRevisions AIExaminerCheckedCopyRevision[]
 
   @@unique([answerSheetId, revision])
   @@index([organizationId, status, createdAt])
@@ -2572,9 +3332,443 @@ model AIExaminerQuestionEvaluation {
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
   evaluation      AIExaminerEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  reviewDecisions AIExaminerReviewDecision[]
 
   @@unique([evaluationId, questionKey])
   @@index([organizationId, reviewRequired])
+}
+
+
+model AIExaminerCheckedCopy {
+  organizationId String
+  id             String   @id @default(cuid())
+  answerSheetId  String   @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  answerSheet    ExaminationAnswerSheet @relation(fields: [answerSheetId], references: [id], onDelete: Restrict)
+  revisions      AIExaminerCheckedCopyRevision[]
+
+  @@index([organizationId, createdAt])
+}
+
+model AIExaminerCheckedCopyRevision {
+  organizationId       String
+  id                   String   @id @default(cuid())
+  checkedCopyId        String
+  evaluationId         String
+  revision             Int
+  status               AIExaminerCheckedCopyRevisionStatus @default(DRAFT)
+  sourceAnswerSheetSha256 String
+  evaluationRevision   Int
+  rubricVersion        Int
+  resultRevision       Int      @default(0)
+  annotationRevision   Int      @default(1)
+  sourcePageCount      Int
+  renderedFileName     String?
+  renderedMimeType     String?
+  renderedFileSize     Int?
+  renderedFileData     Bytes?
+  renderedFileSha256   String?
+  renderedAt           DateTime?
+  publishedAt          DateTime?
+  createdById          String
+  approvedById         String?
+  approvedAt           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  checkedCopy          AIExaminerCheckedCopy @relation(fields: [checkedCopyId], references: [id], onDelete: Restrict)
+  evaluation           AIExaminerEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Restrict)
+  createdBy            User @relation("AIExaminerCheckedCopyRevisionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy           User? @relation("AIExaminerCheckedCopyRevisionApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  annotations          AIExaminerAnnotation[]
+
+  @@unique([checkedCopyId, revision])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, evaluationId, revision])
+  @@index([createdById])
+  @@index([approvedById])
+}
+
+model AIExaminerAnnotation {
+  organizationId String
+  id             String   @id @default(cuid())
+  revisionId     String
+  questionKey    String?
+  rubricCriterion String? @db.Text
+  type           AIExaminerAnnotationType
+  content        String?  @db.Text
+  marks          Decimal? @db.Decimal(8, 2)
+  confidence     Decimal? @db.Decimal(5, 4)
+  sourceEvidence String?  @db.Text
+  vectorData     Json?
+  authorType     AIExaminerAnnotationAuthorType
+  authorId       String?
+  approvalState  AIExaminerAnnotationApprovalState @default(AI_DRAFT)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  revision       AIExaminerCheckedCopyRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  author         User? @relation("AIExaminerAnnotationAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  anchor         AIExaminerAnnotationAnchor?
+
+  @@index([organizationId, revisionId, sortOrder])
+  @@index([organizationId, questionKey, approvalState])
+  @@index([authorId])
+}
+
+model AIExaminerAnnotationAnchor {
+  organizationId     String
+  id                 String   @id @default(cuid())
+  annotationId       String   @unique
+  pageNumber         Int
+  x                  Decimal  @db.Decimal(7, 6)
+  y                  Decimal  @db.Decimal(7, 6)
+  width              Decimal  @db.Decimal(7, 6)
+  height             Decimal  @db.Decimal(7, 6)
+  rotation           Decimal  @default(0) @db.Decimal(7, 3)
+  placementConfidence Decimal? @db.Decimal(5, 4)
+  evidenceText       String?  @db.Text
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  annotation         AIExaminerAnnotation @relation(fields: [annotationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, pageNumber])
+}
+
+model AIExaminerRegradeRequest {
+  organizationId String                         @default("org_default")
+  id             String                         @id @default(cuid())
+  answerSheetId  String
+  evaluationId   String
+  resultId       String
+  scope          AIExaminerRegradeScope         @default(WHOLE_SCRIPT)
+  questionKeys   String[]                       @default([])
+  reason         String                         @db.Text
+  status         AIExaminerRegradeRequestStatus @default(REQUESTED)
+  originalMarks  Decimal                        @db.Decimal(8, 2)
+  requestedById  String
+  decidedById    String?
+  decisionNotes  String?                        @db.Text
+  decidedAt      DateTime?
+  reviewRoundId  String?                        @unique
+  resolvedMarks  Decimal?                       @db.Decimal(8, 2)
+  resolvedById   String?
+  resolutionNotes String?                       @db.Text
+  resolvedAt     DateTime?
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+  organization   Organization                   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  answerSheet    ExaminationAnswerSheet         @relation(fields: [answerSheetId], references: [id], onDelete: Restrict)
+  evaluation     AIExaminerEvaluation            @relation(fields: [evaluationId], references: [id], onDelete: Restrict)
+  result         ExaminationResult               @relation(fields: [resultId], references: [id], onDelete: Restrict)
+  requestedBy    User                            @relation("AIExaminerRegradeRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy      User?                           @relation("AIExaminerRegradeDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  resolvedBy     User?                           @relation("AIExaminerRegradeResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+  reviewRound    AIExaminerReviewRound?          @relation("AIExaminerRegradeReviewRound", fields: [reviewRoundId], references: [id], onDelete: Restrict)
+  revision       AIExaminerResultRevision?
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, answerSheetId, status])
+  @@index([evaluationId])
+  @@index([resultId])
+  @@index([requestedById])
+}
+
+model AIExaminerResultRevision {
+  organizationId   String                   @default("org_default")
+  id               String                   @id @default(cuid())
+  resultId         String
+  regradeRequestId String                   @unique
+  revision         Int
+  beforeSnapshot   Json
+  afterSnapshot    Json
+  changedById      String
+  createdAt        DateTime                 @default(now())
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  result           ExaminationResult        @relation(fields: [resultId], references: [id], onDelete: Restrict)
+  regradeRequest   AIExaminerRegradeRequest @relation(fields: [regradeRequestId], references: [id], onDelete: Restrict)
+  changedBy        User                     @relation("AIExaminerResultRevisionChanger", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@unique([resultId, revision])
+  @@index([organizationId, resultId, createdAt])
+  @@index([changedById])
+}
+
+model AIExaminerScanBatch {
+  organizationId String                    @default("org_default")
+  id             String                    @id @default(cuid())
+  examinationId  String
+  externalBatchId String?
+  scannerEngine  String
+  scannerVersion String
+  totalPages     Int
+  status         AIExaminerScanBatchStatus @default(INGESTING)
+  routedPages    Int                       @default(0)
+  reviewPages    Int                       @default(0)
+  rejectedPages  Int                       @default(0)
+  createdById    String
+  completedAt    DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  examination    Examination               @relation(fields: [examinationId], references: [id], onDelete: Restrict)
+  createdBy      User                      @relation("AIExaminerScanBatchCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  pages          AIExaminerScanBatchPage[]
+
+  @@unique([organizationId, externalBatchId])
+  @@index([organizationId, examinationId, status])
+  @@index([createdById])
+}
+
+model AIExaminerScanBatchPage {
+  organizationId String                        @default("org_default")
+  id             String                        @id @default(cuid())
+  batchId        String
+  sourcePageNumber Int
+  scanId         String
+  bindingId      String?
+  answerSheetId  String?
+  targetPageNumber Int?
+  targetTotalPages Int?
+  barcodeConfidence Decimal                    @db.Decimal(5, 4)
+  imageQuality   Decimal                       @db.Decimal(5, 4)
+  status         AIExaminerScanBatchPageStatus
+  issueCodes     String[]                      @default([])
+  routedScanPageId String?
+  metadata       Json?
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+  organization   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  batch          AIExaminerScanBatch           @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, sourcePageNumber])
+  @@unique([organizationId, scanId])
+  @@index([organizationId, status, createdAt])
+  @@index([bindingId])
+  @@index([answerSheetId])
+}
+
+model AIExaminerScanBinding {
+  organizationId String                      @default("org_default")
+  id             String                      @id @default(cuid())
+  answerSheetId  String                      @unique
+  tokenHash      String                      @unique
+  status         AIExaminerScanBindingStatus @default(ACTIVE)
+  createdById    String
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  answerSheet    ExaminationAnswerSheet      @relation(fields: [answerSheetId], references: [id], onDelete: Cascade)
+  createdBy      User                        @relation("AIExaminerScanBindingCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  pages          AIExaminerScanPage[]
+
+  @@index([organizationId, status])
+  @@index([createdById])
+}
+
+model AIExaminerScanPage {
+  organizationId    String                   @default("org_default")
+  id                String                   @id @default(cuid())
+  bindingId         String
+  scanId            String
+  pageNumber        Int
+  totalPages        Int
+  scannerEngine     String
+  scannerVersion    String
+  barcodeConfidence Decimal                  @db.Decimal(5, 4)
+  imageQuality      Decimal                  @db.Decimal(5, 4)
+  status            AIExaminerScanPageStatus
+  payload           Json
+  validationResult  Json
+  ingestedById      String
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  organization      Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  binding           AIExaminerScanBinding    @relation(fields: [bindingId], references: [id], onDelete: Cascade)
+  ingestedBy        User                     @relation("AIExaminerScanPageIngester", fields: [ingestedById], references: [id], onDelete: Restrict)
+
+  @@unique([bindingId, pageNumber])
+  @@unique([organizationId, scanId])
+  @@index([organizationId, status, createdAt])
+  @@index([ingestedById])
+}
+
+model AIExaminerReviewArtifact {
+  organizationId String                 @default("org_default")
+  id             String                 @id @default(cuid())
+  evaluationId   String                 @unique
+  fileName       String
+  mimeType       String
+  fileSize       Int
+  fileData       Bytes
+  identityMasked Boolean                @default(true)
+  uploadedById   String
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  evaluation     AIExaminerEvaluation   @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  uploadedBy     User                   @relation("AIExaminerReviewArtifactUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt])
+  @@index([uploadedById])
+}
+
+model AIExaminerReviewRound {
+  organizationId          String                       @default("org_default")
+  id                      String                       @id @default(cuid())
+  evaluationId            String
+  sequence                Int
+  kind                    AIExaminerReviewRoundKind    @default(PRIMARY)
+  mode                    AIExaminerReviewMode         @default(STANDARD)
+  reviewerId              String
+  assignedById            String
+  anonymizeStudentIdentity Boolean                     @default(false)
+  sourceIdentityMasked    Boolean                      @default(false)
+  priorMarksVisible       Boolean                      @default(true)
+  status                  AIExaminerReviewRoundStatus  @default(ASSIGNED)
+  totalMarks              Decimal?                     @db.Decimal(8, 2)
+  notes                   String?                      @db.Text
+  submittedAt             DateTime?
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
+  organization            Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  evaluation              AIExaminerEvaluation         @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  reviewer                User                         @relation("AIExaminerReviewRoundReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  assignedBy              User                         @relation("AIExaminerReviewRoundAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
+  decisions               AIExaminerReviewDecision[]
+  regradeRequest           AIExaminerRegradeRequest? @relation("AIExaminerRegradeReviewRound")
+
+  @@unique([evaluationId, sequence])
+  @@index([organizationId, reviewerId, status])
+  @@index([organizationId, evaluationId, status])
+}
+
+model AIExaminerReviewDecision {
+  organizationId      String                     @default("org_default")
+  id                  String                     @id @default(cuid())
+  reviewRoundId       String
+  questionEvaluationId String
+  questionKey         String
+  awardedMarks        Decimal                    @db.Decimal(8, 2)
+  comment             String?                    @db.Text
+  evidence            Json?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  organization        Organization               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  reviewRound         AIExaminerReviewRound      @relation(fields: [reviewRoundId], references: [id], onDelete: Cascade)
+  questionEvaluation  AIExaminerQuestionEvaluation @relation(fields: [questionEvaluationId], references: [id], onDelete: Restrict)
+
+  @@unique([reviewRoundId, questionEvaluationId])
+  @@index([organizationId, reviewRoundId])
+  @@index([questionEvaluationId])
+}
+
+model AIExaminerBenchmarkSuite {
+  organizationId String
+  id             String                         @id @default(cuid())
+  branchId       String?
+  subjectId      String?
+  code           String
+  name           String
+  classLevel     ClassLevel?
+  academicBoard  AcademicBoard?
+  questionType   QuestionType?
+  status         AIExaminerBenchmarkSuiteStatus @default(DRAFT)
+  thresholds     Json
+  createdById    String
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+  organization   Organization                   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch?                        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  subject        Subject?                       @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  createdBy      User                           @relation("AIExaminerBenchmarkSuiteCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy     User?                          @relation("AIExaminerBenchmarkSuiteApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  cases          AIExaminerBenchmarkCase[]
+  runs           AIExaminerBenchmarkRun[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, status])
+  @@index([organizationId, subjectId, questionType])
+  @@index([organizationId, branchId, status])
+}
+
+model AIExaminerBenchmarkCase {
+  organizationId      String
+  id                  String                    @id @default(cuid())
+  suiteId             String
+  sourceAnswerSheetId String?
+  questionKey         String
+  maxMarks            Decimal                   @db.Decimal(8, 2)
+  minimumMarks        Decimal                   @default(0) @db.Decimal(8, 2)
+  humanMarks          Decimal                   @db.Decimal(8, 2)
+  humanReviewerId     String
+  goldNotes           String?                   @db.Text
+  metadata            Json?
+  isActive            Boolean                   @default(true)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  organization        Organization               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  suite               AIExaminerBenchmarkSuite  @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+  sourceAnswerSheet   ExaminationAnswerSheet?   @relation(fields: [sourceAnswerSheetId], references: [id], onDelete: Restrict)
+  humanReviewer       User                      @relation("AIExaminerBenchmarkHumanReviewer", fields: [humanReviewerId], references: [id], onDelete: Restrict)
+  results             AIExaminerBenchmarkResult[]
+
+  @@unique([suiteId, sourceAnswerSheetId, questionKey])
+  @@index([organizationId, suiteId, isActive])
+  @@index([sourceAnswerSheetId, questionKey])
+  @@index([humanReviewerId])
+}
+
+model AIExaminerBenchmarkRun {
+  organizationId String                       @default("org_default")
+  id             String                       @id @default(cuid())
+  suiteId        String
+  engineVersion  String
+  provider       String?
+  model          String?
+  status         AIExaminerBenchmarkRunStatus @default(QUEUED)
+  thresholds     Json
+  metrics        Json?
+  benchmarkReady Boolean                      @default(false)
+  createdById    String
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+  organization   Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  suite          AIExaminerBenchmarkSuite     @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+  createdBy      User                         @relation("AIExaminerBenchmarkRunCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  results        AIExaminerBenchmarkResult[]
+
+  @@index([organizationId, suiteId, createdAt])
+  @@index([organizationId, status])
+}
+
+model AIExaminerBenchmarkResult {
+  organizationId  String                  @default("org_default")
+  id              String                  @id @default(cuid())
+  runId           String
+  caseId          String
+  aiMarks         Decimal                 @db.Decimal(8, 2)
+  confidence      Decimal                 @db.Decimal(5, 4)
+  reviewRequired  Boolean                 @default(true)
+  teacherOverride Boolean                 @default(false)
+  diagnostics     Json?
+  errorCode       String?
+  createdAt       DateTime                @default(now())
+  organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  run             AIExaminerBenchmarkRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  benchmarkCase   AIExaminerBenchmarkCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, caseId])
+  @@index([organizationId, runId])
+  @@index([caseId])
 }
 
 model Attendance {
@@ -4786,6 +5980,821 @@ model GstConfiguration {
   @@index([organizationId])
 }
 
+model CampusZone {
+  organizationId String
+  id             String   @id @default(cuid())
+  branchId       String
+  code           String
+  name           String
+  type           String
+  building       String?
+  floor          String?
+  capacity       Int?
+  geometry       Json?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, branchId, code])
+  @@index([organizationId, branchId, isActive])
+}
+
+model SafetyBroadcast {
+  organizationId         String
+  id                     String                  @id @default(cuid())
+  branchId               String
+  incidentId             String?
+  audience               SafetyBroadcastAudience
+  title                  String
+  message                String                  @db.Text
+  channels               String[]                @default(["IN_APP"])
+  requiresAcknowledgement Boolean                @default(true)
+  createdById            String
+  sentAt                 DateTime                @default(now())
+  expiresAt              DateTime?
+  createdAt              DateTime                @default(now())
+  incident               SafetyIncident?         @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  acknowledgements       SafetyBroadcastAcknowledgement[]
+
+  @@index([organizationId, branchId, sentAt])
+  @@index([organizationId, incidentId, sentAt])
+}
+
+model SafetyBroadcastAcknowledgement {
+  organizationId String
+  broadcastId    String
+  userId         String
+  response       SafetyAcknowledgementResponse @default(ACKNOWLEDGED)
+  message        String?                       @db.Text
+  acknowledgedAt DateTime                     @default(now())
+  broadcast      SafetyBroadcast               @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  @@id([broadcastId, userId])
+  @@index([organizationId, userId, acknowledgedAt])
+}
+
+model SafetyIncidentAcknowledgement {
+  organizationId String
+  incidentId     String
+  userId         String
+  response       SafetyAcknowledgementResponse @default(ACKNOWLEDGED)
+  message        String?                       @db.Text
+  acknowledgedAt DateTime                     @default(now())
+  incident       SafetyIncident                @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@id([incidentId, userId])
+  @@index([organizationId, userId, acknowledgedAt])
+}
+
+model SafetyTask {
+  organizationId String
+  id             String           @id @default(cuid())
+  incidentId     String
+  title          String
+  description    String?          @db.Text
+  status         SafetyTaskStatus @default(OPEN)
+  priority       SchoolEventSeverity @default(MEDIUM)
+  assignedToId   String?
+  dueAt          DateTime?
+  createdById    String
+  completedAt    DateTime?
+  completedById  String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  incident       SafetyIncident   @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, incidentId, status])
+  @@index([organizationId, assignedToId, status])
+}
+
+model SafetyDrill {
+  organizationId String
+  id             String            @id @default(cuid())
+  branchId       String
+  name           String
+  type           String
+  scenario       String?           @db.Text
+  status         SafetyDrillStatus @default(PLANNED)
+  scheduledAt    DateTime
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdById    String
+  notes          String?           @db.Text
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([organizationId, branchId, status, scheduledAt])
+}
+
+model SafetyAccountability {
+  organizationId String
+  id             String                     @id @default(cuid())
+  incidentId     String
+  subjectType    SafetySubjectType
+  subjectId      String
+  status         SafetyAccountabilityStatus @default(UNKNOWN)
+  zoneId         String?
+  lastSeenAt     DateTime?
+  recordedById   String?
+  notes          String?                    @db.Text
+  updatedAt      DateTime                   @updatedAt
+  incident       SafetyIncident             @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@unique([incidentId, subjectType, subjectId])
+  @@index([organizationId, incidentId, status])
+  @@index([organizationId, zoneId, status])
+}
+
+model SafetyReunificationRecord {
+  organizationId String
+  id             String         @id @default(cuid())
+  incidentId     String
+  studentId      String
+  authorizationId String?
+  guardianName   String
+  guardianPhone  String?
+  relationship   String?
+  verifiedById   String
+  releasedAt     DateTime       @default(now())
+  notes          String?        @db.Text
+  incident       SafetyIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@unique([incidentId, studentId])
+  @@index([organizationId, incidentId, releasedAt])
+  @@index([organizationId, studentId, releasedAt])
+}
+
+model CampusVisitor {
+  organizationId String
+  id             String              @id @default(cuid())
+  branchId       String
+  type           CampusVisitorType
+  fullName       String
+  phone          String
+  email          String?
+  company        String?
+  hostUserId     String?
+  purpose        String              @db.Text
+  vehicleNumber  String?
+  idProofType    String?
+  idProofLast4   String?
+  status         CampusVisitorStatus @default(PENDING_APPROVAL)
+  badgeCode      String?
+  validFrom      DateTime?
+  validUntil     DateTime?
+  preRegisteredById String?
+  approvedById   String?
+  approvedAt     DateTime?
+  checkedInAt    DateTime?
+  checkedOutAt   DateTime?
+  deniedById     String?
+  deniedAt       DateTime?
+  denialReason   String?             @db.Text
+  metadata       Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([organizationId, badgeCode])
+  @@index([organizationId, branchId, status, validFrom])
+  @@index([organizationId, hostUserId, status])
+  @@index([organizationId, phone, createdAt])
+}
+
+model PickupAuthorization {
+  organizationId String
+  id             String                    @id @default(cuid())
+  parentId       String
+  studentId      String
+  guardianName   String
+  guardianPhone  String
+  relationship   String
+  validFrom      DateTime
+  validUntil     DateTime
+  status         PickupAuthorizationStatus @default(ACTIVE)
+  qrTokenHash    String?                   @unique
+  otpHash        String?
+  useLimit       Int                       @default(1)
+  usedCount      Int                       @default(0)
+  createdById    String
+  revokedById    String?
+  revokedAt      DateTime?
+  notes          String?                   @db.Text
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  parent         User                      @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  student        StudentProfile            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  gateEvents     PickupGateEvent[]
+
+  @@index([organizationId, studentId, status, validUntil])
+  @@index([organizationId, parentId, status, validUntil])
+}
+
+model PickupGateEvent {
+  organizationId  String
+  id              String              @id @default(cuid())
+  authorizationId String
+  branchId        String
+  accessPointId   String?
+  decision        PickupGateDecision
+  reasonCode      String
+  processedById   String?
+  occurredAt      DateTime            @default(now())
+  metadata        Json?
+  authorization   PickupAuthorization @relation(fields: [authorizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, branchId, occurredAt])
+  @@index([organizationId, authorizationId, occurredAt])
+  @@index([organizationId, decision, occurredAt])
+}
+
+model SafetyIncident {
+  organizationId   String
+  id               String                 @id @default(cuid())
+  branchId         String
+  code             String
+  title            String
+  description      String?                @db.Text
+  severity         SafetyIncidentSeverity
+  status           SafetyIncidentStatus   @default(OPEN)
+  emergencyMode    EmergencyMode          @default(NORMAL)
+  sourceType       String
+  sourceId         String?
+  schoolEventId    String?
+  deviceEventId    String?                @unique
+  reportedById     String?
+  occurredAt       DateTime
+  acknowledgedById String?
+  acknowledgedAt   DateTime?
+  commanderId      String?
+  resolvedById     String?
+  resolvedAt       DateTime?
+  resolutionNotes  String?                @db.Text
+  metadata         Json?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  updates          SafetyIncidentUpdate[]
+  broadcasts       SafetyBroadcast[]
+  acknowledgements SafetyIncidentAcknowledgement[]
+  tasks            SafetyTask[]
+  accountability   SafetyAccountability[]
+  reunifications   SafetyReunificationRecord[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, branchId, status, severity])
+  @@index([organizationId, emergencyMode, status])
+}
+
+model SafetyIncidentUpdate {
+  organizationId String
+  id             String         @id @default(cuid())
+  incidentId     String
+  type           String
+  message        String         @db.Text
+  emergencyMode  EmergencyMode?
+  createdById    String?
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+  incident       SafetyIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, incidentId, createdAt])
+}
+
+model SchoolEvent {
+  organizationId String
+  id             String              @id @default(cuid())
+  branchId       String?
+  category       SchoolEventCategory
+  type           String
+  severity       SchoolEventSeverity @default(INFO)
+  status         SchoolEventStatus   @default(RECORDED)
+  occurredAt     DateTime
+  sourceType     String
+  sourceId       String
+  correlationKey String?
+  studentId      String?
+  employeeId     String?
+  vehicleId      String?
+  deviceId       String?
+  accessPointId  String?
+  cameraId       String?
+  title          String
+  summary        String?             @db.Text
+  metadata       Json?
+  reviewRequired Boolean             @default(false)
+  acknowledgedById String?
+  acknowledgedAt DateTime?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNotes String?            @db.Text
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([organizationId, sourceType, sourceId])
+  @@index([organizationId, branchId, occurredAt])
+  @@index([organizationId, category, status, occurredAt])
+  @@index([organizationId, studentId, occurredAt])
+  @@index([organizationId, employeeId, occurredAt])
+  @@index([organizationId, vehicleId, occurredAt])
+  @@index([organizationId, correlationKey, occurredAt])
+}
+
+model CampusCamera {
+  organizationId String
+  id             String               @id @default(cuid())
+  branchId       String
+  code           String
+  name           String
+  deviceId       String               @unique
+  zone           String?
+  location       String?
+  building       String?
+  floor          String?
+  groupName      String?
+  mapX           Decimal?              @db.Decimal(8, 3)
+  mapY           Decimal?              @db.Decimal(8, 3)
+  nvrRef         String?
+  channelRef     String?
+  vehicleId      String?
+  streamSecretRef String?
+  recordingSecretRef String?
+  retentionDays  Int                  @default(30)
+  privacyMasking Boolean              @default(true)
+  watermarkEnabled Boolean            @default(true)
+  audioEnabled   Boolean              @default(false)
+  aiReviewEnabled Boolean             @default(false)
+  lastTamperAt   DateTime?
+  isActive       Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  incidents      CameraIncident[]
+  viewSessions   CameraViewSession[]
+  accessAudits   CameraAccessAudit[]
+  bookmarks      CameraBookmark[]
+  exportRequests CameraExportRequest[]
+
+  @@unique([organizationId, branchId, code])
+  @@index([organizationId, branchId, isActive])
+}
+
+model CameraViewSession {
+  organizationId String
+  id             String              @id @default(cuid())
+  cameraId       String
+  requestedById  String
+  kind           CameraStreamKind
+  status         CameraSessionStatus @default(PENDING)
+  commandId      String?
+  tokenHash      String               @unique
+  playbackFrom   DateTime?
+  playbackTo     DateTime?
+  expiresAt      DateTime
+  watermarkText  String?
+  lastAccessAt   DateTime?
+  errorCode      String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  camera         CampusCamera         @relation(fields: [cameraId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, cameraId, createdAt])
+  @@index([organizationId, requestedById, status])
+  @@index([organizationId, status, expiresAt])
+}
+
+model CameraAccessAudit {
+  organizationId String
+  id             String             @id @default(cuid())
+  cameraId       String
+  userId         String
+  action         CameraAccessAction
+  sessionId      String?
+  exportRequestId String?
+  occurredAt     DateTime           @default(now())
+  metadata       Json?
+  camera         CampusCamera       @relation(fields: [cameraId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, cameraId, occurredAt])
+  @@index([organizationId, userId, occurredAt])
+}
+
+model CameraBookmark {
+  organizationId String
+  id             String       @id @default(cuid())
+  cameraId       String
+  userId         String
+  label          String
+  occurredAt     DateTime
+  notes          String?      @db.Text
+  createdAt      DateTime     @default(now())
+  camera         CampusCamera @relation(fields: [cameraId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, cameraId, occurredAt])
+  @@index([organizationId, userId, createdAt])
+}
+
+model CameraExportRequest {
+  organizationId String
+  id             String             @id @default(cuid())
+  cameraId       String
+  requestedById  String
+  reason         String             @db.Text
+  fromAt         DateTime
+  toAt           DateTime
+  status         CameraExportStatus @default(PENDING_APPROVAL)
+  commandId      String?
+  watermarkText  String
+  approvedById   String?
+  approvedAt     DateTime?
+  rejectedById   String?
+  rejectedAt     DateTime?
+  rejectionReason String?           @db.Text
+  externalRef    String?
+  expiresAt      DateTime?
+  errorCode      String?
+  errorMessage   String?            @db.Text
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  camera         CampusCamera       @relation(fields: [cameraId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, cameraId, createdAt])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, requestedById, createdAt])
+}
+
+model CameraIncident {
+  organizationId String
+  id             String                 @id @default(cuid())
+  cameraId       String
+  deviceEventId  String?                @unique
+  eventType      String
+  severity       CameraIncidentSeverity @default(INFO)
+  status         CameraIncidentStatus   @default(OPEN)
+  title          String
+  description    String?                @db.Text
+  occurredAt     DateTime
+  confidence     Decimal?               @db.Decimal(5,4)
+  reviewRequired Boolean                @default(true)
+  clipExternalRef String?
+  snapshotExternalRef String?
+  metadata       Json?
+  acknowledgedById String?
+  acknowledgedAt DateTime?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNotes String?               @db.Text
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  camera         CampusCamera           @relation(fields: [cameraId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, cameraId, occurredAt])
+  @@index([organizationId, status, severity, occurredAt])
+}
+
+model CampusAccessPoint {
+  organizationId String
+  id             String                @id @default(cuid())
+  branchId       String
+  code           String
+  name           String
+  type           CampusAccessPointType
+  zone           String?
+  deviceId       String?               @unique
+  entryDirection String?
+  isActive       Boolean               @default(true)
+  policy         Json?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  events         CampusAccessEvent[]
+
+  @@unique([organizationId, branchId, code])
+  @@index([organizationId, branchId, isActive])
+}
+
+model CampusAccessEvent {
+  organizationId String
+  id             String                  @id @default(cuid())
+  accessPointId  String
+  deviceEventId  String                  @unique
+  subjectType    CampusAccessSubjectType
+  subjectId      String?
+  externalSubjectId String?
+  direction      String?
+  decision       CampusAccessDecision
+  reasonCode     String
+  occurredAt     DateTime
+  reviewedById   String?
+  reviewNotes    String?                 @db.Text
+  reviewedAt     DateTime?
+  metadata       Json?
+  createdAt      DateTime                @default(now())
+  accessPoint    CampusAccessPoint       @relation(fields: [accessPointId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, accessPointId, occurredAt])
+  @@index([organizationId, subjectType, subjectId, occurredAt])
+  @@index([organizationId, decision, occurredAt])
+}
+
+model DeviceAdapterRegistry {
+  id                  String                  @id @default(cuid())
+  key                 String                  @unique
+  name                String
+  vendor              String?
+  version             String
+  protocols           ConnectedDeviceProtocol[]
+  deviceKinds         ConnectedDeviceKind[]
+  capabilities        String[]                @default([])
+  configSchema        Json?
+  supportsEdgeAgent   Boolean                 @default(false)
+  supportsDiscovery   Boolean                 @default(false)
+  requiredEntitlement String?
+  isActive            Boolean                 @default(true)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  connectors          DeviceConnectorInstance[]
+
+  @@index([isActive, name])
+}
+
+model DeviceConnectorInstance {
+  organizationId String
+  id             String                @id @default(cuid())
+  branchId       String?
+  adapterId      String
+  name           String
+  status         DeviceConnectorStatus @default(CONFIGURING)
+  secretRef      String?
+  config         Json?
+  lastSyncAt     DateTime?
+  lastSuccessAt  DateTime?
+  lastErrorAt    DateTime?
+  lastErrorCode  String?
+  lastErrorMessage String?             @db.Text
+  latencyMs      Int?
+  consecutiveFailures Int              @default(0)
+  createdById    String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  adapter        DeviceAdapterRegistry @relation(fields: [adapterId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, name])
+  @@index([organizationId, branchId, status])
+  @@index([organizationId, adapterId, status])
+}
+
+model ConnectedDeviceRetryJob {
+  organizationId String
+  id             String            @id @default(cuid())
+  deviceId       String
+  eventId        String?
+  commandId      String?
+  operation      String
+  dedupeKey      String            @unique
+  status         DeviceRetryStatus @default(QUEUED)
+  attempts       Int               @default(0)
+  maxAttempts    Int               @default(8)
+  nextAttemptAt  DateTime          @default(now())
+  lastAttemptAt  DateTime?
+  lastErrorCode  String?
+  lastErrorMessage String?         @db.Text
+  payload        Json?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  device         ConnectedDevice   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, nextAttemptAt])
+  @@index([organizationId, deviceId, status])
+}
+
+model ConnectedCampusEdgeAgent {
+  organizationId String
+  id             String          @id @default(cuid())
+  branchId       String
+  code           String
+  name           String
+  status         EdgeAgentStatus @default(PROVISIONING)
+  tokenHash      String?
+  publicKey      String?         @db.Text
+  version        String?
+  os             String?
+  hostname       String?
+  capabilities   String[]        @default([])
+  lastHeartbeatAt DateTime?
+  lastSeenAt     DateTime?
+  lastIpHash     String?
+  lastErrorCode  String?
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([organizationId, branchId, code])
+  @@index([organizationId, branchId, status])
+}
+
+model PrivacyRetentionPolicy {
+  organizationId String
+  id             String                 @id @default(cuid())
+  branchId       String?
+  purpose        PrivacyPurpose
+  subjectType    PrivacySubjectType?
+  retentionDays  Int
+  action         PrivacyRetentionAction
+  legalBasis     String
+  policyVersion  String
+  isActive       Boolean                @default(true)
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@unique([organizationId, branchId, purpose, subjectType, policyVersion])
+  @@index([organizationId, purpose, isActive])
+  @@index([organizationId, branchId, isActive])
+}
+
+model PrivacyConsentRecord {
+  organizationId String
+  id             String               @id @default(cuid())
+  subjectType    PrivacySubjectType
+  subjectId      String
+  guardianId     String?
+  purpose        PrivacyPurpose
+  status         PrivacyConsentStatus
+  policyVersion  String
+  source         String
+  evidence       Json?
+  grantedAt      DateTime?
+  withdrawnAt    DateTime?
+  expiresAt      DateTime?
+  recordedById   String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([organizationId, subjectType, subjectId, purpose, createdAt])
+  @@index([organizationId, guardianId, purpose, createdAt])
+  @@index([organizationId, status, expiresAt])
+}
+
+model DataSubjectRequest {
+  organizationId String
+  id             String                   @id @default(cuid())
+  subjectType    PrivacySubjectType
+  subjectId      String
+  requestedById  String?
+  type           DataSubjectRequestType
+  status         DataSubjectRequestStatus @default(REQUESTED)
+  scope          Json?
+  reason         String?                  @db.Text
+  verifiedById   String?
+  verifiedAt     DateTime?
+  assignedToId   String?
+  completedById  String?
+  completedAt    DateTime?
+  resultRef      String?
+  rejectionReason String?                 @db.Text
+  metadata       Json?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, subjectType, subjectId, createdAt])
+  @@index([organizationId, requestedById, createdAt])
+}
+
+model CapabilityCertification {
+  organizationId String
+  id             String                        @id @default(cuid())
+  capabilityKey  String
+  kind           CapabilityCertificationKind
+  status         CapabilityCertificationStatus @default(DRAFT)
+  environment    CertificationEnvironment
+  adapterKey     String?
+  deviceId       String?
+  benchmarkRunId String?
+  vendor         String?
+  hardwareModel  String?
+  firmwareVersion String?
+  protocolVersion String?
+  evidence       Json
+  testedAt       DateTime?
+  expiresAt      DateTime?
+  testedById     String?
+  approvedById   String?
+  approvedAt     DateTime?
+  notes          String?                       @db.Text
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+
+  @@index([organizationId, capabilityKey, environment, status])
+  @@index([organizationId, kind, status, expiresAt])
+  @@index([organizationId, deviceId, status])
+  @@index([organizationId, benchmarkRunId, status])
+}
+
+model ConnectedDevice {
+  organizationId   String
+  id               String                    @id @default(cuid())
+  branchId         String?
+  code             String
+  name             String
+  kind             ConnectedDeviceKind
+  protocol         ConnectedDeviceProtocol
+  providerKey      String
+  externalDeviceId String?
+  status           ConnectedDeviceStatus     @default(PROVISIONING)
+  ingestTokenHash  String?
+  signatureRequired Boolean                  @default(false)
+  signingPublicKey String?                   @db.Text
+  lastSignatureAt DateTime?
+  capabilities     String[]                  @default([])
+  config           Json?
+  metadata         Json?
+  firmwareVersion  String?
+  lastHeartbeatAt  DateTime?
+  lastSeenAt       DateTime?
+  lastErrorAt      DateTime?
+  lastErrorCode    String?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  events           ConnectedDeviceEvent[]
+  bindings         ConnectedDeviceBinding[]
+  commands         ConnectedDeviceCommand[]
+  retryJobs        ConnectedDeviceRetryJob[]
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, providerKey, externalDeviceId])
+  @@index([organizationId, branchId, status])
+  @@index([organizationId, kind, status])
+}
+
+model ConnectedDeviceEvent {
+  organizationId  String
+  id              String                     @id @default(cuid())
+  deviceId        String
+  externalEventId String?
+  eventType       String
+  occurredAt      DateTime
+  receivedAt      DateTime                   @default(now())
+  eventDelayMs    Int?
+  signatureVerified Boolean?
+  payload         Json
+  normalized      Json?
+  status          ConnectedDeviceEventStatus @default(RECEIVED)
+  errorCode       String?
+  errorMessage    String?                    @db.Text
+  sourceHash      String
+  processedAt     DateTime?
+  device          ConnectedDevice            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, externalEventId])
+  @@unique([deviceId, sourceHash])
+  @@index([organizationId, eventType, occurredAt])
+  @@index([organizationId, status, receivedAt])
+}
+
+model ConnectedDeviceBinding {
+  organizationId   String
+  id               String                     @id @default(cuid())
+  deviceId         String
+  bindingType      ConnectedDeviceBindingType
+  entityId         String
+  externalSubjectId String?
+  label            String?
+  metadata         Json?
+  activeFrom       DateTime                   @default(now())
+  activeUntil      DateTime?
+  isActive         Boolean                    @default(true)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  device           ConnectedDevice            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, bindingType, entityId])
+  @@unique([deviceId, externalSubjectId])
+  @@index([organizationId, bindingType, entityId, isActive])
+  @@index([organizationId, deviceId, isActive])
+}
+
+model ConnectedDeviceCommand {
+  organizationId String
+  id             String                       @id @default(cuid())
+  deviceId       String
+  commandType    String
+  payload        Json?
+  result         Json?
+  status         ConnectedDeviceCommandStatus @default(QUEUED)
+  idempotencyKey String
+  requestedById  String?
+  sentAt         DateTime?
+  acknowledgedAt DateTime?
+  failedAt       DateTime?
+  errorCode      String?
+  errorMessage   String?                      @db.Text
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+  device         ConnectedDevice              @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, idempotencyKey])
+  @@index([organizationId, status, createdAt])
+}
+
 model TransportVehicleType {
   organizationId String             @default("org_default")
   id             String             @id @default(cuid())
@@ -4813,6 +6822,11 @@ model TransportVehicle {
   currentLatitude    Decimal?                     @db.Decimal(10, 7)
   currentLongitude   Decimal?                     @db.Decimal(10, 7)
   currentSpeed       Decimal?                     @db.Decimal(7, 2)
+  currentHeading     Decimal?                     @db.Decimal(6, 2)
+  ignitionOn         Boolean?
+  odometerKm         Decimal?                     @db.Decimal(12, 2)
+  batteryPercent     Decimal?                     @db.Decimal(5, 2)
+  estimatedRangeKm   Decimal?                     @db.Decimal(8, 2)
   lastGpsAt          DateTime?
   branch             Branch                       @relation(fields: [branchId], references: [id], onDelete: Restrict)
   type               TransportVehicleType         @relation(fields: [typeId], references: [id], onDelete: Restrict)
@@ -4823,6 +6837,7 @@ model TransportVehicle {
   routes             TransportRoute[]
   studentAssignments StudentTransportAssignment[]
   trips              TransportTrip[]
+  smartAlerts         TransportAlert[]
   createdAt          DateTime                     @default(now())
   updatedAt          DateTime                     @updatedAt
 
@@ -4965,6 +6980,7 @@ model TransportRoute {
   stops            TransportRouteStop[]
   assignments      StudentTransportAssignment[]
   trips            TransportTrip[]
+  geofences        TransportGeofence[]
 
   @@unique([branchId, code])
   @@unique([branchId, name])
@@ -5011,6 +7027,8 @@ model StudentTransportAssignment {
   history         TransportRouteChange[]
   attendances     TransportAttendance[]
   feeBills        TransportFeeBill[]
+  ridershipEvents TransportRidershipEvent[]
+  rideCancellations TransportRideCancellation[]
 
   @@index([routeId, status])
   @@index([vehicleId, status])
@@ -5054,6 +7072,7 @@ model TransportTrip {
   vehicleId       String
   driverId        String?
   scheduledAt     DateTime
+  direction       TransportTripDirection @default(OTHER)
   startedAt       DateTime?
   completedAt     DateTime?
   status          TripStatus          @default(SCHEDULED)
@@ -5064,24 +7083,204 @@ model TransportTrip {
   vehicle         TransportVehicle    @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
   driver          TransportStaff?     @relation(fields: [driverId], references: [id], onDelete: Restrict)
   gpsPoints       TransportGpsPoint[]
+  smartAlerts     TransportAlert[]
+  ridershipEvents TransportRidershipEvent[]
+  routeProgressPercent Decimal? @db.Decimal(5, 2)
+  etaMinutes      Int?
+  lastEtaAt       DateTime?
+  preTripChecklist TransportTripChecklist?
+  reassignments    TransportTripReassignment[]
 
   @@index([vehicleId, scheduledAt])
   @@index([organizationId])
+}
+
+model TransportTripChecklist {
+  organizationId String
+  id             String                   @id @default(cuid())
+  tripId         String                   @unique
+  driverId       String?
+  status         TransportChecklistStatus @default(DRAFT)
+  odometerKm     Int?
+  fuelLevelPercent Decimal?                @db.Decimal(5,2)
+  batteryPercent Decimal?                  @db.Decimal(5,2)
+  notes          String?                   @db.Text
+  submittedById  String?
+  submittedAt    DateTime?
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  trip           TransportTrip            @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  items          TransportTripChecklistItem[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, driverId, createdAt])
+}
+
+model TransportTripChecklistItem {
+  organizationId String
+  id             String                       @id @default(cuid())
+  checklistId    String
+  key            String
+  label          String
+  status         TransportChecklistItemStatus
+  required       Boolean                      @default(true)
+  notes          String?                      @db.Text
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+  checklist      TransportTripChecklist       @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+
+  @@unique([checklistId, key])
+  @@index([organizationId, checklistId])
+}
+
+model TransportTripReassignment {
+  organizationId  String                    @default("org_default")
+  id              String                    @id @default(cuid())
+  tripId          String
+  kind            TransportReassignmentKind
+  previousVehicleId String?
+  newVehicleId    String?
+  previousDriverId String?
+  newDriverId     String?
+  reason          String                    @db.Text
+  changedById     String
+  createdAt       DateTime                  @default(now())
+  trip            TransportTrip             @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, tripId, createdAt])
+  @@index([organizationId, newVehicleId, createdAt])
+  @@index([organizationId, newDriverId, createdAt])
 }
 
 model TransportGpsPoint {
   organizationId String        @default("org_default")
   id             String        @id @default(cuid())
   tripId         String
+  deviceEventId  String?       @unique
   latitude       Decimal       @db.Decimal(10, 7)
   longitude      Decimal       @db.Decimal(10, 7)
   speed          Decimal       @db.Decimal(7, 2)
+  heading        Decimal?      @db.Decimal(6, 2)
+  ignitionOn     Boolean?
+  odometerKm     Decimal?      @db.Decimal(12, 2)
+  accelerationMps2 Decimal?    @db.Decimal(8, 3)
   recordedAt     DateTime      @default(now())
   geofenceEvent  String?
   trip           TransportTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
 
   @@index([tripId, recordedAt])
   @@index([organizationId])
+}
+
+model TransportSafetyPolicy {
+  organizationId          String
+  id                      String   @id @default(cuid())
+  branchId                String   @unique
+  overspeedKph            Decimal  @default(60) @db.Decimal(7, 2)
+  harshAccelerationMps2   Decimal  @default(3.0) @db.Decimal(8, 3)
+  harshBrakingMps2        Decimal  @default(-3.5) @db.Decimal(8, 3)
+  unauthorizedHaltMinutes Int      @default(10)
+  gpsOfflineMinutes       Int      @default(5)
+  delayedStartMinutes     Int      @default(10)
+  routeDeviationMeters    Int      @default(500)
+  stopGeofenceMeters      Int      @default(250)
+  requirePreTripChecklist Boolean  @default(false)
+  updatedById             String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([organizationId, branchId])
+}
+
+model TransportGeofence {
+  organizationId String
+  id             String                @id @default(cuid())
+  branchId       String
+  routeId        String?
+  stopId         String?
+  name           String
+  type           TransportGeofenceType
+  geometry       Json
+  radiusMeters   Int?
+  isActive       Boolean               @default(true)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  route          TransportRoute?       @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, branchId, name])
+  @@index([organizationId, branchId, isActive])
+  @@index([organizationId, routeId, isActive])
+}
+
+model TransportAlert {
+  organizationId String
+  id             String               @id @default(cuid())
+  branchId       String
+  tripId         String?
+  vehicleId      String
+  studentId      String?
+  sourceEventId  String?
+  type           TransportAlertType
+  status         TransportAlertStatus @default(OPEN)
+  severity       SchoolEventSeverity  @default(MEDIUM)
+  title          String
+  description    String?              @db.Text
+  occurredAt     DateTime
+  acknowledgedById String?
+  acknowledgedAt DateTime?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNotes String?             @db.Text
+  metadata       Json?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  trip           TransportTrip?       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  vehicle        TransportVehicle     @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceEventId, type])
+  @@index([organizationId, branchId, status, occurredAt])
+  @@index([organizationId, vehicleId, occurredAt])
+  @@index([organizationId, studentId, occurredAt])
+}
+
+model TransportRidershipEvent {
+  organizationId String
+  id             String                     @id @default(cuid())
+  assignmentId   String
+  tripId         String?
+  studentId      String
+  vehicleId      String
+  stopId         String?
+  type           TransportRidershipEventType
+  method         TransportRidershipMethod
+  deviceEventId  String?                    @unique
+  occurredAt     DateTime
+  metadata       Json?
+  createdAt      DateTime                   @default(now())
+  assignment     StudentTransportAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  trip           TransportTrip?             @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, studentId, occurredAt])
+  @@index([organizationId, tripId, occurredAt])
+  @@index([organizationId, vehicleId, occurredAt])
+}
+
+model TransportRideCancellation {
+  organizationId String
+  id             String                         @id @default(cuid())
+  assignmentId   String
+  studentId      String
+  date           DateTime                       @db.Date
+  scope          TransportRideCancellationScope
+  reason         String?                        @db.Text
+  createdById    String
+  createdAt      DateTime                       @default(now())
+  assignment     StudentTransportAssignment     @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, date, scope])
+  @@index([organizationId, studentId, date])
 }
 
 model TransportFeeBill {

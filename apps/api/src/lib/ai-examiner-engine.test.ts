@@ -5,6 +5,7 @@ import {
   AIExaminerProviderError,
   parseAIExaminerProviderText,
   validateAIExaminerResultAgainstRubric,
+  type AIExaminerProviderResult,
   type AIExaminerRubricQuestion,
 } from "./ai-examiner-engine.js";
 
@@ -13,7 +14,7 @@ const rubric: AIExaminerRubricQuestion[] = [
   { key: "Q2", maxMarks: 10, criteria: "Kirchhoff equations", concepts: ["Kirchhoff laws"], modelAnswer: "Use loop rules" },
 ];
 
-const valid = {
+const valid: AIExaminerProviderResult = {
   extractedText: "Q1 ... Q2 ...",
   overallFeedback: "Good attempt.",
   confidence: 0.91,
@@ -23,13 +24,17 @@ const valid = {
       questionKey: "Q1", maxMarks: 10, awardedMarks: 8, confidence: 0.95,
       extractedAnswer: "V = IR", feedback: "Correct method.",
       rubricBreakdown: [{ criterion: "Method", maxMarks: 10, awardedMarks: 8, rationale: "Minor arithmetic error" }],
+      visualObservations: [],
       concepts: [{ concept: "Ohm's law", mastery: "STRONG" }], flags: [],
+ annotationHints: [],
     },
     {
       questionKey: "Q2", maxMarks: 10, awardedMarks: 6, confidence: 0.82,
       extractedAnswer: "Loop equation", feedback: "Partial equation.",
       rubricBreakdown: [{ criterion: "Equation", maxMarks: 10, awardedMarks: 6, rationale: "One loop omitted" }],
+      visualObservations: [],
       concepts: [{ concept: "Kirchhoff laws", mastery: "PARTIAL" }], flags: [],
+ annotationHints: [],
     },
   ],
 };
@@ -81,4 +86,23 @@ test("Responses API request omits unsupported temperature parameter", async () =
   const responsesBranch = source.match(/if \(mode === "RESPONSES"\) \{([\s\S]*?)\} else \{/i)?.[1] ?? "";
   assert.ok(responsesBranch.includes("model: env.AI_EXAMINER_MODEL"));
   assert.doesNotMatch(responsesBranch, /temperature\s*:/);
+});
+
+
+test("AI Examiner accepts criterion evidenceText for auditable rubric grading", () => {
+  const withEvidence = structuredClone(valid);
+  withEvidence.questions[0]!.rubricBreakdown[0]!.evidenceText = "V = IR";
+  const parsed = parseAIExaminerProviderText(JSON.stringify(withEvidence));
+  assert.equal(parsed.questions[0]?.rubricBreakdown?.[0]?.evidenceText, "V = IR");
+});
+
+
+test("AI Examiner accepts structured visual observations for multimodal evidence", () => {
+  const visual = structuredClone(valid);
+  visual.questions[0]!.visualObservations = [
+    { key: "axes", status: "PRESENT", confidence: 0.94, evidence: "Both axes labelled" },
+  ];
+  const parsed = parseAIExaminerProviderText(JSON.stringify(visual));
+  assert.equal(parsed.questions[0]?.visualObservations?.[0]?.key, "axes");
+  assert.equal(parsed.questions[0]?.visualObservations?.[0]?.status, "PRESENT");
 });

@@ -3,7 +3,7 @@ import { AppError } from "./http.js";
 import { currentTenant } from "./tenant-context.js";
 
 export const systemPrisma = new PrismaClient({ log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"] });
-const unscoped = new Set(["Organization", "TenantAccessAudit"]);
+const unscoped = new Set(["Organization", "TenantAccessAudit", "DeviceAdapterRegistry"]);
 const sessionModels = new Set(["Batch", "StudentProfile", "Examination", "Timetable"]);
 export const tenantWhere = (organizationId: string, where: Record<string, unknown> = {}) => ({ ...where, organizationId });
 

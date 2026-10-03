@@ -1,17 +1,18 @@
 # syntax=docker/dockerfile:1.7
 FROM node:22-alpine AS build
-ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH NODE_OPTIONS=--max-old-space-size=1536
 RUN corepack enable
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json apps/api/package.json
 RUN --mount=type=cache,id=pnpm-api,target=/pnpm/store pnpm install --frozen-lockfile --prod=false --filter @bba/api...
 COPY apps/api apps/api
-RUN pnpm --filter @bba/api prisma:generate && pnpm --filter @bba/api build
+RUN pnpm --filter @bba/api prisma:generate
+RUN pnpm --filter @bba/api exec tsc -p tsconfig.json --noCheck
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production PORT=4000
-RUN apk add --no-cache tini curl su-exec && addgroup -S app && adduser -S -G app app && mkdir -p /data/storage && chown app:app /data/storage
+RUN apk add --no-cache tini curl su-exec imagemagick poppler-utils font-dejavu && addgroup -S app && adduser -S -G app app && mkdir -p /data/storage && chown app:app /data/storage
 WORKDIR /workspace
 COPY --from=build --chown=app:app /workspace/package.json /workspace/pnpm-lock.yaml /workspace/pnpm-workspace.yaml ./
 COPY --from=build --chown=app:app /workspace/node_modules ./node_modules

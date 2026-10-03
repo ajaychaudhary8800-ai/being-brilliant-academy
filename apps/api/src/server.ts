@@ -18,6 +18,7 @@ import { activeNotificationConstraints } from "./lib/notification-policy.js";
 import { deliverScheduledAnalyticsReports } from "./lib/analytics-report-scheduler.js";
 import { executeActiveAutomations } from "./lib/automation-executor.js";
 import { processQueuedAIExaminerEvaluations } from "./lib/ai-examiner-worker.js";
+import { processDueDeviceRetries } from "./lib/device-hub-retry-worker.js";
 import { onlyPaths } from "./lib/scoped-router.js";
 import auth from "./routes/auth.js";
 import courses from "./routes/courses.js";
@@ -62,6 +63,11 @@ import paymentOffsets from "./routes/payment-offsets.js";
 import feePlans from "./routes/fee-plans.js";
 import feeAssignments from "./routes/fee-assignments.js";
 import transport from "./routes/transport.js";
+import smartTransport from "./routes/smart-transport.js";
+import deviceHub from "./routes/device-hub.js";
+import connectedCampus from "./routes/connected-campus.js";
+import connectedCampusGovernance from "./routes/connected-campus-governance.js";
+import safetyOperations from "./routes/safety-operations.js";
 import library from "./routes/library.js";
 import hostel from "./routes/hostel.js";
 import communication from "./routes/communication.js";
@@ -213,12 +219,13 @@ type WorkerHeartbeat = {
   lastError: string | null;
 };
 
-const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation" | "aiExaminer" | "meetingReminders", WorkerHeartbeat> = {
+const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation" | "aiExaminer" | "meetingReminders" | "deviceHub", WorkerHeartbeat> = {
   notificationDelivery: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   saasLifecycle: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   workflowAutomation: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   aiExaminer: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   meetingReminders: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
+  deviceHub: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
 };
 
 function workerSnapshot(name: keyof typeof workerHeartbeats, maxAgeMs: number, now = new Date()) {
@@ -245,6 +252,7 @@ app.get("/health/operational", async (_req, res) => {
     workflowAutomation: workerSnapshot("workflowAutomation", 10 * 60_000),
     aiExaminer: workerSnapshot("aiExaminer", Math.max(60_000, env.AI_EXAMINER_WORKER_INTERVAL_MS * 12)),
     meetingReminders: workerSnapshot("meetingReminders", 15 * 60_000),
+    deviceHub: workerSnapshot("deviceHub", Math.max(60_000, env.DEVICE_HUB_WORKER_INTERVAL_MS * 6)),
   };
   const healthy = Object.values(checks).every(Boolean) && Object.values(workers).every(worker => worker.healthy);
   res.status(healthy ? 200 : 503).json({
@@ -333,7 +341,12 @@ app.use("/api/v1", onlyPaths(["/inventory"], inventory));
 app.use("/api/v1", onlyPaths(["/communication"], communication));
 app.use("/api/v1", onlyPaths(["/hostel"], hostel));
 app.use("/api/v1", onlyPaths(["/library"], library));
+app.use("/api/v1", onlyPaths(["/device-hub"], deviceHub));
+app.use("/api/v1", onlyPaths(["/connected-campus"], connectedCampus));
+app.use("/api/v1", onlyPaths(["/connected-campus"], connectedCampusGovernance));
+app.use("/api/v1", onlyPaths(["/connected-campus"], safetyOperations));
 app.use("/api/v1", onlyPaths(["/transport"], transport));
+app.use("/api/v1", onlyPaths(["/transport"], smartTransport));
 app.use("/api/v1", onlyPaths(["/finance/fee-plans"], feePlans));
 app.use("/api/v1", onlyPaths(["/finance/fee-assignments"], feeAssignments));
 app.use("/api/v1", onlyPaths(["/finance"], finance));
@@ -489,6 +502,37 @@ void runWorkflowAutomationWorker();
 const workflowAutomationWorker = setInterval(() => void runWorkflowAutomationWorker(), 5 * 60_000);
 workflowAutomationWorker.unref();
 
+let deviceHubWorkerRunning = false;
+const runDeviceHubWorker = async () => {
+  if (deviceHubWorkerRunning) return;
+  deviceHubWorkerRunning = true;
+  const finishMetric = startWorkerRun("device_hub_retry");
+  try {
+    const results = await processDueDeviceRetries(50);
+    const failed = results.filter(result => !result.ok);
+    workerHeartbeats.deviceHub = {
+      lastSuccessAt: new Date(),
+      lastFailureAt: failed.length ? new Date() : workerHeartbeats.deviceHub.lastFailureAt,
+      lastError: failed[0]?.error?.slice(0, 500) ?? null,
+    };
+    finishMetric(failed.length ? "failure" : "success");
+    if (failed.length) logger.warn({ failed: failed.length, total: results.length }, "Device Hub retry worker completed with failures");
+  } catch (error) {
+    workerHeartbeats.deviceHub = {
+      lastSuccessAt: workerHeartbeats.deviceHub.lastSuccessAt,
+      lastFailureAt: new Date(),
+      lastError: error instanceof Error ? error.message.slice(0, 500) : "Device Hub retry worker failed",
+    };
+    finishMetric("failure");
+    logger.error({ err: error }, "Device Hub retry worker failed");
+  } finally {
+    deviceHubWorkerRunning = false;
+  }
+};
+void runDeviceHubWorker();
+const deviceHubWorker = setInterval(() => void runDeviceHubWorker(), env.DEVICE_HUB_WORKER_INTERVAL_MS);
+deviceHubWorker.unref();
+
 let aiExaminerWorkerRunning = false;
 const runAIExaminerWorker = async () => {
   if (aiExaminerWorkerRunning) return;
@@ -527,6 +571,7 @@ async function shutdown(signal: string) {
   clearInterval(analyticsReportWorker);
   clearInterval(workflowAutomationWorker);
   clearInterval(aiExaminerWorker);
+  clearInterval(deviceHubWorker);
   clearInterval(meetingReminderWorker);
   server.close(async () => {
     await Promise.allSettled([systemPrisma.$disconnect(), redis?.quit() ?? Promise.resolve()]);

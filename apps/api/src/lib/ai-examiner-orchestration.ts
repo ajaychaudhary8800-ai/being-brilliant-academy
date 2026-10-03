@@ -1,0 +1,492 @@
+import type { AIExaminerProviderResult, AIExaminerRubricQuestion } from "./ai-examiner-engine.js";
+import {
+  AI_EXAMINER_QUESTION_TYPES,
+  type AIExaminerQuestionType,
+} from "./ai-examiner-assessment-router.js";
+import {
+  AIExaminerScoringError,
+  scoreDeterministicQuestion,
+  type AIExaminerDeterministicInput,
+  type AIExaminerDeterministicScoringRule,
+} from "./ai-examiner-deterministic.js";
+import {
+  aiExaminerRubricQuestionInputSchema,
+  aiExaminerStoredQuestionRoute,
+} from "./ai-examiner-question-config.js";
+import {
+  verifyAIExaminerStemResponse,
+  type AIExaminerStemValidationConfig,
+  type AIExaminerStemVerification,
+} from "./ai-examiner-stem-verifier.js";
+import {
+  verifyChemistryEquation,
+  type ChemistryVerification,
+} from "./ai-examiner-chemistry-verifier.js";
+import {
+  verifyAccountingStatement,
+  type AccountingValidationConfig,
+  type AccountingVerification,
+} from "./ai-examiner-accounting-verifier.js";
+import {
+  auditAIExaminerSemanticEvidence,
+  type AIExaminerEvidenceAudit,
+} from "./ai-examiner-evidence.js";
+import type { AIExaminerTrustedOmrAnswer } from "./ai-examiner-scan-ingestion.js";
+import type {
+  AIExaminerCodeExecutionPolicy,
+  AIExaminerCodeVerification,
+} from "./ai-examiner-code-sandbox.js";
+import {
+  verifyAIExaminerVisualEvidence,
+  type AIExaminerVisualValidationConfig,
+  type AIExaminerVisualVerification,
+} from "./ai-examiner-visual-verifier.js";
+
+export type AIExaminerResolvedRubricQuestion = {
+  key: string;
+  maxMarks: number;
+  criteria: string;
+  modelAnswer?: string | null;
+  concepts: string[];
+  questionType: AIExaminerQuestionType;
+  answerKey?: unknown;
+  scoring?: AIExaminerDeterministicScoringRule;
+  requiresVisualEvidence: boolean;
+  requiresCodeExecution: boolean;
+  languagePolicy: {
+    acceptedLanguages: string[];
+    allowCodeSwitching: boolean;
+    allowTransliteration: boolean;
+    evaluateLanguageMechanics: boolean;
+    requireOriginalLanguageEvidence: boolean;
+  };
+  stemValidation?: AIExaminerStemValidationConfig;
+  chemistryValidation?: {
+    expectedEquation?: string;
+    requireBalanced: boolean;
+    allowReverse: boolean;
+  };
+  accountingValidation?: AccountingValidationConfig;
+  omrValidation?: { allowedOptions: string[] };
+  visualValidation?: AIExaminerVisualValidationConfig;
+  codeExecution?: AIExaminerCodeExecutionPolicy;
+};
+
+type ProviderQuestion = AIExaminerProviderResult["questions"][number];
+
+export type AIExaminerReconciledQuestion = {
+  questionKey: string;
+  maxMarks: number;
+  suggestedMarks: number | null;
+  confidence: number;
+  feedback: string;
+  extractedAnswer: string | null;
+  rubricBreakdown: Array<{
+    criterion: string;
+    maxMarks: number;
+    awardedMarks: number;
+    rationale: string;
+    evidenceText?: string | null;
+  }>;
+  concepts: ProviderQuestion["concepts"];
+  flags: ProviderQuestion["flags"];
+  annotationHints: ProviderQuestion["annotationHints"];
+  reviewRequired: boolean;
+  engine: string;
+  deterministicStatus: string | null;
+  scoringError: { code: string; message: string } | null;
+  specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | AIExaminerVisualVerification | AIExaminerCodeVerification | null;
+  evidenceAudit: AIExaminerEvidenceAudit | null;
+};
+
+const supplementaryEvidenceTypes = new Set<AIExaminerQuestionType>([
+  "ORAL_AUDIO_VIDEO",
+  "PRACTICAL_PROJECT_VIVA",
+]);
+
+const deterministicTypes = new Set<AIExaminerQuestionType>([
+  "MCQ",
+  "MSQ",
+  "TRUE_FALSE",
+  "ASSERTION_REASON",
+  "FILL_BLANK",
+  "MATCHING",
+  "ONE_WORD",
+  "NUMERICAL",
+]);
+
+function isKnownQuestionType(value: unknown): value is AIExaminerQuestionType {
+  return typeof value === "string" && (AI_EXAMINER_QUESTION_TYPES as readonly string[]).includes(value);
+}
+
+function modelAnswers(value: unknown) {
+  const answers = new Map<string, string>();
+  if (!value || typeof value !== "object" || !("questions" in value)) return answers;
+  const rows = (value as { questions?: unknown[] }).questions;
+  if (!Array.isArray(rows)) return answers;
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const key = "key" in row ? String((row as { key?: unknown }).key ?? "").trim() : "";
+    const answer = "answer" in row ? String((row as { answer?: unknown }).answer ?? "") : "";
+    if (key && answer) answers.set(key.toLowerCase(), answer);
+  }
+  return answers;
+}
+
+export function resolveAIExaminerRubricQuestions(value: unknown, modelAnswer: unknown): AIExaminerResolvedRubricQuestion[] {
+  const rows = value && typeof value === "object" && "questions" in value
+    ? (value as { questions?: unknown[] }).questions
+    : null;
+  if (!Array.isArray(rows)) throw new AIExaminerScoringError("AI_EXAMINER_RUBRIC_INVALID", "Active rubric has no question definitions");
+
+  const answers = modelAnswers(modelAnswer);
+  return rows.map((row, index) => {
+    if (!row || typeof row !== "object") {
+      throw new AIExaminerScoringError("AI_EXAMINER_RUBRIC_INVALID", `Rubric question ${index + 1} is invalid`);
+    }
+    const source = row as Record<string, unknown>;
+    const key = String(source.key ?? "").trim();
+    const parsed = aiExaminerRubricQuestionInputSchema.safeParse({
+      ...source,
+      questionType: isKnownQuestionType(source.questionType) ? source.questionType : "LONG_ANSWER",
+      modelAnswer: answers.get(key.toLowerCase()) ?? null,
+    });
+    if (!parsed.success) {
+      throw new AIExaminerScoringError(
+        "AI_EXAMINER_RUBRIC_INVALID",
+        `Rubric question ${index + 1} is invalid: ${parsed.error.issues.slice(0, 3).map(issue => issue.message).join("; ")}`,
+      );
+    }
+    return parsed.data as AIExaminerResolvedRubricQuestion;
+  });
+}
+
+export function aiExaminerProviderQuestions(questions: AIExaminerResolvedRubricQuestion[]): AIExaminerRubricQuestion[] {
+  return questions.map(question => {
+    const route = aiExaminerStoredQuestionRoute(question);
+    return {
+      key: question.key,
+      maxMarks: question.maxMarks,
+      criteria: question.criteria,
+      concepts: question.concepts,
+      questionType: question.questionType,
+      evaluationMode: route.deterministic || supplementaryEvidenceTypes.has(question.questionType) ? "EXTRACT_ONLY" : "RUBRIC",
+      // Withhold deterministic and supplementary-evidence answer keys from extraction to avoid anchoring/bias.
+      modelAnswer: route.deterministic || supplementaryEvidenceTypes.has(question.questionType) ? null : question.modelAnswer ?? null,
+      visualValidation: question.visualValidation,
+    };
+  });
+}
+
+export function overlayTrustedAIExaminerOmrAnswers(
+  questions: AIExaminerResolvedRubricQuestion[],
+  result: AIExaminerProviderResult,
+  omrAnswers: Map<string, AIExaminerTrustedOmrAnswer>,
+) {
+  const byKey = new Map(questions.map(question => [question.key.toLowerCase(), question]));
+  const appliedQuestionKeys: string[] = [];
+
+  const nextQuestions = result.questions.map(providerQuestion => {
+    const key = providerQuestion.questionKey.toLowerCase();
+    const rubricQuestion = byKey.get(key);
+    const omr = omrAnswers.get(key);
+    if (!rubricQuestion || !omr || (rubricQuestion.questionType !== "MCQ" && rubricQuestion.questionType !== "MSQ")) {
+      return providerQuestion;
+    }
+
+    appliedQuestionKeys.push(rubricQuestion.key);
+    return {
+      ...providerQuestion,
+      extractedAnswer: rubricQuestion.questionType === "MSQ"
+        ? JSON.stringify(omr.selections)
+        : (omr.selections[0] ?? ""),
+      confidence: omr.confidence,
+    };
+  });
+
+  return {
+    result: { ...result, questions: nextQuestions },
+    appliedQuestionKeys,
+  };
+}
+
+function decodeStructuredAnswer(questionType: AIExaminerQuestionType, extractedAnswer: string | null | undefined): unknown {
+  if (extractedAnswer == null) {
+    throw new AIExaminerScoringError("AI_EXAMINER_EXTRACTION_MISSING", "No extractable answer was returned for deterministic scoring");
+  }
+  if (questionType === "MSQ") {
+    let parsed: unknown;
+    try { parsed = JSON.parse(extractedAnswer); }
+    catch { throw new AIExaminerScoringError("AI_EXAMINER_EXTRACTION_INVALID", "MSQ extraction must be a JSON array"); }
+    if (!Array.isArray(parsed)) throw new AIExaminerScoringError("AI_EXAMINER_EXTRACTION_INVALID", "MSQ extraction must be a JSON array");
+    return parsed;
+  }
+  if (questionType === "MATCHING") {
+    let parsed: unknown;
+    try { parsed = JSON.parse(extractedAnswer); }
+    catch { throw new AIExaminerScoringError("AI_EXAMINER_EXTRACTION_INVALID", "Matching extraction must be a JSON object"); }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new AIExaminerScoringError("AI_EXAMINER_EXTRACTION_INVALID", "Matching extraction must be a JSON object");
+    }
+    return parsed;
+  }
+  return extractedAnswer;
+}
+
+function deterministicInput(
+  question: AIExaminerResolvedRubricQuestion,
+  provider: ProviderQuestion,
+): AIExaminerDeterministicInput {
+  if (!deterministicTypes.has(question.questionType)) {
+    throw new AIExaminerScoringError("AI_EXAMINER_ROUTE_INVALID", "Question is not supported by deterministic scoring");
+  }
+  const correctAnswer = question.answerKey ?? question.modelAnswer;
+  if (correctAnswer === undefined || correctAnswer === null || correctAnswer === "") {
+    throw new AIExaminerScoringError("AI_EXAMINER_ANSWER_KEY_INVALID", "Deterministic answer key is missing");
+  }
+  return {
+    questionKey: question.key,
+    questionType: question.questionType as AIExaminerDeterministicInput["questionType"],
+    maxMarks: question.maxMarks,
+    correctAnswer,
+    studentAnswer: decodeStructuredAnswer(question.questionType, provider.extractedAnswer),
+    scoring: question.scoring,
+  };
+}
+
+function providerByKey(result: AIExaminerProviderResult) {
+  return new Map(result.questions.map(question => [question.questionKey.toLowerCase(), question]));
+}
+
+export function reconcileAIExaminerProviderResult(
+  questions: AIExaminerResolvedRubricQuestion[],
+  result: AIExaminerProviderResult,
+  reviewThreshold: number,
+) {
+  const providerQuestions = providerByKey(result);
+  const reconciled: AIExaminerReconciledQuestion[] = questions.map(question => {
+    const provider = providerQuestions.get(question.key.toLowerCase());
+    if (!provider) {
+      throw new AIExaminerScoringError("AI_EXAMINER_PROVIDER_QUESTION_MISSING", `Provider result is missing ${question.key}`);
+    }
+    const route = aiExaminerStoredQuestionRoute(question);
+    const baseReview = provider.confidence < reviewThreshold || provider.flags.length > 0;
+
+    if (!route.deterministic) {
+      if (route.engine === "CODE_SANDBOX") {
+        return {
+          questionKey: question.key,
+          maxMarks: question.maxMarks,
+          suggestedMarks: null,
+          confidence: provider.confidence,
+          feedback: provider.extractedAnswer
+            ? "Source code extracted. Marks require verified isolated sandbox execution and human review."
+            : "Programming source code was not extracted; isolated sandbox execution cannot proceed automatically.",
+          extractedAnswer: provider.extractedAnswer ?? null,
+          rubricBreakdown: [],
+          concepts: provider.concepts,
+          flags: provider.flags,
+          annotationHints: provider.annotationHints,
+          reviewRequired: true,
+          engine: route.engine,
+          deterministicStatus: null,
+          scoringError: {
+            code: provider.extractedAnswer
+              ? "AI_EXAMINER_CODE_RUNNER_REQUIRED"
+              : "AI_EXAMINER_CODE_SOURCE_NOT_EXTRACTED",
+            message: provider.extractedAnswer
+              ? "Programming marks are withheld until isolated code-runner evidence is verified."
+              : "Programming marks are withheld because source code could not be extracted.",
+          },
+          specializedEvidence: null,
+          evidenceAudit: null,
+        };
+      }
+      if (supplementaryEvidenceTypes.has(question.questionType)) {
+        return {
+          questionKey: question.key,
+          maxMarks: question.maxMarks,
+          suggestedMarks: null,
+          confidence: provider.confidence,
+          feedback: provider.extractedAnswer
+            ? "Written component extracted. Oral/practical marks require verified supplementary evidence and human review."
+            : "Oral/practical marks require verified supplementary evidence and human review.",
+          extractedAnswer: provider.extractedAnswer ?? null,
+          rubricBreakdown: [],
+          concepts: provider.concepts,
+          flags: provider.flags,
+          annotationHints: provider.annotationHints,
+          reviewRequired: true,
+          engine: route.engine,
+          deterministicStatus: null,
+          scoringError: {
+            code: "AI_EXAMINER_SUPPLEMENTARY_EVIDENCE_REVIEW_REQUIRED",
+            message: "This question type cannot be AI-scored from the written answer sheet alone.",
+          },
+          specializedEvidence: null,
+          evidenceAudit: null,
+        };
+      }
+      let specializedEvidence: AIExaminerStemVerification | ChemistryVerification | AccountingVerification | AIExaminerVisualVerification | null = null;
+      let evidenceAudit: AIExaminerEvidenceAudit | null = null;
+      if (route.engine === "MULTIMODAL" && question.visualValidation) {
+        specializedEvidence = verifyAIExaminerVisualEvidence({
+          config: question.visualValidation,
+          observations: provider.visualObservations,
+        });
+      }
+      if (route.engine === "RUBRIC_SEMANTIC") {
+        evidenceAudit = auditAIExaminerSemanticEvidence({
+          extractedAnswer: provider.extractedAnswer,
+          awardedMarks: provider.awardedMarks,
+          rubricBreakdown: provider.rubricBreakdown,
+        });
+      }
+      if (route.engine === "SPECIALIZED_SYMBOLIC" && provider.extractedAnswer) {
+        if (question.stemValidation) {
+          specializedEvidence = verifyAIExaminerStemResponse({
+            response: provider.extractedAnswer,
+            config: question.stemValidation,
+          });
+        } else if (question.questionType === "CHEMISTRY_EQUATION" && question.chemistryValidation) {
+          specializedEvidence = verifyChemistryEquation({
+            response: provider.extractedAnswer,
+            expectedEquation: question.chemistryValidation.expectedEquation,
+            requireBalanced: question.chemistryValidation.requireBalanced,
+            allowReverse: question.chemistryValidation.allowReverse,
+          });
+        } else if (question.questionType === "ACCOUNTING_STATEMENT" && question.accountingValidation) {
+          specializedEvidence = verifyAccountingStatement({
+            response: provider.extractedAnswer,
+            config: question.accountingValidation,
+          });
+        }
+      }
+      return {
+        questionKey: question.key,
+        maxMarks: question.maxMarks,
+        suggestedMarks: provider.awardedMarks,
+        confidence: provider.confidence,
+        feedback: provider.feedback,
+        extractedAnswer: provider.extractedAnswer ?? null,
+        rubricBreakdown: provider.rubricBreakdown,
+        concepts: provider.concepts,
+        flags: provider.flags,
+          annotationHints: provider.annotationHints,
+        reviewRequired: true,
+        engine: route.engine,
+        deterministicStatus: null,
+        scoringError: null,
+        specializedEvidence,
+        evidenceAudit,
+      };
+    }
+
+    try {
+      const scored = scoreDeterministicQuestion(deterministicInput(question, provider));
+      return {
+        questionKey: question.key,
+        maxMarks: question.maxMarks,
+        suggestedMarks: scored.awardedMarks,
+        confidence: provider.confidence,
+        feedback: provider.feedback,
+        extractedAnswer: provider.extractedAnswer ?? null,
+        rubricBreakdown: [{
+          criterion: "Deterministic answer-key scoring",
+          maxMarks: question.maxMarks,
+          awardedMarks: scored.awardedMarks,
+          rationale: scored.evidence.rule,
+        }],
+        concepts: provider.concepts,
+        flags: provider.flags,
+          annotationHints: provider.annotationHints,
+        reviewRequired: baseReview,
+        engine: route.engine,
+        deterministicStatus: scored.status,
+        scoringError: null,
+        specializedEvidence: null,
+        evidenceAudit: null,
+      };
+    } catch (error) {
+      const scoringError = error instanceof AIExaminerScoringError
+        ? { code: error.code, message: error.message }
+        : { code: "AI_EXAMINER_SCORING_ERROR", message: error instanceof Error ? error.message : "Deterministic scoring failed" };
+      return {
+        questionKey: question.key,
+        maxMarks: question.maxMarks,
+        suggestedMarks: null,
+        confidence: provider.confidence,
+        feedback: provider.feedback,
+        extractedAnswer: provider.extractedAnswer ?? null,
+        rubricBreakdown: [],
+        concepts: provider.concepts,
+        flags: provider.flags,
+          annotationHints: provider.annotationHints,
+        reviewRequired: true,
+        engine: route.engine,
+        deterministicStatus: null,
+        scoringError,
+        specializedEvidence: null,
+        evidenceAudit: null,
+      };
+    }
+  });
+
+  const complete = reconciled.every(question => question.suggestedMarks != null);
+  const suggestedMarks = complete
+    ? reconciled.reduce((sum, question) => sum + (question.suggestedMarks ?? 0), 0)
+    : null;
+  const questionConfidence = reconciled.reduce((sum, question) => sum + question.confidence, 0) / Math.max(1, reconciled.length);
+
+  return {
+    questions: reconciled,
+    suggestedMarks,
+    confidence: Math.min(result.confidence, questionConfidence),
+    unresolvedDeterministicCount: reconciled.filter(question => question.scoringError).length,
+  };
+}
+
+
+export function applyAIExaminerCodeVerifications(input: {
+  reconciled: ReturnType<typeof reconcileAIExaminerProviderResult>;
+  questions: AIExaminerResolvedRubricQuestion[];
+  verifications: Map<string, AIExaminerCodeVerification>;
+}) {
+  const questionConfig = new Map(input.questions.map(question => [question.key.toLocaleLowerCase("en"), question]));
+  const rows = input.reconciled.questions.map(row => {
+    if (row.engine !== "CODE_SANDBOX") return row;
+    const config = questionConfig.get(row.questionKey.toLocaleLowerCase("en"));
+    const verification = input.verifications.get(row.questionKey.toLocaleLowerCase("en"));
+    if (!config || !verification) return row;
+
+    const awardedMarks = verification.executionAccepted
+      ? Math.round(config.maxMarks * verification.scoreFraction * 10000) / 10000
+      : null;
+    return {
+      ...row,
+      suggestedMarks: awardedMarks,
+      feedback: verification.executionAccepted
+        ? `Isolated runner verified ${verification.passedWeight}/${verification.totalWeight} weighted tests. Teacher review is still required.`
+        : "Isolated runner evidence was incomplete or untrusted; marks remain unresolved for teacher review.",
+      rubricBreakdown: verification.executionAccepted ? [{
+        criterion: "Isolated programming test execution",
+        maxMarks: config.maxMarks,
+        awardedMarks: awardedMarks ?? 0,
+        rationale: `Weighted sandbox score fraction ${verification.scoreFraction}.`,
+      }] : [],
+      scoringError: verification.executionAccepted ? null : {
+        code: "AI_EXAMINER_CODE_EXECUTION_UNTRUSTED",
+        message: "Isolated runner did not produce complete trusted execution evidence.",
+      },
+      specializedEvidence: verification,
+      reviewRequired: true,
+    };
+  });
+  const complete = rows.every(row => row.suggestedMarks != null);
+  return {
+    ...input.reconciled,
+    questions: rows,
+    suggestedMarks: complete ? rows.reduce((sum, row) => sum + (row.suggestedMarks ?? 0), 0) : null,
+    unresolvedDeterministicCount: rows.filter(row => row.scoringError).length,
+  };
+}
