@@ -181,3 +181,63 @@ test("auto-place uses trusted same-question anchors for legacy revisions without
   assert.equal(placements[0]!.anchor.pageNumber, 1);
   assert.equal(placements[0]!.anchor.placementConfidence, 0.55);
 });
+
+
+test("fresh checked-copy draft places question score beside the last visible evidence region", () => {
+  const draft = buildAIExaminerCheckedCopyDraft({
+    diagnostics: {
+      questionDiagnostics: [{
+        questionKey: "Q2",
+        annotationHints: [
+          { kind: "TICK", pageNumber: 1, x: 0.20, y: 0.15, width: 0.20, height: 0.04, text: "first step" },
+          { kind: "UNDERLINE", pageNumber: 2, x: 0.42, y: 0.70, width: 0.22, height: 0.04, text: "final current = 1.0 A" },
+        ],
+      }],
+    },
+    questions: [{
+      questionKey: "Q2",
+      maxMarks: 10,
+      finalMarks: 7.5,
+      confidence: 0.93,
+      rubricBreakdown: [],
+    }],
+    totalMarks: 7.5,
+    maximumMarks: 10,
+    sourcePageCount: 2,
+  });
+  const score = draft.find(row => row.type === "QUESTION_SCORE");
+  assert.ok(score);
+  assert.equal(score.anchor?.pageNumber, 2);
+  assert.equal(score.approvalState, "AI_DRAFT");
+  assert.ok((score.anchor?.placementConfidence ?? 0) >= 0.8);
+});
+
+test("fresh checked-copy draft uses NOTE as a locator without rendering duplicate note text", () => {
+  const draft = buildAIExaminerCheckedCopyDraft({
+    diagnostics: {
+      questionDiagnostics: [{
+        questionKey: "Q1",
+        annotationHints: [
+          { kind: "NOTE", pageNumber: 1, x: 0.30, y: 0.50, width: 0.20, height: 0.05, text: "sign error here" },
+        ],
+      }],
+    },
+    questions: [{
+      questionKey: "Q1",
+      maxMarks: 5,
+      finalMarks: 3,
+      confidence: 0.94,
+      feedback: "Recheck the sign.",
+      rubricBreakdown: [],
+    }],
+    totalMarks: 3,
+    maximumMarks: 5,
+    sourcePageCount: 1,
+  });
+  assert.equal(draft.filter(row => row.type === "TEXT_COMMENT").length, 0);
+  const correction = draft.find(row => row.type === "ERROR_LABEL");
+  assert.ok(correction);
+  assert.equal(correction.anchor?.pageNumber, 1);
+  assert.equal(correction.approvalState, "AI_DRAFT");
+  assert.ok((correction.anchor?.placementConfidence ?? 0) >= 0.8);
+});
