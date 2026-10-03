@@ -497,7 +497,8 @@ router.get("/checked-copy/revisions/:revisionId/preview-pdf",async(req:AuthReque
     entityId:revision.id,
     metadata:{revision:revision.revision,placement:rendered.placement,pageCount:rendered.pageCount},
   }}).catch(()=>null);
-  const fileName=`${sheet.fileName.replace(/\.[^.]+$/,'').replace(/[^A-Za-z0-9._-]+/g,'-').slice(0,120)||'answer-sheet'-checked-preview-r${revision.revision}.pdf`;
+  const baseName=sheet.fileName.replace(/\.[^.]+$/,"").replace(/[^A-Za-z0-9._-]+/g,"-").slice(0,120)||"answer-sheet";
+  const fileName=`${baseName}-checked-preview-r${revision.revision}.pdf`;
   res.set({
     "Content-Type":"application/pdf",
     "Content-Disposition":`attachment; filename="${fileName}"`,
