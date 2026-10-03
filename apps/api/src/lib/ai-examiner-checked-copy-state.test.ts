@@ -55,7 +55,7 @@ test("checked-copy rubric notes anchor only when localized evidence is available
 
   const uncertain = draft.find(row => row.type === "RUBRIC_NOTE" && row.rubricCriterion === "Correct unit");
   assert.ok(uncertain);
-  assert.equal(uncertain.approvalState, "AI_DRAFT");
+  assert.equal(uncertain.approvalState, "POSITION_REVIEW_REQUIRED");
   assert.equal(uncertain.anchor?.pageNumber, 1);
   assert.equal(uncertain.anchor?.placementConfidence, 0.68);
   assert.equal(uncertain.sourceEvidence, "unit missing");
