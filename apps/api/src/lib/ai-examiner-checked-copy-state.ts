@@ -228,6 +228,27 @@ export function autoPlaceCheckedCopyAnnotations(input: {
   const occupied: OccupiedAnchor[] = input.annotations
     .filter(row => row.approvalState !== "REJECTED" && row.anchor)
     .map(row => ({ ...row.anchor! }));
+
+  // Older evaluation revisions may predate diagnostic annotation hints. In that case,
+  // reuse trusted, already-positioned annotations for the same question as low-confidence
+  // spatial seeds rather than forcing the teacher to place every remaining rubric mark.
+  const seededHintsByQuestion = new Map<string, Hint[]>();
+  for (const row of input.annotations) {
+    if (row.approvalState === "REJECTED" || !row.questionKey || !row.anchor) continue;
+    const key = row.questionKey.toLocaleLowerCase("en");
+    const existing = seededHintsByQuestion.get(key) ?? [];
+    existing.push({
+      kind: "NOTE",
+      pageNumber: row.anchor.pageNumber,
+      x: row.anchor.x,
+      y: row.anchor.y,
+      width: row.anchor.width,
+      height: row.anchor.height,
+      text: row.sourceEvidence ?? null,
+    });
+    seededHintsByQuestion.set(key, existing);
+  }
+
   const ordinals = new Map<string, number>();
   const placements: Array<{ id: string; anchor: z.infer<typeof checkedCopyAnchorSchema> }> = [];
 
@@ -240,17 +261,20 @@ export function autoPlaceCheckedCopyAnnotations(input: {
     }
     if (!annotation.questionKey) continue;
     const key = annotation.questionKey.toLocaleLowerCase("en");
-    const hints = hintsByQuestion.get(key) ?? [];
+    const diagnosticHints = hintsByQuestion.get(key) ?? [];
+    const seededHints = seededHintsByQuestion.get(key) ?? [];
+    const hints = diagnosticHints.length ? diagnosticHints : seededHints;
     if (!hints.length) continue;
+
     const ordinal = ordinals.get(key) ?? 0;
     ordinals.set(key, ordinal + 1);
-    const exact = evidenceHint(hints, annotation.sourceEvidence ?? null);
+    const exact = diagnosticHints.length ? evidenceHint(diagnosticHints, annotation.sourceEvidence ?? null) : null;
     const hint = exact ?? hints[Math.min(ordinal, hints.length - 1)] ?? hints[0]!;
     const anchor = placeNearHint(
       hint,
       annotation.type,
       occupied,
-      exact ? 0.92 : 0.68,
+      exact ? 0.92 : diagnosticHints.length ? 0.68 : 0.55,
       annotation.sourceEvidence ?? hint.text ?? null,
       ordinal,
     );
