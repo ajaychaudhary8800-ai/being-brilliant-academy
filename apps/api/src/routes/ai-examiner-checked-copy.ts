@@ -190,12 +190,43 @@ router.post("/evaluations/:evaluationId/checked-copy/draft", async (req:AuthRequ
 
 router.get("/evaluations/:evaluationId/checked-copy/review", async (req:AuthRequest,res)=>{
   const evaluationId=cuid.parse(req.params.evaluationId);
-  const revision=await prisma.aIExaminerCheckedCopyRevision.findFirst({
+  let revision=await prisma.aIExaminerCheckedCopyRevision.findFirst({
     where:{organizationId:req.auth!.organizationId,evaluationId},
     include:revisionInclude,orderBy:{revision:"desc"},
   });
   if(!revision) throw new AppError(404,"AI_CHECKED_COPY_NOT_FOUND","Create the checked-copy draft first");
   await assertManager(req,revision.checkedCopy.answerSheet.examination);
+
+  // Safety normalization for drafts created before the ERP 4.0 placement-confidence gate.
+  // Low-confidence AI placements remain visible, but must be reviewed before final approval.
+  if(revision.status===AIExaminerCheckedCopyRevisionStatus.DRAFT){
+    const uncertainIds=revision.annotations
+      .filter(row=>
+        row.authorType===AIExaminerAnnotationAuthorType.AI &&
+        row.approvalState===AIExaminerAnnotationApprovalState.AI_DRAFT &&
+        row.anchor &&
+        Number(row.anchor.placementConfidence??0)<CHECKED_COPY_AUTO_APPROVE_PLACEMENT_CONFIDENCE
+      )
+      .map(row=>row.id);
+    if(uncertainIds.length){
+      await prisma.$transaction(async tx=>{
+        await tx.aIExaminerAnnotation.updateMany({
+          where:{id:{in:uncertainIds},organizationId:req.auth!.organizationId,revisionId:revision!.id},
+          data:{approvalState:AIExaminerAnnotationApprovalState.POSITION_REVIEW_REQUIRED},
+        });
+        await tx.auditLog.create({data:{
+          organizationId:req.auth!.organizationId,actorId:req.auth!.userId,action:"AI_CHECKED_COPY_LOW_CONFIDENCE_REVIEW_REQUIRED",
+          entity:"AIExaminerCheckedCopyRevision",entityId:revision!.id,
+          metadata:{count:uncertainIds.length,confidenceThreshold:CHECKED_COPY_AUTO_APPROVE_PLACEMENT_CONFIDENCE},
+        }});
+      });
+      revision=await prisma.aIExaminerCheckedCopyRevision.findFirstOrThrow({
+        where:{id:revision.id,organizationId:req.auth!.organizationId},
+        include:revisionInclude,
+      });
+    }
+  }
+
   res.json({data:sanitizedRevision(revision),meta:{label:revision.status===AIExaminerCheckedCopyRevisionStatus.DRAFT?"AI Checked Copy — Draft":"Checked Copy — Approved"}});
 });
 
