@@ -464,6 +464,48 @@ router.post("/checked-copy/revisions/:revisionId/approve",async(req:AuthRequest,
   res.json({data:{...stored,renderedFileData:undefined},meta:{label:"Checked Copy — Approved",placement:rendered.placement,pageCount:rendered.pageCount}});
 });
 
+router.get("/checked-copy/revisions/:revisionId/preview-pdf",async(req:AuthRequest,res)=>{
+  const revision=await revisionForManager(req,cuid.parse(req.params.revisionId));
+  const sheet=revision.checkedCopy.answerSheet;
+  if(!sheet.finalizedAt||sheet.marksObtained==null) throw new AppError(409,"AI_CHECKED_COPY_GRADING_INCOMPLETE","Finalized grading is required before previewing the checked copy");
+  const source={fileName:sheet.fileName,mimeType:sheet.mimeType,bytes:Buffer.from(sheet.fileData)};
+  if(sha256Buffer(source.bytes)!==revision.sourceAnswerSheetSha256) throw new AppError(409,"AI_CHECKED_COPY_SOURCE_CHANGED","Original answer-sheet fingerprint no longer matches this revision");
+  const rendered=await renderAIExaminerCheckedCopy({
+    source,
+    studentName:sheet.student.user.name,
+    examinationName:sheet.examination.name,
+    questions:revision.evaluation.questions.map(question=>({
+      questionKey:question.questionKey,
+      maxMarks:Number(question.maxMarks),
+      finalMarks:Number(question.finalMarks),
+      teacherComment:question.teacherComment,
+      feedback:question.feedback,
+    })),
+    annotations:canonicalAnnotations(revision),
+    totalMarks:Number(sheet.marksObtained),
+    maximumMarks:sheet.examination.maximumMarks,
+    reviewerName:revision.evaluation.reviewedBy?.name??null,
+    evaluationRevision:revision.evaluationRevision,
+    checkedCopyRevision:revision.revision,
+    renderLabel:"Draft Preview",
+  });
+  await prisma.auditLog.create({data:{
+    organizationId:req.auth!.organizationId,
+    actorId:req.auth!.userId,
+    action:"AI_CHECKED_COPY_PREVIEWED",
+    entity:"AIExaminerCheckedCopyRevision",
+    entityId:revision.id,
+    metadata:{revision:revision.revision,placement:rendered.placement,pageCount:rendered.pageCount},
+  }}).catch(()=>null);
+  const fileName=`${sheet.fileName.replace(/\.[^.]+$/,'').replace(/[^A-Za-z0-9._-]+/g,'-').slice(0,120)||'answer-sheet'-checked-preview-r${revision.revision}.pdf`;
+  res.set({
+    "Content-Type":"application/pdf",
+    "Content-Disposition":`attachment; filename="${fileName}"`,
+    "Cache-Control":"private, no-store",
+    "X-Checked-Copy-Preview":"true",
+  }).send(rendered.pdf);
+});
+
 router.get("/evaluations/:evaluationId/checked-copy",async(req:AuthRequest,res)=>{
   const evaluationId=cuid.parse(req.params.evaluationId);
   const revision=await prisma.aIExaminerCheckedCopyRevision.findFirst({
