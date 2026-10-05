@@ -110,21 +110,12 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
         method:"POST",headers:headers(),body:JSON.stringify({questions,teacherRemarks:teacherRemarks.trim()||null}),
       }).then(responseBody);
 
-      let checkedCopyMessage=" Checked-copy scores were synchronized automatically.";
-      try{
-        const redPen=await fetch(`${API}/ai-examiner/evaluations/${evaluation.id}/checked-copy/draft`,{method:"POST",headers:headers()}).then(responseBody);
-        const revision=redPen?.data;
-        const annotations=Array.isArray(revision?.annotations)?revision.annotations:[];
-        const exceptions=annotations.filter((row:any)=>row?.approvalState==="POSITION_REVIEW_REQUIRED"||!row?.anchor).length;
-        if(revision?.id&&exceptions===0){
-          await fetch(`${API}/ai-examiner/checked-copy/revisions/${revision.id}/approve`,{method:"POST",headers:headers()}).then(responseBody);
-          checkedCopyMessage=" AI Red-Pen had no exceptions, so the checked copy was automatically approved and rendered.";
-        }else if(exceptions>0){
-          checkedCopyMessage=` Checked-copy scores were synchronized; ${exceptions} Red-Pen exception(s) remain for teacher review.`;
-        }
-      }catch{
-        // Grading approval is authoritative and must remain successful even if checked-copy warmup/rendering needs retry.
-      }
+      const checkedCopy=json?.meta?.checkedCopy;
+      const checkedCopyMessage=checkedCopy?.status==="RENDERED"
+        ?" AI Red-Pen had no exceptions, so the checked copy was automatically approved and rendered."
+        :checkedCopy?.status==="EXCEPTIONS_REMAIN"
+          ?` Checked-copy scores were synchronized; ${checkedCopy.exceptions} Red-Pen exception(s) remain for teacher review.`
+          :" Checked-copy grading is finalized; Red-Pen rendering can be retried from Checked Copy Review if needed.";
       setNotice(`AI evaluation approved and finalized at ${json.meta.finalMarks} marks.${checkedCopyMessage}`);
       await load();
     }catch(cause){setError(cause instanceof Error?cause.message:"Unable to approve AI evaluation");}
