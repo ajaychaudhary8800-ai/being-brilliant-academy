@@ -80,6 +80,10 @@ export async function processAIExaminerCheckedCopyRetries(limit = 5) {
             AIExaminerCheckedCopyRevisionStatus.PUBLISHED,
           ],
         },
+        OR: [
+          { renderedAt: { gt: failure.createdAt } },
+          { publishedAt: { gt: failure.createdAt } },
+        ],
       },
       select: { id: true, status: true },
       orderBy: { revision: "desc" },
