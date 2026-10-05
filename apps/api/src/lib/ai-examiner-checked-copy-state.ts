@@ -147,7 +147,7 @@ export function checkedCopyHintsFromDiagnostics(diagnostics: unknown) {
       const pageNumber = Number(hint.pageNumber);
       const x = Number(hint.x), y = Number(hint.y), width = Number(hint.width), height = Number(hint.height);
       if (![pageNumber,x,y,width,height].every(Number.isFinite) || pageNumber < 1) continue;
-      if (x < 0 || y < 0 || width < 0 || height < 0 || x + width > 1.000001 || y + height > 1.000001) continue;
+      if (x < 0 || y < 0 || width <= 0.002 || height <= 0.002 || x + width > 1.000001 || y + height > 1.000001) continue;
       hints.push({ kind: kind as Hint["kind"], pageNumber: Math.trunc(pageNumber), x, y, width, height, text: typeof hint.text === "string" ? concise(hint.text, 300) : null });
     }
     if (hints.length) byQuestion.set(record.questionKey.toLocaleLowerCase("en"), hints);
@@ -288,7 +288,7 @@ export function autoPlaceCheckedCopyAnnotations(input: {
     }
     if (!annotation.questionKey) continue;
     const key = annotation.questionKey.toLocaleLowerCase("en");
-    const diagnosticHints = hintsByQuestion.get(key) ?? [];
+    const diagnosticHints = (hintsByQuestion.get(key) ?? []).filter(hint => hint.pageNumber <= input.sourcePageCount);
     const seededHints = seededHintsByQuestion.get(key) ?? [];
     const hints = diagnosticHints.length ? diagnosticHints : seededHints;
     if (!hints.length) continue;
@@ -332,11 +332,15 @@ export function buildAIExaminerCheckedCopyDraft(input: {
 
   for (const question of input.questions) {
     const key = question.questionKey.toLocaleLowerCase("en");
-    const hints = hintsByQuestion.get(key) ?? [];
+    const hints = (hintsByQuestion.get(key) ?? []).filter(hint => !input.sourcePageCount || hint.pageNumber <= input.sourcePageCount);
     for (const hint of hints) {
       // NOTE hints are semantic locators for rubric/error comments. Rendering them directly
       // duplicates the teacher comment and makes a fresh AI-checked copy unnecessarily noisy.
       if (hint.kind === "NOTE") continue;
+      const directAnchor = checkedCopyAnchorSchema.parse({
+        pageNumber: hint.pageNumber, x: hint.x, y: hint.y, width: hint.width, height: hint.height,
+        rotation: 0, placementConfidence: question.confidence ?? null, evidenceText: hint.text ?? null,
+      });
       annotations.push({
         questionKey: question.questionKey,
         rubricCriterion: null,
@@ -347,12 +351,9 @@ export function buildAIExaminerCheckedCopyDraft(input: {
         sourceEvidence: hint.text ?? null,
         vectorData: null,
         authorType: "AI",
-        approvalState: "AI_DRAFT",
+        approvalState: placementState(directAnchor),
         sortOrder: order++,
-        anchor: checkedCopyAnchorSchema.parse({
-          pageNumber: hint.pageNumber, x: hint.x, y: hint.y, width: hint.width, height: hint.height,
-          rotation: 0, placementConfidence: question.confidence ?? null, evidenceText: hint.text ?? null,
-        }),
+        anchor: directAnchor,
       });
     }
 
