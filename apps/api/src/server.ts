@@ -11,6 +11,7 @@ import { corsOrigins, env } from "./config.js";
 import { AppError, errorHandler, notFound } from "./lib/http.js";
 import { logger } from "./lib/logger.js";
 import { metricsMiddleware, metricsRegistry, setDependencyReady, startWorkerRun } from "./lib/metrics.js";
+import { workerHealthSnapshot, type WorkerHeartbeat } from "./lib/worker-health.js";
 import { systemPrisma } from "./lib/prisma.js";
 import { ensureRedis, redis } from "./lib/redis.js";
 import { MAX_NOTIFICATION_DELIVERY_ATTEMPTS, deliverNotification, providerStatus, verifySmtp } from "./lib/notifications.js";
@@ -214,12 +215,6 @@ async function dependencyChecks() {
   return checks;
 }
 
-type WorkerHeartbeat = {
-  lastSuccessAt: Date | null;
-  lastFailureAt: Date | null;
-  lastError: string | null;
-};
-
 const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation" | "aiExaminer" | "meetingReminders" | "deviceHub", WorkerHeartbeat> = {
   notificationDelivery: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   saasLifecycle: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
@@ -230,13 +225,7 @@ const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workf
 };
 
 function workerSnapshot(name: keyof typeof workerHeartbeats, maxAgeMs: number, now = new Date()) {
-  const heartbeat = workerHeartbeats[name];
-  const healthy = Boolean(heartbeat.lastSuccessAt && now.getTime() - heartbeat.lastSuccessAt.getTime() <= maxAgeMs);
-  return {
-    healthy,
-    lastSuccessAt: heartbeat.lastSuccessAt?.toISOString() ?? null,
-    lastFailureAt: heartbeat.lastFailureAt?.toISOString() ?? null,
-  };
+  return workerHealthSnapshot(workerHeartbeats[name], maxAgeMs, now);
 }
 
 app.get("/health/ready", async (_req, res) => {
