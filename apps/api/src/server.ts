@@ -18,6 +18,7 @@ import { activeNotificationConstraints } from "./lib/notification-policy.js";
 import { deliverScheduledAnalyticsReports } from "./lib/analytics-report-scheduler.js";
 import { executeActiveAutomations } from "./lib/automation-executor.js";
 import { processQueuedAIExaminerEvaluations } from "./lib/ai-examiner-worker.js";
+import { processAIExaminerCheckedCopyRetries } from "./lib/ai-examiner-checked-copy-retry-worker.js";
 import { processDueDeviceRetries } from "./lib/device-hub-retry-worker.js";
 import { onlyPaths } from "./lib/scoped-router.js";
 import auth from "./routes/auth.js";
@@ -540,14 +541,20 @@ const runAIExaminerWorker = async () => {
   const finishMetric = startWorkerRun("ai_examiner");
   try {
     const results = await processQueuedAIExaminerEvaluations(2);
+    const recoveryResults = await processAIExaminerCheckedCopyRetries(5);
     const failed = results.filter(result => "failed" in result && result.failed);
+    const recoveryFailed = recoveryResults.filter(result => result.outcome === "FAILED");
+    const failureCount = failed.length + recoveryFailed.length;
     workerHeartbeats.aiExaminer = {
       lastSuccessAt: new Date(),
-      lastFailureAt: failed.length ? new Date() : workerHeartbeats.aiExaminer.lastFailureAt,
-      lastError: failed[0] && "error" in failed[0] ? failed[0].error?.message ?? null : null,
+      lastFailureAt: failureCount ? new Date() : workerHeartbeats.aiExaminer.lastFailureAt,
+      lastError: failed[0] && "error" in failed[0]
+        ? failed[0].error?.message ?? null
+        : recoveryFailed[0]?.error ?? null,
     };
-    finishMetric(failed.length ? "failure" : "success");
+    finishMetric(failureCount ? "failure" : "success");
     if (failed.length) logger.warn({ failed: failed.length, total: results.length }, "AI Examiner worker completed with evaluation failures");
+    if (recoveryFailed.length) logger.warn({ failed: recoveryFailed.length, total: recoveryResults.length }, "AI Examiner checked-copy recovery completed with failures");
   } catch (error) {
     workerHeartbeats.aiExaminer = {
       lastSuccessAt: workerHeartbeats.aiExaminer.lastSuccessAt,
