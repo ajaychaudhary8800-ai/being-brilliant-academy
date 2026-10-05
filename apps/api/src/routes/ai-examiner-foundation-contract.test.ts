@@ -53,6 +53,9 @@ test("Ranpal AI Examiner owns versioned rubrics, queued evaluation and human rev
   assert.match(engine, /response_format: \{ type: "json_object" \}/);
   assert.match(worker, /AIExaminerEvaluationStatus\.REVIEW_REQUIRED/);
   assert.match(worker, /processQueuedAIExaminerEvaluations/);
+  assert.match(worker, /ensureAIExaminerCheckedCopyDraft/);
+  assert.match(worker, /AI_CHECKED_COPY_AUTO_DRAFT_FAILED/);
+  assert.match(worker, /checkedCopyAutoDraft/);
 
   assert.match(server, /import aiExaminer from "\.\/routes\/ai-examiner\.js"/);
   assert.match(server, /app\.use\("\/api\/v1\/ai-examiner", aiExaminer\)/);
