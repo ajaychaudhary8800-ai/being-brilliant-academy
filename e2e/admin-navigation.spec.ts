@@ -20,6 +20,11 @@ const adminPages: Array<[string, RegExp]> = [
   ["/admin/homeworks", /homework/i],
   ["/admin/tests", /test|assessment/i],
   ["/admin/examination-submissions", /question papers|answer sheets/i],
+  ["/admin/ai-examiner", /ai evaluation setup|ranpal ai examiner/i],
+  ["/admin/connected-campus", /connected campus/i],
+  ["/admin/device-hub", /device hub/i],
+  ["/admin/transport", /transport management/i],
+  ["/admin/meetings", /staff & management meetings/i],
   ["/admin/lms", /learning|lesson|lms/i],
   ["/admin/enquiries", /admissions|crm|enquir/i],
   ["/admin/fees", /fees|finance/i],
@@ -49,7 +54,7 @@ const branchAdminPages: Array<[string, RegExp]> = [
 test.beforeAll(({ baseURL }) => assertSafeTarget(baseURL ?? "http://127.0.0.1:3000"));
 
 test("@smoke super admin critical modules load without server errors", async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   await login(page, "superAdmin");
   for (const [path, heading] of adminPages) {
     await test.step(path, async () => {
