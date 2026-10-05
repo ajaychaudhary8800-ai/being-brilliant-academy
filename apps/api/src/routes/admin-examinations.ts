@@ -1,4 +1,4 @@
-import { ExaminationResultStatus, ExaminationStatus, ExaminationType, Prisma, Role } from "@prisma/client";
+import { AIExaminerCheckedCopyRevisionStatus, ExaminationResultStatus, ExaminationStatus, ExaminationType, Prisma, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { examinationCodeConflict, isExaminationCodeConflict } from "../lib/examination-uniqueness.js";
@@ -11,6 +11,41 @@ import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
 const router = Router();
+
+async function publishRenderedCheckedCopies(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  examinationId: string,
+  actorId: string,
+  publishedAt: Date,
+) {
+  const revisions = await tx.aIExaminerCheckedCopyRevision.findMany({
+    where: {
+      organizationId,
+      status: AIExaminerCheckedCopyRevisionStatus.RENDERED,
+      checkedCopy: { answerSheet: { examinationId } },
+    },
+    select: { id: true, revision: true, checkedCopy: { select: { answerSheetId: true } } },
+  });
+  if (!revisions.length) return 0;
+  await tx.aIExaminerCheckedCopyRevision.updateMany({
+    where: { id: { in: revisions.map(row => row.id) }, organizationId, status: AIExaminerCheckedCopyRevisionStatus.RENDERED },
+    data: { status: AIExaminerCheckedCopyRevisionStatus.PUBLISHED, publishedAt },
+  });
+  for (const row of revisions) {
+    await tx.auditLog.create({
+      data: {
+        organizationId,
+        actorId,
+        action: "AI_CHECKED_COPY_PUBLISHED",
+        entity: "AIExaminerCheckedCopyRevision",
+        entityId: row.id,
+        metadata: { examinationId, answerSheetId: row.checkedCopy.answerSheetId, revision: row.revision, source: "RESULT_PUBLICATION" },
+      },
+    });
+  }
+  return revisions.length;
+}
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN), requireCommercialFeature("examinations"));
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } as const;
 const civilDate = historicalCivilDate;
@@ -313,13 +348,15 @@ router.patch("/examinations/:id/status", async (req: AuthRequest, res) => {
   const value = await prisma.$transaction(async tx => {
     const locked = await tx.examination.updateMany({ where: { id: old.id, organizationId: req.auth!.organizationId, status: old.status }, data: { updatedAt: new Date() } });
     assertSingleConditionalMutation(locked.count, "EXAMINATION_CHANGED", "Examination status changed concurrently; reload before retrying");
+    let publishedCheckedCopies = 0;
     if (status === ExaminationStatus.RESULTS_PUBLISHED) {
       await assertPublishable(tx, old.id, req.auth!.organizationId);
       const exam = await tx.examination.findUniqueOrThrow({ where: { id: old.id }, select: { id: true, organizationId: true, maximumMarks: true, passingMarks: true } });
       await refreshGeneratedResultMetadata(tx, exam);
+      publishedCheckedCopies = await publishRenderedCheckedCopies(tx, req.auth!.organizationId, old.id, req.auth!.userId, new Date());
     }
     const updated = await tx.examination.update({ where: { id: old.id }, data: { status }, select });
-    await tx.auditLog.create({ data: auditData(req, status === ExaminationStatus.ARCHIVED ? "ARCHIVE" : status === ExaminationStatus.RESULTS_PUBLISHED ? "PUBLISH" : "STATUS_CHANGE", old.id) });
+    await tx.auditLog.create({ data: { ...auditData(req, status === ExaminationStatus.ARCHIVED ? "ARCHIVE" : status === ExaminationStatus.RESULTS_PUBLISHED ? "PUBLISH" : "STATUS_CHANGE", old.id), ...(status === ExaminationStatus.RESULTS_PUBLISHED ? { metadata: { publishedCheckedCopies } } : {}) } });
     return updated;
   }, serializable);
   res.json({ data: shape(value) });
