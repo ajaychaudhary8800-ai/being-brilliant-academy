@@ -111,7 +111,7 @@ function canonicalAnnotations(revision: Awaited<ReturnType<typeof revisionForMan
 router.post("/evaluations/:evaluationId/checked-copy/draft", async (req:AuthRequest,res)=>{
   const evaluationId=cuid.parse(req.params.evaluationId);
   const evaluation=await prisma.aIExaminerEvaluation.findFirst({
-    where:{id:evaluationId,organizationId:req.auth!.organizationId,status:AIExaminerEvaluationStatus.APPROVED},
+    where:{id:evaluationId,organizationId:req.auth!.organizationId,status:{in:[AIExaminerEvaluationStatus.REVIEW_REQUIRED,AIExaminerEvaluationStatus.APPROVED]}},
     include:{
       rubric:{select:{version:true}},
       answerSheet:{
@@ -123,10 +123,16 @@ router.post("/evaluations/:evaluationId/checked-copy/draft", async (req:AuthRequ
       questions:{orderBy:{createdAt:"asc"}},
     },
   });
-  if(!evaluation) throw new AppError(404,"AI_EXAMINER_EVALUATION_NOT_FOUND","Approved AI evaluation not found");
+  if(!evaluation) throw new AppError(404,"AI_EXAMINER_EVALUATION_NOT_FOUND","AI evaluation must be ready for teacher review before creating a checked-copy draft");
   await assertManager(req,evaluation.answerSheet.examination);
-  if(!evaluation.answerSheet.finalizedAt||evaluation.answerSheet.marksObtained==null||evaluation.questions.some(question=>question.finalMarks==null)){
-    throw new AppError(409,"AI_CHECKED_COPY_GRADING_INCOMPLETE","Teacher-approved finalized marks are required before checked-copy annotation review");
+  const finalized=evaluation.status===AIExaminerEvaluationStatus.APPROVED;
+  const questionMarks=evaluation.questions.map(question=>finalized?question.finalMarks:question.suggestedMarks);
+  const totalMarks=finalized?evaluation.answerSheet.marksObtained:evaluation.suggestedMarks;
+  if(finalized&&(!evaluation.answerSheet.finalizedAt||evaluation.answerSheet.marksObtained==null||evaluation.questions.some(question=>question.finalMarks==null))){
+    throw new AppError(409,"AI_CHECKED_COPY_GRADING_INCOMPLETE","Approved evaluations require finalized teacher marks before checked-copy annotation review");
+  }
+  if(questionMarks.some(mark=>mark==null)||totalMarks==null){
+    throw new AppError(409,"AI_CHECKED_COPY_SUGGESTIONS_INCOMPLETE","AI suggested marks are incomplete; finish evaluation processing before checked-copy review");
   }
 
   const checkedCopy=await prisma.aIExaminerCheckedCopy.upsert({
@@ -139,7 +145,7 @@ router.post("/evaluations/:evaluationId/checked-copy/draft", async (req:AuthRequ
     include:{annotations:{include:{anchor:true},orderBy:{sortOrder:"asc"}}},
     orderBy:{revision:"desc"},
   });
-  if(existing) return res.json({data:existing,meta:{label:"AI Checked Copy — Draft",existing:true}});
+  if(existing) return res.json({data:existing,meta:{label:finalized?"AI Checked Copy — Draft":"AI Suggested Checked Copy — Draft",existing:true,gradingMode:finalized?"FINAL":"SUGGESTED"}});
 
   const source={fileName:evaluation.answerSheet.fileName,mimeType:evaluation.answerSheet.mimeType,bytes:Buffer.from(evaluation.answerSheet.fileData)};
   const inspected=await inspectAIExaminerCheckedCopySource(source);
@@ -148,12 +154,12 @@ router.post("/evaluations/:evaluationId/checked-copy/draft", async (req:AuthRequ
   const resultRevision=result?await prisma.aIExaminerResultRevision.findFirst({where:{organizationId:req.auth!.organizationId,resultId:result.id},select:{revision:true},orderBy:{revision:"desc"}}):null;
   const draft=buildAIExaminerCheckedCopyDraft({
     diagnostics:evaluation.diagnostics,
-    questions:evaluation.questions.map(question=>({
-      questionKey:question.questionKey,maxMarks:Number(question.maxMarks),finalMarks:Number(question.finalMarks),
-      confidence:question.confidence==null?null:Number(question.confidence),teacherComment:question.teacherComment,feedback:question.feedback,
+    questions:evaluation.questions.map((question,index)=>({
+      questionKey:question.questionKey,maxMarks:Number(question.maxMarks),finalMarks:Number(questionMarks[index]),
+      confidence:question.confidence==null?null:Number(question.confidence),teacherComment:finalized?question.teacherComment:null,feedback:question.feedback,
       rubricBreakdown:question.rubricBreakdown,
     })),
-    totalMarks:Number(evaluation.answerSheet.marksObtained),maximumMarks:evaluation.answerSheet.examination.maximumMarks,
+    totalMarks:Number(totalMarks),maximumMarks:evaluation.answerSheet.examination.maximumMarks,
     sourcePageCount:inspected.pageCount,
   });
   const revisionNumber=(latestRevision?.revision??0)+1;
@@ -185,7 +191,7 @@ router.post("/evaluations/:evaluationId/checked-copy/draft", async (req:AuthRequ
     await tx.auditLog.create({data:{organizationId:req.auth!.organizationId,actorId:req.auth!.userId,action:"AI_CHECKED_COPY_ANNOTATION_CREATED",entity:"AIExaminerCheckedCopyRevision",entityId:created.id,metadata:{count:draft.length,source:"AI_DRAFT"}}});
     return tx.aIExaminerCheckedCopyRevision.findUniqueOrThrow({where:{id:created.id},include:{annotations:{include:{anchor:true},orderBy:{sortOrder:"asc"}}}});
   });
-  res.status(201).json({data:revision,meta:{label:"AI Checked Copy — Draft",existing:false}});
+  res.status(201).json({data:revision,meta:{label:finalized?"AI Checked Copy — Draft":"AI Suggested Checked Copy — Draft",existing:false,gradingMode:finalized?"FINAL":"SUGGESTED"}});
 });
 
 router.get("/evaluations/:evaluationId/checked-copy/review", async (req:AuthRequest,res)=>{
