@@ -40,7 +40,10 @@ test("Ranpal AI Examiner owns versioned rubrics, queued evaluation and human rev
   assert.match(route, /evaluationExecutionAvailable: aiExaminerProviderConfigured\(\)/);
   assert.match(route, /providerConfigured: aiExaminerProviderConfigured\(\)/);
   assert.match(route, /\/answer-sheets\/:answerSheetId\/evaluate/);
-  assert.match(route, /\/evaluations\/:evaluationId\/approve/);\n  assert.match(route, /AI_CHECKED_COPY_FINAL_MARKS_SYNCED/);\n  assert.match(route, /AIExaminerAnnotationType\.QUESTION_SCORE/);\n  assert.match(route, /AIExaminerAnnotationApprovalState\.POSITION_REVIEW_REQUIRED/);
+  assert.match(route, /\/evaluations\/:evaluationId\/approve/);
+  assert.match(route, /AI_CHECKED_COPY_FINAL_MARKS_SYNCED/);
+  assert.match(route, /AIExaminerAnnotationType\.QUESTION_SCORE/);
+  assert.match(route, /AIExaminerAnnotationApprovalState\.POSITION_REVIEW_REQUIRED/);
 
   assert.match(policy, /AI_EXAMINER_RUBRIC_MARKS_MISMATCH/);
   assert.match(policy, /AI_EXAMINER_ACTIVE_RUBRIC_REQUIRED/);
