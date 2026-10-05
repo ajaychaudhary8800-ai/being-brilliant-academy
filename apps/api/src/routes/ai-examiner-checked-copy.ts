@@ -9,7 +9,6 @@ import {
 import { Router } from "express";
 import { z } from "zod";
 import {
-  assertCheckedCopyApprovalReady,
   autoPlaceCheckedCopyAnnotations,
   CHECKED_COPY_AUTO_APPROVE_PLACEMENT_CONFIDENCE,
   checkedCopyAnchorSchema,
@@ -23,6 +22,7 @@ import {
   type CheckedCopyPersistedAnnotation,
 } from "../lib/ai-examiner-checked-copy.js";
 import { ensureAIExaminerCheckedCopyDraft } from "../lib/ai-examiner-checked-copy-draft.js";
+import { finalizeAIExaminerCheckedCopyIfReady } from "../lib/ai-examiner-checked-copy-finalize.js";
 import { assertExaminationManager } from "../lib/examination-policy.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
@@ -355,55 +355,23 @@ router.post("/checked-copy/revisions/:revisionId/pages/:pageNumber/approve",asyn
 });
 
 router.post("/checked-copy/revisions/:revisionId/approve",async(req:AuthRequest,res)=>{
-  let revision=await revisionForManager(req,cuid.parse(req.params.revisionId));
-  if(revision.status!==AIExaminerCheckedCopyRevisionStatus.DRAFT&&revision.status!==AIExaminerCheckedCopyRevisionStatus.APPROVED){
-    if(revision.status===AIExaminerCheckedCopyRevisionStatus.RENDERED||revision.status===AIExaminerCheckedCopyRevisionStatus.PUBLISHED) return res.json({data:sanitizedRevision(revision),meta:{label:"Checked Copy — Approved",alreadyApproved:true}});
-    throw new AppError(409,"AI_CHECKED_COPY_IMMUTABLE","This checked-copy revision cannot be approved");
-  }
-  const sheet=revision.checkedCopy.answerSheet;
-  if(!sheet.finalizedAt||sheet.marksObtained==null||revision.evaluation.status!==AIExaminerEvaluationStatus.APPROVED) throw new AppError(409,"AI_CHECKED_COPY_GRADING_INCOMPLETE","Finalized teacher-approved grading is required");
-  if(revision.status===AIExaminerCheckedCopyRevisionStatus.DRAFT){
-    try{
-      assertCheckedCopyApprovalReady({
-        annotations:revision.annotations.map(row=>({type:row.type,questionKey:row.questionKey,content:row.content,marks:row.marks,approvalState:row.approvalState,anchor:row.anchor})),
-        questions:revision.evaluation.questions.map(question=>({questionKey:question.questionKey,finalMarks:Number(question.finalMarks)})),
-        totalMarks:Number(sheet.marksObtained),
-      });
-    }catch(error){
-      const message=error instanceof Error?error.message:"Checked-copy review is incomplete";
-      if(message.startsWith("POSITION_REVIEW_REQUIRED:")) throw new AppError(409,"AI_CHECKED_COPY_POSITION_REVIEW_REQUIRED",`${message.split(":")[1]} annotation(s) still require teacher positioning before approval`);
-      throw new AppError(409,"AI_CHECKED_COPY_APPROVAL_INTEGRITY",message);
-    }
-    const now=new Date();
-    await prisma.$transaction(async tx=>{
-      await tx.aIExaminerAnnotation.updateMany({where:{organizationId:req.auth!.organizationId,revisionId:revision.id,approvalState:AIExaminerAnnotationApprovalState.AI_DRAFT},data:{approvalState:AIExaminerAnnotationApprovalState.APPROVED,authorType:AIExaminerAnnotationAuthorType.TEACHER,authorId:req.auth!.userId}});
-      const locked=await tx.aIExaminerCheckedCopyRevision.updateMany({where:{id:revision.id,organizationId:req.auth!.organizationId,status:AIExaminerCheckedCopyRevisionStatus.DRAFT},data:{status:AIExaminerCheckedCopyRevisionStatus.APPROVED,approvedById:req.auth!.userId,approvedAt:now}});
-      if(locked.count!==1) throw new AppError(409,"AI_CHECKED_COPY_REVIEW_CHANGED","Checked-copy review changed; refresh and retry");
-      await tx.auditLog.create({data:{organizationId:req.auth!.organizationId,actorId:req.auth!.userId,action:"AI_CHECKED_COPY_APPROVED",entity:"AIExaminerCheckedCopyRevision",entityId:revision.id,metadata:{revision:revision.revision,evaluationId:revision.evaluationId}}});
-    });
-    revision=await revisionForManager(req,revision.id);
-  }
-
-  const source={fileName:sheet.fileName,mimeType:sheet.mimeType,bytes:Buffer.from(sheet.fileData)};
-  if(sha256Buffer(source.bytes)!==revision.sourceAnswerSheetSha256) throw new AppError(409,"AI_CHECKED_COPY_SOURCE_CHANGED","Original answer-sheet fingerprint no longer matches this revision");
-  const rendered=await renderAIExaminerCheckedCopy({
-    source,studentName:sheet.student.user.name,examinationName:sheet.examination.name,
-    questions:revision.evaluation.questions.map(question=>({questionKey:question.questionKey,maxMarks:Number(question.maxMarks),finalMarks:Number(question.finalMarks),teacherComment:question.teacherComment,feedback:question.feedback})),
-    annotations:canonicalAnnotations(revision),totalMarks:Number(sheet.marksObtained),maximumMarks:sheet.examination.maximumMarks,
-    reviewerName:revision.evaluation.reviewedBy?.name??null,evaluationRevision:revision.evaluationRevision,checkedCopyRevision:revision.revision,
+  const revisionId=cuid.parse(req.params.revisionId);
+  await revisionForManager(req,revisionId);
+  const finalized=await finalizeAIExaminerCheckedCopyIfReady({
+    organizationId:req.auth!.organizationId,
+    revisionId,
+    actorId:req.auth!.userId,
   });
-  const renderedHash=sha256Buffer(rendered.pdf),fileName=`${sheet.fileName.replace(/\.[^.]+$/,"").replace(/[^A-Za-z0-9._-]+/g,"-").slice(0,120)||"answer-sheet"}-checked-r${revision.revision}.pdf`;
-  const stored=await prisma.$transaction(async tx=>{
-    const locked=await tx.aIExaminerCheckedCopyRevision.updateMany({
-      where:{id:revision.id,organizationId:req.auth!.organizationId,status:AIExaminerCheckedCopyRevisionStatus.APPROVED},
-      data:{status:AIExaminerCheckedCopyRevisionStatus.RENDERED,renderedFileName:fileName,renderedMimeType:"application/pdf",renderedFileSize:rendered.pdf.length,renderedFileData:new Uint8Array(rendered.pdf),renderedFileSha256:renderedHash,renderedAt:new Date()},
-    });
-    if(locked.count!==1) throw new AppError(409,"AI_CHECKED_COPY_RENDER_CHANGED","Checked-copy render state changed; refresh before retrying");
-    await tx.aIExaminerCheckedCopyRevision.updateMany({where:{checkedCopyId:revision.checkedCopyId,id:{not:revision.id},status:{in:[AIExaminerCheckedCopyRevisionStatus.RENDERED,AIExaminerCheckedCopyRevisionStatus.PUBLISHED]}},data:{status:AIExaminerCheckedCopyRevisionStatus.SUPERSEDED}});
-    await tx.auditLog.create({data:{organizationId:req.auth!.organizationId,actorId:req.auth!.userId,action:"AI_CHECKED_COPY_RENDERED",entity:"AIExaminerCheckedCopyRevision",entityId:revision.id,metadata:{renderedFileSha256:renderedHash,pageCount:rendered.pageCount,placement:rendered.placement}}});
-    return tx.aIExaminerCheckedCopyRevision.findUniqueOrThrow({where:{id:revision.id},include:{annotations:{include:{anchor:true},orderBy:{sortOrder:"asc"}}}});
+  const safe={...sanitizedRevision(finalized.revision),renderedFileData:undefined};
+  res.json({
+    data:safe,
+    meta:{
+      label:"Checked Copy — Approved",
+      alreadyApproved:finalized.alreadyRendered,
+      placement:finalized.placement,
+      pageCount:finalized.pageCount,
+    },
   });
-  res.json({data:{...stored,renderedFileData:undefined},meta:{label:"Checked Copy — Approved",placement:rendered.placement,pageCount:rendered.pageCount}});
 });
 
 router.get("/checked-copy/revisions/:revisionId/preview-pdf",async(req:AuthRequest,res)=>{
