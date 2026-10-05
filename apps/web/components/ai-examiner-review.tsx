@@ -99,7 +99,7 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
       const json=await fetch(`${API}/ai-examiner/evaluations/${evaluation.id}/approve`,{
         method:"POST",headers:headers(),body:JSON.stringify({questions,teacherRemarks:teacherRemarks.trim()||null}),
       }).then(responseBody);
-      await fetch(`${API}/ai-examiner/evaluations/${evaluation.id}/checked-copy/draft`,{method:"POST",headers:headers()}).then(responseBody);
+      await fetch(`${API}/ai-examiner/evaluations/${evaluation.id}/checked-copy/draft`,{method:"POST",headers:headers()}).then(responseBody).catch(()=>null);
       setNotice(`AI evaluation approved and finalized at ${json.meta.finalMarks} marks. Checked-copy scores were synchronized automatically.`);
       await load();
     }catch(cause){setError(cause instanceof Error?cause.message:"Unable to approve AI evaluation");}
