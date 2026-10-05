@@ -132,7 +132,7 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
               <div className="flex flex-wrap gap-2">
                 <button className="btn" onClick={()=>void openQuestionPaper()}><FileText size={16}/>Question Paper</button>
                 <button className="btn" onClick={()=>void openAnswerSheet()}><ExternalLink size={16}/>Answer Sheet</button>
-                {readonly&&<Link className="btn border-red-200 text-red-700" href={`${teacherView?"/teacher":"/admin"}/ai-examiner/checked-copy/${evaluation.id}`}>Review Checked Copy</Link>}
+                {(evaluation.status==="REVIEW_REQUIRED"||readonly)&&<Link className="btn border-red-200 text-red-700" href={`${teacherView?"/teacher":"/admin"}/ai-examiner/checked-copy/${evaluation.id}`}>{readonly?"Review Checked Copy":"Review AI Red-Pen Draft"}</Link>}
                 {readonly&&<button className="btn border-red-200 text-red-700" onClick={()=>void openCheckedCopy()}><Download size={16}/>Download Approved Copy</button>}
               </div>
             </div>
