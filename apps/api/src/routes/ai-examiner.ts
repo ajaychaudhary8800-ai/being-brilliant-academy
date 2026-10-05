@@ -3887,19 +3887,26 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
     const exceptions = ensured.revision.annotations.filter(row =>
       row.approvalState === AIExaminerAnnotationApprovalState.POSITION_REVIEW_REQUIRED || !row.anchor
     ).length;
-    checkedCopyMeta = {
-      status: exceptions === 0 ? "RENDERED" : "EXCEPTIONS_REMAIN",
-      exceptions,
-      revisionId: ensured.revision.id,
-    };
     if (exceptions === 0) {
       await finalizeAIExaminerCheckedCopyIfReady({
         organizationId: req.auth!.organizationId,
         revisionId: ensured.revision.id,
         actorId: req.auth!.userId,
       });
+      checkedCopyMeta = {
+        status: "RENDERED",
+        exceptions: 0,
+        revisionId: ensured.revision.id,
+      };
+    } else {
+      checkedCopyMeta = {
+        status: "EXCEPTIONS_REMAIN",
+        exceptions,
+        revisionId: ensured.revision.id,
+      };
     }
   } catch (checkedCopyError) {
+    checkedCopyMeta = { status: "RETRY_REQUIRED", exceptions: null, revisionId: checkedCopyMeta.revisionId };
     await prisma.auditLog.create({
       data: {
         organizationId: req.auth!.organizationId,
