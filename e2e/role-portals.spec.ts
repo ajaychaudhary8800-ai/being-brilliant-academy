@@ -11,6 +11,8 @@ test("@smoke teacher workspace and protected assessment flow load", async ({ pag
   await page.goto("/teacher/examinations");
   await expectHealthyPage(page, /question papers|answer sheets/i);
   await expect(page).toHaveURL(/\/teacher\/examinations/);
+  await page.goto("/teacher/ai-examiner");
+  await expectHealthyPage(page, /ai evaluation setup|ranpal ai examiner/i);
 });
 
 test("@smoke student portal exposes assigned academic work", async ({ page }) => {
