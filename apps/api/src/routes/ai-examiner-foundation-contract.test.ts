@@ -44,6 +44,9 @@ test("Ranpal AI Examiner owns versioned rubrics, queued evaluation and human rev
   assert.match(route, /AI_CHECKED_COPY_FINAL_MARKS_SYNCED/);
   assert.match(route, /AIExaminerAnnotationType\.QUESTION_SCORE/);
   assert.match(route, /AIExaminerAnnotationApprovalState\.POSITION_REVIEW_REQUIRED/);
+  assert.match(route, /finalizeAIExaminerCheckedCopyIfReady/);
+  assert.match(route, /EXCEPTIONS_REMAIN/);
+  assert.match(route, /AI_CHECKED_COPY_POST_FINALIZE_RETRY_REQUIRED/);
 
   assert.match(policy, /AI_EXAMINER_RUBRIC_MARKS_MISMATCH/);
   assert.match(policy, /AI_EXAMINER_ACTIVE_RUBRIC_REQUIRED/);
@@ -75,7 +78,6 @@ test("Ranpal AI Examiner owns versioned rubrics, queued evaluation and human rev
   assert.match(review, /checked-copy\/draft/);
   assert.match(review, /redPenExceptions/);
   assert.match(review, /Review Red-Pen Exceptions/);
-  assert.match(review, /checked-copy\/revisions\/\$\{revision\.id\}\/approve/);
   assert.match(review, /automatically approved and rendered/);
   assert.match(review, /Teacher attention required/);
   assert.match(sidebar, /Ranpal AI Examiner/);
