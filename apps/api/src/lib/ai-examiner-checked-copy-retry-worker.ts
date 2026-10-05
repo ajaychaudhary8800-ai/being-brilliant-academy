@@ -5,6 +5,7 @@ import {
 } from "@prisma/client";
 import { ensureAIExaminerCheckedCopyDraft } from "./ai-examiner-checked-copy-draft.js";
 import { finalizeAIExaminerCheckedCopyIfReady } from "./ai-examiner-checked-copy-finalize.js";
+import { checkedCopyRecoveryDecision } from "./ai-examiner-checked-copy-recovery-policy.js";
 import { logger } from "./logger.js";
 import { systemPrisma } from "./prisma.js";
 
@@ -69,18 +70,36 @@ export async function processAIExaminerCheckedCopyRetries(limit = 5) {
   }> = [];
 
   for (const failure of selected) {
-    const recovery = await systemPrisma.auditLog.findFirst({
+    const recoveryEvents = await systemPrisma.auditLog.findMany({
       where: {
         organizationId: failure.organizationId,
         entity: "AIExaminerEvaluation",
         entityId: failure.entityId,
-        action: "AI_CHECKED_COPY_AUTO_RECOVERY_SUCCEEDED",
+        action: {
+          in: [
+            "AI_CHECKED_COPY_AUTO_RECOVERY_SUCCEEDED",
+            "AI_CHECKED_COPY_AUTO_RECOVERY_FAILED",
+          ],
+        },
         createdAt: { gt: failure.createdAt },
       },
-      select: { id: true },
+      select: { action: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 32,
     });
-    if (recovery) {
+    const recoveryDecision = checkedCopyRecoveryDecision(
+      recoveryEvents.map(event => ({
+        action: event.action as
+          | "AI_CHECKED_COPY_AUTO_RECOVERY_SUCCEEDED"
+          | "AI_CHECKED_COPY_AUTO_RECOVERY_FAILED",
+        createdAt: event.createdAt,
+      })),
+    );
+    if (recoveryDecision.resolved) {
       results.push({ evaluationId: failure.entityId, outcome: "SKIPPED_RESOLVED" });
+      continue;
+    }
+    if (!recoveryDecision.retry) {
       continue;
     }
 
