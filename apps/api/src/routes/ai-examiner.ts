@@ -1,4 +1,4 @@
-import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerCheckedCopyRevisionStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBatchPageStatus, AIExaminerScanBatchStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
+import { AcademicBoard, AIExaminerAnnotationApprovalState, AIExaminerAnnotationAuthorType, AIExaminerAnnotationType, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerCheckedCopyRevisionStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBatchPageStatus, AIExaminerScanBatchStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
 import crypto from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
@@ -3738,6 +3738,79 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
       },
     });
     if (answer.count !== 1) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet review state changed before approval");
+
+    // A teacher may review the AI red-pen draft before finalizing marks. Keep that
+    // non-destructive draft, but synchronize managed score annotations with the
+    // authoritative teacher-approved marks. If the teacher changed a question score,
+    // AI-authored semantic marks for that question must be reviewed again.
+    const checkedCopyDrafts = await tx.aIExaminerCheckedCopyRevision.findMany({
+      where: {
+        organizationId: req.auth!.organizationId,
+        evaluationId: evaluation.id,
+        status: AIExaminerCheckedCopyRevisionStatus.DRAFT,
+      },
+      select: { id: true },
+    });
+    if (checkedCopyDrafts.length) {
+      const revisionIds = checkedCopyDrafts.map(row => row.id);
+      const changedQuestionKeys: string[] = [];
+      for (const question of evaluation.questions) {
+        const reviewed = byKey.get(question.questionKey.toLowerCase())!;
+        const suggested = question.suggestedMarks == null ? null : Number(question.suggestedMarks);
+        if (suggested == null || Math.abs(reviewed.finalMarks - suggested) > 0.001) changedQuestionKeys.push(question.questionKey);
+        await tx.aIExaminerAnnotation.updateMany({
+          where: {
+            organizationId: req.auth!.organizationId,
+            revisionId: { in: revisionIds },
+            type: AIExaminerAnnotationType.QUESTION_SCORE,
+            questionKey: question.questionKey,
+          },
+          data: {
+            marks: reviewed.finalMarks,
+            content: `${question.questionKey}: ${reviewed.finalMarks}/${Number(question.maxMarks)}`,
+          },
+        });
+      }
+      await tx.aIExaminerAnnotation.updateMany({
+        where: {
+          organizationId: req.auth!.organizationId,
+          revisionId: { in: revisionIds },
+          type: AIExaminerAnnotationType.TOTAL_SCORE,
+        },
+        data: { marks: total, content: `Total = ${total}/${exam.maximumMarks}` },
+      });
+      if (changedQuestionKeys.length) {
+        await tx.aIExaminerAnnotation.updateMany({
+          where: {
+            organizationId: req.auth!.organizationId,
+            revisionId: { in: revisionIds },
+            questionKey: { in: changedQuestionKeys },
+            authorType: AIExaminerAnnotationAuthorType.AI,
+            approvalState: AIExaminerAnnotationApprovalState.AI_DRAFT,
+            type: { not: AIExaminerAnnotationType.QUESTION_SCORE },
+          },
+          data: { approvalState: AIExaminerAnnotationApprovalState.POSITION_REVIEW_REQUIRED },
+        });
+      }
+      await tx.aIExaminerCheckedCopyRevision.updateMany({
+        where: { id: { in: revisionIds }, organizationId: req.auth!.organizationId },
+        data: { annotationRevision: { increment: 1 } },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          actorId: req.auth!.userId,
+          action: "AI_CHECKED_COPY_FINAL_MARKS_SYNCED",
+          entity: "AIExaminerEvaluation",
+          entityId: evaluation.id,
+          metadata: {
+            revisionIds,
+            changedQuestionKeys,
+            teacherApprovedMarks: total,
+          },
+        },
+      });
+    }
 
     const result = examinationResultFor(total, exam.maximumMarks, exam.passingMarks, now);
     await tx.examinationResult.upsert({
