@@ -241,3 +241,82 @@ test("fresh checked-copy draft uses NOTE as a locator without rendering duplicat
   assert.equal(correction.approvalState, "AI_DRAFT");
   assert.ok((correction.anchor?.placementConfidence ?? 0) >= 0.8);
 });
+
+
+test("fresh checked-copy draft routes low-confidence visual hints to teacher position review", () => {
+  const draft = buildAIExaminerCheckedCopyDraft({
+    diagnostics: {
+      questionDiagnostics: [{
+        questionKey: "Q3",
+        annotationHints: [
+          { kind: "TICK", pageNumber: 1, x: 0.20, y: 0.25, width: 0.18, height: 0.04, text: "visible but uncertain" },
+        ],
+      }],
+    },
+    questions: [{
+      questionKey: "Q3",
+      maxMarks: 4,
+      finalMarks: 2,
+      confidence: 0.61,
+      rubricBreakdown: [],
+    }],
+    totalMarks: 2,
+    maximumMarks: 4,
+    sourcePageCount: 1,
+  });
+  const direct = draft.find(row => row.type === "TICK");
+  assert.ok(direct);
+  assert.equal(direct.approvalState, "POSITION_REVIEW_REQUIRED");
+  assert.equal(direct.anchor?.placementConfidence, 0.61);
+});
+
+test("fresh checked-copy draft ignores provider hints outside the actual answer-sheet page count", () => {
+  const draft = buildAIExaminerCheckedCopyDraft({
+    diagnostics: {
+      questionDiagnostics: [{
+        questionKey: "Q4",
+        annotationHints: [
+          { kind: "UNDERLINE", pageNumber: 5, x: 0.25, y: 0.30, width: 0.20, height: 0.04, text: "impossible page" },
+        ],
+      }],
+    },
+    questions: [{
+      questionKey: "Q4",
+      maxMarks: 3,
+      finalMarks: 2,
+      confidence: 0.95,
+      rubricBreakdown: [],
+    }],
+    totalMarks: 2,
+    maximumMarks: 3,
+    sourcePageCount: 2,
+  });
+  assert.equal(draft.filter(row => row.type === "UNDERLINE").length, 0);
+  const score = draft.find(row => row.type === "QUESTION_SCORE");
+  assert.ok(score);
+  assert.equal(score.approvalState, "POSITION_REVIEW_REQUIRED");
+  assert.equal(score.anchor, null);
+});
+
+test("auto-place never uses diagnostic hints beyond the source page count", () => {
+  const placements = autoPlaceCheckedCopyAnnotations({
+    diagnostics: {
+      questionDiagnostics: [{
+        questionKey: "Q5",
+        annotationHints: [
+          { kind: "NOTE", pageNumber: 4, x: 0.20, y: 0.30, width: 0.20, height: 0.05, text: "outside source" },
+        ],
+      }],
+    },
+    sourcePageCount: 2,
+    annotations: [{
+      id: "q5-score",
+      questionKey: "Q5",
+      type: "QUESTION_SCORE",
+      sourceEvidence: null,
+      approvalState: "POSITION_REVIEW_REQUIRED",
+      anchor: null,
+    }],
+  });
+  assert.equal(placements.length, 0);
+});
