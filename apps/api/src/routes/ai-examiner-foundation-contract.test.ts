@@ -63,6 +63,9 @@ test("Ranpal AI Examiner owns versioned rubrics, queued evaluation and human rev
   assert.match(recoveryWorker, /processAIExaminerCheckedCopyRetries/);
   assert.match(recoveryWorker, /AI_CHECKED_COPY_AUTO_RECOVERY_SUCCEEDED/);
   assert.match(recoveryWorker, /AI_CHECKED_COPY_AUTO_RECOVERY_FAILED/);
+  assert.match(recoveryWorker, /checkedCopyRecoveryDecision/);
+  assert.match(recoveryWorker, /AIExaminerCheckedCopyRevisionStatus\.RENDERED/);
+  assert.match(recoveryWorker, /AIExaminerCheckedCopyRevisionStatus\.PUBLISHED/);
   assert.match(recoveryWorker, /finalizeAIExaminerCheckedCopyIfReady/);
   assert.match(server, /processAIExaminerCheckedCopyRetries\(5\)/);
 
