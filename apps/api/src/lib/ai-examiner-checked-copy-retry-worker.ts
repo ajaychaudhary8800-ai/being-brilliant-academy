@@ -70,6 +70,25 @@ export async function processAIExaminerCheckedCopyRetries(limit = 5) {
   }> = [];
 
   for (const failure of selected) {
+    const completedRevision = await systemPrisma.aIExaminerCheckedCopyRevision.findFirst({
+      where: {
+        organizationId: failure.organizationId,
+        evaluationId: failure.entityId,
+        status: {
+          in: [
+            AIExaminerCheckedCopyRevisionStatus.RENDERED,
+            AIExaminerCheckedCopyRevisionStatus.PUBLISHED,
+          ],
+        },
+      },
+      select: { id: true, status: true },
+      orderBy: { revision: "desc" },
+    });
+    if (completedRevision) {
+      results.push({ evaluationId: failure.entityId, outcome: "SKIPPED_RESOLVED" });
+      continue;
+    }
+
     const recoveryEvents = await systemPrisma.auditLog.findMany({
       where: {
         organizationId: failure.organizationId,
