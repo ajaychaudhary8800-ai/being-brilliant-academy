@@ -49,14 +49,15 @@ export async function processAIExaminerCheckedCopyRetries(limit = 5) {
     take: Math.max(limit * 8, 20),
   });
 
-  const selected = [];
+  const selected: Array<(typeof failures)[number] & { entityId: string }> = [];
   const seen = new Set<string>();
   for (const failure of failures) {
     if (!failure.entityId) continue;
-    const key = `${failure.organizationId}:${failure.entityId}`;
+    const entityId = failure.entityId;
+    const key = `${failure.organizationId}:${entityId}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    selected.push(failure);
+    selected.push({ ...failure, entityId });
     if (selected.length >= limit) break;
   }
 
