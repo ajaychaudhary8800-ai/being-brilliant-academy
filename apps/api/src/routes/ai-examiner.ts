@@ -34,6 +34,8 @@ import { analyzeAIExaminerOriginality } from "../lib/ai-examiner-originality.js"
 import { aiExaminerEvidenceMimeTypes, assertAIExaminerEvidenceKindMatchesMime, decodeAIExaminerEvidenceUpload, normalizeAIExaminerEvidenceUrl } from "../lib/ai-examiner-evidence-upload.js";
 import { renderAIExaminerCheckedCopy } from "../lib/ai-examiner-checked-copy.js";
 import { buildAIExaminerCheckedCopyDraft } from "../lib/ai-examiner-checked-copy-state.js";
+import { ensureAIExaminerCheckedCopyDraft } from "../lib/ai-examiner-checked-copy-draft.js";
+import { finalizeAIExaminerCheckedCopyIfReady } from "../lib/ai-examiner-checked-copy-finalize.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
@@ -3871,7 +3873,49 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
       include: { questions: { orderBy: { createdAt: "asc" } } },
     });
   });
-  res.json({ data: approved, meta: { finalMarks: total, finalized: true } });
+  let checkedCopyMeta: { status: "RENDERED" | "EXCEPTIONS_REMAIN" | "RETRY_REQUIRED"; exceptions: number | null; revisionId: string | null } = {
+    status: "RETRY_REQUIRED",
+    exceptions: null,
+    revisionId: null,
+  };
+  try {
+    const ensured = await ensureAIExaminerCheckedCopyDraft({
+      evaluationId: evaluation.id,
+      organizationId: req.auth!.organizationId,
+      createdById: req.auth!.userId,
+    });
+    const exceptions = ensured.revision.annotations.filter(row =>
+      row.approvalState === AIExaminerAnnotationApprovalState.POSITION_REVIEW_REQUIRED || !row.anchor
+    ).length;
+    checkedCopyMeta = {
+      status: exceptions === 0 ? "RENDERED" : "EXCEPTIONS_REMAIN",
+      exceptions,
+      revisionId: ensured.revision.id,
+    };
+    if (exceptions === 0) {
+      await finalizeAIExaminerCheckedCopyIfReady({
+        organizationId: req.auth!.organizationId,
+        revisionId: ensured.revision.id,
+        actorId: req.auth!.userId,
+      });
+    }
+  } catch (checkedCopyError) {
+    await prisma.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_CHECKED_COPY_POST_FINALIZE_RETRY_REQUIRED",
+        entity: "AIExaminerEvaluation",
+        entityId: evaluation.id,
+        metadata: {
+          answerSheetId: evaluation.answerSheet.id,
+          message: checkedCopyError instanceof Error ? checkedCopyError.message.slice(0, 1000) : "Unknown checked-copy finalization error",
+        },
+      },
+    }).catch(() => null);
+  }
+
+  res.json({ data: approved, meta: { finalMarks: total, finalized: true, checkedCopy: checkedCopyMeta } });
 });
 
 router.post("/evaluations/:evaluationId/cancel", async (req: AuthRequest, res) => {
