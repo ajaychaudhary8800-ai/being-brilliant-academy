@@ -3785,9 +3785,8 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
             organizationId: req.auth!.organizationId,
             revisionId: { in: revisionIds },
             questionKey: { in: changedQuestionKeys },
-            authorType: AIExaminerAnnotationAuthorType.AI,
-            approvalState: AIExaminerAnnotationApprovalState.AI_DRAFT,
-            type: { not: AIExaminerAnnotationType.QUESTION_SCORE },
+            approvalState: { not: AIExaminerAnnotationApprovalState.REJECTED },
+            type: { notIn: [AIExaminerAnnotationType.QUESTION_SCORE, AIExaminerAnnotationType.TOTAL_SCORE] },
           },
           data: { approvalState: AIExaminerAnnotationApprovalState.POSITION_REVIEW_REQUIRED },
         });
