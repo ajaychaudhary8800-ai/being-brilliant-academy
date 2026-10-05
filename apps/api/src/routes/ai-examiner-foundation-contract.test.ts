@@ -67,7 +67,8 @@ test("Ranpal AI Examiner owns versioned rubrics, queued evaluation and human rev
   assert.match(page, /evaluationExecutionAvailable/);
   assert.match(page, /Start AI Evaluation/);
   assert.match(page, /Review AI Marks/);
-  assert.match(review, /Approve & Finalize/);\n  assert.match(review, /Review AI Red-Pen Draft/);
+  assert.match(review, /Approve & Finalize/);
+  assert.match(review, /Review AI Red-Pen Draft/);
   assert.match(review, /Teacher attention required/);
   assert.match(sidebar, /Ranpal AI Examiner/);
   assert.match(sidebar, /\/admin\/ai-examiner/);
