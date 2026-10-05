@@ -52,6 +52,7 @@ export async function processAIExaminerCheckedCopyRetries(limit = 5) {
   const selected = [];
   const seen = new Set<string>();
   for (const failure of failures) {
+    if (!failure.entityId) continue;
     const key = `${failure.organizationId}:${failure.entityId}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -92,7 +93,7 @@ export async function processAIExaminerCheckedCopyRetries(limit = 5) {
         id: true,
         requestedById: true,
         status: true,
-        answerSheet: { select: { finalizedAt: true, marksObtained: true } },
+        answerSheetId: true,
       },
     });
     if (!evaluation) {
@@ -101,6 +102,18 @@ export async function processAIExaminerCheckedCopyRetries(limit = 5) {
     }
 
     try {
+      const answerSheet = await systemPrisma.examinationAnswerSheet.findFirst({
+        where: {
+          id: evaluation.answerSheetId,
+          organizationId: failure.organizationId,
+        },
+        select: { finalizedAt: true, marksObtained: true },
+      });
+      if (!answerSheet) {
+        results.push({ evaluationId: evaluation.id, outcome: "SKIPPED_INELIGIBLE" });
+        continue;
+      }
+
       const ensured = await ensureAIExaminerCheckedCopyDraft({
         evaluationId: evaluation.id,
         organizationId: failure.organizationId,
@@ -111,8 +124,8 @@ export async function processAIExaminerCheckedCopyRetries(limit = 5) {
 
       if (
         evaluation.status === AIExaminerEvaluationStatus.APPROVED &&
-        evaluation.answerSheet.finalizedAt &&
-        evaluation.answerSheet.marksObtained != null
+        answerSheet.finalizedAt &&
+        answerSheet.marksObtained != null
       ) {
         if (exceptions === 0) {
           const finalized = await finalizeAIExaminerCheckedCopyIfReady({
