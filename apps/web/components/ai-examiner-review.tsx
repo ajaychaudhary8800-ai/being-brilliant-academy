@@ -40,6 +40,7 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const [redPenExceptions,setRedPenExceptions]=useState<number|null>(null);
 
   const load=useCallback(async()=>{
     setLoading(true);
@@ -51,6 +52,15 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
       setComments(Object.fromEntries(data.questions.map(question=>[question.id,question.teacherComment??""])));
       setTeacherRemarks(data.feedback??"");
       setError("");
+      if(data.status==="REVIEW_REQUIRED"){
+        void fetch(`${API}/ai-examiner/evaluations/${data.id}/checked-copy/draft`,{method:"POST",headers:headers()})
+          .then(responseBody)
+          .then(redPen=>{
+            const annotations=Array.isArray(redPen?.data?.annotations)?redPen.data.annotations:[];
+            setRedPenExceptions(annotations.filter((row:any)=>row?.approvalState==="POSITION_REVIEW_REQUIRED"||!row?.anchor).length);
+          })
+          .catch(()=>setRedPenExceptions(null));
+      }else setRedPenExceptions(null);
     }catch(cause){setError(cause instanceof Error?cause.message:"Unable to load AI evaluation");}
     finally{setLoading(false);}
   },[evaluationId]);
@@ -133,7 +143,7 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
               <div className="flex flex-wrap gap-2">
                 <button className="btn" onClick={()=>void openQuestionPaper()}><FileText size={16}/>Question Paper</button>
                 <button className="btn" onClick={()=>void openAnswerSheet()}><ExternalLink size={16}/>Answer Sheet</button>
-                {(evaluation.status==="REVIEW_REQUIRED"||readonly)&&<Link className="btn border-red-200 text-red-700" href={`${teacherView?"/teacher":"/admin"}/ai-examiner/checked-copy/${evaluation.id}`}>{readonly?"Review Checked Copy":"Review AI Red-Pen Draft"}</Link>}
+                {(evaluation.status==="REVIEW_REQUIRED"||readonly)&&<Link className="btn border-red-200 text-red-700" href={`${teacherView?"/teacher":"/admin"}/ai-examiner/checked-copy/${evaluation.id}`}>{readonly?"Review Checked Copy":redPenExceptions==null?"Review AI Red-Pen Draft":redPenExceptions===0?"AI Red-Pen Ready":"Review Red-Pen Exceptions ("+redPenExceptions+")"}</Link>}
                 {readonly&&<button className="btn border-red-200 text-red-700" onClick={()=>void openCheckedCopy()}><Download size={16}/>Download Approved Copy</button>}
               </div>
             </div>
@@ -142,6 +152,7 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
               <Metric label="Teacher total" value={String(total)}/>
               <Metric label="Questions flagged" value={String(evaluation.questions.filter(question=>question.reviewRequired).length)}/>
             </div>
+            {evaluation.status==="REVIEW_REQUIRED"&&redPenExceptions!=null&&<p className={`mt-3 rounded-xl p-3 text-sm ${redPenExceptions?"bg-amber-50 text-amber-900":"bg-emerald-50 text-emerald-800"}`}>{redPenExceptions?`AI Red-Pen is ready; only ${redPenExceptions} placement exception(s) need attention.`:"AI Red-Pen is fully placed with no position exceptions. Review marks, then finalize."}</p>}
             {evaluation.feedback&&<div className="mt-4 rounded-xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">AI overall feedback</p><p className="mt-2 text-sm">{evaluation.feedback}</p></div>}
           </section>
 
