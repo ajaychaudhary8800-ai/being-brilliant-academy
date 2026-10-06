@@ -4,7 +4,7 @@
 **Provider:** ADHYAY EDUVENTURE PRIVATE LIMITED  
 **Management confirmation date:** 6 October 2026
 
-This file records provider particulars for the controlled legal pack. For MCA-covered particulars, management has directed that the official MCA Company Information extract dated **23 October 2024** be used as the source of record. GST particulars remain management-supplied pending separate official GST verification. Indian counsel review is still required before first external signature.
+This file records provider particulars for the controlled legal pack. For MCA-covered particulars, management has directed that the official MCA Company Information extract dated **23 October 2024** be used as the source of record. GST particulars are verified against the official **GST REG-06 Registration Certificate issued 17 December 2024**. Indian counsel review is still required before first external signature.
 
 ## Corporate particulars
 
@@ -18,6 +18,11 @@ This file records provider particulars for the controlled legal pack. For MCA-co
 - **Date of incorporation:** 03/02/2017
 - **Company status:** Active
 - **MCA source date:** 23/10/2024
+- **GST registration type:** Regular
+- **GST registration valid from:** 17/12/2024
+- **GST certificate issue date:** 17/12/2024
+- **GST principal place of business:** Building No./Flat No. 26, KH No. 257, Shahpur Road, near Aryan Prestige School, Royal Green City Phase 2, Ghaziabad, Ghaziabad, Uttar Pradesh 201001
+- **GST verification status:** Verified from official GST REG-06 certificate supplied by management
 
 ## Designated business-role contacts
 
@@ -51,6 +56,5 @@ Bank account and payment destination details are not stored in source control. T
 
 Before first external signature or public legal-page publication:
 
-1. verify GSTIN / GST registration particulars against an official GST record;
-2. obtain Indian counsel review of the controlled legal pack, including whether a fresher MCA extract is required before signature; and
-3. record the counsel-approved version/date before changing the legal-execution launch gate to READY.
+1. obtain Indian counsel review of the controlled legal pack, including whether a fresher MCA extract is required before signature; and
+2. record the counsel-approved version/date before changing the legal-execution launch gate to READY.
