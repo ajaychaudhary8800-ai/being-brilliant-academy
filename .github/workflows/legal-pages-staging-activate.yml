@@ -16,7 +16,6 @@ concurrency:
 
 jobs:
   activate:
-    if: ${{ vars.STAGING_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
     steps:
