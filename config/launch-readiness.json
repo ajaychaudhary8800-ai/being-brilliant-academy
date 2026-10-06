@@ -113,8 +113,8 @@
         "docs/legal-sales/LEGAL_RESEARCH_NOTES.md",
         "docs/legal-sales/COUNSEL_REVIEW_HANDOFF.md"
       ],
-      "nextAction": "Verify GST particulars from an official GST record and complete Indian counsel review before first external signature. Counsel should also confirm whether the supplied 23 October 2024 MCA extract is sufficient for the contemplated execution date.",
-      "note": "Management directed that the official MCA Company Information extract dated 23 October 2024 be used for MCA-covered particulars. The controlled pack now uses the MCA company name, CIN, registered office and Director/signatory name from that extract. Business-role mail flow, public support number and SPF/DKIM/DMARC are verified. Gate remains blocked only for official GST verification and Indian counsel review/approval."
+      "nextAction": "Complete Indian counsel review before first external signature and record the counsel-approved version/date. Counsel should also confirm whether the supplied 23 October 2024 MCA extract is sufficiently current for the contemplated execution date.",
+      "note": "Management directed that the official MCA Company Information extract dated 23 October 2024 be used for MCA-covered particulars. Official GST REG-06 evidence issued 17 December 2024 confirms GSTIN 09AAPCA1080N2Z7, the legal/trade name, Regular registration, principal place of business and director details. Business-role mail flow, public support number and SPF/DKIM/DMARC are verified. Gate remains blocked only for Indian counsel review/approval."
     },
     {
       "id": "public-legal-pages",
