@@ -3,7 +3,7 @@
 **Product:** Being Brilliant ERP / LMS / CRM  
 **Approved legal effective date:** 6 October 2026  
 **Counsel approval:** COMPLETE — approved without changes  
-**Current gate:** PENDING_PRODUCTION_PUBLICATION
+**Current gate:** READY
 
 ## 1. Counsel dependency
 
@@ -93,15 +93,39 @@ Automated Playwright verification was then re-run against `https://main-staging.
 
 The earlier attempt in the same workflow run failed only because staging still served the older branch build. After correcting Coolify staging Web from `integration/erp4.0-ai-automation-launch` to `main` and redeploying, the independent browser verification passed.
 
-## 6. Production publication
+## 6. Production publication — COMPLETE
 
-After staging verification is complete, apply the same runtime values to the production Web service and redeploy through the normal controlled production path.
+Management explicitly authorized production Web legal-page publication on 6 October 2026.
 
-Production publication must then be verified for:
-- all three public legal routes;
-- footer links;
-- demo-form privacy link; and
-- normal production health.
+The production Web service was pinned to:
+
+- branch: `main`
+- commit: `2b59dbc893d2fcdc883296e621a0cb2320ef818b`
+
+The production Web runtime was configured with:
+
+```env
+LEGAL_PAGES_PUBLISHED=true
+LEGAL_EFFECTIVE_DATE=2026-10-06
+```
+
+Only the production **Web service** was redeployed. Management confirmed the Coolify redeploy completed successfully.
+
+Post-deploy verification was executed inside the running production Web container against `127.0.0.1:3000` and returned:
+
+```text
+privacy=200
+terms=200
+acceptable-use=200
+effective-date=PASS
+privacy-link=PASS
+terms-link=PASS
+acceptable-use-link=PASS
+```
+
+This verifies that all three approved public legal routes render successfully, the approved effective date is present, and the public footer legal links are present in the production Web output.
+
+The demo-form Privacy link uses the same server-side `legalPagesPublished` publication state already verified in staging and deployed in the same approved Web build.
 
 ## 7. Gate completion rule
 
@@ -112,4 +136,4 @@ The `public-legal-pages` gate may become READY only after:
 4. production publication is completed through controlled deployment; and
 5. production public-page verification passes.
 
-Until then the overall commercial launch remains HOLD.
+The public-legal-pages gate is now READY. The overall commercial launch remains HOLD only because the first-real-paying-client gate is still unresolved.
