@@ -65,14 +65,13 @@ The supplied MCA extract records:
 
 The controlled Order Form, Privacy Notice and Execution Particulars use those MCA details.
 
-The MCA extract does not contain GST registration particulars. **GSTIN 09AAPCA1080N2Z7 remains management-supplied pending verification against an official GST record.**
+Management also supplied an official **GST REG-06 Registration Certificate** issued on **17 December 2024**. It confirms **GSTIN 09AAPCA1080N2Z7**, legal/trade name **ADHYAY EDUVENTURE PRIVATE LIMITED**, constitution **Private Limited Company**, registration type **Regular**, and validity from **17 December 2024**.
+
+The GST certificate records the principal place of business as **Building No./Flat No. 26, KH No. 257, Shahpur Road, near Aryan Prestige School, Royal Green City Phase 2, Ghaziabad, Ghaziabad, Uttar Pradesh 201001**. Annexure B lists **CHOUDHARY AJAY SINGH HOON — DIRECTOR** and **MADHURI VERMA — DIRECTOR**.
 
 Because the supplied MCA extract is dated 23 October 2024, counsel should confirm whether it is sufficient for the contemplated execution date or whether a fresher MCA extract should be obtained when the MCA service is available. This does not change the MCA-derived details used in the controlled draft unless a later official record shows a change.
 
-The following remain required before the legal-execution gate can become READY:
-
-- official GST verification; and
-- Indian counsel review and approval of the controlled legal pack.
+The remaining requirement before the legal-execution gate can become READY is **Indian counsel review and approval of the controlled legal pack**. Counsel should also confirm whether the supplied 23 October 2024 MCA extract is sufficiently current for the contemplated execution date.
 
 No third-party directory should be treated as authoritative.
 
@@ -88,4 +87,4 @@ Counsel or management should record:
 - approved for external signature: YES / NO
 - approved for public Privacy/Terms/AUP publication: YES / NO
 
-The `legal-execution` launch gate must remain blocked until the official-record cross-check and counsel review are both complete.
+The `legal-execution` launch gate must remain blocked until Indian counsel review is complete and the counsel approval record is documented.
