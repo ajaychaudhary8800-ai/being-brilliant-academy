@@ -203,7 +203,7 @@ export default function PaymentGatewayPage() {
     <ProtectedAdminWorkspace
       roles={["SUPER_ADMIN"]}
       title="Payment Gateway"
-      description="Connect the institution's own Razorpay account for student/parent fee collection. SaaS subscription payments to Adhyay remain separate under Subscription & Billing."
+      description="Connect the institution&apos;s own Razorpay account for student/parent fee collection. SaaS subscription payments to Adhyay remain separate under Subscription & Billing."
     >
       {notice && <p className="mt-6 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{notice}</p>}
       {error && <p role="alert" className="mt-6 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
@@ -279,7 +279,7 @@ export default function PaymentGatewayPage() {
 
         <div className="card p-5">
           <h2 className="text-xl font-bold">Webhook & settlement controls</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-500">Add the generated URL in the institution's Razorpay Dashboard and subscribe to <b>payment.captured</b>, <b>payment.failed</b> and <b>refund.processed</b>.</p>
+          <p className="mt-2 text-sm leading-6 text-slate-500">Add the generated URL in the institution&apos;s Razorpay Dashboard and subscribe to <b>payment.captured</b>, <b>payment.failed</b> and <b>refund.processed</b>.</p>
           {gateway?.webhookPath ? (
             <div className="mt-4 rounded-xl bg-slate-50 p-4 dark:bg-slate-900">
               <p className="break-all font-mono text-xs">{`${API}${gateway.webhookPath}`}</p>
