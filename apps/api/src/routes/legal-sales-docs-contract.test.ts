@@ -76,7 +76,7 @@ test("privacy, exit and security schedules preserve truthful customer commitment
   ]);
   assert.match(privacy, /We do not sell institution-controlled personal data/);
   assert.match(privacy, /privacy@beingbrilliantedu\.com/);
-  assert.match(privacy, /must be activated and tested before this notice is published/);
+  assert.match(privacy, /activated and inbound delivery was verified on 6 October 2026/);
   assert.match(exit, /30-day exit window/);
   assert.match(exit, /60 days after the exit window closes/);
   assert.match(security, /does not claim certifications that have not been obtained/);
@@ -93,6 +93,9 @@ test("provider execution particulars use public-safe business contacts", async (
   assert.match(execution, /legal@beingbrilliantedu\.com/);
   assert.match(execution, /privacy@beingbrilliantedu\.com/);
   assert.match(execution, /support@beingbrilliantedu\.com/);
+  assert.match(execution, /SPF PASS/);
+  assert.match(execution, /DKIM PASS/);
+  assert.match(execution, /DMARC PASS/);
   assert.doesNotMatch(execution, /@gmail\.com/i);
   assert.match(execution, /Bank account and payment destination details are not stored in source control/);
 });
