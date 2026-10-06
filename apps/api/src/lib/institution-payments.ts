@@ -39,8 +39,8 @@ function assertGatewayKeyMode(gateway: { keyId: string; mode: PaymentGatewayMode
 
 async function gatewayForOrganization(organizationId: string) {
   const gateway = await systemPrisma.institutionPaymentGateway.findUnique({ where: { organizationId } });
-  if (!gateway || !gateway.isEnabled) {
-    throw new AppError(409, "INSTITUTION_PAYMENT_GATEWAY_UNAVAILABLE", "Online fee payment is not enabled by this institution");
+  if (!gateway || !gateway.isEnabled || !gateway.lastVerifiedAt) {
+    throw new AppError(409, "INSTITUTION_PAYMENT_GATEWAY_UNAVAILABLE", "Online fee payment is not enabled and verified by this institution");
   }
   assertGatewayKeyMode(gateway);
   return gateway;
