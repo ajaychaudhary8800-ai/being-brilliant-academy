@@ -8,14 +8,15 @@ Platform Super Admin users can access the complete controlled pack from **Sales 
 
 ## Provider execution particulars
 
-Provider particulars are recorded in `EXECUTION_PARTICULARS.md`. Management has directed that the MCA-covered particulars in the official MCA Company Information extract dated 23 October 2024 be used in the controlled pack. The pre-signature lawyer handoff and approval record are in `COUNSEL_REVIEW_HANDOFF.md`.
+Provider particulars are recorded in `EXECUTION_PARTICULARS.md`. Management has directed that the MCA-covered particulars in the official MCA Company Information extract dated 23 October 2024 be used in the controlled pack. The pre-signature lawyer handoff is in `COUNSEL_REVIEW_HANDOFF.md`. Record the external lawyer's review outcome, required amendments and final approval in `COUNSEL_APPROVAL_RECORD.md`.
 
 Before first external signature or public legal publication:
 - retain the official GST REG-06 verification evidence for GSTIN 09AAPCA1080N2Z7;
 - keep the verified `legal@beingbrilliantedu.com`, `privacy@beingbrilliantedu.com` and `support@beingbrilliantedu.com` mail flow operational;
 - keep the confirmed business support phone and published support hours operational;
 - insert bank/payment details only from approved company finance records into the specific issued quotation/invoice; and
-- complete Indian counsel review of the controlled legal pack.
+- complete Indian counsel review of the controlled legal pack; and
+- complete `COUNSEL_APPROVAL_RECORD.md` with evidence references before changing the legal-execution gate to READY.
 
 Do not copy an address, GSTIN, contact or bank detail from an unverified directory.
 
