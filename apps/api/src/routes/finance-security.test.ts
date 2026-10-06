@@ -133,16 +133,22 @@ test("voucher post and archive use one conditional transition and audit transact
   assert.match(transition, /await audit\(tx/);
 });
 
-test("parent fee viewing remains available while unverified self-recorded payments are disabled", async () => {
+test("parent and student online fee checkout delegates ledger mutation to verified gateway capture", async () => {
   const portals = await readFile(new URL("./portals.ts", import.meta.url), "utf8");
-  const payment = between(portals, 'router.post("/parent/children/:studentId/fees/:feeId/pay"', 'router.get("/teacher/dashboard"');
-  assert.match(payment, /ownedChild/);
-  assert.match(payment, /fee\.findFirst/);
-  assert.match(payment, /rejectUnverifiedParentPayment/);
-  assert.doesNotMatch(payment, /feePayment\.(?:create|update)/);
-  assert.doesNotMatch(payment, /fee\.update/);
+  const parentPayment = between(portals, 'router.post("/parent/children/:studentId/fees/:feeId/pay"', 'router.get("/fees/payments/:paymentId/receipt"');
+  assert.match(parentPayment, /ownedChild/);
+  assert.match(parentPayment, /fee\.findFirst/);
+  assert.match(parentPayment, /createInstitutionFeeCheckout/);
+  assert.match(parentPayment, /onlineFeeIdempotencyKey/);
+  assert.doesNotMatch(parentPayment, /feePayment\.(?:create|update)/);
+  assert.doesNotMatch(parentPayment, /fee\.update/);
+  const studentPayment = between(portals, 'router.post("/student/fees/:feeId/pay"', 'router.post("/parent/children/:studentId/fees/:feeId/pay"');
+  assert.match(studentPayment, /studentForUser/);
+  assert.match(studentPayment, /createInstitutionFeeCheckout/);
+  assert.doesNotMatch(studentPayment, /feePayment\.(?:create|update)/);
   const studentData = between(portals, "async function studentData", 'router.get("/student/dashboard"');
   assert.match(studentData, /prisma\.fee\.findMany/);
+  assert.match(studentData, /institutionPaymentGateway/);
   assert.match(portals, /router\.get\("\/parent\/dashboard"[^]*studentData/);
 });
 

@@ -57,6 +57,7 @@ import attendanceReports from "./routes/attendance-reports.js";
 import attendanceLeaveEnforcement from "./routes/attendance-leave-enforcement.js";
 import leaveManagement from "./routes/leave-management.js";
 import payments from "./routes/payments.js";
+import institutionPayments from "./routes/institution-payments.js";
 import exams from "./routes/exams.js";
 import portals from "./routes/portals.js";
 import hrPayroll from "./routes/hr-payroll.js";
@@ -182,6 +183,7 @@ app.use(
   }),
 );
 app.use("/api/v1/payments/razorpay/webhook", express.raw({ type: "application/json" }));
+app.use("/api/v1/institution-payments/razorpay/webhook/:gatewayId", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
@@ -322,6 +324,7 @@ app.use("/api/v1", onlyPaths(["/finance/payments", "/finance/payment-offsets"], 
 
 app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations));
 app.use("/api/v1", saasCommercial);
+app.use("/api/v1", institutionPayments);
 app.use("/api/v1", onlyPaths(["/analytics"], analytics));
 app.use("/api/v1", onlyPaths(["/automations"], automation));
 app.use("/api/v1", onlyPaths(["/meetings/native"], meetingLive));

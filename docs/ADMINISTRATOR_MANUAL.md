@@ -14,7 +14,11 @@ Create the minimum role required. Confirm organization and branch before saving.
 
 ## Finance and payments
 
-Reconcile captured provider payments against invoices and the general ledger daily. Never mark a payment paid from an email or screenshot. Investigate failed webhook signatures and duplicate transaction IDs. Lock closed financial periods before reports are distributed.
+Being Brilliant separates **institution fee collection** from **platform SaaS subscription billing**. Tenant Super Admins configure the institution-owned Razorpay account at **Fees & Finance → Payment Gateway**; parent/student funds then settle through that institution's merchant account. The institution's own subscription payment to Being Brilliant remains under **Subscription & Billing** and uses the platform billing gateway.
+
+Reconcile captured provider payments against invoices and the authoritative fee/general ledger daily. Never mark a payment paid from an email, screenshot or browser checkout callback. Only a verified provider webhook may finalize online payment state. Investigate failed webhook signatures, duplicate transaction IDs and any `REVIEW_REQUIRED` transaction immediately. Lock closed financial periods before reports are distributed.
+
+Detailed setup, webhook and refund procedures are in `docs/PAYMENT_GATEWAY_HUB.md`.
 
 ## Communications
 

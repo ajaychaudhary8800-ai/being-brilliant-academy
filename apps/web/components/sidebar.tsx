@@ -67,6 +67,7 @@ const menuGroups: MenuGroup[] = [
   { name: "Fees & Finance", entries: [
     { name: "Fees", href: "/admin/fees", icon: CreditCard },
     { name: "Outstanding Fees", href: "/admin/fee-defaulters", icon: Bell },
+    { name: "Payment Gateway", href: "/admin/payment-gateway", icon: CreditCard, superAdminOnly: true, tenantOnly: true },
     { name: "Finance & Accounts", href: "/admin/finance", icon: Landmark, feature: "finance" },
   ] },
   { name: "Communication", entries: [

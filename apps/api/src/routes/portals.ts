@@ -4,7 +4,7 @@ import { AttendanceStatus, ExaminationStatus, HomeworkStatus, Role, StudentStatu
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/http.js";
-import { rejectUnverifiedParentPayment } from "../lib/finance-integrity.js";
+import { createInstitutionFeeCheckout } from "../lib/institution-payments.js";
 import { assertHomeworkAttachmentAccess } from "../lib/homework-policy.js";
 import { announcementRecipientConstraints, communicationScope } from "../lib/communication-authorization.js";
 import { assertMessageRecipientAuthorized, participantMessageUpdate } from "../lib/message-policy.js";
@@ -136,7 +136,16 @@ async function studentData(student: NonNullable<Awaited<ReturnType<typeof studen
     prisma.fee.findMany({ where: { studentId: student.id }, select: { id: true, feeHead: true, totalPaise: true, discountPaise: true, finePaise: true, amountPaidPaise: true, dueDate: true, status: true, remarks: true, payments: { select: { id: true, amountPaise: true, paymentDate: true, paymentMode: true, receiptNumber: true }, orderBy: { paymentDate: "desc" } } }, orderBy: { dueDate: "desc" } }),
     prisma.certificate.findMany({ where: { studentId: student.id, status: { in: ["ISSUED", "ARCHIVED"] } }, select: { id: true, certificateNumber: true, type: true, purpose: true, issueDate: true, status: true }, orderBy: { issueDate: "desc" } }),
     prisma.lessonProgress.findMany({ where: { userId: student.userId }, select: { id: true, completed: true, watchPercentage: true, updatedAt: true, lesson: { select: { id: true, title: true, subject: { select: { id: true, name: true } } } } }, orderBy: { updatedAt: "desc" } }),
-    prisma.organization.findUniqueOrThrow({ where: { id: student.organizationId }, select: { timezone: true, locale: true } }),
+    prisma.organization.findUniqueOrThrow({
+      where: { id: student.organizationId },
+      select: {
+        timezone: true,
+        locale: true,
+        institutionPaymentGateway: {
+          select: { isEnabled: true, allowPartialPayments: true, paymentMethods: true, lastVerifiedAt: true },
+        },
+      },
+    }),
   ]);
   const historicalHomeworks = (await Promise.all(homeworks.map(async item => {
     const enrollment = await resolveHistoricalAcademicEnrollment(prisma, { organizationId: student.organizationId, studentId: student.id, branchId: item.branchId, academicSessionId: item.batch.academicSessionId, courseId: item.courseId, batchId: item.batchId, onDate: item.assignedDate, mode: "HISTORICAL_READ" });
@@ -152,12 +161,19 @@ async function studentData(student: NonNullable<Awaited<ReturnType<typeof studen
   return {
     timeZone: organization.timezone,
     locale: organization.locale,
-    profile: { name: student.user.name, admissionNo: student.admissionNo, rollNo: student.rollNo, status: student.status, academicSession: student.academicSession, branch: { id: student.branch.id, name: student.branch.branchName }, course: student.batch.course ? { id: student.batch.course.id, name: student.batch.course.title } : { id: "", name: "Course not assigned" }, batch: { id: student.batch.id, name: student.batch.name } },
+    profile: { id: student.id, name: student.user.name, admissionNo: student.admissionNo, rollNo: student.rollNo, status: student.status, academicSession: student.academicSession, branch: { id: student.branch.id, name: student.branch.branchName }, course: student.batch.course ? { id: student.batch.course.id, name: student.batch.course.title } : { id: "", name: "Course not assigned" }, batch: { id: student.batch.id, name: student.batch.name } },
     attendance: { records: attendance, summary, percentage: attendance.length ? Math.round(present * 10000 / attendance.length) / 100 : 0 },
     homework: { assignments: historicalHomeworks.map(item => ({ ...item, hasAttachment: Boolean(item.attachmentName), submission: item.submissions[0] ?? null, submissions: undefined })) },
     timetable,
     examinations: historicalExaminations.map(item => ({ ...item, result: item.status === ExaminationStatus.RESULTS_PUBLISHED ? item.results[0] ?? null : null, submission: item.answerSheets[0] ?? null, results: undefined, answerSheets: undefined })),
     fees,
+    onlinePayments: {
+      enabled: Boolean(organization.institutionPaymentGateway?.isEnabled && organization.institutionPaymentGateway?.lastVerifiedAt),
+      allowPartialPayments: Boolean(organization.institutionPaymentGateway?.allowPartialPayments),
+      methods: Array.isArray(organization.institutionPaymentGateway?.paymentMethods)
+        ? organization.institutionPaymentGateway.paymentMethods
+        : [],
+    },
     certificates,
     lms: { progress, continueLearning: progress.filter(item => !item.completed).slice(0, 10), completed: progress.filter(item => item.completed) },
   };
@@ -173,11 +189,80 @@ router.get("/parent/children", allow(Role.PARENT), async (req: AuthRequest, res)
 });
 router.get("/parent/dashboard",allow(Role.PARENT),async(req:AuthRequest,res)=>{const links=await prisma.parentStudent.findMany({where:{parentId:id(req),student:{status:StudentStatus.ACTIVE,user:{isActive:true}}},include:{student:{include:{user:true,branch:true,batch:{include:{course:true}}}}}});const children=await Promise.all(links.map(l=>studentData(l.student)));res.json({data:{children}});});
 router.get("/parent/children/:studentId",allow(Role.PARENT),async(req:AuthRequest,res)=>res.json({data:await studentData(await ownedChild(id(req),String(req.params.studentId)))}));
-router.post("/parent/children/:studentId/fees/:feeId/pay", allow(Role.PARENT), async (req: AuthRequest) => {
+const onlineFeePaymentInput = z.object({
+  amountPaise: z.number().int().positive().max(2_147_483_647).optional(),
+}).strict();
+
+function onlineFeeIdempotencyKey(req: AuthRequest) {
+  const key = req.header("Idempotency-Key")?.trim();
+  if (!key || key.length < 8 || key.length > 100) {
+    throw new AppError(422, "IDEMPOTENCY_KEY_REQUIRED", "Provide an Idempotency-Key header between 8 and 100 characters");
+  }
+  return key;
+}
+
+router.post("/student/fees/:feeId/pay", allow(Role.STUDENT), async (req: AuthRequest, res) => {
+  const student = await studentForUser(id(req));
+  if (!student) throw new AppError(404, "PROFILE_NOT_FOUND", "Student profile not found");
+  assertActiveStudentPortalProfile(student.status);
+  const fee = await prisma.fee.findFirst({ where: { id: String(req.params.feeId), studentId: student.id }, select: { id: true } });
+  if (!fee) throw new AppError(404, "FEE_NOT_FOUND", "Fee record not found");
+  const body = onlineFeePaymentInput.parse(req.body ?? {});
+  const data = await createInstitutionFeeCheckout({
+    organizationId: req.auth!.organizationId,
+    payerUserId: req.auth!.userId,
+    studentId: student.id,
+    feeId: fee.id,
+    amountPaise: body.amountPaise,
+    idempotencyKey: onlineFeeIdempotencyKey(req),
+  });
+  res.status(data.reused ? 200 : 201).json({ data });
+});
+
+router.post("/parent/children/:studentId/fees/:feeId/pay", allow(Role.PARENT), async (req: AuthRequest, res) => {
   const student = await ownedChild(id(req), String(req.params.studentId));
   const fee = await prisma.fee.findFirst({ where: { id: String(req.params.feeId), studentId: student.id }, select: { id: true } });
   if (!fee) throw new AppError(404, "FEE_NOT_FOUND", "Fee record not found");
-  rejectUnverifiedParentPayment();
+  const body = onlineFeePaymentInput.parse(req.body ?? {});
+  const data = await createInstitutionFeeCheckout({
+    organizationId: req.auth!.organizationId,
+    payerUserId: req.auth!.userId,
+    studentId: student.id,
+    feeId: fee.id,
+    amountPaise: body.amountPaise,
+    idempotencyKey: onlineFeeIdempotencyKey(req),
+  });
+  res.status(data.reused ? 200 : 201).json({ data });
+});
+router.get("/fees/payments/:paymentId/receipt", async (req: AuthRequest, res) => {
+  if (req.auth!.role !== Role.STUDENT && req.auth!.role !== Role.PARENT) {
+    throw new AppError(403, "FORBIDDEN", "Student or parent access is required");
+  }
+  const payment = await prisma.feePayment.findFirst({
+    where: { id: String(req.params.paymentId), organizationId: req.auth!.organizationId },
+    include: { fee: { include: { student: { include: { user: true } }, branch: true } } },
+  });
+  if (!payment) throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment receipt not found");
+  if (req.auth!.role === Role.STUDENT) {
+    if (payment.fee.student.userId !== req.auth!.userId) throw new AppError(403, "FORBIDDEN", "Receipt access denied");
+  } else {
+    await ownedChild(req.auth!.userId, payment.fee.studentId);
+  }
+  sendPdf(
+    res,
+    "FEE RECEIPT",
+    [
+      `Receipt: ${payment.receiptNumber}`,
+      `Student: ${payment.fee.student.user.name} (${payment.fee.student.admissionNo})`,
+      `Fee: ${payment.fee.feeHead}`,
+      `Amount: INR ${(payment.amountPaise / 100).toFixed(2)}`,
+      `Mode: ${payment.paymentMode}`,
+      `Transaction: ${payment.transactionId ?? "-"}`,
+      `Date: ${payment.paymentDate.toISOString()}`,
+      `Institution branch: ${payment.fee.branch.branchName}`,
+    ],
+    `${payment.receiptNumber}.pdf`,
+  );
 });
 
 router.get("/teacher/dashboard", allow(Role.TEACHER), async (req: AuthRequest, res) => {

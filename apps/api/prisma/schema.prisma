@@ -1032,6 +1032,19 @@ enum SaaSPaymentStatus {
   REFUNDED
 }
 
+enum PaymentGatewayMode {
+  TEST
+  LIVE
+}
+
+enum InstitutionPaymentOrderStatus {
+  CREATED
+  CAPTURED
+  FAILED
+  REVIEW_REQUIRED
+  REFUNDED
+}
+
 model Organization {
   id                     String                         @id @default(cuid())
   slug                   String                         @unique
@@ -1099,6 +1112,9 @@ model Organization {
   saasSubscription       SaaSSubscription?
   saasInvoices           SaaSInvoice[]
   saasPayments           SaaSPayment[]
+  institutionPaymentGateway InstitutionPaymentGateway?
+  institutionPaymentOrders  InstitutionPaymentOrder[]
+  institutionPaymentWebhookEvents InstitutionPaymentWebhookEvent[]
 
   @@index([subscriptionStatus, isActive])
 }
@@ -1207,6 +1223,83 @@ model SaaSWebhookEvent {
 
   @@unique([provider, eventKey])
   @@index([provider, createdAt])
+}
+
+model InstitutionPaymentGateway {
+  id                       String                          @id @default(cuid())
+  organizationId           String                          @unique
+  provider                 String                          @default("RAZORPAY")
+  mode                     PaymentGatewayMode              @default(TEST)
+  isEnabled                Boolean                         @default(false)
+  keyId                    String
+  keySecretEncrypted       String
+  webhookSecretEncrypted   String
+  allowPartialPayments     Boolean                         @default(false)
+  paymentMethods           Json                            @default("[]")
+  lastVerifiedAt           DateTime?
+  createdById              String?
+  updatedById              String?
+  createdAt                DateTime                        @default(now())
+  updatedAt                DateTime                        @updatedAt
+  organization             Organization                    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  orders                   InstitutionPaymentOrder[]
+  webhookEvents            InstitutionPaymentWebhookEvent[]
+
+  @@index([provider, isEnabled])
+}
+
+model InstitutionPaymentOrder {
+  id                  String                        @id @default(cuid())
+  organizationId      String
+  gatewayId           String
+  feeId               String
+  studentId           String
+  payerUserId         String
+  amountPaise         Int
+  currency            String                        @default("INR")
+  provider            String                        @default("RAZORPAY")
+  providerOrderId     String?                       @unique
+  providerPaymentId   String?                       @unique
+  idempotencyKey      String                        @unique
+  status              InstitutionPaymentOrderStatus @default(CREATED)
+  feePaymentId        String?                       @unique
+  failureCode         String?
+  failureMessage      String?                       @db.Text
+  raw                 Json?
+  capturedAt          DateTime?
+  refundedAt          DateTime?
+  refundedPaise       Int                           @default(0)
+  refundRequestedById String?
+  refundAmountPaise   Int?
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @updatedAt
+  organization        Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  gateway             InstitutionPaymentGateway     @relation(fields: [gatewayId], references: [id], onDelete: Restrict)
+  fee                 Fee                           @relation(fields: [feeId], references: [id], onDelete: Restrict)
+  feePayment          FeePayment?                   @relation(fields: [feePaymentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, createdAt])
+  @@index([gatewayId, status, createdAt])
+  @@index([feeId, createdAt])
+  @@index([studentId, createdAt])
+}
+
+model InstitutionPaymentWebhookEvent {
+  id             String                    @id @default(cuid())
+  organizationId String
+  gatewayId      String
+  provider       String                    @default("RAZORPAY")
+  eventKey       String
+  eventType      String
+  payload        Json
+  processedAt    DateTime?
+  createdAt      DateTime                  @default(now())
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  gateway        InstitutionPaymentGateway @relation(fields: [gatewayId], references: [id], onDelete: Restrict)
+
+  @@unique([gatewayId, eventKey])
+  @@index([organizationId, createdAt])
+  @@index([gatewayId, eventType, createdAt])
 }
 
 model AcademicSession {
@@ -3963,6 +4056,7 @@ model Fee {
   studentFeeAssignment StudentFeeAssignment? @relation(fields: [organizationId, studentFeeAssignmentId], references: [organizationId, id], onDelete: Restrict)
   feePlanComponent     FeePlanComponent?     @relation(fields: [organizationId, feePlanComponentId], references: [organizationId, id], onDelete: Restrict)
   payments        FeePayment[]
+  institutionPaymentOrders InstitutionPaymentOrder[]
 
   @@unique([studentId, batchId, feeHead, dueDate])
   @@index([branchId])
@@ -3987,6 +4081,7 @@ model FeePayment {
   createdAt      DateTime    @default(now())
   fee            Fee         @relation(fields: [feeId], references: [id], onDelete: Restrict)
   offsets        FeePaymentOffset[]
+  institutionPaymentOrder InstitutionPaymentOrder?
 
   @@unique([organizationId, id, feeId], map: "FeePayment_organizationId_id_feeId_key")
   @@index([feeId, paymentDate])
