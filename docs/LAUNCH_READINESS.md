@@ -94,7 +94,7 @@ The implementation is prepared behind a server-controlled publication gate:
 - the demo form is pre-wired to the Privacy Notice; and
 - all legal pages and links remain unavailable until both `LEGAL_PAGES_PUBLISHED=true` and `LEGAL_EFFECTIVE_DATE` are configured.
 
-Counsel approval is complete. Use **6 October 2026** as the approved public effective date, set `LEGAL_EFFECTIVE_DATE=2026-10-06` and `LEGAL_PAGES_PUBLISHED=true` in staging, verify desktop/mobile presentation and all legal links, then use the normal controlled publication/deployment process.
+Counsel approval is complete. The controlled publication record is `docs/PUBLIC_LEGAL_PUBLICATION_EVIDENCE.md`. Use **6 October 2026** as the approved public effective date, set `LEGAL_EFFECTIVE_DATE=2026-10-06` and `LEGAL_PAGES_PUBLISHED=true` in staging, verify desktop/mobile presentation and all legal links, then use the normal controlled publication/deployment process. An automated staging activation attempt built the approved Web image successfully but could not connect because the protected GitHub staging SSH host secret is not configured; no remote staging mutation occurred.
 
 ### C. Step 11 — First Real Paying Client
 
