@@ -2,7 +2,6 @@ import "express-async-errors";
 import { InstitutionPaymentOrderStatus, PaymentGatewayMode, Prisma, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
-import { env } from "../config.js";
 import { encryptInstitutionPaymentSecret, institutionPaymentEncryptionReady } from "../lib/institution-payment-crypto.js";
 import {
   normalizedGatewayMethods,
@@ -31,7 +30,6 @@ function modeMatches(mode: PaymentGatewayMode, keyId: string) {
 }
 
 function gatewayView(gateway: any) {
-  const origin = env.WEB_URL.replace(/\/$/, "");
   return {
     id: gateway.id,
     provider: gateway.provider,
@@ -45,7 +43,7 @@ function gatewayView(gateway: any) {
     lastVerifiedAt: gateway.lastVerifiedAt,
     createdAt: gateway.createdAt,
     updatedAt: gateway.updatedAt,
-    webhookUrl: `${origin}/api/v1/institution-payments/razorpay/webhook/${gateway.id}`,
+    webhookPath: `/institution-payments/razorpay/webhook/${gateway.id}`,
   };
 }
 
