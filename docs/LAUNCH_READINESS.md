@@ -65,7 +65,7 @@ This evidence clears the current technical off-site DR launch gate. It does **no
 
 ### A. Corporate/legal execution particulars
 
-Status: **BLOCKED_EXTERNAL**
+Status: **READY**
 
 Official MCA and GST evidence has been supplied and recorded:
 
@@ -75,9 +75,11 @@ Official MCA and GST evidence has been supplied and recorded:
 - support phone/hours are confirmed; and
 - support outbound authentication has passed SPF, DKIM and DMARC.
 
-The only remaining blocker is **Indian counsel review and approval of the controlled legal pack**. Counsel should also confirm whether the supplied MCA extract is sufficiently current for the contemplated execution date.
+Indian counsel review is now recorded as complete. Management confirmed on 6 October 2026 that qualified Indian counsel reviewed the lawyer-ready controlled pack and approved it **without changes**. No counsel amendment or re-confirmation is required.
 
-Do not publish or externally execute the controlled pack until that review is recorded.
+Evidence: `docs/legal-sales/COUNSEL_APPROVAL_RECORD.md`.
+
+External customer execution is legally cleared under the reviewed pack. Public legal pages remain a separate runtime publication gate until staging verification and controlled publication are complete.
 
 ### B. Public Privacy / Terms / AUP publication
 
@@ -92,9 +94,7 @@ The implementation is prepared behind a server-controlled publication gate:
 - the demo form is pre-wired to the Privacy Notice; and
 - all legal pages and links remain unavailable until both `LEGAL_PAGES_PUBLISHED=true` and `LEGAL_EFFECTIVE_DATE` are configured.
 
-After counsel approval, set the approved effective date and publication flag in staging, verify desktop/mobile presentation and links, then use the normal deployment process.
-
-Do not enable the publication flag before legal approval.
+Counsel approval and staging publication verification are complete. The controlled publication record is `docs/PUBLIC_LEGAL_PUBLICATION_EVIDENCE.md`. Staging now serves Privacy, Terms and AUP successfully with effective date **6 October 2026**, and desktop/mobile browser verification passed. The only remaining action for this gate is controlled production publication using `LEGAL_EFFECTIVE_DATE=2026-10-06` and `LEGAL_PAGES_PUBLISHED=true`, followed by production verification.
 
 ### C. Step 11 — First Real Paying Client
 

@@ -112,13 +112,14 @@ test("provider execution particulars use public-safe business contacts", async (
   assert.match(execution, /Bank account and payment destination details are not stored in source control/);
 });
 
-test("counsel approval record cannot be mistaken for approval before external review", async () => {
+test("counsel approval record captures completed no-change legal review", async () => {
   const approval = await readFile(legal("COUNSEL_APPROVAL_RECORD.md"), "utf8");
-  assert.match(approval, /not an approval by itself/i);
-  assert.match(approval, /Approved for external customer signature/);
-  assert.match(approval, /Approved for public Privacy Notice publication/);
-  assert.match(approval, /Fresher MCA extract required before first signature/);
-  assert.match(approval, /Counsel amendments implemented/);
-  assert.match(approval, /Legal-execution gate decision/);
-  assert.match(approval, /Do not change the launch gate to READY/i);
+  assert.match(approval, /APPROVED WITHOUT CHANGES/);
+  assert.match(approval, /Approved for external customer signature:\*\* YES/);
+  assert.match(approval, /Approved for public Privacy Notice publication:\*\* YES/);
+  assert.match(approval, /Approved for public SaaS Terms publication:\*\* YES/);
+  assert.match(approval, /Approved for public Acceptable Use Policy publication:\*\* YES/);
+  assert.match(approval, /Counsel amendments implemented:\*\* NOT REQUIRED/);
+  assert.match(approval, /Legal-execution gate decision:\*\* READY/);
+  assert.match(approval, /private correspondence itself is not committed/i);
 });

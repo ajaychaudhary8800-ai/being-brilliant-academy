@@ -1,0 +1,41 @@
+name: Verify staging public legal pages
+
+on:
+  push:
+    branches: ["legal/counsel-approved-public-pages-2026-10-06"]
+    paths:
+      - ".github/workflows/legal-pages-staging-verify.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-public-legal-verification
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      QA_BASE_URL: "https://main-staging.beingbrilliantedu.com"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Verify desktop and mobile public legal publication
+        run: pnpm exec playwright test e2e/public-legal-publication.spec.ts --project=desktop-chromium --grep "@legal-publication" --workers=1 --retries=0
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-legal-staging-verification-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results
+          retention-days: 30

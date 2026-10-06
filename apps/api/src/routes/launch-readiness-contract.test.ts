@@ -36,7 +36,7 @@ test("Step 14 launch manifest is truthful about current blockers", async () => {
   }
 
   assert.equal(byId.get("offsite-dr")?.status, "READY");
-  assert.equal(byId.get("legal-execution")?.status, "BLOCKED_EXTERNAL");
+  assert.equal(byId.get("legal-execution")?.status, "READY");
   assert.equal(byId.get("public-legal-pages")?.status, "PENDING_DEPENDENCY");
   assert.equal(byId.get("first-paying-client")?.status, "PENDING_DEPENDENCY");
   assert.equal(byId.get("first-paying-client")?.dependency, "Step 11");
@@ -82,7 +82,7 @@ test("launch documents preserve critical operational and legal no-go controls", 
   assert.match(readiness, /Step 5 — Off-site Backup & Disaster Recovery/);
   assert.match(readiness, /Step 11 — First Real Paying Client/);
   assert.match(readiness, /Public Privacy \/ Terms \/ AUP publication/);
-  assert.match(readiness, /Do not publish or externally execute the controlled pack until that review is recorded/);
+  assert.match(readiness, /Indian counsel review is now recorded as complete/);
   assert.match(readiness, /Step 14 control framework can be complete while the overall commercial launch remains HOLD/);
 
   assert.match(launchDay, /pnpm launch:require-go/);
