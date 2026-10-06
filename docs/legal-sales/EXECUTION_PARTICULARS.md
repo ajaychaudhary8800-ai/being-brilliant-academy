@@ -16,11 +16,19 @@ This file records provider particulars supplied and confirmed by company managem
 
 ## Designated business-role contacts
 
-The following role addresses are designated for the legal pack but must be activated and tested before public/legal reliance:
+The following role addresses are active for the legal pack:
 
 - **Contract notices:** legal@beingbrilliantedu.com
 - **Privacy/grievance:** privacy@beingbrilliantedu.com
 - **Support:** support@beingbrilliantedu.com
+
+## Mailbox verification — 6 October 2026
+
+- `support@beingbrilliantedu.com` was verified receiving inbound mail.
+- `support@beingbrilliantedu.com` was verified sending outbound mail.
+- Gmail original-message authentication showed **SPF PASS**, **DKIM PASS** and **DMARC PASS**.
+- `privacy@beingbrilliantedu.com` was verified receiving mail into the monitored support mailbox.
+- `legal@beingbrilliantedu.com` was verified receiving mail into the monitored support mailbox.
 
 Personal email addresses and personal privacy/grievance phone details are intentionally excluded from this public repository.
 
@@ -38,7 +46,6 @@ Bank account and payment destination details are not stored in source control. T
 Before first external signature or public legal-page publication:
 
 1. cross-check the registered office, CIN, GSTIN and authorized signatory against current official/company records;
-2. create, activate and test the three designated business-role mailboxes;
-3. confirm any client-facing support phone through approved business records before publication;
-4. obtain Indian counsel review of the controlled legal pack; and
-5. record the counsel-approved version/date before changing the legal-execution launch gate to READY.
+2. confirm any client-facing support phone through approved business records before publication;
+3. obtain Indian counsel review of the controlled legal pack; and
+4. record the counsel-approved version/date before changing the legal-execution launch gate to READY.
