@@ -48,17 +48,35 @@ As of 6 October 2026:
 - Standard support hours: Monday-Saturday, 9:00 AM-6:00 PM IST; Sunday and public holidays closed except critical-incident escalation.
 - Bank/payment destination details are intentionally excluded from source control and must be inserted only from approved company finance records into the issued quotation/invoice.
 
-## Corporate-record verification still required
+## Corporate-record verification status
 
-Before counsel sign-off is treated as complete, management must cross-check the provider particulars against current official records, including:
+Management supplied an official MCA Company Information extract generated on **23 October 2024**. That extract confirms:
 
-- legal company name;
-- CIN;
+- legal company name: **ADHYAY EDUVENTURE PRIVATE LIMITED**;
+- CIN: **U80100UP2017PTC089682**;
+- ROC: **ROC Kanpur**;
+- company status: **Active**; and
+- **CHOUDHARY AJAY SINGH HOON** as a Director/signatory appointed on 3 February 2017.
+
+The same 23 October 2024 MCA extract records the registered office as:
+
+**KH NO 257 PLOT NO 26 ROYAL GREEN CITY, PHASE II, VILL DUHAI, Ghaziabad, Uttar Pradesh, India, 201001**
+
+This conflicts with the management-supplied 6 October 2026 registered-office address currently recorded in `EXECUTION_PARTICULARS.md`:
+
+**C-40 First Floor Near Atal Chowk Nand gram Ghaziabad 201003**
+
+Because the MCA extract is dated 2024, it establishes the official record as of that extract date but does **not** prove the current registered office in October 2026. The difference must be reconciled using a current MCA master-data extract or a later official filing/change-of-registered-office record before first external signature.
+
+The 2024 MCA extract also uses the director name **CHOUDHARY AJAY SINGH HOON**, whereas the current execution particulars use **CHOUDHARY AJAY SINGH**. Counsel/management must confirm the exact execution name to use.
+
+The following still require current official verification before the legal-execution gate can become READY:
+
 - current registered office;
 - GSTIN / GST registration particulars where relevant; and
-- authorized-signatory authority.
+- exact authorized-signatory execution name/authority.
 
-At the time this handoff was prepared, the official MCA master-data service was temporarily unavailable to management. No third-party directory should be treated as authoritative for the registered-office field.
+No third-party directory should be treated as authoritative for resolving these differences.
 
 ## Approval record
 
