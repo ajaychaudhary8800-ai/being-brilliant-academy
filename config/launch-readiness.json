@@ -110,10 +110,11 @@
       "evidence": [
         "docs/legal-sales/README.md",
         "docs/legal-sales/EXECUTION_PARTICULARS.md",
-        "docs/legal-sales/LEGAL_RESEARCH_NOTES.md"
+        "docs/legal-sales/LEGAL_RESEARCH_NOTES.md",
+        "docs/legal-sales/COUNSEL_REVIEW_HANDOFF.md"
       ],
-      "nextAction": "Cross-check the management-supplied corporate particulars against current official/company records and obtain Indian counsel review before first external signature.",
-      "note": "Corporate particulars, authorized signatory, role mailboxes, public business support number, support hours and source-control-safe payment policy are recorded. Support, privacy and legal mail flow has been activated and tested; support outbound authentication passed SPF, DKIM and DMARC. Personal contact details remain excluded. Gate stays blocked until official-record cross-check and Indian counsel review are complete."
+      "nextAction": "Reconcile the 23 October 2024 MCA registered-office/director-name evidence with a current official MCA record or later registered-office filing, verify GST particulars from an official record, and complete Indian counsel review before first external signature.",
+      "note": "Official MCA evidence dated 23 October 2024 confirms the company name and CIN but shows a different registered office from the management-supplied 6 October 2026 address and uses the director name CHOUDHARY AJAY SINGH HOON. Business-role mail flow, public support number and SPF/DKIM/DMARC are verified. Gate remains blocked until the address/name discrepancy is reconciled against a current official record, GST particulars are verified, and Indian counsel review is complete."
     },
     {
       "id": "public-legal-pages",
