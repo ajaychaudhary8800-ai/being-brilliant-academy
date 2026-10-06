@@ -112,8 +112,8 @@
         "docs/legal-sales/EXECUTION_PARTICULARS.md",
         "docs/legal-sales/LEGAL_RESEARCH_NOTES.md"
       ],
-      "nextAction": "Cross-check the management-supplied corporate particulars against current official/company records, activate and test the legal/privacy/support role mailboxes, confirm client-facing support contact operations, and obtain Indian counsel review before first external signature.",
-      "note": "Corporate particulars, authorized signatory, designated business-role contacts, support hours and source-control-safe payment policy are recorded. Personal contact details remain excluded. Gate stays blocked until official-record cross-check, mailbox activation/testing and Indian counsel review are complete."
+      "nextAction": "Cross-check the management-supplied corporate particulars against current official/company records, confirm any client-facing support phone through approved business records, and obtain Indian counsel review before first external signature.",
+      "note": "Corporate particulars, authorized signatory, role mailboxes, support hours and source-control-safe payment policy are recorded. Support, privacy and legal mail flow has been activated and tested; support outbound authentication passed SPF, DKIM and DMARC. Personal contact details remain excluded. Gate stays blocked until official-record cross-check, support-phone confirmation and Indian counsel review are complete."
     },
     {
       "id": "public-legal-pages",
