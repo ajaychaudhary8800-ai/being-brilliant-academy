@@ -120,8 +120,8 @@
       "id": "public-legal-pages",
       "name": "Public Privacy/Terms/AUP publication",
       "blocking": true,
-      "status": "PENDING_DEPENDENCY",
-      "dependency": "Controlled production publication",
+      "status": "READY",
+      "dependency": "Counsel approval + staging/production publication",
       "evidence": [
         "docs/legal-sales/07_PRIVACY_NOTICE.md",
         "docs/legal-sales/08_ACCEPTABLE_USE_POLICY.md",
@@ -131,8 +131,7 @@
         "apps/web/components/premium-landing.tsx",
         "docs/PUBLIC_LEGAL_PUBLICATION_EVIDENCE.md"
       ],
-      "nextAction": "Staging verification is complete. After explicit production deployment authorization, set LEGAL_EFFECTIVE_DATE=2026-10-06 and LEGAL_PAGES_PUBLISHED=true on the production Web service, redeploy through the normal controlled path, verify /privacy, /terms, /acceptable-use plus footer/demo-form links and production health, then mark this gate READY.",
-      "note": "Counsel approval and staging verification are complete. Public legal pages remain PENDING_DEPENDENCY only until controlled production publication and post-deploy verification succeed."
+      "note": "Indian counsel approval, staging publication verification, controlled production Web publication and production route/link verification completed on 6 October 2026. Production Web is pinned to main commit 2b59dbc893d2fcdc883296e621a0cb2320ef818b with LEGAL_EFFECTIVE_DATE=2026-10-06 and LEGAL_PAGES_PUBLISHED=true."
     },
     {
       "id": "first-paying-client",
