@@ -103,7 +103,7 @@
       "step": 11,
       "name": "First Real Paying Client",
       "status": "PENDING_CLIENT",
-      "summary": "Use the SaaS Sales pipeline, legal pack, provisioning and onboarding workflow to close, activate and go live with the first real external paying institution.",
+      "summary": "Use the SaaS Sales pipeline, legal pack, provisioning/onboarding workflow and FIRST_CLIENT_GO_LIVE_EVIDENCE.md to close, activate, validate and go live with the first real external paying institution.",
       "webRoutes": [
         "/admin/saas-sales",
         "/admin/legal-sales",
