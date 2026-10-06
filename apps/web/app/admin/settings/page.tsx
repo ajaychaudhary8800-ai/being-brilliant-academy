@@ -11,6 +11,7 @@ const sections = [
   { title: "Users, Roles & Access", description: "Create users, review roles and control administrator access.", href: "/admin/users", icon: Users },
   { title: "Communication & Notifications", description: "Manage operational communications, notices and delivery workflows.", href: "/admin/communication", icon: Bell },
   { title: "Subscription & Entitlements", description: "Review the active plan and the modules enabled for this organization.", href: "/admin/subscription", icon: CreditCard, tenantOnly: true },
+  { title: "Student Payment Gateway", description: "Connect the institution's own Razorpay account for parent/student fee collection and settlement.", href: "/admin/payment-gateway", icon: CreditCard, superAdminOnly: true },
   { title: "Security & Account Access", description: "Review access controls, password recovery and protected administrator workflows.", href: "/admin/users", icon: LockKeyhole },
 ] as const;
 
@@ -21,7 +22,7 @@ export default function SettingsPage() {
 
   return <ProtectedAdminWorkspace title="Settings" description="Central access to institution configuration, permissions, notifications, security and commercial settings.">
     <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {sections.filter(section => !("tenantOnly" in section) || !section.tenantOnly || tenant).map(section => {
+      {sections.filter(section => (!("tenantOnly" in section) || !section.tenantOnly || tenant) && (!("superAdminOnly" in section) || !section.superAdminOnly || user?.role === "SUPER_ADMIN")).map(section => {
         const Icon = section.icon;
         return <Link key={section.title} href={section.href} className="group rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-lg dark:bg-slate-900">
           <div className="flex items-start justify-between gap-4">
