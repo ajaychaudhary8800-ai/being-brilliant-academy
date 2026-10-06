@@ -1,0 +1,92 @@
+name: One-time staging legal pages activation
+
+on:
+  push:
+    branches: ["legal/counsel-approved-public-pages-2026-10-06"]
+    paths:
+      - ".github/workflows/legal-pages-staging-activate.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: legal-pages-staging-activation
+  cancel-in-progress: true
+
+jobs:
+  activate:
+    if: ${{ vars.STAGING_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build approved legal-pages web image
+        id: meta
+        run: echo "version=legal-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/bba-web:${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Enable approved legal pages and redeploy staging web
+        uses: appleboy/ssh-action@v1.2.1
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+          GHCR_TOKEN: ${{ secrets.STAGING_GHCR_TOKEN }}
+        with:
+          host: ${{ secrets.STAGING_DEPLOY_HOST }}
+          username: ${{ secrets.STAGING_DEPLOY_USER }}
+          key: ${{ secrets.STAGING_DEPLOY_SSH_KEY }}
+          envs: VERSION,OWNER,GHCR_TOKEN
+          script_stop: true
+          script: |
+            cd /opt/bba-staging
+            cp .env.staging ".env.staging.pre-legal-$(date +%Y%m%d%H%M%S)"
+
+            if grep -q '^LEGAL_PAGES_PUBLISHED=' .env.staging; then
+              sed -i 's/^LEGAL_PAGES_PUBLISHED=.*/LEGAL_PAGES_PUBLISHED=true/' .env.staging
+            else
+              printf '\nLEGAL_PAGES_PUBLISHED=true\n' >> .env.staging
+            fi
+
+            if grep -q '^LEGAL_EFFECTIVE_DATE=' .env.staging; then
+              sed -i 's/^LEGAL_EFFECTIVE_DATE=.*/LEGAL_EFFECTIVE_DATE=2026-10-06/' .env.staging
+            else
+              printf 'LEGAL_EFFECTIVE_DATE=2026-10-06\n' >> .env.staging
+            fi
+
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$OWNER" --password-stdin
+            export BBA_COMPOSE_PROJECT_NAME=bba-staging
+            export WEB_IMAGE="ghcr.io/$OWNER/bba-web:$VERSION"
+            docker compose --env-file .env.staging pull web
+            docker compose --env-file .env.staging up -d --wait web
+            curl -fkSs https://localhost/health/nginx
+
+      - name: Verify approved public legal pages on staging
+        run: |
+          set -euo pipefail
+          base="https://main-staging.beingbrilliantedu.com"
+          curl -fsS "$base/privacy" -o /tmp/privacy.html
+          curl -fsS "$base/terms" -o /tmp/terms.html
+          curl -fsS "$base/acceptable-use" -o /tmp/aup.html
+          curl -fsS "$base/" -o /tmp/home.html
+          grep -q "Privacy" /tmp/privacy.html
+          grep -q "Being Brilliant" /tmp/terms.html
+          grep -q "Acceptable Use" /tmp/aup.html
+          grep -q 'href="/privacy"' /tmp/home.html
+          grep -q 'href="/terms"' /tmp/home.html
+          grep -q 'href="/acceptable-use"' /tmp/home.html
