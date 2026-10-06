@@ -25,6 +25,7 @@ import {
 import { SiteHeader } from "./site-header";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+const LEGAL_PAGES_PUBLISHED = process.env.NEXT_PUBLIC_LEGAL_PAGES_PUBLISHED === "true";
 
 const engines = [
   {
@@ -546,7 +547,12 @@ export function PremiumLanding() {
                     <button disabled={busy} className="premium-cta justify-center disabled:opacity-60">
                       {busy ? "Submitting…" : "Request demo"}
                     </button>
-                    <p className="text-xs leading-5 text-slate-500">By submitting, you are asking our team to contact you about the education platform.</p>
+                    <p className="text-xs leading-5 text-slate-500">
+                      By submitting, you are asking our team to contact you about the education platform.
+                      {LEGAL_PAGES_PUBLISHED && (
+                        <> See our <Link href="/privacy" className="font-semibold text-brand-700 hover:underline">Privacy Notice</Link>.</>
+                      )}
+                    </p>
                   </form>
                 </>
               )}
@@ -565,6 +571,13 @@ export function PremiumLanding() {
             <a href="#platform" className="hover:text-white">Platform</a>
             <a href="#modules" className="hover:text-white">Modules</a>
             <a href="#solutions" className="hover:text-white">Solutions</a>
+            {LEGAL_PAGES_PUBLISHED && (
+              <>
+                <Link href="/privacy" className="hover:text-white">Privacy</Link>
+                <Link href="/terms" className="hover:text-white">Terms</Link>
+                <Link href="/acceptable-use" className="hover:text-white">Acceptable Use</Link>
+              </>
+            )}
             <Link href="/login" className="hover:text-white">Sign in</Link>
           </div>
           <p className="text-xs text-slate-500">© {new Date().getFullYear()} Being Brilliant. All rights reserved.</p>
