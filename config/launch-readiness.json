@@ -111,10 +111,11 @@
         "docs/legal-sales/README.md",
         "docs/legal-sales/EXECUTION_PARTICULARS.md",
         "docs/legal-sales/LEGAL_RESEARCH_NOTES.md",
-        "docs/legal-sales/COUNSEL_REVIEW_HANDOFF.md"
+        "docs/legal-sales/COUNSEL_REVIEW_HANDOFF.md",
+        "docs/legal-sales/COUNSEL_APPROVAL_RECORD.md"
       ],
-      "nextAction": "Complete Indian counsel review before first external signature and record the counsel-approved version/date. Counsel should also confirm whether the supplied 23 October 2024 MCA extract is sufficiently current for the contemplated execution date.",
-      "note": "Management directed that the official MCA Company Information extract dated 23 October 2024 be used for MCA-covered particulars. Official GST REG-06 evidence issued 17 December 2024 confirms GSTIN 09AAPCA1080N2Z7, the legal/trade name, Regular registration, principal place of business and director details. Business-role mail flow, public support number and SPF/DKIM/DMARC are verified. Gate remains blocked only for Indian counsel review/approval."
+      "nextAction": "Send the prepared counsel review pack to qualified Indian counsel, record the review outcome and required amendments in docs/legal-sales/COUNSEL_APPROVAL_RECORD.md, implement any required changes, obtain any needed re-confirmation, and only then mark legal-execution READY.",
+      "note": "Corporate particulars and operational contacts are verified. The internal approval-record workflow is prepared, but the gate remains blocked until an external Indian advocate/law firm completes review and approval."
     },
     {
       "id": "public-legal-pages",
