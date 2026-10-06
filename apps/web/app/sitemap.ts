@@ -1,6 +1,8 @@
 import type { MetadataRoute } from "next";
 import { publicLegalPagesPublished } from "../lib/public-legal";
 
+export const dynamic = "force-dynamic";
+
 export default function sitemap(): MetadataRoute.Sitemap {
   const entries: MetadataRoute.Sitemap = [
     {
