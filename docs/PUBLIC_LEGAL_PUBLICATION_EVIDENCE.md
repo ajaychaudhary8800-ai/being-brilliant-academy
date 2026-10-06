@@ -3,7 +3,7 @@
 **Product:** Being Brilliant ERP / LMS / CRM  
 **Approved legal effective date:** 6 October 2026  
 **Counsel approval:** COMPLETE — approved without changes  
-**Current gate:** PENDING_RUNTIME_ACTIVATION
+**Current gate:** PENDING_PRODUCTION_PUBLICATION
 
 ## 1. Counsel dependency
 
@@ -62,20 +62,36 @@ Then redeploy the **staging Web service** through the normal Coolify staging pat
 
 Do not modify production yet as part of the staging verification step.
 
-## 5. Staging verification checklist
+## 5. Staging verification — COMPLETE
 
-After staging Web redeploy:
+The staging Web service was switched to branch `main`, retained `HEAD`, and redeployed successfully after confirming the runtime environment contains:
 
-- [ ] `https://main-staging.beingbrilliantedu.com/privacy` returns 200 and renders the Privacy Notice.
-- [ ] `https://main-staging.beingbrilliantedu.com/terms` returns 200 and renders the SaaS Terms.
-- [ ] `https://main-staging.beingbrilliantedu.com/acceptable-use` returns 200 and renders the AUP.
-- [ ] Privacy effective date displays 6 October 2026.
-- [ ] Footer Privacy link works.
-- [ ] Footer Terms link works.
-- [ ] Footer Acceptable Use link works.
-- [ ] Demo form Privacy link works.
-- [ ] Desktop presentation checked.
-- [ ] Mobile presentation checked.
+```env
+LEGAL_PAGES_PUBLISHED=true
+LEGAL_EFFECTIVE_DATE=2026-10-06
+```
+
+Automated Playwright verification was then re-run against `https://main-staging.beingbrilliantedu.com`.
+
+- [x] `/privacy` returns 200 and renders the Privacy Notice.
+- [x] `/terms` returns 200 and renders the SaaS Terms.
+- [x] `/acceptable-use` returns 200 and renders the AUP.
+- [x] Privacy effective date displays 6 October 2026.
+- [x] Footer Privacy link works.
+- [x] Footer Terms link works.
+- [x] Footer Acceptable Use link works.
+- [x] Demo form Privacy link works.
+- [x] Desktop presentation checked.
+- [x] Mobile presentation checked.
+
+**Verification evidence**
+- GitHub Actions workflow run: `37493445044`
+- Successful rerun attempt: `2`
+- Verification job result: **SUCCESS**
+- Evidence artifact: `public-legal-staging-verification-37493445044`
+- Successful artifact ID: `11427867520`
+
+The earlier attempt in the same workflow run failed only because staging still served the older branch build. After correcting Coolify staging Web from `integration/erp4.0-ai-automation-launch` to `main` and redeploying, the independent browser verification passed.
 
 ## 6. Production publication
 
