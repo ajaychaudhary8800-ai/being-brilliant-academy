@@ -398,7 +398,7 @@ async function failPayment(gatewayId: string, event: any) {
     where: { gatewayId, providerOrderId: String(payment.order_id) },
   });
   if (!order) return { handled: false, reason: "unknown_order" };
-  if ([InstitutionPaymentOrderStatus.CAPTURED, InstitutionPaymentOrderStatus.REFUNDED].includes(order.status)) {
+  if (order.status === InstitutionPaymentOrderStatus.CAPTURED || order.status === InstitutionPaymentOrderStatus.REFUNDED) {
     return { handled: true, ignored: true, orderId: order.id };
   }
   await systemPrisma.institutionPaymentOrder.update({
