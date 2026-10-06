@@ -64,6 +64,7 @@ test("SLA reflects verified off-site backup evidence without over-promising reco
   assert.match(sla, /Service Credit SLA: Included/);
   assert.match(sla, /Cloudflare R2 off-site backup procedures/);
   assert.match(sla, /does not make a fixed contractual RPO\/RTO/);
+  assert.match(sla, /\+91 92663 41098/);
   assert.match(sla, /Monday-Saturday, 9:00 AM-6:00 PM IST/);
   assert.match(sla, /P1 \| 2 business hours/);
 });
@@ -93,6 +94,7 @@ test("provider execution particulars use public-safe business contacts", async (
   assert.match(execution, /legal@beingbrilliantedu\.com/);
   assert.match(execution, /privacy@beingbrilliantedu\.com/);
   assert.match(execution, /support@beingbrilliantedu\.com/);
+  assert.match(execution, /\+91 92663 41098/);
   assert.match(execution, /SPF PASS/);
   assert.match(execution, /DKIM PASS/);
   assert.match(execution, /DMARC PASS/);
