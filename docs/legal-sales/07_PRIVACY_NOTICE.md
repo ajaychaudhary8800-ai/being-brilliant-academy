@@ -66,7 +66,7 @@ For data we control directly, contact:
 
 **Privacy/Grievance email:** privacy@beingbrilliantedu.com
 
-This mailbox is the designated public contact and must be activated and tested before this notice is published on the public website.
+This monitored business-role mailbox was activated and inbound delivery was verified on 6 October 2026.
 
 ## 9. International processing
 
