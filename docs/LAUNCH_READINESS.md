@@ -116,7 +116,7 @@ Synthetic QA, demo and internal tenants do not satisfy this gate.
 
 ## 3. Downstream formal release
 
-Step 12 — Formal Production Release remains downstream of first-client validation.
+Step 12 — Formal Production Release remains downstream of first-client validation. The controlled execution record is `docs/FORMAL_COMMERCIAL_RELEASE_EVIDENCE.md`.
 
 After Step 11 and a final GO decision:
 
