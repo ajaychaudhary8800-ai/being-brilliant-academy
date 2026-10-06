@@ -8,7 +8,7 @@ Use this after the Step 14 readiness framework reports GO and management has aut
 - Confirm Step 5 off-site DR evidence.
 - Confirm Indian counsel approval is recorded and the approved public legal effective date is known.
 - Confirm `LEGAL_PAGES_PUBLISHED=true` and `LEGAL_EFFECTIVE_DATE=<approved date>` were verified in staging before production publication.
-- Confirm first-client validation where required.
+- Confirm first-client validation is complete using `docs/FIRST_CLIENT_GO_LIVE_EVIDENCE.md` where required.
 - Confirm no open P1/P2 production incidents.
 - Confirm pricing and proposal pack are unchanged.
 - Confirm support contacts and escalation ownership.
