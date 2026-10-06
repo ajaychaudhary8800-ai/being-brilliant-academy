@@ -62,8 +62,8 @@ Any one failed hard gate means NO-GO/HOLD.
 
 ## Release execution
 
-1. Identify the exact release commit.
-2. Create the approved release tag/version under Step 12.
+1. Open `docs/FORMAL_COMMERCIAL_RELEASE_EVIDENCE.md` and identify the exact release commit.
+2. Create the approved release tag/version under Step 12 and record it in that evidence file.
 3. Deploy through the normal controlled production path.
 4. Do not manually patch production files outside change control.
 5. Wait only for actual deployment completion signals; do not assume success from a queued deployment.
