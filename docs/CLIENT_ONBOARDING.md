@@ -87,6 +87,8 @@ For requirements collection, migration templates, UAT, domain handover, support 
 
 Platform operators can also open **Admin -> Implementation Kit** for downloadable templates and the printable go-live checklist.
 
+For the first real external paying institution, also complete [FIRST_CLIENT_GO_LIVE_EVIDENCE.md](./FIRST_CLIENT_GO_LIVE_EVIDENCE.md). That record is the controlled Step 11 evidence checklist tying the WON SaaS Sales lead, payment/activation evidence, onboarding READY / 100%, UAT, handover and production smoke validation together.
+
 
 ## Contract pack gate
 

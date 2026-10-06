@@ -141,10 +141,11 @@
       "dependency": "Step 11",
       "evidence": [
         "docs/SAAS_SALES_PLAYBOOK.md",
-        "docs/CLIENT_ONBOARDING.md"
+        "docs/CLIENT_ONBOARDING.md",
+        "docs/FIRST_CLIENT_GO_LIVE_EVIDENCE.md"
       ],
-      "nextAction": "Convert one real institution through signed commercial acceptance, payment/activation, provisioning, onboarding, UAT and go-live.",
-      "note": "Synthetic QA and internal tenants do not satisfy this gate."
+      "nextAction": "Use docs/FIRST_CLIENT_GO_LIVE_EVIDENCE.md to convert one real institution through commercial acceptance, real payment/activation evidence, WON lead linkage, onboarding READY / 100%, UAT/client acceptance, production go-live and smoke validation.",
+      "note": "All internal Step 11 evidence controls are prepared. The gate remains externally dependent on a real paying institution; QA, demo, synthetic and internal tenants cannot satisfy it."
     },
     {
       "id": "formal-release",
@@ -153,10 +154,11 @@
       "status": "PENDING_DEPENDENCY",
       "dependency": "Step 12 after first-client validation",
       "evidence": [
-        "docs/PRODUCTION_OPERATIONS.md"
+        "docs/PRODUCTION_OPERATIONS.md",
+        "docs/FORMAL_COMMERCIAL_RELEASE_EVIDENCE.md"
       ],
-      "nextAction": "Create the formal release version/tag and release record only after Step 11 validation and final GO decision.",
-      "note": "This is downstream of the pre-launch readiness gate rather than a blocker to implementing Step 14."
+      "nextAction": "After Step 11 is COMPLETE and every blocking gate is READY, use docs/FORMAL_COMMERCIAL_RELEASE_EVIDENCE.md to record the exact release commit/tag, management authorization, deployment evidence, smoke validation and rollback reference.",
+      "note": "Formal release execution remains intentionally downstream. All internal Step 12 evidence controls are prepared; do not create the commercial release/tag until the final GO gate and management authorization are complete."
     }
   ]
 }

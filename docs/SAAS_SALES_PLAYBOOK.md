@@ -321,6 +321,8 @@ Mark WON only when:
 Then hand off to:
 **Step 7 Client Onboarding → Implementation SOW → UAT → Go-live.**
 
+For the first real paying institution, complete `FIRST_CLIENT_GO_LIVE_EVIDENCE.md` through post-go-live smoke validation before the Step 11 launch gate is changed to READY.
+
 ## 14. Lost-reason taxonomy
 
 Use concise standardized reasons in notes:
