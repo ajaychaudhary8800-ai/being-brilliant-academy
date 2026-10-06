@@ -1,8 +1,8 @@
 # Privacy Notice Template — Being Brilliant
 
 **Effective date:** [[DATE]]  
-**Operator:** Adhyay Eduventure Private Limited ("we", "us")  
-**Registered office:** C-40 First Floor Near Atal Chowk Nand gram Ghaziabad 201003  
+**Operator:** ADHYAY EDUVENTURE PRIVATE LIMITED ("we", "us")  
+**Registered office:** KH NO 257 PLOT NO 26 ROYAL GREEN CITY, PHASE II VILL DUHAI, Ghaziabad, Ghaziabad, Ghaziabad, Uttar Pradesh, India, 201001  
 **CIN:** U80100UP2017PTC089682  
 **GSTIN:** 09AAPCA1080N2Z7
 
