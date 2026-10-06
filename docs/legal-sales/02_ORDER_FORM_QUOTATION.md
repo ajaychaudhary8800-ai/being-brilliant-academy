@@ -8,7 +8,7 @@ This Order Form is issued under the Being Brilliant SaaS Master Agreement betwee
 **Registered office:** C-40 First Floor Near Atal Chowk Nand gram Ghaziabad 201003  
 **CIN:** U80100UP2017PTC089682  
 **GSTIN:** 09AAPCA1080N2Z7  
-**Contract notices:** legal@beingbrilliantedu.com *(activate and test before first external issue)*  
+**Contract notices:** legal@beingbrilliantedu.com  
 
 **Client legal name:** [[CLIENT LEGAL NAME]]  
 **Registered office:** [[CLIENT ADDRESS]]  
