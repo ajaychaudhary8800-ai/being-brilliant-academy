@@ -154,10 +154,11 @@
       "status": "PENDING_DEPENDENCY",
       "dependency": "Step 12 after first-client validation",
       "evidence": [
-        "docs/PRODUCTION_OPERATIONS.md"
+        "docs/PRODUCTION_OPERATIONS.md",
+        "docs/FORMAL_COMMERCIAL_RELEASE_EVIDENCE.md"
       ],
-      "nextAction": "Create the formal release version/tag and release record only after Step 11 validation and final GO decision.",
-      "note": "This is downstream of the pre-launch readiness gate rather than a blocker to implementing Step 14."
+      "nextAction": "After Step 11 is COMPLETE and every blocking gate is READY, use docs/FORMAL_COMMERCIAL_RELEASE_EVIDENCE.md to record the exact release commit/tag, management authorization, deployment evidence, smoke validation and rollback reference.",
+      "note": "Formal release execution remains intentionally downstream. All internal Step 12 evidence controls are prepared; do not create the commercial release/tag until the final GO gate and management authorization are complete."
     }
   ]
 }
