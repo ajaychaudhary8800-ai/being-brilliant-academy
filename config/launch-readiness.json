@@ -141,10 +141,11 @@
       "dependency": "Step 11",
       "evidence": [
         "docs/SAAS_SALES_PLAYBOOK.md",
-        "docs/CLIENT_ONBOARDING.md"
+        "docs/CLIENT_ONBOARDING.md",
+        "docs/FIRST_CLIENT_GO_LIVE_EVIDENCE.md"
       ],
-      "nextAction": "Convert one real institution through signed commercial acceptance, payment/activation, provisioning, onboarding, UAT and go-live.",
-      "note": "Synthetic QA and internal tenants do not satisfy this gate."
+      "nextAction": "Use docs/FIRST_CLIENT_GO_LIVE_EVIDENCE.md to convert one real institution through commercial acceptance, real payment/activation evidence, WON lead linkage, onboarding READY / 100%, UAT/client acceptance, production go-live and smoke validation.",
+      "note": "All internal Step 11 evidence controls are prepared. The gate remains externally dependent on a real paying institution; QA, demo, synthetic and internal tenants cannot satisfy it."
     },
     {
       "id": "formal-release",
