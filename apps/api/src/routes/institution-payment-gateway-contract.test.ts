@@ -96,7 +96,7 @@ test("web clients expose tenant setup, parent/student checkout and receipt downl
     read("../../../web/app/admin/settings/page.tsx"),
   ]);
   assert.match(gatewayPage, /Institution Razorpay account/);
-  assert.match(gatewayPage, /Student money settles to the institution's own merchant account/);
+  assert.match(gatewayPage, /Student money settles to the institution(?:'|&apos;)s own merchant account/);
   assert.match(gatewayPage, /Verify credentials/);
   assert.match(gatewayPage, /Enable online fees/);
   assert.match(gatewayPage, /refund/);
