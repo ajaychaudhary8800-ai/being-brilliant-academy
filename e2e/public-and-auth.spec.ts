@@ -32,7 +32,7 @@ test("@smoke @mobile portal selector works on mobile", async ({ page }) => {
 
 test("@smoke public legal publication matches the controlled launch gate", async ({ page }) => {
   const manifest = JSON.parse(
-    readFileSync(new URL("../config/launch-readiness.json", import.meta.url), "utf8"),
+    readFileSync("config/launch-readiness.json", "utf8"),
   ) as { gates: Array<{ id: string; status: string }> };
   const legalGate = manifest.gates.find(gate => gate.id === "public-legal-pages");
   expect(legalGate).toBeTruthy();
