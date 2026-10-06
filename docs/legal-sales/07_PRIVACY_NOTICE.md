@@ -1,7 +1,10 @@
 # Privacy Notice Template — Being Brilliant
 
 **Effective date:** [[DATE]]  
-**Operator:** Adhyay Eduventure Private Limited ("we", "us")
+**Operator:** Adhyay Eduventure Private Limited ("we", "us")  
+**Registered office:** C-40 First Floor Near Atal Chowk Nand gram Ghaziabad 201003  
+**CIN:** U80100UP2017PTC089682  
+**GSTIN:** 09AAPCA1080N2Z7
 
 This notice describes personal data we handle in connection with the Being Brilliant ERP + LMS + CRM service and related website, demo, account, billing and support activities.
 
@@ -61,7 +64,9 @@ Where applicable under law, individuals may have rights relating to access, corr
 
 For data we control directly, contact:
 
-**Privacy/Grievance contact:** [[INSERT VERIFIED PRIVACY CONTACT BEFORE PUBLICATION]]
+**Privacy/Grievance email:** privacy@beingbrilliantedu.com
+
+This monitored business-role mailbox was activated and inbound delivery was verified on 6 October 2026.
 
 ## 9. International processing
 

@@ -13,6 +13,7 @@ test("platform legal sales workspace exposes the complete controlled Step 9 pack
   const route = await readFile(routeUrl, "utf8");
   for (const file of [
     "README.md",
+    "EXECUTION_PARTICULARS.md",
     "01_SALES_PROPOSAL_TEMPLATE.md",
     "02_ORDER_FORM_QUOTATION.md",
     "03_SAAS_MASTER_AGREEMENT.md",
@@ -75,7 +76,8 @@ test("platform navigation and UI expose view, generate, download and print contr
   assert.match(page, /Controlled source preview/);
   assert.match(page, /Editable working copy/);
   assert.match(page, /Indian counsel review/);
-  assert.match(page, /Step 5 remains incomplete/);
+  assert.match(page, /Step 5 off-site DR evidence is complete/);
+  assert.match(page, /business-role mailboxes/);
 });
 
 test("Step 9 README points operators to the ERP workspace", async () => {

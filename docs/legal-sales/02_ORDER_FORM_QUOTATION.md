@@ -5,9 +5,10 @@ This Order Form is issued under the Being Brilliant SaaS Master Agreement betwee
 ## A. Parties
 
 **Provider:** Adhyay Eduventure Private Limited  
-**Registered office:** [[PROVIDER REGISTERED OFFICE]]  
-**CIN:** [[PROVIDER CIN]]  
-**GSTIN:** [[PROVIDER GSTIN]]  
+**Registered office:** C-40 First Floor Near Atal Chowk Nand gram Ghaziabad 201003  
+**CIN:** U80100UP2017PTC089682  
+**GSTIN:** 09AAPCA1080N2Z7  
+**Contract notices:** legal@beingbrilliantedu.com  
 
 **Client legal name:** [[CLIENT LEGAL NAME]]  
 **Registered office:** [[CLIENT ADDRESS]]  
@@ -50,6 +51,8 @@ No feature or capacity is granted merely because it appears elsewhere in marketi
 
 Standard catalogue prices, implementation rules and capacity references are defined in `docs/COMMERCIAL_PACKAGING_PRICING.md`.
 
+**Payment particulars control:** bank account/payment destination details must be inserted into the issued quotation/invoice only from approved company finance records. They are intentionally not stored in source control.
+
 ## E. Included modules/add-ons
 
 [[LIST ENABLED MODULES AND ANY CONTRACT-SPECIFIC ENTITLEMENTS]]
@@ -75,8 +78,8 @@ Any discount, custom capacity, white-label term or module override must be writt
 By signing, each party confirms authority to bind its organization and agrees that this Order Form and incorporated documents form the contract.
 
 **For Provider**  
-Name: [[NAME]]  
-Designation: [[DESIGNATION]]  
+Name: CHOUDHARY AJAY SINGH  
+Designation: DIRECTOR  
 Signature/date: __________________
 
 **For Client**  

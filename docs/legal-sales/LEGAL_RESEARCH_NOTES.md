@@ -62,24 +62,25 @@ The pack promises only controls evidenced by current architecture. It intentiona
 
 The DPA uses a contractual target to notify Client within 24 hours after Provider confirms a Client-data security incident. This is an internal customer-notification target, not a statement of the statutory regulator-notification deadline.
 
-## 7. Step 5 dependency
+## 7. Step 5 status
 
-Off-site backup/disaster recovery remains deferred. Do not add:
-- off-site backup warranty;
-- fixed RPO/RTO;
+The production Cloudflare R2 backup path and an isolated PostgreSQL + file-storage restore drill were evidenced on 6 October 2026.
+
+That evidence supports the technical launch-readiness gate, but it does not by itself justify:
+- a fixed contractual RPO/RTO;
 - guaranteed cross-region restoration;
-- DR service credits
-until the isolated restore drill is completed and evidenced.
+- DR service credits; or
+- broader recovery commitments not supported by the contracted architecture.
 
-## 8. Execution particulars still requiring business verification
+## 8. Execution particulars status
 
-Before the first external signature/public privacy publication, verify from current official/company records:
-- registered office;
-- CIN;
-- GSTIN;
-- authorized signatory;
-- notices email;
-- privacy/grievance contact;
-- support contact/hours.
+Company management supplied the current provider particulars on 6 October 2026 and they are recorded in `EXECUTION_PARTICULARS.md`.
 
-Do not rely on third-party company directories for execution particulars without independent verification.
+Before the first external signature/public privacy publication:
+- cross-check registered office, CIN, GSTIN and authorized signatory against current official/company records;
+- keep the designated legal, privacy and support role mailboxes operational; inbound delivery has been verified and the support mailbox has passed SPF, DKIM and DMARC authentication;
+- keep the confirmed business support phone, published support hours and designated role mailboxes operational;
+- keep bank/payment destination details out of source control and insert them only from approved finance records; and
+- obtain Indian counsel review of the controlled pack.
+
+Personal email addresses and personal privacy/grievance phone details are intentionally excluded from the public repository.

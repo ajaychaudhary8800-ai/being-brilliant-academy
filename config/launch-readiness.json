@@ -109,10 +109,11 @@
       "dependency": "Business/legal verification",
       "evidence": [
         "docs/legal-sales/README.md",
+        "docs/legal-sales/EXECUTION_PARTICULARS.md",
         "docs/legal-sales/LEGAL_RESEARCH_NOTES.md"
       ],
-      "nextAction": "Verify registered office, CIN, GSTIN, authorized signatory, notices/privacy contacts, support contacts/hours and payment details; obtain Indian counsel review before first external signature.",
-      "note": "No unverified company particulars may be invented or published."
+      "nextAction": "Cross-check the management-supplied corporate particulars against current official/company records and obtain Indian counsel review before first external signature.",
+      "note": "Corporate particulars, authorized signatory, role mailboxes, public business support number, support hours and source-control-safe payment policy are recorded. Support, privacy and legal mail flow has been activated and tested; support outbound authentication passed SPF, DKIM and DMARC. Personal contact details remain excluded. Gate stays blocked until official-record cross-check and Indian counsel review are complete."
     },
     {
       "id": "public-legal-pages",

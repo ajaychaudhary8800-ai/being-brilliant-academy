@@ -51,7 +51,9 @@ Measured during published support hours unless the Order Form provides extended 
 
 Response means acknowledgement and triage, not guaranteed resolution. Resolution depends on severity, reproducibility, dependencies and safe release controls.
 
-**Support hours:** [[INSERT APPROVED SUPPORT HOURS AND HOLIDAYS BEFORE EXTERNAL ISSUE]].
+**Support contact:** support@beingbrilliantedu.com  
+**Support phone:** +91 92663 41098  
+**Support hours:** Monday-Saturday, 9:00 AM-6:00 PM IST. Sunday & public holidays: closed, except critical incident escalation.
 
 ## 6. Planned maintenance
 
@@ -59,9 +61,7 @@ Provider will use reasonable efforts to schedule disruptive planned maintenance 
 
 ## 7. Backup and disaster recovery
 
-Provider maintains backup procedures appropriate to the contracted deployment. **No off-site backup RPO/RTO or isolated disaster-recovery restoration commitment is made under this standard policy until such capability is expressly stated in the Order Form and technically verified.**
-
-This clause must be reviewed after completion of the off-site DR workstream.
+Provider maintains local and Cloudflare R2 off-site backup procedures and has completed an isolated restore drill for the current production backup path. **This standard policy does not make a fixed contractual RPO/RTO, cross-region restoration guarantee or DR service-credit commitment unless the applicable Order Form expressly states one and the commitment is separately approved against current infrastructure evidence.**
 
 ## 8. Security incidents
 

@@ -6,19 +6,18 @@ This folder is the controlled commercial contracting pack for **Being Brilliant 
 
 Platform Super Admin users can access the complete controlled pack from **Sales Documents / Legal Pack** at `/admin/legal-sales`. The workspace supports source viewing, placeholder-based client working-copy generation, Markdown download and print/PDF. Generated copies never overwrite these controlled source files.
 
-## Before first external signature
+## Provider execution particulars
 
-Replace and verify these execution particulars against current corporate records:
-- Provider registered office.
-- CIN.
-- GSTIN.
-- Authorized signatory name/designation.
-- Contract notices email.
-- Privacy/grievance contact.
-- Support email/phone and support hours.
-- Bank/payment details where a quotation requires them.
+Management-confirmed provider particulars are recorded in `EXECUTION_PARTICULARS.md`.
 
-Do not copy an address, GSTIN or contact from an unverified directory. Use current MCA/GST/company records.
+Before first external signature or public legal publication:
+- cross-check the registered office, CIN, GSTIN and authorized signatory against current official/company records;
+- keep the verified `legal@beingbrilliantedu.com`, `privacy@beingbrilliantedu.com` and `support@beingbrilliantedu.com` mail flow operational;
+- keep the confirmed business support phone and published support hours operational;
+- insert bank/payment details only from approved company finance records into the specific issued quotation/invoice; and
+- complete Indian counsel review of the controlled legal pack.
+
+Do not copy an address, GSTIN, contact or bank detail from an unverified directory.
 
 ## Document order
 
@@ -55,4 +54,4 @@ The DPDP Act, 2023 and DPDP Rules, 2025 have phased commencement. The templates 
 
 ## Infrastructure truth rule
 
-Never promise a control that has not been implemented and verified. In particular, off-site disaster-recovery RPO/RTO commitments must not be added until the Step 5 off-site backup and isolated restore drill has been completed and evidenced.
+Never promise a control that has not been implemented and verified. Step 5 off-site backup and isolated restore evidence is complete; however, no fixed contractual RPO/RTO, cross-region restoration guarantee or DR service credit may be added unless it is separately approved and supported by the contracted production design.
