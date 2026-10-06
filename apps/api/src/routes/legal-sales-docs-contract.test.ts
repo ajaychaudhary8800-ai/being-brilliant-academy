@@ -7,6 +7,7 @@ const legal = (name: string) => new URL(`../../../../docs/legal-sales/${name}`, 
 test("Step 9 legal-sales pack contains the complete controlled document set", async () => {
   const expected = [
     "README.md",
+    "EXECUTION_PARTICULARS.md",
     "01_SALES_PROPOSAL_TEMPLATE.md",
     "02_ORDER_FORM_QUOTATION.md",
     "03_SAAS_MASTER_AGREEMENT.md",
@@ -57,11 +58,13 @@ test("DPA is DPDP-ready without misallocating institution-controlled student obl
   assert.match(dpa, /Client must not assume India-only data residency/);
 });
 
-test("SLA does not promise unverified off-site disaster recovery", async () => {
+test("SLA reflects verified off-site backup evidence without over-promising recovery commitments", async () => {
   const sla = await readFile(legal("05_SLA_SUPPORT_POLICY.md"), "utf8");
   assert.match(sla, /99\.5% per calendar month/);
   assert.match(sla, /Service Credit SLA: Included/);
-  assert.match(sla, /No off-site backup RPO\/RTO or isolated disaster-recovery restoration commitment/);
+  assert.match(sla, /Cloudflare R2 off-site backup procedures/);
+  assert.match(sla, /does not make a fixed contractual RPO\/RTO/);
+  assert.match(sla, /Monday-Saturday, 9:00 AM-6:00 PM IST/);
   assert.match(sla, /P1 \| 2 business hours/);
 });
 
@@ -72,10 +75,24 @@ test("privacy, exit and security schedules preserve truthful customer commitment
     readFile(legal("10_SECURITY_SCHEDULE.md"), "utf8"),
   ]);
   assert.match(privacy, /We do not sell institution-controlled personal data/);
-  assert.ok(privacy.includes("INSERT VERIFIED PRIVACY CONTACT BEFORE PUBLICATION"));
+  assert.match(privacy, /privacy@beingbrilliantedu\.com/);
+  assert.match(privacy, /must be activated and tested before this notice is published/);
   assert.match(exit, /30-day exit window/);
   assert.match(exit, /60 days after the exit window closes/);
   assert.match(security, /does not claim certifications that have not been obtained/);
   assert.match(security, /No implied certification/);
   assert.match(security, /off-site DR commitments are not represented/);
+});
+
+
+test("provider execution particulars use public-safe business contacts", async () => {
+  const execution = await readFile(legal("EXECUTION_PARTICULARS.md"), "utf8");
+  assert.match(execution, /U80100UP2017PTC089682/);
+  assert.match(execution, /09AAPCA1080N2Z7/);
+  assert.match(execution, /CHOUDHARY AJAY SINGH/);
+  assert.match(execution, /legal@beingbrilliantedu\.com/);
+  assert.match(execution, /privacy@beingbrilliantedu\.com/);
+  assert.match(execution, /support@beingbrilliantedu\.com/);
+  assert.doesNotMatch(execution, /@gmail\.com/i);
+  assert.match(execution, /Bank account and payment destination details are not stored in source control/);
 });
