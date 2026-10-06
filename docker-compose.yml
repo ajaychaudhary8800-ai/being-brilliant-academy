@@ -99,7 +99,7 @@ services:
     image: ${WEB_IMAGE:-bba-web:local}
     build: { context: ., dockerfile: apps/web/Dockerfile, args: { NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-/api/v1}" } }
     restart: unless-stopped
-    environment: { NODE_ENV: production, PORT: 3000, HOSTNAME: 0.0.0.0, INTERNAL_API_URL: http://api:4000/api/v1, INTERNAL_API_ORIGIN: http://api:4000 }
+    environment: { NODE_ENV: production, PORT: 3000, HOSTNAME: 0.0.0.0, INTERNAL_API_URL: http://api:4000/api/v1, INTERNAL_API_ORIGIN: http://api:4000, LEGAL_PAGES_PUBLISHED: "${LEGAL_PAGES_PUBLISHED:-false}", LEGAL_EFFECTIVE_DATE: "${LEGAL_EFFECTIVE_DATE:-}" }
     expose: ["3000"]
     networks: [frontend]
     depends_on: { api: { condition: service_healthy } }
