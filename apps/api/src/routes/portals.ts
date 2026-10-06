@@ -161,7 +161,7 @@ async function studentData(student: NonNullable<Awaited<ReturnType<typeof studen
   return {
     timeZone: organization.timezone,
     locale: organization.locale,
-    profile: { name: student.user.name, admissionNo: student.admissionNo, rollNo: student.rollNo, status: student.status, academicSession: student.academicSession, branch: { id: student.branch.id, name: student.branch.branchName }, course: student.batch.course ? { id: student.batch.course.id, name: student.batch.course.title } : { id: "", name: "Course not assigned" }, batch: { id: student.batch.id, name: student.batch.name } },
+    profile: { id: student.id, name: student.user.name, admissionNo: student.admissionNo, rollNo: student.rollNo, status: student.status, academicSession: student.academicSession, branch: { id: student.branch.id, name: student.branch.branchName }, course: student.batch.course ? { id: student.batch.course.id, name: student.batch.course.title } : { id: "", name: "Course not assigned" }, batch: { id: student.batch.id, name: student.batch.name } },
     attendance: { records: attendance, summary, percentage: attendance.length ? Math.round(present * 10000 / attendance.length) / 100 : 0 },
     homework: { assignments: historicalHomeworks.map(item => ({ ...item, hasAttachment: Boolean(item.attachmentName), submission: item.submissions[0] ?? null, submissions: undefined })) },
     timetable,
@@ -233,6 +233,36 @@ router.post("/parent/children/:studentId/fees/:feeId/pay", allow(Role.PARENT), a
     idempotencyKey: onlineFeeIdempotencyKey(req),
   });
   res.status(data.reused ? 200 : 201).json({ data });
+});
+router.get("/fees/payments/:paymentId/receipt", async (req: AuthRequest, res) => {
+  if (req.auth!.role !== Role.STUDENT && req.auth!.role !== Role.PARENT) {
+    throw new AppError(403, "FORBIDDEN", "Student or parent access is required");
+  }
+  const payment = await prisma.feePayment.findFirst({
+    where: { id: String(req.params.paymentId), organizationId: req.auth!.organizationId },
+    include: { fee: { include: { student: { include: { user: true } }, branch: true } } },
+  });
+  if (!payment) throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment receipt not found");
+  if (req.auth!.role === Role.STUDENT) {
+    if (payment.fee.student.userId !== req.auth!.userId) throw new AppError(403, "FORBIDDEN", "Receipt access denied");
+  } else {
+    await ownedChild(req.auth!.userId, payment.fee.studentId);
+  }
+  sendPdf(
+    res,
+    "FEE RECEIPT",
+    [
+      `Receipt: ${payment.receiptNumber}`,
+      `Student: ${payment.fee.student.user.name} (${payment.fee.student.admissionNo})`,
+      `Fee: ${payment.fee.feeHead}`,
+      `Amount: INR ${(payment.amountPaise / 100).toFixed(2)}`,
+      `Mode: ${payment.paymentMode}`,
+      `Transaction: ${payment.transactionId ?? "-"}`,
+      `Date: ${payment.paymentDate.toISOString()}`,
+      `Institution branch: ${payment.fee.branch.branchName}`,
+    ],
+    `${payment.receiptNumber}.pdf`,
+  );
 });
 
 router.get("/teacher/dashboard", allow(Role.TEACHER), async (req: AuthRequest, res) => {
