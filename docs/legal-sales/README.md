@@ -12,7 +12,7 @@ Management-confirmed provider particulars are recorded in `EXECUTION_PARTICULARS
 
 Before first external signature or public legal publication:
 - cross-check the registered office, CIN, GSTIN and authorized signatory against current official/company records;
-- activate and test `legal@beingbrilliantedu.com`, `privacy@beingbrilliantedu.com` and `support@beingbrilliantedu.com`;
+- keep the verified `legal@beingbrilliantedu.com`, `privacy@beingbrilliantedu.com` and `support@beingbrilliantedu.com` mail flow operational;
 - confirm any client-facing support phone from approved business records before publication;
 - insert bank/payment details only from approved company finance records into the specific issued quotation/invoice; and
 - complete Indian counsel review of the controlled legal pack.
