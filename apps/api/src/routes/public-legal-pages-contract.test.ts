@@ -14,7 +14,7 @@ test("public legal routes remain publication-gated until counsel approval", asyn
   }
 
   const loader = await readFile(web("lib/public-legal.ts"), "utf8");
-  assert.match(loader, /NEXT_PUBLIC_LEGAL_PAGES_PUBLISHED === "true"/);
+  assert.match(loader, /LEGAL_PAGES_PUBLISHED === "true"/);
   assert.match(loader, /LEGAL_EFFECTIVE_DATE/);
   assert.match(loader, /07_PRIVACY_NOTICE\.md/);
   assert.match(loader, /03_SAAS_MASTER_AGREEMENT\.md/);
@@ -29,8 +29,13 @@ test("web runtime packages the controlled legal sources used by public pages", a
 });
 
 test("commercial landing pre-wires legal links and privacy notice without publishing by default", async () => {
-  const landing = await readFile(web("components/premium-landing.tsx"), "utf8");
-  assert.match(landing, /NEXT_PUBLIC_LEGAL_PAGES_PUBLISHED/);
+  const [landing, home] = await Promise.all([
+    readFile(web("components/premium-landing.tsx"), "utf8"),
+    readFile(web("app/page.tsx"), "utf8"),
+  ]);
+  assert.match(home, /publicLegalPagesPublished/);
+  assert.match(home, /legalPagesPublished=\{publicLegalPagesPublished\(\)\}/);
+  assert.match(landing, /legalPagesPublished/);
   assert.match(landing, /href="\/privacy"/);
   assert.match(landing, /href="\/terms"/);
   assert.match(landing, /href="\/acceptable-use"/);
