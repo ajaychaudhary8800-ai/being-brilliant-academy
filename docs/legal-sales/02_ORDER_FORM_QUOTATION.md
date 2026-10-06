@@ -4,8 +4,8 @@ This Order Form is issued under the Being Brilliant SaaS Master Agreement betwee
 
 ## A. Parties
 
-**Provider:** Adhyay Eduventure Private Limited  
-**Registered office:** C-40 First Floor Near Atal Chowk Nand gram Ghaziabad 201003  
+**Provider:** ADHYAY EDUVENTURE PRIVATE LIMITED  
+**Registered office:** KH NO 257 PLOT NO 26 ROYAL GREEN CITY, PHASE II VILL DUHAI, Ghaziabad, Ghaziabad, Ghaziabad, Uttar Pradesh, India, 201001  
 **CIN:** U80100UP2017PTC089682  
 **GSTIN:** 09AAPCA1080N2Z7  
 **Contract notices:** legal@beingbrilliantedu.com  
@@ -78,7 +78,7 @@ Any discount, custom capacity, white-label term or module override must be writt
 By signing, each party confirms authority to bind its organization and agrees that this Order Form and incorporated documents form the contract.
 
 **For Provider**  
-Name: CHOUDHARY AJAY SINGH  
+Name: CHOUDHARY AJAY SINGH HOON  
 Designation: DIRECTOR  
 Signature/date: __________________
 
