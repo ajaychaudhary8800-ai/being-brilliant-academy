@@ -22,7 +22,7 @@ const documents: Record<PublicLegalDocumentId, { file: string; title: string; de
 };
 
 export function publicLegalPagesPublished() {
-  return process.env.NEXT_PUBLIC_LEGAL_PAGES_PUBLISHED === "true" && Boolean(process.env.LEGAL_EFFECTIVE_DATE?.trim());
+  return process.env.LEGAL_PAGES_PUBLISHED === "true" && Boolean(process.env.LEGAL_EFFECTIVE_DATE?.trim());
 }
 
 export function publicLegalEffectiveDate() {
