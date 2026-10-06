@@ -15,6 +15,7 @@ test("platform legal sales workspace exposes the complete controlled Step 9 pack
     "README.md",
     "EXECUTION_PARTICULARS.md",
     "COUNSEL_REVIEW_HANDOFF.md",
+    "COUNSEL_APPROVAL_RECORD.md",
     "01_SALES_PROPOSAL_TEMPLATE.md",
     "02_ORDER_FORM_QUOTATION.md",
     "03_SAAS_MASTER_AGREEMENT.md",

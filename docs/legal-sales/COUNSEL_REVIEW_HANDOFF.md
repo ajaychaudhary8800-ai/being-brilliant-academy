@@ -77,14 +77,16 @@ No third-party directory should be treated as authoritative.
 
 ## Approval record
 
-Counsel or management should record:
+Record the completed review in `COUNSEL_APPROVAL_RECORD.md`, including:
 
-- reviewer name / firm:
-- review date:
-- documents/version reviewed:
-- required amendments:
-- residual risks / assumptions:
-- approved for external signature: YES / NO
-- approved for public Privacy/Terms/AUP publication: YES / NO
+- reviewer / firm and review date;
+- exact documents/version reviewed;
+- required amendments;
+- residual risks / assumptions;
+- MCA freshness conclusion;
+- approval for external customer signature;
+- separate approval decisions for public Privacy Notice, SaaS Terms and Acceptable Use Policy publication;
+- implementation PR/commit for any required amendments; and
+- any required counsel re-confirmation.
 
-The `legal-execution` launch gate must remain blocked until Indian counsel review is complete and the counsel approval record is documented.
+The `legal-execution` launch gate must remain blocked until external Indian counsel review is complete, required amendments are implemented, any required re-confirmation is received, and the approval evidence is documented.

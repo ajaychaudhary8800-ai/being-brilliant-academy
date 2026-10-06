@@ -9,6 +9,7 @@ test("Step 9 legal-sales pack contains the complete controlled document set", as
     "README.md",
     "EXECUTION_PARTICULARS.md",
     "COUNSEL_REVIEW_HANDOFF.md",
+    "COUNSEL_APPROVAL_RECORD.md",
     "01_SALES_PROPOSAL_TEMPLATE.md",
     "02_ORDER_FORM_QUOTATION.md",
     "03_SAAS_MASTER_AGREEMENT.md",
@@ -109,4 +110,15 @@ test("provider execution particulars use public-safe business contacts", async (
   assert.match(execution, /DMARC PASS/);
   assert.doesNotMatch(execution, /@gmail\.com/i);
   assert.match(execution, /Bank account and payment destination details are not stored in source control/);
+});
+
+test("counsel approval record cannot be mistaken for approval before external review", async () => {
+  const approval = await readFile(legal("COUNSEL_APPROVAL_RECORD.md"), "utf8");
+  assert.match(approval, /not an approval by itself/i);
+  assert.match(approval, /Approved for external customer signature/);
+  assert.match(approval, /Approved for public Privacy Notice publication/);
+  assert.match(approval, /Fresher MCA extract required before first signature/);
+  assert.match(approval, /Counsel amendments implemented/);
+  assert.match(approval, /Legal-execution gate decision/);
+  assert.match(approval, /Do not change the launch gate to READY/i);
 });
