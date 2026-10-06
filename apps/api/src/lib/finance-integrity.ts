@@ -125,9 +125,6 @@ export function safeFinanceAuditMetadata<T extends object>(metadata: T): T {
   return sanitize(metadata) as T;
 }
 
-export function rejectUnverifiedParentPayment(): never {
-  throw new AppError(409, "VERIFIED_PAYMENT_REQUIRED", "Online payment is unavailable until verified provider settlement is configured. Contact the institution for payment options.");
-}
 
 export function feeStatus(total: number, discount: number, fine: number, paid: number, due: Date, now = new Date()) {
   const net = total - discount + fine;
