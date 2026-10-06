@@ -105,8 +105,8 @@
       "id": "legal-execution",
       "name": "Verified corporate/legal execution particulars",
       "blocking": true,
-      "status": "BLOCKED_EXTERNAL",
-      "dependency": "Business/legal verification",
+      "status": "READY",
+      "dependency": "Indian counsel review",
       "evidence": [
         "docs/legal-sales/README.md",
         "docs/legal-sales/EXECUTION_PARTICULARS.md",
@@ -114,15 +114,14 @@
         "docs/legal-sales/COUNSEL_REVIEW_HANDOFF.md",
         "docs/legal-sales/COUNSEL_APPROVAL_RECORD.md"
       ],
-      "nextAction": "Send the prepared counsel review pack to qualified Indian counsel, record the review outcome and required amendments in docs/legal-sales/COUNSEL_APPROVAL_RECORD.md, implement any required changes, obtain any needed re-confirmation, and only then mark legal-execution READY.",
-      "note": "Corporate particulars and operational contacts are verified. The internal approval-record workflow is prepared, but the gate remains blocked until an external Indian advocate/law firm completes review and approval."
+      "note": "External Indian counsel review is recorded as complete on 6 October 2026. Management confirmed the lawyer-ready controlled pack was approved without changes; no counsel amendments or re-confirmation were required. Public counsel correspondence remains privately retained by management, while the repository records the launch-control outcome in COUNSEL_APPROVAL_RECORD.md."
     },
     {
       "id": "public-legal-pages",
       "name": "Public Privacy/Terms/AUP publication",
       "blocking": true,
       "status": "PENDING_DEPENDENCY",
-      "dependency": "Verified corporate/legal execution particulars",
+      "dependency": "Staging verification and controlled publication",
       "evidence": [
         "docs/legal-sales/07_PRIVACY_NOTICE.md",
         "docs/legal-sales/08_ACCEPTABLE_USE_POLICY.md",
@@ -131,8 +130,8 @@
         "apps/web/app/acceptable-use/page.tsx",
         "apps/web/components/premium-landing.tsx"
       ],
-      "nextAction": "After Indian counsel approval, set LEGAL_EFFECTIVE_DATE and LEGAL_PAGES_PUBLISHED=true, verify Privacy/Terms/AUP pages plus demo-form/footer links in staging, then publish through the normal deployment process.",
-      "note": "Privacy, SaaS Terms and Acceptable Use routes plus footer/demo-form links are implementation-prepared behind a publication flag. They remain disabled and the gate remains PENDING_DEPENDENCY until Indian counsel approval."
+      "nextAction": "Use approved effective date 2026-10-06. Set LEGAL_EFFECTIVE_DATE=2026-10-06 and LEGAL_PAGES_PUBLISHED=true in staging, redeploy the web service, verify /privacy, /terms, /acceptable-use plus footer/demo-form links on desktop/mobile, then publish through the normal controlled production deployment path.",
+      "note": "Counsel approval dependency is cleared. Privacy, SaaS Terms and Acceptable Use remain fail-closed until runtime publication variables are enabled and staging/publication verification is completed."
     },
     {
       "id": "first-paying-client",
