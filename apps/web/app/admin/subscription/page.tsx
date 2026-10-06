@@ -209,7 +209,7 @@ export default function Page() {
   const usage = snapshot?.usage ?? { branches: 0, users: 0, students: 0 };
   const limits = snapshot?.plan?.limits ?? {};
 
-  return <ProtectedAdminWorkspace roles={["SUPER_ADMIN"]} title="Subscription & Billing" description="View your SaaS plan, usage, renewal status, invoices and subscription payment options.">
+  return <ProtectedAdminWorkspace roles={["SUPER_ADMIN"]} title="Subscription & Billing" description="Pay and manage your institution's Being Brilliant SaaS subscription through the separate platform billing gateway.">
     {notice && <p className="mt-6 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p>}
     {error && <p role="alert" className="mt-6 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
@@ -254,8 +254,11 @@ export default function Page() {
         </div>
       </div>
       <p className="mt-3 text-sm text-slate-500">{chosen?.description}</p>
+      <p className="mt-3 rounded-xl bg-blue-50 p-3 text-sm text-blue-900">
+        This is the platform subscription gateway for payments from your institution to Being Brilliant. Student/parent fee collection uses your institution&apos;s separate merchant gateway under Fees &amp; Finance → Payment Gateway.
+      </p>
       <button disabled={paying || !chosen || total <= 0} onClick={() => void checkout()} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-brand-700 px-5 py-3 font-semibold text-white disabled:opacity-50">
-        <CreditCard size={18}/>{paying ? "Preparing checkout…" : total <= 0 ? "Plan pricing not configured" : "Pay with Razorpay"}
+        <CreditCard size={18}/>{paying ? "Preparing checkout…" : total <= 0 ? "Plan pricing not configured" : "Pay subscription with Razorpay"}
       </button>
       {snapshot?.subscription?.status === "ACTIVE" && snapshot.subscription.currentPeriodEnd && <div className="mt-5 rounded-xl border p-4">
         <p className="font-semibold">Subscription renewal</p>
