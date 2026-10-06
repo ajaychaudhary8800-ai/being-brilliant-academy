@@ -4,6 +4,7 @@ import test from "node:test";
 
 const web = (path: string) => new URL(`../../../web/${path}`, import.meta.url);
 const dockerUrl = new URL("../../../web/Dockerfile", import.meta.url);
+const composeUrl = new URL("../../../../docker-compose.yml", import.meta.url);
 
 test("public legal routes remain publication-gated until counsel approval", async () => {
   for (const route of ["privacy", "terms", "acceptable-use"]) {
@@ -23,9 +24,14 @@ test("public legal routes remain publication-gated until counsel approval", asyn
 });
 
 test("web runtime packages the controlled legal sources used by public pages", async () => {
-  const docker = await readFile(dockerUrl, "utf8");
+  const [docker, compose] = await Promise.all([
+    readFile(dockerUrl, "utf8"),
+    readFile(composeUrl, "utf8"),
+  ]);
   assert.match(docker, /COPY docs\/legal-sales docs\/legal-sales/);
   assert.match(docker, /\/workspace\/docs\/legal-sales \.\/docs\/legal-sales/);
+  assert.match(compose, /LEGAL_PAGES_PUBLISHED/);
+  assert.match(compose, /LEGAL_EFFECTIVE_DATE/);
 });
 
 test("commercial landing pre-wires legal links and privacy notice without publishing by default", async () => {
