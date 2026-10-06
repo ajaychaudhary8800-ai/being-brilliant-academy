@@ -11,7 +11,7 @@ const sections = [
   { title: "Users, Roles & Access", description: "Create users, review roles and control administrator access.", href: "/admin/users", icon: Users },
   { title: "Communication & Notifications", description: "Manage operational communications, notices and delivery workflows.", href: "/admin/communication", icon: Bell },
   { title: "Subscription & Entitlements", description: "Review the active plan and the modules enabled for this organization.", href: "/admin/subscription", icon: CreditCard, tenantOnly: true },
-  { title: "Student Payment Gateway", description: "Connect the institution's own Razorpay account for parent/student fee collection and settlement.", href: "/admin/payment-gateway", icon: CreditCard, superAdminOnly: true },
+  { title: "Student Payment Gateway", description: "Connect the institution's own Razorpay account for parent/student fee collection and settlement.", href: "/admin/payment-gateway", icon: CreditCard, superAdminOnly: true, tenantOnly: true },
   { title: "Security & Account Access", description: "Review access controls, password recovery and protected administrator workflows.", href: "/admin/users", icon: LockKeyhole },
 ] as const;
 
