@@ -8,7 +8,7 @@ Platform Super Admin users can access the complete controlled pack from **Sales 
 
 ## Provider execution particulars
 
-Management-confirmed provider particulars are recorded in `EXECUTION_PARTICULARS.md`.
+Management-confirmed provider particulars are recorded in `EXECUTION_PARTICULARS.md`. The pre-signature lawyer handoff and approval record are in `COUNSEL_REVIEW_HANDOFF.md`.
 
 Before first external signature or public legal publication:
 - cross-check the registered office, CIN, GSTIN and authorized signatory against current official/company records;
