@@ -91,6 +91,11 @@ test("provider execution particulars use public-safe business contacts", async (
   const execution = await readFile(legal("EXECUTION_PARTICULARS.md"), "utf8");
   assert.match(execution, /U80100UP2017PTC089682/);
   assert.match(execution, /09AAPCA1080N2Z7/);
+  assert.match(execution, /GST registration type:\*\* Regular/);
+  assert.match(execution, /GST registration valid from:\*\* 17\/12\/2024/);
+  assert.match(execution, /GST certificate issue date:\*\* 17\/12\/2024/);
+  assert.match(execution, /Royal Green City Phase 2/);
+  assert.match(execution, /Verified from official GST REG-06 certificate/);
   assert.match(execution, /CHOUDHARY AJAY SINGH HOON/);
   assert.match(execution, /KH NO 257 PLOT NO 26 ROYAL GREEN CITY, PHASE II VILL DUHAI/);
   assert.match(execution, /ROC Kanpur/);
