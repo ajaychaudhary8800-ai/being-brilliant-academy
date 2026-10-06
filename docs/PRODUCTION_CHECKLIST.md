@@ -4,6 +4,7 @@
 
 - [ ] Release reviewed and tagged; CI typecheck, build, migration, and container jobs pass.
 - [ ] `.env.production` contains unique database, Redis, JWT, metrics, Grafana, payment, mail/provider, storage, CRM, push, and WhatsApp values.
+- [ ] If public legal publication is approved, `LEGAL_EFFECTIVE_DATE` matches counsel approval and `LEGAL_PAGES_PUBLISHED=true`; otherwise keep `LEGAL_PAGES_PUBLISHED=false`.
 - [ ] DNS resolves to the host and trusted TLS certificate is installed.
 - [ ] Off-site database and file backup completed and checksum verified.
 - [ ] Migration reviewed for locks, destructive statements, and rollback implications.
@@ -24,5 +25,6 @@
 - [ ] Confirm logs contain no secrets and metrics are being scraped.
 - [ ] Run payment test-mode order/webhook and provider delivery smoke tests.
 - [ ] Check sitemap, robots, canonical URL, structured data, and Lighthouse.
+- [ ] When legal publication is enabled, verify Privacy, Terms and Acceptable Use pages plus footer/demo-form links.
 - [ ] Record image digests, migration version, operator, timestamp, and rollback deadline.
 
