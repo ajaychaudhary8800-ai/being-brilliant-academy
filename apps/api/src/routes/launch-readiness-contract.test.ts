@@ -82,7 +82,7 @@ test("launch documents preserve critical operational and legal no-go controls", 
   assert.match(readiness, /Step 5 — Off-site Backup & Disaster Recovery/);
   assert.match(readiness, /Step 11 — First Real Paying Client/);
   assert.match(readiness, /Public Privacy \/ Terms \/ AUP publication/);
-  assert.match(readiness, /Do not infer or invent these values/);
+  assert.match(readiness, /Do not publish or externally execute the controlled pack until that review is recorded/);
   assert.match(readiness, /Step 14 control framework can be complete while the overall commercial launch remains HOLD/);
 
   assert.match(launchDay, /pnpm launch:require-go/);
@@ -107,8 +107,8 @@ test("public legal publication blocker matches current SaaS landing surface", as
     /href=["']\/terms["']/.test(landing) &&
     /href=["']\/acceptable-use["']/.test(landing);
   const publicationIsGated =
-    /LEGAL_PAGES_PUBLISHED/.test(landing) &&
-    /LEGAL_PAGES_PUBLISHED/.test(landing);
+    /publicLegalPagesPublished/.test(home) &&
+    /legalPagesPublished/.test(landing);
 
   assert.equal(hasApprovedLegalLinks, true, "public legal routes should be pre-wired");
   if (legalGate!.status !== "READY") {
