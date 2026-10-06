@@ -44,6 +44,9 @@ CREATE TABLE "InstitutionPaymentOrder" (
     "raw" JSONB,
     "capturedAt" TIMESTAMP(3),
     "refundedAt" TIMESTAMP(3),
+    "refundedPaise" INTEGER NOT NULL DEFAULT 0,
+    "refundRequestedById" TEXT,
+    "refundAmountPaise" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "InstitutionPaymentOrder_pkey" PRIMARY KEY ("id")
