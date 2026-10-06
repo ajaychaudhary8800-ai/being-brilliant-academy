@@ -1787,55 +1787,211 @@ function StudentExaminations({ items, query }: { items: StudentExam[]; query: st
   );
 }
 
-function StudentFees({ items }: { items: Fee[] }) {
+function FeePaymentAction({
+  checkoutPath,
+  balancePaise,
+  onlinePayments,
+  reload,
+}: {
+  checkoutPath: string;
+  balancePaise: number;
+  onlinePayments: OnlinePayments;
+  reload: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [amount, setAmount] = useState((balancePaise / 100).toFixed(2));
+  const [message, setMessage] = useState("");
+  const [paymentError, setPaymentError] = useState("");
+
+  useEffect(() => {
+    setAmount((balancePaise / 100).toFixed(2));
+  }, [balancePaise]);
+
+  if (balancePaise <= 0) return null;
+  if (!onlinePayments.enabled) {
+    return <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-500 dark:bg-slate-900">Online payment is not enabled by the institution. Contact the accounts office for payment options.</p>;
+  }
+
+  async function pay() {
+    setBusy(true);
+    setMessage("");
+    setPaymentError("");
+    try {
+      const rupees = Number(amount);
+      const amountPaise = onlinePayments.allowPartialPayments ? Math.round(rupees * 100) : undefined;
+      if (onlinePayments.allowPartialPayments && (!Number.isFinite(rupees) || amountPaise! <= 0 || amountPaise! > balancePaise)) {
+        throw new Error("Enter a valid amount up to the outstanding balance.");
+      }
+      await loadRazorpayCheckout();
+      const response = await portalRequest(checkoutPath, {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(amountPaise ? { amountPaise } : {}),
+      });
+      const checkout = response.data;
+      if (!window.Razorpay) throw new Error("Razorpay checkout is unavailable");
+      const instance = new window.Razorpay({
+        key: checkout.keyId,
+        amount: checkout.order.amount,
+        currency: checkout.order.currency,
+        order_id: checkout.order.id,
+        name: "Fee Payment",
+        description: "Institution fee payment",
+        method: razorpayMethodOptions(checkout.methods ?? onlinePayments.methods),
+        handler: () => {
+          setMessage("Payment submitted successfully. The receipt will appear after verified gateway confirmation.");
+          window.setTimeout(() => void reload(), 1800);
+        },
+        modal: {
+          ondismiss: () => setMessage("Payment window closed. No fee will be marked paid unless the gateway confirms capture."),
+        },
+        theme: { color: "#1d4ed8" },
+      });
+      instance.open();
+    } catch (cause) {
+      setPaymentError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
+      <div className="flex flex-wrap items-end gap-3">
+        {onlinePayments.allowPartialPayments && (
+          <label className="min-w-[180px] text-sm font-semibold">
+            Amount to pay (₹)
+            <input
+              type="number"
+              min="1"
+              max={(balancePaise / 100).toFixed(2)}
+              step="0.01"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              className="field mt-1 bg-white dark:bg-slate-950"
+            />
+          </label>
+        )}
+        <button type="button" disabled={busy} onClick={() => void pay()} className="btn bg-brand-700 text-white">
+          <IndianRupee size={16} />
+          {busy ? "Preparing payment…" : `Pay ${onlinePayments.allowPartialPayments ? "online" : money(balancePaise)}`}
+        </button>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">
+        Available methods: {(onlinePayments.methods.length ? onlinePayments.methods : ["UPI", "CARD", "NETBANKING"]).map(readable).join(" · ")}
+      </p>
+      {message && <p className="mt-2 text-sm font-semibold text-emerald-700">{message}</p>}
+      {paymentError && <p role="alert" className="mt-2 text-sm font-semibold text-red-700">{paymentError}</p>}
+    </div>
+  );
+}
+
+function FeeCard({
+  item,
+  checkoutPath,
+  onlinePayments,
+  reload,
+  studentName,
+}: {
+  item: Fee;
+  checkoutPath: string;
+  onlinePayments: OnlinePayments;
+  reload: () => Promise<void>;
+  studentName?: string;
+}) {
+  const payable = item.totalPaise - item.discountPaise + item.finePaise;
+  const balance = Math.max(0, payable - item.amountPaidPaise);
+
+  async function receipt(paymentId: string, receiptNumber: string) {
+    await openAuthenticatedDocument({
+      url: `${API}/portal/fees/payments/${paymentId}/receipt`,
+      token: getAccessToken() ?? "",
+      fileName: `${receiptNumber}.pdf`,
+      fallbackError: "Unable to download fee receipt",
+    });
+  }
+
+  return (
+    <article className="card p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          {studentName && <p className="text-xs font-bold uppercase text-brand-700">{studentName}</p>}
+          <h3 className="text-lg font-black">{item.feeHead}</h3>
+          <p className="text-sm text-slate-500">Due {shortDate(item.dueDate)}</p>
+        </div>
+        <Badge value={item.status} />
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-4">
+        <div><small className="text-slate-400">Total</small><p className="font-bold">{money(item.totalPaise)}</p></div>
+        <div><small className="text-slate-400">Discount</small><p className="font-bold">{money(item.discountPaise)}</p></div>
+        <div><small className="text-slate-400">Paid</small><p className="font-bold text-emerald-700">{money(item.amountPaidPaise)}</p></div>
+        <div><small className="text-slate-400">Balance</small><p className="font-bold text-amber-700">{money(balance)}</p></div>
+      </div>
+
+      <FeePaymentAction checkoutPath={checkoutPath} balancePaise={balance} onlinePayments={onlinePayments} reload={reload} />
+
+      {item.payments.length > 0 && (
+        <div className="mt-4 border-t pt-3">
+          <p className="text-xs font-bold uppercase text-slate-400">Payment history</p>
+          {item.payments.map((payment) => (
+            <div key={payment.id} className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span>{shortDate(payment.paymentDate)} · {money(payment.amountPaise)} · {readable(payment.paymentMode)} · Receipt {payment.receiptNumber}</span>
+              <button type="button" className="font-bold text-brand-700" onClick={() => void receipt(payment.id, payment.receiptNumber)}>
+                Download receipt
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function StudentFees({
+  items,
+  onlinePayments,
+  reload,
+}: {
+  items: Fee[];
+  onlinePayments: OnlinePayments;
+  reload: () => Promise<void>;
+}) {
   if (!items.length) return <Empty icon={IndianRupee}>No fee records are available.</Empty>;
   return (
     <section>
-      <SectionTitle title="Fees" description="Recorded charges, payments and outstanding balances." />
+      <SectionTitle title="Fees" description="Recorded charges, verified online payments, receipts and outstanding balances." />
       <div className="space-y-4">
-        {items.map((item) => {
-          const payable = item.totalPaise - item.discountPaise + item.finePaise,
-            balance = Math.max(0, payable - item.amountPaidPaise);
-          return (
-            <article key={item.id} className="card p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-black">{item.feeHead}</h3>
-                  <p className="text-sm text-slate-500">Due {shortDate(item.dueDate)}</p>
-                </div>
-                <Badge value={item.status} />
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-4">
-                <div>
-                  <small className="text-slate-400">Total</small>
-                  <p className="font-bold">{money(item.totalPaise)}</p>
-                </div>
-                <div>
-                  <small className="text-slate-400">Discount</small>
-                  <p className="font-bold">{money(item.discountPaise)}</p>
-                </div>
-                <div>
-                  <small className="text-slate-400">Paid</small>
-                  <p className="font-bold text-emerald-700">{money(item.amountPaidPaise)}</p>
-                </div>
-                <div>
-                  <small className="text-slate-400">Balance</small>
-                  <p className="font-bold text-amber-700">{money(balance)}</p>
-                </div>
-              </div>
-              {item.payments.length > 0 && (
-                <div className="mt-4 border-t pt-3">
-                  <p className="text-xs font-bold uppercase text-slate-400">Payment history</p>
-                  {item.payments.map((payment) => (
-                    <p key={payment.id} className="mt-2 text-sm">
-                      {shortDate(payment.paymentDate)} · {money(payment.amountPaise)} · {readable(payment.paymentMode)} · Receipt {payment.receiptNumber}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </article>
-          );
-        })}
+        {items.map((item) => (
+          <FeeCard
+            key={item.id}
+            item={item}
+            checkoutPath={`/student/fees/${item.id}/pay`}
+            onlinePayments={onlinePayments}
+            reload={reload}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ParentFees({ data, reload }: { data: ParentDashboard; reload: () => Promise<void> }) {
+  const rows = data.children.flatMap((child) => child.fees.map((fee) => ({ child, fee })));
+  if (!rows.length) return <Empty icon={IndianRupee}>No fee records are available for linked students.</Empty>;
+  return (
+    <section>
+      <SectionTitle title="Children's fees" description="Pay verified institution fees online and download receipts for linked students." />
+      <div className="space-y-4">
+        {rows.map(({ child, fee }) => (
+          <FeeCard
+            key={`${child.profile.id}-${fee.id}`}
+            item={fee}
+            studentName={child.profile.name}
+            checkoutPath={`/parent/children/${child.profile.id}/fees/${fee.id}/pay`}
+            onlinePayments={child.onlinePayments}
+            reload={reload}
+          />
+        ))}
       </div>
     </section>
   );
@@ -2050,7 +2206,7 @@ function Workspace({ role }: { role: PortalRole }) {
   useEffect(() => {
     void load();
   }, [load]);
-  const tabs = role === "TEACHER" ? ["overview", "classes", "learning", "live-classes", "meetings", "students", "homework", "attendance", "examinations", "notifications", "announcements", "messages", "leave", "profile"] : role === "STUDENT" ? ["overview", "learning", "live-classes", "homework", "timetable", "attendance", "examinations", "fees", "notifications", "announcements", "messages", "leave", "profile"] : ["overview", "examinations", "notifications", "announcements", "messages", "leave", "profile"];
+  const tabs = role === "TEACHER" ? ["overview", "classes", "learning", "live-classes", "meetings", "students", "homework", "attendance", "examinations", "notifications", "announcements", "messages", "leave", "profile"] : role === "STUDENT" ? ["overview", "learning", "live-classes", "homework", "timetable", "attendance", "examinations", "fees", "notifications", "announcements", "messages", "leave", "profile"] : ["overview", "examinations", "fees", "notifications", "announcements", "messages", "leave", "profile"];
   async function markRead(notificationId: string) {
     await portalRequest(`/notifications/${notificationId}/read`, {
       method: "PATCH",
@@ -2139,7 +2295,7 @@ function Workspace({ role }: { role: PortalRole }) {
                 if (active === "timetable") return <StudentTimetable items={data.timetable} query={query} />;
                 if (active === "attendance") return <StudentAttendanceSection data={data.attendance} />;
                 if (active === "examinations") return <StudentExaminations items={data.examinations} query={query} />;
-                if (active === "fees") return <StudentFees items={data.fees} />;
+                if (active === "fees") return <StudentFees items={data.fees} onlinePayments={data.onlinePayments} reload={load} />;
                 return null;
               })()}
             {role === "PARENT" &&
@@ -2147,6 +2303,7 @@ function Workspace({ role }: { role: PortalRole }) {
                 const data = dashboard as ParentDashboard;
                 if (active === "overview") return <ParentOverview data={data} />;
                 if (active === "examinations") return <ParentExaminations data={data} query={query} />;
+                if (active === "fees") return <ParentFees data={data} reload={load} />;
                 return null;
               })()}{" "}
             {active === "notifications" && (
