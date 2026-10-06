@@ -22,10 +22,10 @@ test("roadmap source covers all 14 numbered steps exactly once", async () => {
   }
 });
 
-test("current roadmap truth preserves unresolved real-world dependencies", async () => {
+test("current roadmap truth preserves resolved and unresolved real-world dependencies", async () => {
   const roadmap = JSON.parse(await readFile(roadmapUrl, "utf8"));
   const byStep = new Map(roadmap.steps.map((step: any) => [step.step, step]));
-  assert.equal((byStep.get(5) as any)?.status, "PENDING_EXTERNAL");
+  assert.equal((byStep.get(5) as any)?.status, "COMPLETE");
   assert.equal((byStep.get(11) as any)?.status, "PENDING_CLIENT");
   assert.equal((byStep.get(12) as any)?.status, "BLOCKED_DEPENDENCY");
   assert.match((byStep.get(12) as any)?.dependency ?? "", /Step 11/);
