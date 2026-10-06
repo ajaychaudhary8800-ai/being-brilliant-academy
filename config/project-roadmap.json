@@ -116,7 +116,7 @@
       "step": 12,
       "name": "Formal Production Release",
       "status": "BLOCKED_DEPENDENCY",
-      "summary": "Create the formal commercial release/tag and release record after the first-client validation and final launch GO gate pass.",
+      "summary": "Formal commercial release controls are prepared in FORMAL_COMMERCIAL_RELEASE_EVIDENCE.md. Execute the protected tag/release, deployment and production smoke record only after Step 11 and the final GO decision.",
       "webRoutes": [
         "/admin/control-center"
       ],
