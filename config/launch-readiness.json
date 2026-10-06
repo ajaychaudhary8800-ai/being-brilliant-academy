@@ -124,10 +124,14 @@
       "dependency": "Verified corporate/legal execution particulars",
       "evidence": [
         "docs/legal-sales/07_PRIVACY_NOTICE.md",
-        "docs/legal-sales/08_ACCEPTABLE_USE_POLICY.md"
+        "docs/legal-sales/08_ACCEPTABLE_USE_POLICY.md",
+        "apps/web/app/privacy/page.tsx",
+        "apps/web/app/terms/page.tsx",
+        "apps/web/app/acceptable-use/page.tsx",
+        "apps/web/components/premium-landing.tsx"
       ],
-      "nextAction": "After verified particulars and counsel review, publish approved Privacy, Terms/SaaS terms and AUP links on the public SaaS website and demo form.",
-      "note": "The current public SaaS footer does not expose approved legal pages."
+      "nextAction": "After Indian counsel approval, set the approved legal effective date, enable NEXT_PUBLIC_LEGAL_PAGES_PUBLISHED, verify Privacy/Terms/AUP pages and demo-form/footer links in staging, then publish through the normal deployment process.",
+      "note": "Privacy, SaaS Terms and Acceptable Use routes plus footer/demo-form links are implementation-prepared behind a publication flag. They remain disabled and the gate remains PENDING_DEPENDENCY until Indian counsel approval."
     },
     {
       "id": "first-paying-client",
