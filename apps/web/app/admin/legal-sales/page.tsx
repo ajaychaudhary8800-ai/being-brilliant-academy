@@ -218,7 +218,7 @@ export default function Page() {
           </div>
         </div>
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-          Management-confirmed Provider particulars are recorded in the controlled pack. Before external signature, cross-check them against current official/company records, activate and test the business-role mailboxes, confirm client-facing support details, use approved finance records for payment particulars, and complete Indian counsel review. Step 5 off-site DR evidence is complete, but no fixed contractual RPO/RTO should be promised unless separately approved.
+          Provider particulars are anchored to the supplied official MCA extract and official GST REG-06 certificate; business-role mailboxes, support details and outbound mail authentication are verified. The remaining legal-execution blocker is Indian counsel review and approval of the controlled pack. Payment destination details must still be inserted only from approved company finance records when issuing quotations/invoices. Step 5 off-site DR evidence is complete, but no fixed contractual RPO/RTO should be promised unless separately approved.
         </div>
       </section>
 
