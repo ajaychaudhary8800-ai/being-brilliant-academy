@@ -51,7 +51,7 @@ Measured during published support hours unless the Order Form provides extended 
 
 Response means acknowledgement and triage, not guaranteed resolution. Resolution depends on severity, reproducibility, dependencies and safe release controls.
 
-**Support contact:** support@beingbrilliantedu.com *(designated; activate and test before first external issue)*  
+**Support contact:** support@beingbrilliantedu.com  
 **Support hours:** Monday-Saturday, 9:00 AM-6:00 PM IST. Sunday & public holidays: closed, except critical incident escalation.
 
 ## 6. Planned maintenance
