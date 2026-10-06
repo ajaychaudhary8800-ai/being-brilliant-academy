@@ -67,7 +67,7 @@ test("finance assignment and installment displays avoid browser-local date forma
 });
 
 test("student assignment and manual Fee creation use bounded server-side lookup", () => {
-  assert.match(source, /new URLSearchParams\(\{ page: "1", limit: "20", status: "active", search: studentSearch\.trim\(\) \}\)/);
+  assert.match(source, /new URLSearchParams\(\{ page: "1", limit: "20", status: "ACTIVE", search: studentSearch\.trim\(\) \}\)/);
   assert.match(source, /studentSearch\.trim\(\)\.length < 2/);
   assert.match(source, /withSelectedLookupItem\(students, selected/);
   assert.doesNotMatch(source, /admin\/students\?limit=100/);
