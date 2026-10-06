@@ -78,8 +78,8 @@ Company management supplied the current provider particulars on 6 October 2026 a
 
 Before the first external signature/public privacy publication:
 - cross-check registered office, CIN, GSTIN and authorized signatory against current official/company records;
-- activate/test the designated legal, privacy and support role mailboxes;
-- confirm the support contact and published support hours;
+- keep the designated legal, privacy and support role mailboxes operational; inbound delivery has been verified and the support mailbox has passed SPF, DKIM and DMARC authentication;
+- confirm any client-facing support phone and published support hours;
 - keep bank/payment destination details out of source control and insert them only from approved finance records; and
 - obtain Indian counsel review of the controlled pack.
 
