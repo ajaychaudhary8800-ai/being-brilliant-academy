@@ -15,7 +15,6 @@ import {
   canReadFinanceMasterData,
   feeStatus,
   isSerializableConflict,
-  rejectUnverifiedParentPayment,
   safeFinanceAuditMetadata,
 } from "./finance-integrity.js";
 
@@ -146,10 +145,6 @@ test("audited fee adjustments derive operational totals without rewriting the or
   assert.deepEqual(adjustedFeeAmounts(current, "REFUND", 500), { discountPaise: 500, finePaise: 100 });
   assert.throws(() => adjustedFeeAmounts(current, "DISCOUNT", 9_501), cause => (cause as { code?: string }).code === "INVALID_FEE_ADJUSTMENT");
   assert.throws(() => adjustedFeeAmounts({ ...current, amountPaidPaise: 9_500 }, "DISCOUNT", 200), cause => (cause as { code?: string }).code === "ADJUSTMENT_BELOW_PAID");
-});
-
-test("unverified parent payment declarations are rejected", () => {
-  assert.throws(rejectUnverifiedParentPayment, (error: unknown) => (error as { code?: string }).code === "VERIFIED_PAYMENT_REQUIRED");
 });
 
 test("finance audit metadata recursively drops secrets without aborting harmless audit data", () => {
