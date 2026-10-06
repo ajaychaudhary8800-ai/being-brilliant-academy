@@ -29,9 +29,10 @@ test("web runtime packages the controlled legal sources used by public pages", a
 });
 
 test("commercial landing pre-wires legal links and privacy notice without publishing by default", async () => {
-  const [landing, home] = await Promise.all([
+  const [landing, home, sitemap] = await Promise.all([
     readFile(web("components/premium-landing.tsx"), "utf8"),
     readFile(web("app/page.tsx"), "utf8"),
+    readFile(web("app/sitemap.ts"), "utf8"),
   ]);
   assert.match(home, /publicLegalPagesPublished/);
   assert.match(home, /legalPagesPublished=\{publicLegalPagesPublished\(\)\}/);
@@ -40,4 +41,8 @@ test("commercial landing pre-wires legal links and privacy notice without publis
   assert.match(landing, /href="\/terms"/);
   assert.match(landing, /href="\/acceptable-use"/);
   assert.match(landing, /By submitting, you are asking our team to contact you about the education platform/);
+  assert.match(sitemap, /publicLegalPagesPublished/);
+  assert.match(sitemap, /beingbrilliantedu\.com\/privacy/);
+  assert.match(sitemap, /beingbrilliantedu\.com\/terms/);
+  assert.match(sitemap, /beingbrilliantedu\.com\/acceptable-use/);
 });
