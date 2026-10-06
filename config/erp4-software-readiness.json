@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "product": "Being Brilliant ERP + LMS + CRM",
+  "version": "4.0",
+  "declaredStatus": "READY",
+  "statusRule": "READY only when every ERP 4.0 software gate is READY. Commercial/legal launch blockers and real-device/AI certification evidence are tracked separately and do not alter this software-only status.",
+  "gates": [
+    {
+      "id": "ai-examiner-core",
+      "name": "Ranpal AI Examiner grading engine",
+      "status": "READY",
+      "evidence": [
+        "apps/api/src/lib/ai-examiner-engine.ts",
+        "apps/api/src/lib/ai-examiner-benchmark.test.ts",
+        "apps/api/src/routes/ai-examiner-foundation-contract.test.ts"
+      ],
+      "note": "Question-wise AI grading, deterministic validation, provider execution, rubric controls and mandatory human review are implemented and regression-tested."
+    },
+    {
+      "id": "red-pen-checked-copy",
+      "name": "Automatic Red-Pen checked-copy workflow",
+      "status": "READY",
+      "evidence": [
+        "apps/api/src/lib/ai-examiner-checked-copy-state.ts",
+        "apps/api/src/lib/ai-examiner-checked-copy-draft.ts",
+        "apps/api/src/lib/ai-examiner-checked-copy-finalize.ts",
+        "apps/api/src/routes/ai-examiner-checked-copy-contract.test.ts"
+      ],
+      "note": "Draft generation, evidence-aware placement, confidence gating, score integrity, rendering, publication and portal download are implemented."
+    },
+    {
+      "id": "checked-copy-recovery",
+      "name": "Checked-copy resilience and automatic recovery",
+      "status": "READY",
+      "evidence": [
+        "apps/api/src/lib/ai-examiner-checked-copy-retry-worker.ts",
+        "apps/api/src/lib/ai-examiner-checked-copy-recovery-policy.ts",
+        "apps/api/src/lib/ai-examiner-checked-copy-recovery-policy.test.ts"
+      ],
+      "note": "Transient failures are retried with bounded exponential backoff and resolved rendered/published copies are not reopened."
+    },
+    {
+      "id": "teacher-exception-review",
+      "name": "Teacher exception-only review",
+      "status": "READY",
+      "evidence": [
+        "apps/web/components/ai-examiner-review.tsx",
+        "apps/web/components/ai-examiner-checked-copy-editor.tsx",
+        "apps/api/src/lib/ai-examiner-review-policy.test.ts"
+      ],
+      "note": "Low-confidence or unpositioned annotations remain teacher-review exceptions while safe zero-exception copies auto-finalize."
+    },
+    {
+      "id": "student-parent-delivery",
+      "name": "Student and parent checked-copy delivery",
+      "status": "READY",
+      "evidence": [
+        "apps/api/src/routes/examination-workflow.ts",
+        "apps/web/components/portal-workspace.tsx",
+        "apps/web/app/portal/examinations/page.tsx"
+      ],
+      "note": "Published results expose rendered checked copies to authorized student/parent portal flows."
+    },
+    {
+      "id": "connected-campus-software",
+      "name": "Connected Campus software foundation",
+      "status": "READY",
+      "evidence": [
+        "apps/api/src/lib/erp-3-1-readiness.ts",
+        "apps/api/src/lib/connected-campus-completion.test.ts",
+        "apps/api/src/routes/connected-campus-contract.test.ts"
+      ],
+      "note": "ERP 3.1 Connected Campus software gates are complete; external real-device and certification activation remains separately governed."
+    },
+    {
+      "id": "device-hub",
+      "name": "Device Hub and retry processing",
+      "status": "READY",
+      "evidence": [
+        "apps/api/src/lib/device-hub.ts",
+        "apps/api/src/lib/device-hub-retry-worker.ts",
+        "apps/api/src/lib/device-hub-processor.test.ts"
+      ],
+      "note": "Device connectors, governance, event processing and retry behavior are implemented and tested."
+    },
+    {
+      "id": "smart-transport",
+      "name": "Smart transport and ridership",
+      "status": "READY",
+      "evidence": [
+        "apps/api/src/routes/smart-transport.ts",
+        "apps/api/src/routes/smart-transport-contract.test.ts"
+      ],
+      "note": "GPS/ridership safety rules, route events and transport workflows are implemented at the software layer."
+    },
+    {
+      "id": "operational-health",
+      "name": "Operational health and worker failure visibility",
+      "status": "READY",
+      "evidence": [
+        "apps/api/src/lib/worker-health.ts",
+        "apps/api/src/lib/worker-health.test.ts",
+        "apps/api/src/server.ts",
+        ".github/workflows/uptime-monitor.yml"
+      ],
+      "note": "Readiness and operational health expose dependency and background-worker failures, including recovery after later successful runs."
+    },
+    {
+      "id": "staging-regression",
+      "name": "Staging role and ERP 4.0 workspace regression",
+      "status": "READY",
+      "evidence": [
+        ".github/workflows/nightly-e2e.yml",
+        "e2e/admin-navigation.spec.ts",
+        "e2e/role-portals.spec.ts"
+      ],
+      "note": "Automated staging smoke coverage includes core roles plus AI Examiner, Connected Campus, Device Hub, Transport and Meetings workspaces."
+    },
+    {
+      "id": "build-deploy-gate",
+      "name": "Build, runtime and Coolify deployment gate",
+      "status": "READY",
+      "evidence": [
+        ".github/workflows/ci.yml",
+        "docker-compose.yml"
+      ],
+      "note": "CI validates API regression, PostgreSQL integration, typecheck, build, runtime operational health and multi-service Coolify-compatible container builds."
+    }
+  ]
+}

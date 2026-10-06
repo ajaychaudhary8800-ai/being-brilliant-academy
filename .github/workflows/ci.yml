@@ -54,6 +54,8 @@ jobs:
         run: pnpm --filter @bba/api test
       - name: Validate launch readiness manifest
         run: pnpm launch:check
+      - name: Validate ERP 4.0 software release readiness
+        run: pnpm software:release:require-ready
       - run: pnpm typecheck
       - run: pnpm build
       - name: Runtime health smoke test

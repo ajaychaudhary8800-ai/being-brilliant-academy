@@ -27,7 +27,9 @@
     "test:e2e:workflow": "playwright test --grep @workflow",
     "test:e2e:headed": "playwright test --headed",
     "launch:check": "node scripts/check-launch-readiness.mjs",
-    "launch:require-go": "node scripts/check-launch-readiness.mjs --require-go"
+    "launch:require-go": "node scripts/check-launch-readiness.mjs --require-go",
+    "software:release:check": "node scripts/check-erp4-software-readiness.mjs",
+    "software:release:require-ready": "node scripts/check-erp4-software-readiness.mjs --require-ready"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
