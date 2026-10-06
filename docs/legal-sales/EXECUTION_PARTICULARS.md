@@ -6,6 +6,8 @@
 
 This file records provider particulars supplied and confirmed by company management for the controlled legal pack. It does not replace cross-checking against current MCA/GST/company records or Indian counsel review before first external signature.
 
+**Record-reconciliation note:** an official MCA Company Information extract dated 23 October 2024 confirms the company name and CIN but shows a different registered office and the director name as **CHOUDHARY AJAY SINGH HOON**. Because that extract predates the management confirmation below, the current registered office and exact execution name remain pending reconciliation against a current official record.
+
 ## Corporate particulars
 
 - **Registered office:** C-40 First Floor Near Atal Chowk Nand gram Ghaziabad 201003
