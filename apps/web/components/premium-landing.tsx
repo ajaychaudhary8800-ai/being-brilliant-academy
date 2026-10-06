@@ -25,7 +25,6 @@ import {
 import { SiteHeader } from "./site-header";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
-const LEGAL_PAGES_PUBLISHED = process.env.NEXT_PUBLIC_LEGAL_PAGES_PUBLISHED === "true";
 
 const engines = [
   {
@@ -115,7 +114,7 @@ const plans = [
   },
 ];
 
-export function PremiumLanding() {
+export function PremiumLanding({ legalPagesPublished = false }: { legalPagesPublished?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
@@ -549,7 +548,7 @@ export function PremiumLanding() {
                     </button>
                     <p className="text-xs leading-5 text-slate-500">
                       By submitting, you are asking our team to contact you about the education platform.
-                      {LEGAL_PAGES_PUBLISHED && (
+                      {legalPagesPublished && (
                         <> See our <Link href="/privacy" className="font-semibold text-brand-700 hover:underline">Privacy Notice</Link>.</>
                       )}
                     </p>
@@ -571,7 +570,7 @@ export function PremiumLanding() {
             <a href="#platform" className="hover:text-white">Platform</a>
             <a href="#modules" className="hover:text-white">Modules</a>
             <a href="#solutions" className="hover:text-white">Solutions</a>
-            {LEGAL_PAGES_PUBLISHED && (
+            {legalPagesPublished && (
               <>
                 <Link href="/privacy" className="hover:text-white">Privacy</Link>
                 <Link href="/terms" className="hover:text-white">Terms</Link>
