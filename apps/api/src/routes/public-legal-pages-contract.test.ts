@@ -34,6 +34,7 @@ test("commercial landing pre-wires legal links and privacy notice without publis
     readFile(web("app/page.tsx"), "utf8"),
     readFile(web("app/sitemap.ts"), "utf8"),
   ]);
+  const robots = await readFile(web("app/robots.ts"), "utf8");
   assert.match(home, /publicLegalPagesPublished/);
   assert.match(home, /legalPagesPublished=\{publicLegalPagesPublished\(\)\}/);
   assert.match(landing, /legalPagesPublished/);
@@ -45,4 +46,6 @@ test("commercial landing pre-wires legal links and privacy notice without publis
   assert.match(sitemap, /beingbrilliantedu\.com\/privacy/);
   assert.match(sitemap, /beingbrilliantedu\.com\/terms/);
   assert.match(sitemap, /beingbrilliantedu\.com\/acceptable-use/);
+  assert.match(robots, /publicLegalPagesPublished/);
+  assert.match(robots, /"\/privacy", "\/terms", "\/acceptable-use"/);
 });
