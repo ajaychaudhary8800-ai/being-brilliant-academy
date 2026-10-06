@@ -121,7 +121,7 @@
       "name": "Public Privacy/Terms/AUP publication",
       "blocking": true,
       "status": "PENDING_DEPENDENCY",
-      "dependency": "Staging verification and controlled publication",
+      "dependency": "Controlled production publication",
       "evidence": [
         "docs/legal-sales/07_PRIVACY_NOTICE.md",
         "docs/legal-sales/08_ACCEPTABLE_USE_POLICY.md",
@@ -131,8 +131,8 @@
         "apps/web/components/premium-landing.tsx",
         "docs/PUBLIC_LEGAL_PUBLICATION_EVIDENCE.md"
       ],
-      "nextAction": "Set LEGAL_EFFECTIVE_DATE=2026-10-06 and LEGAL_PAGES_PUBLISHED=true on the staging Web service in Coolify, redeploy staging Web, complete docs/PUBLIC_LEGAL_PUBLICATION_EVIDENCE.md verification, then apply the same approved values through controlled production publication.",
-      "note": "Counsel approval dependency is cleared. Privacy, SaaS Terms and Acceptable Use remain fail-closed until runtime publication variables are enabled and staging/publication verification is completed."
+      "nextAction": "Staging verification is complete. After explicit production deployment authorization, set LEGAL_EFFECTIVE_DATE=2026-10-06 and LEGAL_PAGES_PUBLISHED=true on the production Web service, redeploy through the normal controlled path, verify /privacy, /terms, /acceptable-use plus footer/demo-form links and production health, then mark this gate READY.",
+      "note": "Counsel approval and staging verification are complete. Public legal pages remain PENDING_DEPENDENCY only until controlled production publication and post-deploy verification succeed."
     },
     {
       "id": "first-paying-client",
