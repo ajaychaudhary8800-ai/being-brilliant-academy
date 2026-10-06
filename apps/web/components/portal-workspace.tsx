@@ -135,6 +135,11 @@ type StudentExam = {
     status: string;
   } | null;
 };
+type OnlinePayments = {
+  enabled: boolean;
+  allowPartialPayments: boolean;
+  methods: string[];
+};
 type Fee = {
   id: string;
   feeHead: string;
@@ -164,6 +169,7 @@ type StudentDashboard = {
   timeZone: string;
   locale: string;
   profile: {
+    id: string;
     name: string;
     admissionNo: string;
     rollNo: string;
@@ -188,6 +194,7 @@ type StudentDashboard = {
   timetable: TimetableItem[];
   examinations: StudentExam[];
   fees: Fee[];
+  onlinePayments: OnlinePayments;
 };
 
 type TeacherClass = {
@@ -325,6 +332,41 @@ const dateTime = (value: string) =>
   }).format(new Date(value));
 const minute = (value: number) => `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 const money = (paise: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(paise / 100);
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
+  }
+}
+
+function loadRazorpayCheckout() {
+  if (window.Razorpay) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[data-bba-fee-razorpay="true"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Unable to load Razorpay checkout")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.dataset.bbaFeeRazorpay = "true";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Unable to load Razorpay checkout"));
+    document.head.appendChild(script);
+  });
+}
+
+function razorpayMethodOptions(methods: string[]) {
+  const active = new Set(methods.map(method => method.toUpperCase()));
+  return {
+    upi: active.has("UPI"),
+    card: active.has("CARD"),
+    netbanking: active.has("NETBANKING"),
+    wallet: active.has("WALLET"),
+  };
+}
 const includes = (query: string, ...values: unknown[]) =>
   !query ||
   values.some((value) =>
