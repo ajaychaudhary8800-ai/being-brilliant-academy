@@ -12,6 +12,7 @@ const router = Router();
 const documents = [
   { id: "overview", title: "Sales, Legal & Client Documentation Pack", file: "README.md", category: "Guidance", generationEnabled: false },
   { id: "execution-particulars", title: "Provider Execution Particulars", file: "EXECUTION_PARTICULARS.md", category: "Guidance", generationEnabled: false },
+  { id: "counsel-review-handoff", title: "Indian Counsel Review Handoff", file: "COUNSEL_REVIEW_HANDOFF.md", category: "Guidance", generationEnabled: false },
   { id: "proposal", title: "Sales Proposal Template", file: "01_SALES_PROPOSAL_TEMPLATE.md", category: "Sales", generationEnabled: true },
   { id: "quotation", title: "Order Form / Quotation", file: "02_ORDER_FORM_QUOTATION.md", category: "Commercial", generationEnabled: true },
   { id: "master-agreement", title: "SaaS Master Agreement", file: "03_SAAS_MASTER_AGREEMENT.md", category: "Legal", generationEnabled: true },
