@@ -82,7 +82,7 @@ test("launch documents preserve critical operational and legal no-go controls", 
   assert.match(readiness, /Step 5 — Off-site Backup & Disaster Recovery/);
   assert.match(readiness, /Step 11 — First Real Paying Client/);
   assert.match(readiness, /Public Privacy \/ Terms \/ AUP publication/);
-  assert.match(readiness, /Do not infer or invent these values/);
+  assert.match(readiness, /Do not publish or externally execute the controlled pack until that review is recorded/);
   assert.match(readiness, /Step 14 control framework can be complete while the overall commercial launch remains HOLD/);
 
   assert.match(launchDay, /pnpm launch:require-go/);
@@ -93,9 +93,10 @@ test("launch documents preserve critical operational and legal no-go controls", 
 });
 
 test("public legal publication blocker matches current SaaS landing surface", async () => {
-  const [manifestRaw, landing] = await Promise.all([
+  const [manifestRaw, landing, home] = await Promise.all([
     readFile(manifestUrl, "utf8"),
     readFile(landingUrl, "utf8"),
+    readFile(new URL("../../../web/app/page.tsx", import.meta.url), "utf8"),
   ]);
   const manifest = JSON.parse(manifestRaw) as { gates: Array<{ id: string; status: string }> };
   const legalGate = manifest.gates.find(gate => gate.id === "public-legal-pages");
@@ -103,8 +104,14 @@ test("public legal publication blocker matches current SaaS landing surface", as
 
   const hasApprovedLegalLinks =
     /href=["']\/privacy["']/.test(landing) &&
-    /href=["']\/terms["']/.test(landing);
+    /href=["']\/terms["']/.test(landing) &&
+    /href=["']\/acceptable-use["']/.test(landing);
+  const publicationIsGated =
+    /publicLegalPagesPublished/.test(home) &&
+    /legalPagesPublished/.test(landing);
 
-  if (legalGate!.status === "READY") assert.equal(hasApprovedLegalLinks, true);
-  else assert.equal(hasApprovedLegalLinks, false);
+  assert.equal(hasApprovedLegalLinks, true, "public legal routes should be pre-wired");
+  if (legalGate!.status !== "READY") {
+    assert.equal(publicationIsGated, true, "legal links must remain behind the publication flag until approval");
+  }
 });

@@ -6,6 +6,10 @@ Version 2.0 production is deployed through Coolify. The GitHub SSH deployment jo
 
 Production changes must enter `main` through a pull request and pass the required `verify` and `containers` checks.
 
+### Public legal publication switch
+
+Privacy, SaaS Terms and Acceptable Use routes are intentionally fail-closed. Keep `LEGAL_PAGES_PUBLISHED=false` until Indian counsel approves the controlled pack. After approval, set `LEGAL_EFFECTIVE_DATE` to the approved public effective date and set `LEGAL_PAGES_PUBLISHED=true` first in staging. Verify `/privacy`, `/terms`, `/acceptable-use`, footer links and the demo-form privacy link before applying the same settings to production.
+
 ## Automated controls
 
 ### Nightly staging QA

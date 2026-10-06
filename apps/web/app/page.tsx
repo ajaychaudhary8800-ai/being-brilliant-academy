@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { PremiumLanding } from "../components/premium-landing";
+import { publicLegalPagesPublished } from "../lib/public-legal";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,7 @@ export default async function Home() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }}
       />
-      <PremiumLanding />
+      <PremiumLanding legalPagesPublished={publicLegalPagesPublished()} />
     </>
   );
 }

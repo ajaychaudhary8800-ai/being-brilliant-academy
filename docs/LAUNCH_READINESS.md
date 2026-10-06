@@ -67,37 +67,34 @@ This evidence clears the current technical off-site DR launch gate. It does **no
 
 Status: **BLOCKED_EXTERNAL**
 
-Before the first external signature or public legal publication, verify:
+Official MCA and GST evidence has been supplied and recorded:
 
-- registered office;
-- CIN;
-- GSTIN;
-- authorized signatory;
-- contract notices email;
-- privacy/grievance contact;
-- support email/phone;
-- approved support hours;
-- bank/payment details used on quotations;
-- Indian counsel review of the controlled legal pack.
+- the management-supplied MCA Company Information extract dated 23 October 2024 is the controlled source for company name, CIN, registered office and Director/signatory particulars;
+- the official GST REG-06 certificate issued 17 December 2024 verifies GSTIN, legal/trade name, Regular registration and principal place of business;
+- business-role legal, privacy and support mail flow is operational;
+- support phone/hours are confirmed; and
+- support outbound authentication has passed SPF, DKIM and DMARC.
 
-Do not infer or invent these values from unverified directories.
+The only remaining blocker is **Indian counsel review and approval of the controlled legal pack**. Counsel should also confirm whether the supplied MCA extract is sufficiently current for the contemplated execution date.
+
+Do not publish or externally execute the controlled pack until that review is recorded.
 
 ### B. Public Privacy / Terms / AUP publication
 
 Status: **PENDING_DEPENDENCY**
 
-The current public SaaS website does not expose approved Privacy/Terms/AUP links.
+The implementation is prepared behind a server-controlled publication gate:
 
-After corporate particulars and counsel review:
+- `/privacy` renders the controlled Privacy Notice;
+- `/terms` renders the controlled SaaS Master Agreement;
+- `/acceptable-use` renders the controlled Acceptable Use Policy;
+- the public footer is pre-wired for Privacy, Terms and Acceptable Use links;
+- the demo form is pre-wired to the Privacy Notice; and
+- all legal pages and links remain unavailable until both `LEGAL_PAGES_PUBLISHED=true` and `LEGAL_EFFECTIVE_DATE` are configured.
 
-- publish the approved Privacy Notice;
-- publish applicable public SaaS/Terms terms;
-- publish Acceptable Use Policy;
-- add footer links;
-- link appropriate policy text at the demo/contact form;
-- verify mobile/desktop accessibility.
+After counsel approval, set the approved effective date and publication flag in staging, verify desktop/mobile presentation and links, then use the normal deployment process.
 
-Do not publish draft legal templates as final legal notices.
+Do not enable the publication flag before legal approval.
 
 ### C. Step 11 — First Real Paying Client
 

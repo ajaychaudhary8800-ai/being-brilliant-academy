@@ -6,7 +6,8 @@ Use this after the Step 14 readiness framework reports GO and management has aut
 
 - Freeze material feature scope.
 - Confirm Step 5 off-site DR evidence.
-- Confirm legal execution particulars and approved public legal pages.
+- Confirm Indian counsel approval is recorded and the approved public legal effective date is known.
+- Confirm `LEGAL_PAGES_PUBLISHED=true` and `LEGAL_EFFECTIVE_DATE=<approved date>` were verified in staging before production publication.
 - Confirm first-client validation where required.
 - Confirm no open P1/P2 production incidents.
 - Confirm pricing and proposal pack are unchanged.
@@ -26,7 +27,7 @@ Use this after the Step 14 readiness framework reports GO and management has aut
 - Verify `/api/health/ready`.
 - Verify `/api/health/operational`.
 - Verify public demo form.
-- Verify privacy/terms/AUP links.
+- Verify `/privacy`, `/terms`, `/acceptable-use`, footer legal links and the demo-form Privacy link.
 - Verify login and workspace routing.
 - Verify subscription/billing configuration.
 - Verify platform SaaS Sales workspace.
