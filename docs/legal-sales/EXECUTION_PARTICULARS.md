@@ -32,8 +32,9 @@ The following role addresses are active for the legal pack:
 
 Personal email addresses and personal privacy/grievance phone details are intentionally excluded from this public repository.
 
-## Standard support hours
+## Support contact
 
+- **Support phone:** +91 92663 41098
 - **Monday-Saturday:** 9:00 AM-6:00 PM IST
 - **Sunday & public holidays:** Closed, except critical incident escalation
 
@@ -46,6 +47,5 @@ Bank account and payment destination details are not stored in source control. T
 Before first external signature or public legal-page publication:
 
 1. cross-check the registered office, CIN, GSTIN and authorized signatory against current official/company records;
-2. confirm any client-facing support phone through approved business records before publication;
-3. obtain Indian counsel review of the controlled legal pack; and
-4. record the counsel-approved version/date before changing the legal-execution launch gate to READY.
+2. obtain Indian counsel review of the controlled legal pack; and
+3. record the counsel-approved version/date before changing the legal-execution launch gate to READY.
