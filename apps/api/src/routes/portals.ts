@@ -136,7 +136,16 @@ async function studentData(student: NonNullable<Awaited<ReturnType<typeof studen
     prisma.fee.findMany({ where: { studentId: student.id }, select: { id: true, feeHead: true, totalPaise: true, discountPaise: true, finePaise: true, amountPaidPaise: true, dueDate: true, status: true, remarks: true, payments: { select: { id: true, amountPaise: true, paymentDate: true, paymentMode: true, receiptNumber: true }, orderBy: { paymentDate: "desc" } } }, orderBy: { dueDate: "desc" } }),
     prisma.certificate.findMany({ where: { studentId: student.id, status: { in: ["ISSUED", "ARCHIVED"] } }, select: { id: true, certificateNumber: true, type: true, purpose: true, issueDate: true, status: true }, orderBy: { issueDate: "desc" } }),
     prisma.lessonProgress.findMany({ where: { userId: student.userId }, select: { id: true, completed: true, watchPercentage: true, updatedAt: true, lesson: { select: { id: true, title: true, subject: { select: { id: true, name: true } } } } }, orderBy: { updatedAt: "desc" } }),
-    prisma.organization.findUniqueOrThrow({ where: { id: student.organizationId }, select: { timezone: true, locale: true } }),
+    prisma.organization.findUniqueOrThrow({
+      where: { id: student.organizationId },
+      select: {
+        timezone: true,
+        locale: true,
+        institutionPaymentGateway: {
+          select: { isEnabled: true, allowPartialPayments: true, paymentMethods: true, lastVerifiedAt: true },
+        },
+      },
+    }),
   ]);
   const historicalHomeworks = (await Promise.all(homeworks.map(async item => {
     const enrollment = await resolveHistoricalAcademicEnrollment(prisma, { organizationId: student.organizationId, studentId: student.id, branchId: item.branchId, academicSessionId: item.batch.academicSessionId, courseId: item.courseId, batchId: item.batchId, onDate: item.assignedDate, mode: "HISTORICAL_READ" });
@@ -158,6 +167,13 @@ async function studentData(student: NonNullable<Awaited<ReturnType<typeof studen
     timetable,
     examinations: historicalExaminations.map(item => ({ ...item, result: item.status === ExaminationStatus.RESULTS_PUBLISHED ? item.results[0] ?? null : null, submission: item.answerSheets[0] ?? null, results: undefined, answerSheets: undefined })),
     fees,
+    onlinePayments: {
+      enabled: Boolean(organization.institutionPaymentGateway?.isEnabled && organization.institutionPaymentGateway?.lastVerifiedAt),
+      allowPartialPayments: Boolean(organization.institutionPaymentGateway?.allowPartialPayments),
+      methods: Array.isArray(organization.institutionPaymentGateway?.paymentMethods)
+        ? organization.institutionPaymentGateway.paymentMethods
+        : [],
+    },
     certificates,
     lms: { progress, continueLearning: progress.filter(item => !item.completed).slice(0, 10), completed: progress.filter(item => item.completed) },
   };
