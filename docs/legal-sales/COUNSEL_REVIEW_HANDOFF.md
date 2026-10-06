@@ -50,33 +50,31 @@ As of 6 October 2026:
 
 ## Corporate-record verification status
 
-Management supplied an official MCA Company Information extract generated on **23 October 2024**. That extract confirms:
+Management supplied an official MCA Company Information extract generated on **23 October 2024** and directed that the MCA-covered particulars in that extract be used for the controlled legal pack.
+
+The supplied MCA extract records:
 
 - legal company name: **ADHYAY EDUVENTURE PRIVATE LIMITED**;
 - CIN: **U80100UP2017PTC089682**;
 - ROC: **ROC Kanpur**;
-- company status: **Active**; and
-- **CHOUDHARY AJAY SINGH HOON** as a Director/signatory appointed on 3 February 2017.
+- registration number: **089682**;
+- date of incorporation: **03/02/2017**;
+- company status: **Active**;
+- registered office: **KH NO 257 PLOT NO 26 ROYAL GREEN CITY, PHASE II VILL DUHAI, Ghaziabad, Ghaziabad, Ghaziabad, Uttar Pradesh, India, 201001**; and
+- **CHOUDHARY AJAY SINGH HOON** as Director/signatory, appointed on **03/02/2017**.
 
-The same 23 October 2024 MCA extract records the registered office as:
+The controlled Order Form, Privacy Notice and Execution Particulars use those MCA details.
 
-**KH NO 257 PLOT NO 26 ROYAL GREEN CITY, PHASE II, VILL DUHAI, Ghaziabad, Uttar Pradesh, India, 201001**
+The MCA extract does not contain GST registration particulars. **GSTIN 09AAPCA1080N2Z7 remains management-supplied pending verification against an official GST record.**
 
-This conflicts with the management-supplied 6 October 2026 registered-office address currently recorded in `EXECUTION_PARTICULARS.md`:
+Because the supplied MCA extract is dated 23 October 2024, counsel should confirm whether it is sufficient for the contemplated execution date or whether a fresher MCA extract should be obtained when the MCA service is available. This does not change the MCA-derived details used in the controlled draft unless a later official record shows a change.
 
-**C-40 First Floor Near Atal Chowk Nand gram Ghaziabad 201003**
+The following remain required before the legal-execution gate can become READY:
 
-Because the MCA extract is dated 2024, it establishes the official record as of that extract date but does **not** prove the current registered office in October 2026. The difference must be reconciled using a current MCA master-data extract or a later official filing/change-of-registered-office record before first external signature.
+- official GST verification; and
+- Indian counsel review and approval of the controlled legal pack.
 
-The 2024 MCA extract also uses the director name **CHOUDHARY AJAY SINGH HOON**, whereas the current execution particulars use **CHOUDHARY AJAY SINGH**. Counsel/management must confirm the exact execution name to use.
-
-The following still require current official verification before the legal-execution gate can become READY:
-
-- current registered office;
-- GSTIN / GST registration particulars where relevant; and
-- exact authorized-signatory execution name/authority.
-
-No third-party directory should be treated as authoritative for resolving these differences.
+No third-party directory should be treated as authoritative.
 
 ## Approval record
 
