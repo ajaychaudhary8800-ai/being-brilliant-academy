@@ -74,10 +74,10 @@ That evidence supports the technical launch-readiness gate, but it does not by i
 
 ## 8. Execution particulars status
 
-Company management supplied the current provider particulars on 6 October 2026 and they are recorded in `EXECUTION_PARTICULARS.md`.
+Company management supplied provider particulars on 6 October 2026 and subsequently directed that the MCA-covered particulars in the official MCA Company Information extract dated 23 October 2024 be used in the controlled legal pack. Those adopted particulars are recorded in `EXECUTION_PARTICULARS.md`.
 
 Before the first external signature/public privacy publication:
-- cross-check registered office, CIN, GSTIN and authorized signatory against current official/company records;
+- retain the official GST REG-06 verification evidence confirming GSTIN 09AAPCA1080N2Z7 and the registered principal place of business;
 - keep the designated legal, privacy and support role mailboxes operational; inbound delivery has been verified and the support mailbox has passed SPF, DKIM and DMARC authentication;
 - keep the confirmed business support phone, published support hours and designated role mailboxes operational;
 - keep bank/payment destination details out of source control and insert them only from approved finance records; and
