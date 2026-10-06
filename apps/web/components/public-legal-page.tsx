@@ -2,9 +2,11 @@ import Link from "next/link";
 import { SiteHeader } from "./site-header";
 
 type Block =
-  | { type: "h2" | "h3"; text: string }
+  | { type: "h2"; text: string }
+  | { type: "h3"; text: string }
   | { type: "paragraph"; text: string }
-  | { type: "ul" | "ol"; items: string[] };
+  | { type: "ul"; items: string[] }
+  | { type: "ol"; items: string[] };
 
 function inline(text: string) {
   const parts = text.split(/(\*\*[^*]+\*\*|\`[^\`]+\`)/g).filter(Boolean);
