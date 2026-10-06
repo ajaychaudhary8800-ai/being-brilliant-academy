@@ -128,9 +128,10 @@
         "apps/web/app/privacy/page.tsx",
         "apps/web/app/terms/page.tsx",
         "apps/web/app/acceptable-use/page.tsx",
-        "apps/web/components/premium-landing.tsx"
+        "apps/web/components/premium-landing.tsx",
+        "docs/PUBLIC_LEGAL_PUBLICATION_EVIDENCE.md"
       ],
-      "nextAction": "Use approved effective date 2026-10-06. Set LEGAL_EFFECTIVE_DATE=2026-10-06 and LEGAL_PAGES_PUBLISHED=true in staging, redeploy the web service, verify /privacy, /terms, /acceptable-use plus footer/demo-form links on desktop/mobile, then publish through the normal controlled production deployment path.",
+      "nextAction": "Set LEGAL_EFFECTIVE_DATE=2026-10-06 and LEGAL_PAGES_PUBLISHED=true on the staging Web service in Coolify, redeploy staging Web, complete docs/PUBLIC_LEGAL_PUBLICATION_EVIDENCE.md verification, then apply the same approved values through controlled production publication.",
       "note": "Counsel approval dependency is cleared. Privacy, SaaS Terms and Acceptable Use remain fail-closed until runtime publication variables are enabled and staging/publication verification is completed."
     },
     {
