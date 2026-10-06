@@ -30,12 +30,12 @@ test("Step 14 launch manifest is truthful about current blockers", async () => {
     "legal-contract-pack",
     "sales-acquisition",
     "monitoring-operations",
+    "offsite-dr",
   ]) {
     assert.equal(byId.get(id)?.status, "READY", `${id} should be READY`);
   }
 
-  assert.equal(byId.get("offsite-dr")?.status, "PENDING_DEPENDENCY");
-  assert.equal(byId.get("offsite-dr")?.dependency, "Step 5");
+  assert.equal(byId.get("offsite-dr")?.status, "READY");
   assert.equal(byId.get("legal-execution")?.status, "BLOCKED_EXTERNAL");
   assert.equal(byId.get("public-legal-pages")?.status, "PENDING_DEPENDENCY");
   assert.equal(byId.get("first-paying-client")?.status, "PENDING_DEPENDENCY");

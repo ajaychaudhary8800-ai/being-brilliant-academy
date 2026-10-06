@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-09-25",
+  "asOf": "2026-10-06",
   "product": "Being Brilliant ERP + LMS + CRM",
   "declaredStatus": "HOLD",
   "statusRule": "GO only when every gate with blocking=true is READY.",
@@ -92,14 +92,14 @@
       "id": "offsite-dr",
       "name": "Off-site backup and disaster-recovery evidence",
       "blocking": true,
-      "status": "PENDING_DEPENDENCY",
+      "status": "READY",
       "dependency": "Step 5",
       "evidence": [
         "docs/PRODUCTION_OPERATIONS.md",
-        "docs/MONITORING.md"
+        "docs/MONITORING.md",
+        "docs/DR_RESTORE_EVIDENCE_2026-10-06.md"
       ],
-      "nextAction": "Configure real off-site object storage, verify scheduled upload, run an isolated restore drill and record measured RPO/RTO evidence.",
-      "note": "Local backup health is monitored, but off-site DR has not been verified."
+      "note": "Cloudflare R2 scheduled backups, off-site retrieval/checksum integrity, isolated PostgreSQL and file restore, representative record validation, measured core restore time, and cleanup were verified on 6 October 2026. Contractual RPO/RTO remains subject to separate approval."
     },
     {
       "id": "legal-execution",

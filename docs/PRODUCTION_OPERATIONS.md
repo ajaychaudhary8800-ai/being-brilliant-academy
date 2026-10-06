@@ -48,7 +48,11 @@ Default schedule: `0 2 * * *` in the backup container timezone.
 
 ## Quarterly restore drill
 
-Restore the latest backup to an isolated environment. Verify the checksum first, restore PostgreSQL and file storage, start the isolated application, then validate login and representative student, teacher, and admin records. Never test a restore against the live production database.
+Restore the latest backup to an isolated environment. Verify the checksum first, restore PostgreSQL and file storage, start the isolated application when a full application recovery rehearsal is in scope, and validate representative student, teacher, parent and admin records. Never test a restore against the live production database.
+
+Latest verified launch-readiness drill: **6 October 2026**. The production Cloudflare R2 copy was retrieved, both backup artifacts passed SHA-256 verification, PostgreSQL and file storage were restored into temporary isolated targets, representative role data was validated, and the temporary environment was removed afterward. The measured core database + file restore duration for the tested backup was **7 seconds**. See `docs/DR_RESTORE_EVIDENCE_2026-10-06.md`.
+
+The measured drill result is operational evidence only and is not a contractual RPO/RTO promise.
 
 ## Incident priority
 
@@ -66,4 +70,4 @@ For P1, stop non-essential deployments, preserve logs, verify backup state, iden
 - `/health/operational` — dependency plus critical background-worker heartbeat health.
 - `/metrics` — Prometheus telemetry. Production access requires `METRICS_TOKEN`; without it the endpoint intentionally returns `METRICS_NOT_CONFIGURED`.
 
-The backup container now tracks success/failure/freshness and reports unhealthy when the configured backup job fails or becomes stale. This monitoring does not constitute completion of off-site disaster recovery.
+The backup container tracks success/failure/freshness and reports unhealthy when the configured backup job fails or becomes stale. Monitoring alone does not prove recoverability; the separate isolated restore evidence must remain current and repeatable.

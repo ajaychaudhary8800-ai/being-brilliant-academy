@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-09-25",
+  "asOf": "2026-10-06",
   "product": "Being Brilliant ERP + LMS + CRM",
-  "currentMainBaseline": "d785a1e66eab63bbb1da1cfe81bb397045bfcbc6",
+  "currentMainBaseline": "b804fbeaae5931073f90749ef362c22b7d77147d",
   "steps": [
     {
       "step": 1,
@@ -45,12 +45,12 @@
     {
       "step": 5,
       "name": "Off-site Backup & Disaster Recovery",
-      "status": "PENDING_EXTERNAL",
-      "summary": "R2/S3-compatible off-site backup and DR code/runbooks are prepared, but real off-site storage, scheduled upload and isolated restore evidence are still required.",
+      "status": "COMPLETE",
+      "summary": "Cloudflare R2 off-site backups were verified in production, the latest R2 copy passed SHA-256 integrity checks, and an isolated PostgreSQL + file-storage restore drill with representative record validation and measured core restore time completed successfully on 6 October 2026.",
       "webRoutes": [
         "/admin/control-center"
       ],
-      "externalControl": "Bucket credentials, retention and restore execution must remain in secure infrastructure tooling."
+      "externalControl": "Bucket credentials and retention remain in secure infrastructure tooling; repeat isolated restore drills according to the production operations runbook."
     },
     {
       "step": 6,
