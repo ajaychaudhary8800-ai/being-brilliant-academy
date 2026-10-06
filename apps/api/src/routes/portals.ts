@@ -4,7 +4,7 @@ import { AttendanceStatus, ExaminationStatus, HomeworkStatus, Role, StudentStatu
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/http.js";
-import { rejectUnverifiedParentPayment } from "../lib/finance-integrity.js";
+import { createInstitutionFeeCheckout } from "../lib/institution-payments.js";
 import { assertHomeworkAttachmentAccess } from "../lib/homework-policy.js";
 import { announcementRecipientConstraints, communicationScope } from "../lib/communication-authorization.js";
 import { assertMessageRecipientAuthorized, participantMessageUpdate } from "../lib/message-policy.js";
@@ -173,11 +173,50 @@ router.get("/parent/children", allow(Role.PARENT), async (req: AuthRequest, res)
 });
 router.get("/parent/dashboard",allow(Role.PARENT),async(req:AuthRequest,res)=>{const links=await prisma.parentStudent.findMany({where:{parentId:id(req),student:{status:StudentStatus.ACTIVE,user:{isActive:true}}},include:{student:{include:{user:true,branch:true,batch:{include:{course:true}}}}}});const children=await Promise.all(links.map(l=>studentData(l.student)));res.json({data:{children}});});
 router.get("/parent/children/:studentId",allow(Role.PARENT),async(req:AuthRequest,res)=>res.json({data:await studentData(await ownedChild(id(req),String(req.params.studentId)))}));
-router.post("/parent/children/:studentId/fees/:feeId/pay", allow(Role.PARENT), async (req: AuthRequest) => {
+const onlineFeePaymentInput = z.object({
+  amountPaise: z.number().int().positive().max(2_147_483_647).optional(),
+}).strict();
+
+function onlineFeeIdempotencyKey(req: AuthRequest) {
+  const key = req.header("Idempotency-Key")?.trim();
+  if (!key || key.length < 8 || key.length > 100) {
+    throw new AppError(422, "IDEMPOTENCY_KEY_REQUIRED", "Provide an Idempotency-Key header between 8 and 100 characters");
+  }
+  return key;
+}
+
+router.post("/student/fees/:feeId/pay", allow(Role.STUDENT), async (req: AuthRequest, res) => {
+  const student = await studentForUser(id(req));
+  if (!student) throw new AppError(404, "PROFILE_NOT_FOUND", "Student profile not found");
+  assertActiveStudentPortalProfile(student.status);
+  const fee = await prisma.fee.findFirst({ where: { id: String(req.params.feeId), studentId: student.id }, select: { id: true } });
+  if (!fee) throw new AppError(404, "FEE_NOT_FOUND", "Fee record not found");
+  const body = onlineFeePaymentInput.parse(req.body ?? {});
+  const data = await createInstitutionFeeCheckout({
+    organizationId: req.auth!.organizationId,
+    payerUserId: req.auth!.userId,
+    studentId: student.id,
+    feeId: fee.id,
+    amountPaise: body.amountPaise,
+    idempotencyKey: onlineFeeIdempotencyKey(req),
+  });
+  res.status(data.reused ? 200 : 201).json({ data });
+});
+
+router.post("/parent/children/:studentId/fees/:feeId/pay", allow(Role.PARENT), async (req: AuthRequest, res) => {
   const student = await ownedChild(id(req), String(req.params.studentId));
   const fee = await prisma.fee.findFirst({ where: { id: String(req.params.feeId), studentId: student.id }, select: { id: true } });
   if (!fee) throw new AppError(404, "FEE_NOT_FOUND", "Fee record not found");
-  rejectUnverifiedParentPayment();
+  const body = onlineFeePaymentInput.parse(req.body ?? {});
+  const data = await createInstitutionFeeCheckout({
+    organizationId: req.auth!.organizationId,
+    payerUserId: req.auth!.userId,
+    studentId: student.id,
+    feeId: fee.id,
+    amountPaise: body.amountPaise,
+    idempotencyKey: onlineFeeIdempotencyKey(req),
+  });
+  res.status(data.reused ? 200 : 201).json({ data });
 });
 
 router.get("/teacher/dashboard", allow(Role.TEACHER), async (req: AuthRequest, res) => {
