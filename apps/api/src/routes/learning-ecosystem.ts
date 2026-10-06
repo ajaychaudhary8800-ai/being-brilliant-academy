@@ -1,4 +1,4 @@
-import { ApprovalStatus, BatchStatus, CourseStatus, DoubtStatus, LearningAttemptStatus, LearningStatus, LearningTestType, LiveClassProvider, QuestionType, Role, StudentStatus, StudyMaterialType, SubjectLegacyReviewStatus, SubjectStatus, TeacherAllocationStatus } from "@prisma/client";
+import { AcademicBoard, ApprovalStatus, BatchStatus, ClassLevel, CourseStatus, DoubtStatus, LearningAttemptStatus, LearningStatus, LearningTestType, LiveClassProvider, Prisma, QuestionType, Role, StudentStatus, StudyMaterialType, SubjectLegacyReviewStatus, SubjectStatus, TeacherAllocationStatus } from "@prisma/client";
 import { Router } from "express";
 import crypto from "node:crypto";
 import { z } from "zod";
@@ -20,7 +20,21 @@ import {
   type LearningResource,
 } from "../lib/learning-ecosystem-access.js";
 import { AppError } from "../lib/http.js";
+import { calculateLearningTestPsychometrics } from "../lib/learning-item-analysis.js";
+import { generateLearningQuestions, LearningQuestionGenerationError, learningQuestionGeneratorConfigured } from "../lib/learning-question-generator.js";
 import { resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
+import {
+  learningTestAdapterReadiness,
+  learningTestAttemptExpiry,
+  learningTestAvailability,
+  learningTestDeliveryPolicySchema,
+  learningTestOfflineLease,
+  learningTestResumeDecision,
+  newLearningTestDeliverySeed,
+  prepareLearningTestDelivery,
+  resolveLearningTestDeliveryForStudent,
+  resolveLearningTestDeliveryPolicy,
+} from "../lib/learning-test-delivery-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { getObject } from "../lib/storage.js";
 import { createLiveKitToken, getLiveKitRecordingObject, livekitClientUrl, livekitConfigured, livekitEgress, livekitRecordingConfigured, livekitRecordingStorage, livekitRoomService } from "../lib/livekit.js";
@@ -249,11 +263,284 @@ router.post("/learning/doubts/:id/escalate", allow(Role.STUDENT), async (req: Au
   res.json({ data: updated });
 });
 
-const questionInput = z.object({ code: z.string().trim().min(2).max(50), examCategory: z.enum(["CBSE", "JEE_MAIN", "NEET", "CUET"]), type: questionTypes, subjectId: id, courseId: id.optional(), chapter: z.string().trim().min(1).max(150), topic: z.string().trim().max(150).optional(), difficulty: z.enum(["EASY", "MEDIUM", "HARD"]), marks: z.number().positive().max(100), negativeMarks: z.number().min(0).max(100).default(0), year: z.number().int().min(1990).max(2100).optional(), source: z.string().max(150).optional(), tags: z.array(z.string().max(40)).max(20).default([]), bloomLevel: z.enum(["REMEMBER", "UNDERSTAND", "APPLY", "ANALYZE", "EVALUATE", "CREATE"]).optional(), body: z.string().min(3).max(20000), options: z.unknown().optional(), correctAnswer: z.unknown(), solution: z.string().max(20000).optional() });
+const examCategoryCode = z.string().trim().min(2).max(80).regex(/^[A-Za-z0-9][A-Za-z0-9 _.-]*$/, "Exam category contains unsupported characters");
+const questionInputBase = z.object({
+  code: z.string().trim().min(2).max(50),
+  examCategory: examCategoryCode,
+  type: questionTypes,
+  subjectId: id,
+  courseId: id.optional(),
+  chapter: z.string().trim().min(1).max(150),
+  topic: z.string().trim().max(150).optional(),
+  difficulty: z.enum(["EASY", "MEDIUM", "HARD"]),
+  marks: z.number().positive().max(100),
+  negativeMarks: z.number().min(0).max(100).default(0),
+  year: z.number().int().min(1990).max(2100).optional(),
+  source: z.string().max(150).optional(),
+  tags: z.array(z.string().max(40)).max(20).default([]),
+  bloomLevel: z.enum(["REMEMBER", "UNDERSTAND", "APPLY", "ANALYZE", "EVALUATE", "CREATE"]).optional(),
+  classLevel: z.nativeEnum(ClassLevel).optional(),
+  academicBoard: z.nativeEnum(AcademicBoard).optional(),
+  customBoardName: z.string().trim().min(2).max(120).optional(),
+  syllabusCode: z.string().trim().min(1).max(120).optional(),
+  learningOutcomes: z.array(z.string().trim().min(1).max(300)).max(30).default([]),
+  expectedTimeSeconds: z.number().int().min(5).max(21600).optional(),
+  variantGroupCode: z.string().trim().min(1).max(80).optional(),
+  language: z.string().trim().min(2).max(80).default("English"),
+  aiGenerated: z.boolean().default(false),
+  evaluationConfig: z.record(z.any()).optional(),
+  body: z.string().min(3).max(20000),
+  options: z.unknown().optional(),
+  correctAnswer: z.unknown(),
+  solution: z.string().max(20000).optional(),
+});
+const questionInput = questionInputBase.superRefine((value, ctx) => {
+  if (value.academicBoard === AcademicBoard.OTHER && !value.customBoardName) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customBoardName"], message: "Custom board name is required when academic board is OTHER" });
+  }
+  if (value.negativeMarks > value.marks) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["negativeMarks"], message: "Negative marks cannot exceed maximum marks" });
+  }
+});
+
+function stableQuestionValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return `[${value.map(stableQuestionValue).join(",")}]`;
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a],[b]) => a.localeCompare(b));
+    return `{${entries.map(([key,item]) => `${JSON.stringify(key)}:${stableQuestionValue(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+function questionSimilarityHash(body: string, options?: unknown) {
+  const normalizedBody = body.toLocaleLowerCase("en").replace(/\s+/g, " ").trim();
+  return crypto.createHash("sha256").update(`${normalizedBody}\n${stableQuestionValue(options)}`).digest("hex");
+}
+function questionJson(value: unknown): Prisma.InputJsonValue {
+  return value as Prisma.InputJsonValue;
+}
+router.post("/learning/questions/ai-generate", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  if (!learningQuestionGeneratorConfigured()) {
+    throw new AppError(503, "QUESTION_GENERATOR_NOT_CONFIGURED", "AI question-generation provider is not configured");
+  }
+  const d = z.object({
+    count: z.number().int().min(1).max(25).default(5),
+    examCategory: examCategoryCode,
+    subjectId: id,
+    courseId: id.optional(),
+    chapter: z.string().trim().min(1).max(150),
+    topic: z.string().trim().max(150).optional(),
+    difficulty: z.enum(["EASY", "MEDIUM", "HARD"]).optional(),
+    types: z.array(questionTypes).min(1).max(10),
+    marks: z.number().positive().max(100).default(1),
+    negativeMarks: z.number().min(0).max(100).default(0),
+    classLevel: z.nativeEnum(ClassLevel).optional(),
+    academicBoard: z.nativeEnum(AcademicBoard).optional(),
+    customBoardName: z.string().trim().min(2).max(120).optional(),
+    syllabusCode: z.string().trim().min(1).max(120).optional(),
+    learningOutcomes: z.array(z.string().trim().min(1).max(300)).max(20).default([]),
+    language: z.string().trim().min(2).max(80).default("English"),
+    additionalInstructions: z.string().trim().max(3000).optional(),
+    codePrefix: z.string().trim().toUpperCase().min(2).max(18).regex(/^[A-Z0-9-]+$/).default("AIQ"),
+  }).superRefine((value, ctx) => {
+    if (value.academicBoard === AcademicBoard.OTHER && !value.customBoardName) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customBoardName"], message: "Custom board name is required when academic board is OTHER" });
+    }
+    if (value.negativeMarks > value.marks) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["negativeMarks"], message: "Negative marks cannot exceed maximum marks" });
+    }
+  }).parse(req.body);
+
+  await relationCheck({ subjectId: d.subjectId, courseId: d.courseId });
+  assertManagerQuestionAccess(actor, { courseId: d.courseId, subjectId: d.subjectId });
+  const [subject, course] = await Promise.all([
+    prisma.subject.findFirst({ where: { id: d.subjectId }, select: { name: true } }),
+    d.courseId ? prisma.course.findFirst({ where: { id: d.courseId }, select: { title: true } }) : null,
+  ]);
+  if (!subject) throw new AppError(422, "INVALID_SUBJECT_RELATION", "Subject not found");
+
+  let generated;
+  try {
+    generated = await generateLearningQuestions({
+      count: d.count,
+      examCategory: d.examCategory,
+      subjectName: subject.name,
+      courseName: course?.title ?? null,
+      classLevel: d.classLevel ?? null,
+      academicBoard: d.academicBoard ?? null,
+      customBoardName: d.customBoardName ?? null,
+      syllabusCode: d.syllabusCode ?? null,
+      chapter: d.chapter,
+      topic: d.topic ?? null,
+      language: d.language,
+      types: d.types,
+      learningOutcomes: d.learningOutcomes,
+      additionalInstructions: [
+        d.difficulty ? `Every generated question must use difficulty ${d.difficulty}.` : null,
+        d.additionalInstructions ?? null,
+      ].filter(Boolean).join(" ") || null,
+    });
+  } catch (error) {
+    if (error instanceof LearningQuestionGenerationError) {
+      const status = error.code === "QUESTION_GENERATOR_NOT_CONFIGURED" ? 503
+        : error.code.includes("PROVIDER") || error.code.includes("UNAVAILABLE") || error.code.includes("TIMEOUT") ? 502
+        : 422;
+      throw new AppError(status, error.code, error.message);
+    }
+    throw error;
+  }
+  if (generated.length !== d.count) {
+    throw new AppError(422, "QUESTION_GENERATOR_COUNT_MISMATCH", "AI provider returned a different number of questions than requested");
+  }
+
+  const created = [];
+  const skippedDuplicates: Array<{ index: number; matchingQuestionId: string; matchingCode: string }> = [];
+  for (let index = 0; index < generated.length; index += 1) {
+    const question = generated[index]!;
+    const proposed = questionInput.parse({
+      code: `${d.codePrefix}-${crypto.randomBytes(5).toString("hex").toUpperCase()}`,
+      examCategory: d.examCategory,
+      type: question.type,
+      subjectId: d.subjectId,
+      courseId: d.courseId,
+      chapter: d.chapter,
+      topic: d.topic,
+      difficulty: d.difficulty ?? question.difficulty,
+      marks: d.marks,
+      negativeMarks: d.negativeMarks,
+      tags: ["AI_DRAFT"],
+      bloomLevel: question.bloomLevel,
+      classLevel: d.classLevel,
+      academicBoard: d.academicBoard,
+      customBoardName: d.customBoardName,
+      syllabusCode: d.syllabusCode,
+      learningOutcomes: question.learningOutcomes.length ? question.learningOutcomes : d.learningOutcomes,
+      expectedTimeSeconds: question.expectedTimeSeconds,
+      language: d.language,
+      aiGenerated: true,
+      body: question.body,
+      options: question.options,
+      correctAnswer: question.correctAnswer,
+      solution: question.solution,
+    });
+    const similarityHash = questionSimilarityHash(proposed.body, proposed.options);
+    const duplicate = await prisma.questionBankItem.findFirst({
+      where: {
+        ...learningQuestionWhere(actor),
+        subjectId: d.subjectId,
+        similarityHash,
+        isArchived: false,
+      },
+      select: { id: true, code: true },
+    });
+    if (duplicate) {
+      skippedDuplicates.push({ index, matchingQuestionId: duplicate.id, matchingCode: duplicate.code });
+      continue;
+    }
+    created.push(await prisma.questionBankItem.create({
+      data: {
+        ...proposed,
+        approvalStatus: ApprovalStatus.DRAFT,
+        aiGenerated: true,
+        options: proposed.options === undefined ? undefined : questionJson(proposed.options),
+        correctAnswer: questionJson(proposed.correctAnswer),
+        evaluationConfig: proposed.evaluationConfig === undefined ? undefined : questionJson(proposed.evaluationConfig),
+        similarityHash,
+        createdById: actor.userId,
+      },
+    }));
+  }
+
+  await audit(req, "AI_GENERATE_DRAFTS", "QuestionBankItem", undefined, {
+    requested: d.count,
+    created: created.length,
+    skippedDuplicates: skippedDuplicates.length,
+    subjectId: d.subjectId,
+    courseId: d.courseId ?? null,
+  });
+  res.status(201).json({
+    data: created,
+    meta: {
+      requested: d.count,
+      created: created.length,
+      skippedDuplicates,
+      approvalRequired: true,
+      status: "DRAFT",
+    },
+  });
+});
+
+router.post("/learning/questions/similarity-check", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const d = z.object({ subjectId: id, body: z.string().min(3).max(20000), options: z.unknown().optional(), limit: z.number().int().min(1).max(20).default(10) }).parse(req.body);
+  await relationCheck({ subjectId: d.subjectId });
+  assertManagerQuestionAccess(actor, { subjectId: d.subjectId });
+  const similarityHash = questionSimilarityHash(d.body, d.options);
+  const data = await prisma.questionBankItem.findMany({
+    where: { ...learningQuestionWhere(actor), subjectId: d.subjectId, similarityHash, isArchived: false },
+    select: { id: true, code: true, examCategory: true, type: true, chapter: true, topic: true, version: true, approvalStatus: true },
+    take: d.limit,
+    orderBy: { updatedAt: "desc" },
+  });
+  res.json({ data, meta: { exactContentMatch: data.length > 0, similarityHash, method: "NORMALIZED_EXACT_FINGERPRINT" } });
+});
+
+const questionFilterInput = z.object({
+  search: z.string().trim().max(100).optional(),
+  examCategory: examCategoryCode.optional(),
+  courseId: id.optional(),
+  subjectId: id.optional(),
+  chapter: z.string().trim().max(150).optional(),
+  difficulty: z.enum(["EASY", "MEDIUM", "HARD"]).optional(),
+  type: questionTypes.optional(),
+  approvalStatus: z.nativeEnum(ApprovalStatus).optional(),
+  classLevel: z.nativeEnum(ClassLevel).optional(),
+  academicBoard: z.nativeEnum(AcademicBoard).optional(),
+  syllabusCode: z.string().trim().max(120).optional(),
+  bloomLevel: z.string().trim().max(40).optional(),
+  variantGroupCode: z.string().trim().max(80).optional(),
+});
+function questionWhereFromFilter(actor: LearningActor, q: z.infer<typeof questionFilterInput>) {
+  return {
+    ...learningQuestionWhere(actor),
+    isArchived: false,
+    ...(q.examCategory ? { examCategory: q.examCategory } : {}),
+    ...(q.courseId ? { courseId: q.courseId } : {}),
+    ...(q.subjectId ? { subjectId: q.subjectId } : {}),
+    ...(q.chapter ? { chapter: { contains: q.chapter, mode: "insensitive" as const } } : {}),
+    ...(q.difficulty ? { difficulty: q.difficulty } : {}),
+    ...(q.type ? { type: q.type } : {}),
+    ...(q.approvalStatus ? { approvalStatus: q.approvalStatus } : {}),
+    ...(q.classLevel ? { classLevel: q.classLevel } : {}),
+    ...(q.academicBoard ? { academicBoard: q.academicBoard } : {}),
+    ...(q.syllabusCode ? { syllabusCode: q.syllabusCode } : {}),
+    ...(q.bloomLevel ? { bloomLevel: q.bloomLevel } : {}),
+    ...(q.variantGroupCode ? { variantGroupCode: q.variantGroupCode } : {}),
+    ...(q.search ? { OR: [{ body: { contains: q.search, mode: "insensitive" as const } }, { code: { contains: q.search, mode: "insensitive" as const } }, { topic: { contains: q.search, mode: "insensitive" as const } }, { learningOutcomes: { has: q.search } }] } : {}),
+  };
+}
+const bulkQuestionReviewInput = z.object({
+  approvalStatus: z.enum(["APPROVED", "REJECTED"]),
+  ids: z.array(id).min(1).max(500).optional(),
+  allFiltered: z.boolean().default(false),
+  filters: questionFilterInput.optional(),
+}).superRefine((value, ctx) => {
+  if (Boolean(value.ids?.length) === Boolean(value.allFiltered)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Choose either explicit question ids or all filtered questions" });
+  }
+  if (value.allFiltered && !value.filters) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Filters are required for all-filtered review" });
+  }
+  if (value.allFiltered && value.filters && ![value.filters.courseId, value.filters.subjectId, value.filters.chapter, value.filters.search].some(Boolean)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "All-filtered review requires Course, Subject, Chapter or search scope" });
+  }
+});
+
 router.get("/learning/questions", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
-  const q = pageQuery.extend({ examCategory: z.string().optional(), subjectId: id.optional(), chapter: z.string().optional(), difficulty: z.string().optional(), type: questionTypes.optional(), approvalStatus: z.nativeEnum(ApprovalStatus).optional() }).parse(req.query);
-  const where: any = { ...learningQuestionWhere(actor), isArchived: false, ...(q.examCategory ? { examCategory: q.examCategory } : {}), ...(q.subjectId ? { subjectId: q.subjectId } : {}), ...(q.chapter ? { chapter: { contains: q.chapter, mode: "insensitive" } } : {}), ...(q.difficulty ? { difficulty: q.difficulty } : {}), ...(q.type ? { type: q.type } : {}), ...(q.approvalStatus ? { approvalStatus: q.approvalStatus } : {}), ...(q.search ? { OR: [{ body: { contains: q.search, mode: "insensitive" } }, { code: { contains: q.search, mode: "insensitive" } }, { topic: { contains: q.search, mode: "insensitive" } }] } : {}) };
+  const q = pageQuery.extend(questionFilterInput.shape).parse(req.query);
+  const where: any = questionWhereFromFilter(actor, q);
   const [total, data] = await prisma.$transaction([
     prisma.questionBankItem.count({ where }),
     prisma.questionBankItem.findMany({ where, include: { createdBy: { select: { name: true } }, reviewedBy: { select: { name: true } }, _count: { select: { revisions: true, testQuestions: true } } }, skip: (q.page - 1) * q.limit, take: q.limit, orderBy: { createdAt: q.sortOrder } }),
@@ -267,7 +554,7 @@ router.post("/learning/questions", managers, async (req: AuthRequest, res) => {
   await relationCheck(d);
   assertManagerQuestionAccess(actor, d);
   try {
-    const row = await prisma.questionBankItem.create({ data: { ...d, options: d.options as object | undefined, correctAnswer: d.correctAnswer as object, createdById: actor.userId } });
+    const row = await prisma.questionBankItem.create({ data: { ...d, options: d.options === undefined ? undefined : questionJson(d.options), correctAnswer: questionJson(d.correctAnswer), evaluationConfig: d.evaluationConfig === undefined ? undefined : questionJson(d.evaluationConfig), similarityHash: questionSimilarityHash(d.body, d.options), createdById: actor.userId } });
     await audit(req, "CREATE", "QuestionBankItem", row.id);
     res.status(201).json({ data: row });
   } catch (error: any) {
@@ -276,18 +563,46 @@ router.post("/learning/questions", managers, async (req: AuthRequest, res) => {
   }
 });
 
+router.patch("/learning/questions/bulk-approval", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const d = bulkQuestionReviewInput.parse(req.body);
+  const explicitIds = [...new Set(d.ids ?? [])];
+  const selectionWhere: any = d.allFiltered
+    ? questionWhereFromFilter(actor, d.filters ?? {})
+    : { ...learningQuestionWhere(actor), isArchived: false, id: { in: explicitIds } };
+  const eligibleStatuses = [ApprovalStatus.DRAFT, ApprovalStatus.PENDING];
+  const requested = d.allFiltered
+    ? await prisma.questionBankItem.count({ where: selectionWhere })
+    : explicitIds.length;
+  const reviewedAt = new Date();
+  const updated = await prisma.questionBankItem.updateMany({
+    where: { ...selectionWhere, approvalStatus: { in: eligibleStatuses } },
+    data: { approvalStatus: d.approvalStatus, reviewedById: actor.userId, reviewedAt },
+  });
+  const skipped = Math.max(0, requested - updated.count);
+  const action = d.approvalStatus === "APPROVED" ? "BULK_APPROVE" : "BULK_REJECT";
+  await audit(req, action, "QuestionBankItem", undefined, {
+    requested,
+    updated: updated.count,
+    skipped,
+    selectionMode: d.allFiltered ? "FILTERED" : "EXPLICIT_IDS",
+    ...(d.allFiltered ? { filters: d.filters } : {}),
+  });
+  res.json({ data: { approvalStatus: d.approvalStatus }, meta: { requested, updated: updated.count, skipped } });
+});
+
 router.patch("/learning/questions/:id", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const old = await prisma.questionBankItem.findFirst({ where: { id: String(req.params.id), ...learningQuestionWhere(actor) } });
   if (!old) throw new AppError(404, "QUESTION_NOT_FOUND", "Question not found");
-  const d = questionInput.partial().parse(req.body);
+  const d = questionInputBase.partial().parse(req.body);
   const target = { courseId: d.courseId === undefined ? old.courseId : d.courseId, subjectId: d.subjectId ?? old.subjectId };
   await relationCheck(target);
   assertManagerQuestionAccess(actor, target);
   const snapshot = JSON.parse(JSON.stringify(old));
   const row = await prisma.$transaction(async tx => {
     await tx.questionBankRevision.create({ data: { questionId: old.id, version: old.version, snapshot, changedById: actor.userId } });
-    return tx.questionBankItem.update({ where: { id: old.id }, data: { ...d, options: d.options as object | undefined, correctAnswer: d.correctAnswer as object | undefined, version: { increment: 1 }, approvalStatus: ApprovalStatus.DRAFT } });
+    return tx.questionBankItem.update({ where: { id: old.id }, data: { ...d, options: d.options === undefined ? undefined : questionJson(d.options), correctAnswer: d.correctAnswer === undefined ? undefined : questionJson(d.correctAnswer), evaluationConfig: d.evaluationConfig === undefined ? undefined : questionJson(d.evaluationConfig), similarityHash: questionSimilarityHash(d.body ?? old.body, d.options === undefined ? old.options : d.options), version: { increment: 1 }, approvalStatus: ApprovalStatus.DRAFT } });
   });
   await audit(req, "UPDATE", "QuestionBankItem", row.id);
   res.json({ data: row });
@@ -308,7 +623,7 @@ router.post("/learning/questions/bulk", managers, async (req: AuthRequest, res) 
   const rows = z.object({ questions: z.array(questionInput).min(1).max(500) }).parse(req.body).questions;
   for (const row of rows) { await relationCheck(row); assertManagerQuestionAccess(actor, row); }
   const created = [];
-  for (const row of rows) created.push(await prisma.questionBankItem.create({ data: { ...row, options: row.options as object | undefined, correctAnswer: row.correctAnswer as object, createdById: actor.userId } }));
+  for (const row of rows) created.push(await prisma.questionBankItem.create({ data: { ...row, options: row.options === undefined ? undefined : questionJson(row.options), correctAnswer: questionJson(row.correctAnswer), evaluationConfig: row.evaluationConfig === undefined ? undefined : questionJson(row.evaluationConfig), similarityHash: questionSimilarityHash(row.body, row.options), createdById: actor.userId } }));
   await audit(req, "BULK_IMPORT", "QuestionBankItem", undefined, { count: created.length });
   res.status(201).json({ data: created, meta: { imported: created.length } });
 });
@@ -328,13 +643,54 @@ router.post("/learning/questions/random", managers, async (req: AuthRequest, res
   res.json({ data: rows.sort(() => Math.random() - .5).slice(0, d.count) });
 });
 
-const testInput = z.object({ code: z.string().min(2).max(50), name: z.string().min(3).max(180), type: z.nativeEnum(LearningTestType), branchId: id.optional(), courseId: id, batchId: id.optional(), subjectId: id.optional(), chapter: z.string().max(150).optional(), instructions: z.string().max(10000).optional(), durationMinutes: z.number().int().min(1).max(360), maximumMarks: z.number().positive(), passingMarks: z.number().min(0), startsAt: z.coerce.date().optional(), endsAt: z.coerce.date().optional(), adaptive: z.boolean().default(false), status: z.nativeEnum(LearningStatus).default(LearningStatus.DRAFT), questions: z.array(z.object({ questionId: id, section: z.string().max(80).default("General"), position: z.number().int().positive(), marks: z.number().positive(), negativeMarks: z.number().min(0).default(0) })).min(1).max(300) });
+const testInput = z.object({ code: z.string().min(2).max(50), name: z.string().min(3).max(180), type: z.nativeEnum(LearningTestType), branchId: id.optional(), courseId: id, batchId: id.optional(), subjectId: id.optional(), chapter: z.string().max(150).optional(), instructions: z.string().max(10000).optional(), durationMinutes: z.number().int().min(1).max(360), maximumMarks: z.number().positive(), passingMarks: z.number().min(0), startsAt: z.coerce.date().optional(), endsAt: z.coerce.date().optional(), adaptive: z.boolean().default(false), deliveryPolicy: learningTestDeliveryPolicySchema.nullable().optional(), status: z.nativeEnum(LearningStatus).default(LearningStatus.DRAFT), questions: z.array(z.object({ questionId: id, section: z.string().max(80).default("General"), position: z.number().int().positive(), marks: z.number().positive(), negativeMarks: z.number().min(0).default(0) })).min(1).max(300) });
 async function assertTestQuestions(actor: LearningActor, target: { courseId: string; subjectId?: string | null }, questions: Array<{ questionId: string }>) {
   const uniqueIds = [...new Set(questions.map(row => row.questionId))];
-  const rows = await prisma.questionBankItem.findMany({ where: { id: { in: uniqueIds }, ...learningQuestionWhere(actor), isArchived: false }, select: { id: true, courseId: true, subjectId: true } });
+  const rows = await prisma.questionBankItem.findMany({ where: { id: { in: uniqueIds }, ...learningQuestionWhere(actor), isArchived: false } });
   if (rows.length !== uniqueIds.length || rows.some(row => row.courseId && row.courseId !== target.courseId || target.subjectId && row.subjectId !== target.subjectId)) {
     throw new AppError(422, "INVALID_TEST_QUESTION", "Every test question must be authorized and match the Test Course and Subject");
   }
+  return rows;
+}
+function questionDeliverySnapshot(question: {
+  id:string;code:string;version:number;examCategory:string;type:QuestionType;body:string;options:Prisma.JsonValue|null;correctAnswer:Prisma.JsonValue;
+  solution:string|null;chapter:string;topic:string|null;difficulty:string;marks:Prisma.Decimal;negativeMarks:Prisma.Decimal;bloomLevel:string|null;
+  classLevel:ClassLevel|null;academicBoard:AcademicBoard|null;customBoardName:string|null;syllabusCode:string|null;learningOutcomes:string[];
+  expectedTimeSeconds:number|null;variantGroupCode:string|null;language:string;evaluationConfig:Prisma.JsonValue|null;
+}) {
+  return {
+    id:question.id,code:question.code,version:question.version,examCategory:question.examCategory,type:question.type,body:question.body,
+    options:question.options,correctAnswer:question.correctAnswer,solution:question.solution,chapter:question.chapter,topic:question.topic,difficulty:question.difficulty,
+    marks:Number(question.marks),negativeMarks:Number(question.negativeMarks),bloomLevel:question.bloomLevel,classLevel:question.classLevel,academicBoard:question.academicBoard,
+    customBoardName:question.customBoardName,syllabusCode:question.syllabusCode,learningOutcomes:question.learningOutcomes,expectedTimeSeconds:question.expectedTimeSeconds,
+    variantGroupCode:question.variantGroupCode,language:question.language,evaluationConfig:question.evaluationConfig,
+  };
+}
+function snapshotTestQuestions(questions: Array<{questionId:string;section:string;position:number;marks:number;negativeMarks:number}>, bank: Awaited<ReturnType<typeof assertTestQuestions>>) {
+  const byId=new Map(bank.map(question=>[question.id,question]));
+  return questions.map(question=>{
+    const source=byId.get(question.questionId);
+    if(!source)throw new AppError(422,"INVALID_TEST_QUESTION","Question snapshot source is missing");
+    return {...question,questionVersion:source.version,questionSnapshot:questionJson(questionDeliverySnapshot(source))};
+  });
+}
+function studentQuestionFromSnapshot(row:{questionSnapshot:Prisma.JsonValue|null;question:{id:string;code:string;type:QuestionType;body:string;options:Prisma.JsonValue|null;marks:Prisma.Decimal}}){
+  if(!row.questionSnapshot||typeof row.questionSnapshot!=="object"||Array.isArray(row.questionSnapshot))return row.question;
+  const snapshot=row.questionSnapshot as Record<string,unknown>;
+  return {
+    id:String(snapshot.id??row.question.id),
+    code:String(snapshot.code??row.question.code),
+    type:(snapshot.type??row.question.type) as QuestionType,
+    body:String(snapshot.body??row.question.body),
+    options:(snapshot.options??row.question.options) as Prisma.JsonValue|null,
+    marks:snapshot.marks??Number(row.question.marks),
+  };
+}
+function correctAnswerForTestQuestion(row:{questionSnapshot:Prisma.JsonValue|null;question:{correctAnswer:Prisma.JsonValue}}){
+  if(row.questionSnapshot&&typeof row.questionSnapshot==="object"&&!Array.isArray(row.questionSnapshot)&&"correctAnswer" in row.questionSnapshot){
+    return (row.questionSnapshot as Record<string,unknown>).correctAnswer;
+  }
+  return row.question.correctAnswer;
 }
 
 router.get("/learning/tests", async (req: AuthRequest, res) => {
@@ -354,9 +710,10 @@ router.post("/learning/tests", managers, async (req: AuthRequest, res) => {
   const d = testInput.refine(row => row.passingMarks <= row.maximumMarks, "Passing marks cannot exceed maximum marks").refine(row => !row.startsAt || !row.endsAt || row.endsAt > row.startsAt, "End time must be after start time").parse(req.body);
   await relationCheck(d);
   assertManagerResourceAccess(actor, d);
-  await assertTestQuestions(actor, d, d.questions);
-  const { questions, ...test } = d;
-  const row = await prisma.learningTest.create({ data: { ...test, createdById: actor.userId, questions: { create: questions } }, include: { questions: true } });
+  const bankQuestions = await assertTestQuestions(actor, d, d.questions);
+  const { questions, deliveryPolicy, ...test } = d;
+  const deliveryQuestions = snapshotTestQuestions(questions, bankQuestions);
+  const row = await prisma.learningTest.create({ data: { ...test, deliveryPolicy: deliveryPolicy == null ? undefined : questionJson(deliveryPolicy), createdById: actor.userId, questions: { create: deliveryQuestions } }, include: { questions: true } });
   await audit(req, "CREATE", "LearningTest", row.id);
   res.status(201).json({ data: row });
 });
@@ -365,12 +722,13 @@ router.patch("/learning/tests/:id", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const old = await prisma.learningTest.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor) } });
   if (!old) throw new AppError(404, "TEST_NOT_FOUND", "Test not found");
-  const d = testInput.partial().parse(req.body), { questions, ...test } = d;
+  const d = testInput.partial().parse(req.body), { questions, deliveryPolicy, ...test } = d;
   const target = { courseId: test.courseId ?? old.courseId, batchId: test.batchId === undefined ? old.batchId : test.batchId, subjectId: test.subjectId === undefined ? old.subjectId : test.subjectId, branchId: test.branchId === undefined ? old.branchId : test.branchId };
   await relationCheck(target);
   assertManagerResourceAccess(actor, target);
-  if (questions) await assertTestQuestions(actor, target, questions);
-  const row = await prisma.learningTest.update({ where: { id: old.id }, data: { ...test, ...(questions ? { questions: { deleteMany: {}, create: questions } } : {}) }, include: { questions: true } });
+  const bankQuestions = questions ? await assertTestQuestions(actor, target, questions) : null;
+  const deliveryQuestions = questions && bankQuestions ? snapshotTestQuestions(questions, bankQuestions) : null;
+  const row = await prisma.learningTest.update({ where: { id: old.id }, data: { ...test, ...(deliveryPolicy !== undefined ? { deliveryPolicy: deliveryPolicy === null ? Prisma.JsonNull : questionJson(deliveryPolicy) } : {}), ...(deliveryQuestions ? { questions: { deleteMany: {}, create: deliveryQuestions } } : {}) }, include: { questions: true } });
   await audit(req, "UPDATE", "LearningTest", row.id);
   res.json({ data: row });
 });
@@ -386,9 +744,171 @@ router.delete("/learning/tests/:id", managers, async (req: AuthRequest, res) => 
   res.status(204).send();
 });
 
+function assessmentDeliveryProviderKeys() {
+  return [
+    process.env.ASSESSMENT_LOCKDOWN_PROVIDER_KEY,
+    process.env.ASSESSMENT_PROCTORING_PROVIDER_KEY,
+  ].filter((value): value is string => Boolean(value?.trim())).map(value => value.trim());
+}
+
+function assertLearningTestClientBinding(
+  configured: boolean,
+  policy: ReturnType<typeof resolveLearningTestDeliveryPolicy>["policy"],
+  boundClientInstanceId: string | null,
+  requestedClientInstanceId?: string | null,
+) {
+  if (!configured || !policy.bindClientInstance) return;
+  if (!boundClientInstanceId || !requestedClientInstanceId || boundClientInstanceId !== requestedClientInstanceId) {
+    throw new AppError(409, "TEST_CLIENT_INSTANCE_MISMATCH", "This secured attempt is bound to a different client instance");
+  }
+}
+
+const learningTestClientInstance = z.string().trim().min(8).max(160).regex(/^[A-Za-z0-9._:-]+$/);
+
+function remediationQuestionContext(row: {
+  questionId: string;
+  questionSnapshot: Prisma.JsonValue | null;
+  question: { code: string; chapter: string; topic: string | null; learningOutcomes: string[] };
+}) {
+  if (row.questionSnapshot && typeof row.questionSnapshot === "object" && !Array.isArray(row.questionSnapshot)) {
+    const snapshot = row.questionSnapshot as Record<string, unknown>;
+    return {
+      questionId: row.questionId,
+      code: String(snapshot.code ?? row.question.code),
+      chapter: String(snapshot.chapter ?? row.question.chapter),
+      topic: snapshot.topic == null ? row.question.topic : String(snapshot.topic),
+      learningOutcomes: Array.isArray(snapshot.learningOutcomes)
+        ? snapshot.learningOutcomes.map(String).filter(Boolean)
+        : row.question.learningOutcomes,
+    };
+  }
+  return {
+    questionId: row.questionId,
+    code: row.question.code,
+    chapter: row.question.chapter,
+    topic: row.question.topic,
+    learningOutcomes: row.question.learningOutcomes,
+  };
+}
+
+async function regenerateLearningAttemptRemediation(input: {
+  organizationId: string;
+  attemptId: string;
+  studentUserId: string;
+}) {
+  const attempt = await prisma.learningTestAttempt.findFirst({
+    where: {
+      id: input.attemptId,
+      organizationId: input.organizationId,
+      studentId: input.studentUserId,
+      status: LearningAttemptStatus.EVALUATED,
+    },
+    include: {
+      answers: { select: { questionId: true, isCorrect: true, awardedMarks: true } },
+      test: {
+        include: {
+          questions: {
+            include: {
+              question: {
+                select: { code: true, chapter: true, topic: true, learningOutcomes: true },
+              },
+            },
+            orderBy: { position: "asc" },
+          },
+        },
+      },
+    },
+  });
+  if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Evaluated test attempt not found");
+
+  const answerByQuestion = new Map(attempt.answers.map(answer => [answer.questionId, answer]));
+  const weak = attempt.test.questions
+    .map(row => {
+      const answer = answerByQuestion.get(row.questionId);
+      const awarded = answer?.awardedMarks == null ? null : Number(answer.awardedMarks);
+      const maximum = Number(row.marks);
+      const ratio = awarded == null || maximum <= 0 ? 0 : awarded / maximum;
+      return {
+        ...remediationQuestionContext(row),
+        isCorrect: answer?.isCorrect ?? null,
+        scoreRatio: Math.max(0, Math.min(1, ratio)),
+      };
+    })
+    .filter(row => row.isCorrect !== true || row.scoreRatio < 0.6);
+
+  const chapterTopicPairs = weak.map(row => ({ chapter: row.chapter, topic: row.topic })).filter(row => row.chapter);
+  const materials = chapterTopicPairs.length
+    ? await prisma.studyMaterial.findMany({
+        where: {
+          organizationId: input.organizationId,
+          status: LearningStatus.PUBLISHED,
+          isArchived: false,
+          courseId: attempt.test.courseId,
+          ...(attempt.test.subjectId ? { subjectId: attempt.test.subjectId } : {}),
+          OR: chapterTopicPairs.flatMap(row => [
+            { chapter: row.chapter, ...(row.topic ? { topic: row.topic } : {}) },
+            { chapter: row.chapter },
+          ]),
+        },
+        select: { id: true, title: true, type: true, chapter: true, topic: true, externalUrl: true },
+        take: 24,
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+
+  const materialByContext = (chapter: string, topic: string | null) =>
+    materials.find(material => material.chapter === chapter && topic && material.topic === topic)
+    ?? materials.find(material => material.chapter === chapter)
+    ?? null;
+
+  const recommendationRows = weak.slice(0, 20).map((row, index) => {
+    const material = materialByContext(row.chapter, row.topic);
+    const focus = row.topic || row.chapter || row.code;
+    const outcome = row.learningOutcomes[0];
+    return {
+      organizationId: input.organizationId,
+      userId: input.studentUserId,
+      kind: "REMEDIAL",
+      title: `Review ${focus}`,
+      reason: [
+        `${row.code} needs follow-up after this assessment.`,
+        outcome ? `Learning outcome: ${outcome}.` : null,
+        material ? `Suggested material: ${material.title}.` : "Revise the concept and attempt a targeted practice question.",
+      ].filter(Boolean).join(" "),
+      entityType: "LearningTestAttempt",
+      entityId: attempt.id,
+      priority: Math.min(100, 90 - index),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    };
+  });
+
+  await prisma.$transaction(async tx => {
+    await tx.learningRecommendation.deleteMany({
+      where: {
+        organizationId: input.organizationId,
+        userId: input.studentUserId,
+        kind: "REMEDIAL",
+        entityType: "LearningTestAttempt",
+        entityId: attempt.id,
+        completedAt: null,
+      },
+    });
+    if (recommendationRows.length) await tx.learningRecommendation.createMany({ data: recommendationRows });
+  });
+
+  return {
+    attemptId: attempt.id,
+    weakQuestions: weak,
+    materials,
+    recommendationCount: recommendationRows.length,
+  };
+}
+
 router.post("/learning/tests/:id/start", allow(Role.STUDENT), async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
+  const startInput = z.object({ clientInstanceId: learningTestClientInstance.optional() }).parse(req.body ?? {});
   const test = await prisma.learningTest.findFirst({ where: { id: String(req.params.id), organizationId: req.auth!.organizationId, status: LearningStatus.PUBLISHED }, include: { questions: { include: { question: { select: { id: true, code: true, type: true, body: true, options: true, marks: true } } }, orderBy: { position: "asc" } } } });
+
   if (!test) throw new AppError(404, "TEST_NOT_AVAILABLE", "Test is not available");
   const learner = actor.learners.find(row => row.userId === actor.userId);
   if (!learner) throw learningDenied();
@@ -398,11 +918,254 @@ router.post("/learning/tests/:id/start", allow(Role.STUDENT), async (req: AuthRe
     const enrollment = batch ? await resolveHistoricalAcademicEnrollment(prisma, { organizationId: req.auth!.organizationId, studentId: learner.profileId, branchId: batch.branchId, courseId: batch.courseId, batchId: test.batchId, academicSessionId: batch.academicSessionId, onDate: testDate, mode: "CURRENT_OR_NEW_WRITE" }) : null;
     if (!enrollment) throw learningDenied();
   } else if (test.courseId !== learner.courseId) throw learningDenied();
+
   const now = new Date();
-  if (test.startsAt && test.startsAt > now || test.endsAt && test.endsAt < now) throw new AppError(409, "TEST_OUTSIDE_WINDOW", "Test is outside its availability window");
-  const active = await prisma.learningTestAttempt.findFirst({ where: { testId: test.id, studentId: actor.userId, status: LearningAttemptStatus.IN_PROGRESS } });
-  const attempt = active ?? await prisma.learningTestAttempt.create({ data: { testId: test.id, studentId: actor.userId, expiresAt: new Date(Date.now() + test.durationMinutes * 60000), unansweredCount: test.questions.length } });
-  res.status(active ? 200 : 201).json({ data: { attempt, test } });
+  const currentDelivery = resolveLearningTestDeliveryForStudent(test.deliveryPolicy, actor.userId);
+  const availability = learningTestAvailability({
+    testStartsAt: test.startsAt,
+    testEndsAt: test.endsAt,
+    accommodation: currentDelivery.accommodation,
+    now,
+  });
+  if (!availability.open) throw new AppError(409, "TEST_OUTSIDE_WINDOW", "Test is outside its availability window");
+
+  let attempt = await prisma.learningTestAttempt.findFirst({
+    where: {
+      organizationId: req.auth!.organizationId,
+      testId: test.id,
+      studentId: actor.userId,
+      status: LearningAttemptStatus.IN_PROGRESS,
+    },
+    orderBy: { startedAt: "desc" },
+  });
+  let deliveryConfigured = currentDelivery.configured;
+  let deliveryPolicy = currentDelivery.policy;
+  let accommodation = currentDelivery.accommodation;
+  let resumed = false;
+
+  if (attempt) {
+    if (attempt.expiresAt < now) throw new AppError(409, "ATTEMPT_EXPIRED", "Time has expired; submit the attempt before starting another");
+    const frozen = resolveLearningTestDeliveryPolicy(attempt.deliveryPolicySnapshot);
+    deliveryConfigured = frozen.configured;
+    deliveryPolicy = frozen.policy;
+    accommodation = attempt.accommodationSnapshot as typeof currentDelivery.accommodation;
+
+    const adapterState = learningTestAdapterReadiness(deliveryPolicy, assessmentDeliveryProviderKeys());
+    if (!adapterState.ready) {
+      throw new AppError(503, "TEST_SECURITY_ADAPTER_UNAVAILABLE", `Required assessment security adapter is unavailable: ${adapterState.blockers.join(", ")}`);
+    }
+    const resume = learningTestResumeDecision({
+      configured: deliveryConfigured,
+      policy: deliveryPolicy,
+      resumeCount: attempt.resumeCount,
+      boundClientInstanceId: attempt.clientInstanceId,
+      requestedClientInstanceId: startInput.clientInstanceId,
+      offlineLeaseUntil: attempt.offlineLeaseUntil,
+      now,
+    });
+    if (!resume.allowed) throw new AppError(409, `TEST_RESUME_${resume.reason}`, "This secured attempt cannot be resumed under the configured delivery policy");
+
+    if (deliveryConfigured) {
+      const lease = learningTestOfflineLease({ now, policy: deliveryPolicy });
+      attempt = await prisma.$transaction(async tx => {
+        const updated = await tx.learningTestAttempt.update({
+          where: { id: attempt!.id },
+          data: {
+            resumeCount: { increment: 1 },
+            lastResumedAt: now,
+            lastHeartbeatAt: now,
+            offlineLeaseUntil: lease,
+          },
+        });
+        await tx.learningTestIntegrityEvent.create({
+          data: {
+            organizationId: req.auth!.organizationId,
+            attemptId: updated.id,
+            type: "ATTEMPT_RESUMED",
+            details: { resumeCount: updated.resumeCount },
+            occurredAt: now,
+          },
+        });
+        return updated;
+      });
+      resumed = true;
+    }
+  } else {
+    const adapterState = learningTestAdapterReadiness(deliveryPolicy, assessmentDeliveryProviderKeys());
+    if (!adapterState.ready) {
+      throw new AppError(503, "TEST_SECURITY_ADAPTER_UNAVAILABLE", `Required assessment security adapter is unavailable: ${adapterState.blockers.join(", ")}`);
+    }
+    if (deliveryConfigured && deliveryPolicy.bindClientInstance && !startInput.clientInstanceId) {
+      throw new AppError(422, "TEST_CLIENT_INSTANCE_REQUIRED", "This secured test requires a client instance identifier");
+    }
+    if (currentDelivery.maximumAttempts !== null) {
+      const used = await prisma.learningTestAttempt.count({
+        where: { organizationId: req.auth!.organizationId, testId: test.id, studentId: actor.userId },
+      });
+      if (used >= currentDelivery.maximumAttempts) {
+        throw new AppError(409, "TEST_ATTEMPT_LIMIT_REACHED", "The configured maximum number of attempts has been reached");
+      }
+    }
+
+    const seed = newLearningTestDeliverySeed();
+    const expiresAt = learningTestAttemptExpiry({
+      startedAt: now,
+      durationMinutes: test.durationMinutes,
+      accommodation,
+      hardClosesAt: deliveryConfigured ? (accommodation?.availableUntil ?? test.endsAt) : null,
+    });
+    const lease = deliveryConfigured ? learningTestOfflineLease({ now, policy: deliveryPolicy }) : null;
+    attempt = await prisma.$transaction(async tx => {
+      const created = await tx.learningTestAttempt.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          testId: test.id,
+          studentId: actor.userId,
+          startedAt: now,
+          expiresAt,
+          unansweredCount: test.questions.length,
+          deliverySeed: seed,
+          ...(deliveryConfigured ? {
+            deliveryPolicySnapshot: questionJson(deliveryPolicy),
+            accommodationSnapshot: accommodation ? questionJson(accommodation) : undefined,
+            clientInstanceId: deliveryPolicy.bindClientInstance ? startInput.clientInstanceId : undefined,
+            lastHeartbeatAt: now,
+            offlineLeaseUntil: lease,
+          } : {}),
+        },
+      });
+      if (deliveryConfigured) {
+        await tx.learningTestIntegrityEvent.create({
+          data: {
+            organizationId: req.auth!.organizationId,
+            attemptId: created.id,
+            type: "ATTEMPT_STARTED",
+            details: {
+              secured: true,
+              clientBound: deliveryPolicy.bindClientInstance,
+              shuffleQuestions: deliveryPolicy.shuffleQuestions,
+              shuffleOptions: deliveryPolicy.shuffleOptions,
+              lockdownRequired: deliveryPolicy.lockdown.required,
+              proctoringRequired: deliveryPolicy.proctoring.required,
+            },
+            occurredAt: now,
+          },
+        });
+      }
+      return created;
+    });
+  }
+
+  const hydrated = test.questions.map(row => ({ ...row, question: studentQuestionFromSnapshot(row) }));
+  const prepared = prepareLearningTestDelivery({
+    questions: hydrated,
+    seed: attempt.deliverySeed ?? attempt.id,
+    policy: deliveryPolicy,
+  });
+  const { deliveryPolicy: _privateDeliveryPolicy, ...safeTest } = test;
+  const {
+    deliverySeed: _deliverySeed,
+    deliveryPolicySnapshot: _deliveryPolicySnapshot,
+    accommodationSnapshot: _accommodationSnapshot,
+    clientInstanceId: _clientInstanceId,
+    ...safeAttempt
+  } = attempt;
+
+  res.status(resumed ? 200 : 201).json({
+    data: {
+      attempt: safeAttempt,
+      test: { ...safeTest, questions: prepared.questions },
+      delivery: {
+        configured: deliveryConfigured,
+        resumed,
+        resumeCount: attempt.resumeCount,
+        expiresAt: attempt.expiresAt,
+        heartbeatIntervalSeconds: deliveryConfigured ? deliveryPolicy.heartbeatIntervalSeconds : null,
+        offlineGraceSeconds: deliveryConfigured ? deliveryPolicy.offlineGraceSeconds : null,
+        offlineLeaseUntil: deliveryConfigured ? attempt.offlineLeaseUntil : null,
+        clientBound: deliveryConfigured && deliveryPolicy.bindClientInstance,
+        shuffleQuestions: deliveryConfigured && deliveryPolicy.shuffleQuestions,
+        shuffleOptions: deliveryConfigured && deliveryPolicy.shuffleOptions,
+        optionShuffleSkippedQuestionIds: prepared.optionShuffleSkippedQuestionIds,
+        lockdown: { required: deliveryConfigured && deliveryPolicy.lockdown.required },
+        proctoring: { required: deliveryConfigured && deliveryPolicy.proctoring.required },
+        accommodation: accommodation ? {
+          extraTimeMinutes: accommodation.extraTimeMinutes,
+          locale: accommodation.locale ?? null,
+          accessibility: accommodation.accessibility,
+        } : null,
+      },
+    },
+  });
+});
+
+const integritySignalSchema = z.object({
+  type: z.enum([
+    "FULLSCREEN_EXIT",
+    "VISIBILITY_HIDDEN",
+    "NETWORK_OFFLINE",
+    "NETWORK_ONLINE",
+    "CLIENT_RESTART",
+    "LOCKDOWN_SIGNAL",
+    "PROCTORING_SIGNAL",
+  ]),
+  details: z.record(z.string(), z.unknown()).optional(),
+  occurredAt: z.coerce.date().optional(),
+});
+
+router.post("/learning/attempts/:id/heartbeat", allow(Role.STUDENT), async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const body = z.object({
+    clientInstanceId: learningTestClientInstance.optional(),
+    signals: z.array(integritySignalSchema).max(20).default([]),
+  }).parse(req.body ?? {});
+  const attempt = await prisma.learningTestAttempt.findFirst({
+    where: { id: String(req.params.id), organizationId: req.auth!.organizationId, studentId: actor.userId },
+    include: { test: { select: { organizationId: true } } },
+  });
+  if (!attempt || attempt.status !== LearningAttemptStatus.IN_PROGRESS) throw new AppError(409, "ATTEMPT_NOT_ACTIVE", "Attempt is not active");
+  if (attempt.expiresAt < new Date()) throw new AppError(409, "ATTEMPT_EXPIRED", "Time has expired; submit the attempt");
+
+  const frozen = resolveLearningTestDeliveryPolicy(attempt.deliveryPolicySnapshot);
+  assertLearningTestClientBinding(frozen.configured, frozen.policy, attempt.clientInstanceId, body.clientInstanceId);
+  if (!frozen.configured) return res.json({ data: { secured: false, offlineLeaseUntil: null } });
+
+  const now = new Date();
+  const leaseExpired = Boolean(attempt.offlineLeaseUntil && attempt.offlineLeaseUntil < now);
+  const offlineLeaseUntil = learningTestOfflineLease({ now, policy: frozen.policy });
+  const updated = await prisma.$transaction(async tx => {
+    const row = await tx.learningTestAttempt.update({
+      where: { id: attempt.id },
+      data: { lastHeartbeatAt: now, offlineLeaseUntil },
+    });
+    if (leaseExpired) {
+      await tx.learningTestIntegrityEvent.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          attemptId: attempt.id,
+          type: "OFFLINE_LEASE_RECOVERED",
+          severity: "WARN",
+          details: { previousLeaseUntil: attempt.offlineLeaseUntil?.toISOString() ?? null },
+          occurredAt: now,
+        },
+      });
+    }
+    if (body.signals.length) {
+      await tx.learningTestIntegrityEvent.createMany({
+        data: body.signals.map(signal => ({
+          organizationId: req.auth!.organizationId,
+          attemptId: attempt.id,
+          type: signal.type,
+          severity: ["FULLSCREEN_EXIT", "VISIBILITY_HIDDEN", "NETWORK_OFFLINE", "CLIENT_RESTART"].includes(signal.type) ? "WARN" : "INFO",
+          ...(signal.details ? { details: questionJson(signal.details) } : {}),
+          occurredAt: signal.occurredAt ?? now,
+        })),
+      });
+    }
+    return row;
+  });
+
+  res.json({ data: { secured: true, lastHeartbeatAt: updated.lastHeartbeatAt, offlineLeaseUntil: updated.offlineLeaseUntil } });
 });
 
 router.put("/learning/attempts/:id/answers/:questionId", allow(Role.STUDENT), async (req: AuthRequest, res) => {
@@ -412,14 +1175,174 @@ router.put("/learning/attempts/:id/answers/:questionId", allow(Role.STUDENT), as
   if (attempt.test.organizationId !== req.auth!.organizationId) throw learningDenied();
   if (attempt.expiresAt < new Date()) throw new AppError(409, "ATTEMPT_EXPIRED", "Time has expired; submit the attempt");
   const questionId = String(req.params.questionId);
-  const attached = await prisma.learningTestQuestion.findFirst({ where: { testId: attempt.testId, questionId }, select: { questionId: true } });
+  const attached = await prisma.learningTestQuestion.findFirst({ where: { testId: attempt.testId, questionId, organizationId: req.auth!.organizationId }, select: { questionId: true } });
   if (!attached) throw new AppError(404, "TEST_QUESTION_NOT_FOUND", "Question is not part of this test");
-  const d = z.object({ answer: z.unknown().optional(), markedForReview: z.boolean().default(false), bookmarked: z.boolean().default(false), timeSpentSeconds: z.number().int().min(0).max(86400).default(0) }).parse(req.body);
-  const row = await prisma.learningTestAnswer.upsert({ where: { attemptId_questionId: { attemptId: attempt.id, questionId } }, update: { ...d, answer: d.answer as object | undefined }, create: { attemptId: attempt.id, questionId, ...d, answer: d.answer as object | undefined } });
+  const d = z.object({ answer: z.unknown().optional(), markedForReview: z.boolean().default(false), bookmarked: z.boolean().default(false), timeSpentSeconds: z.number().int().min(0).max(86400).default(0), clientInstanceId: learningTestClientInstance.optional() }).parse(req.body);
+  const frozen = resolveLearningTestDeliveryPolicy(attempt.deliveryPolicySnapshot);
+  assertLearningTestClientBinding(frozen.configured, frozen.policy, attempt.clientInstanceId, d.clientInstanceId);
+  const { clientInstanceId: _clientInstanceId, ...answerData } = d;
+  const row = await prisma.learningTestAnswer.upsert({ where: { attemptId_questionId: { attemptId: attempt.id, questionId } }, update: { ...answerData, answer: answerData.answer as object | undefined }, create: { organizationId: req.auth!.organizationId, attemptId: attempt.id, questionId, ...answerData, answer: answerData.answer as object | undefined } });
   res.json({ data: row });
 });
-async function finalizeAttempt(attemptId: string, actor: LearningActor, organizationId: string) { const attempt = await prisma.learningTestAttempt.findFirst({ where: { id: attemptId, organizationId, studentId: actor.userId }, include: { test: { include: { questions: { include: { question: true } } } }, answers: true } }); if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found"); if (attempt.status !== LearningAttemptStatus.IN_PROGRESS) return attempt; const answers = new Map(attempt.answers.map(x => [x.questionId, x])), normalized = (v: unknown) => JSON.stringify(v, Object.keys((v && typeof v === "object" && !Array.isArray(v) ? v as object : {}) as object).sort()); let score = 0, correct = 0, incorrect = 0, unanswered = 0, seconds = 0; const updates = []; for (const tq of attempt.test.questions) { const answer = answers.get(tq.questionId); seconds += answer?.timeSpentSeconds ?? 0; if (!answer || answer.answer == null) { unanswered++; continue; } const ok = normalized(answer.answer) === normalized(tq.question.correctAnswer); const marks = ok ? Number(tq.marks) : -Number(tq.negativeMarks); score += marks; ok ? correct++ : incorrect++; updates.push(prisma.learningTestAnswer.update({ where: { id: answer.id }, data: { isCorrect: ok, awardedMarks: marks } })); } const pct = Math.max(0, Number(attempt.test.maximumMarks) ? score / Number(attempt.test.maximumMarks) * 100 : 0); const better = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED, score: { gt: score } } }), total = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED } }), rank = better + 1, percentile = total ? Math.max(0, (total - better) / total * 100) : 100; const result = await prisma.$transaction([...updates, prisma.learningTestAttempt.update({ where: { id: attempt.id }, data: { status: LearningAttemptStatus.EVALUATED, submittedAt: new Date(), score, percentage: pct, percentile, rank, correctCount: correct, incorrectCount: incorrect, unansweredCount: unanswered, timeSpentSeconds: seconds } })]); await prisma.gamificationProfile.upsert({ where: { userId: actor.userId }, update: { xp: { increment: correct * 5 }, coins: { increment: correct } }, create: { userId: actor.userId, xp: correct * 5, coins: correct } }); return result[result.length - 1]; }
-router.post("/learning/attempts/:id/submit", allow(Role.STUDENT), async (req: AuthRequest, res) => { const actor = await learningActorForRequest(req); const result = await finalizeAttempt(String(req.params.id), actor, req.auth!.organizationId); await audit(req, "SUBMIT", "LearningTestAttempt", String(req.params.id)); res.json({ data: result }); });
+async function finalizeAttempt(attemptId: string, actor: LearningActor, organizationId: string) { const attempt = await prisma.learningTestAttempt.findFirst({ where: { id: attemptId, organizationId, studentId: actor.userId }, include: { test: { include: { questions: { include: { question: true } } } }, answers: true } }); if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found"); if (attempt.status !== LearningAttemptStatus.IN_PROGRESS) return attempt; const answers = new Map(attempt.answers.map(x => [x.questionId, x])), normalized = (v: unknown) => JSON.stringify(v, Object.keys((v && typeof v === "object" && !Array.isArray(v) ? v as object : {}) as object).sort()); let score = 0, correct = 0, incorrect = 0, unanswered = 0, seconds = 0; const updates = []; for (const tq of attempt.test.questions) { const answer = answers.get(tq.questionId); seconds += answer?.timeSpentSeconds ?? 0; if (!answer || answer.answer == null) { unanswered++; continue; } const ok = normalized(answer.answer) === normalized(correctAnswerForTestQuestion(tq)); const marks = ok ? Number(tq.marks) : -Number(tq.negativeMarks); score += marks; ok ? correct++ : incorrect++; updates.push(prisma.learningTestAnswer.update({ where: { id: answer.id }, data: { isCorrect: ok, awardedMarks: marks } })); } const pct = Math.max(0, Number(attempt.test.maximumMarks) ? score / Number(attempt.test.maximumMarks) * 100 : 0); const better = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED, score: { gt: score } } }), total = await prisma.learningTestAttempt.count({ where: { testId: attempt.testId, status: LearningAttemptStatus.EVALUATED } }), rank = better + 1, percentile = total ? Math.max(0, (total - better) / total * 100) : 100; const result = await prisma.$transaction([...updates, prisma.learningTestAttempt.update({ where: { id: attempt.id }, data: { status: LearningAttemptStatus.EVALUATED, submittedAt: new Date(), score, percentage: pct, percentile, rank, correctCount: correct, incorrectCount: incorrect, unansweredCount: unanswered, timeSpentSeconds: seconds } })]); await prisma.gamificationProfile.upsert({ where: { userId: actor.userId }, update: { xp: { increment: correct * 5 }, coins: { increment: correct } }, create: { userId: actor.userId, xp: correct * 5, coins: correct } }); try { await regenerateLearningAttemptRemediation({ organizationId, attemptId: attempt.id, studentUserId: actor.userId }); } catch { /* Result finalization must not be rolled back by optional recommendation generation. */ } return result[result.length - 1] as typeof attempt; }
+router.post("/learning/attempts/:id/submit", allow(Role.STUDENT), async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const attemptId = String(req.params.id);
+  const body = z.object({ clientInstanceId: learningTestClientInstance.optional() }).parse(req.body ?? {});
+  const active = await prisma.learningTestAttempt.findFirst({
+    where: { id: attemptId, organizationId: req.auth!.organizationId, studentId: actor.userId },
+    select: { id: true, status: true, deliveryPolicySnapshot: true, clientInstanceId: true },
+  });
+  if (!active) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found");
+  const frozen = resolveLearningTestDeliveryPolicy(active.deliveryPolicySnapshot);
+  assertLearningTestClientBinding(frozen.configured, frozen.policy, active.clientInstanceId, body.clientInstanceId);
+  const result = await finalizeAttempt(attemptId, actor, req.auth!.organizationId);
+  if (frozen.configured && active.status === LearningAttemptStatus.IN_PROGRESS) {
+    await prisma.learningTestIntegrityEvent.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        attemptId,
+        type: "ATTEMPT_SUBMITTED",
+        details: { status: result.status },
+      },
+    });
+  }
+  await audit(req, "SUBMIT", "LearningTestAttempt", attemptId);
+  res.json({ data: result });
+});
+
+router.get("/learning/attempts/:id/integrity", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const attempt = await prisma.learningTestAttempt.findFirst({
+    where: { id: String(req.params.id), organizationId: req.auth!.organizationId },
+    include: {
+      test: { select: { id: true, branchId: true, courseId: true, batchId: true, subjectId: true, createdById: true } },
+      integrityEvents: { orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }] },
+    },
+  });
+  if (!attempt) throw new AppError(404, "ATTEMPT_NOT_FOUND", "Attempt not found");
+  const visible = await prisma.learningTest.findFirst({
+    where: { id: attempt.testId, ...learningResourceWhere(actor) },
+    select: { id: true },
+  });
+  if (!visible) throw learningDenied();
+
+  res.json({
+    data: {
+      attempt: {
+        id: attempt.id,
+        testId: attempt.testId,
+        studentId: attempt.studentId,
+        status: attempt.status,
+        startedAt: attempt.startedAt,
+        expiresAt: attempt.expiresAt,
+        submittedAt: attempt.submittedAt,
+        resumeCount: attempt.resumeCount,
+        lastResumedAt: attempt.lastResumedAt,
+        lastHeartbeatAt: attempt.lastHeartbeatAt,
+        offlineLeaseUntil: attempt.offlineLeaseUntil,
+        clientBound: Boolean(attempt.clientInstanceId),
+      },
+      events: attempt.integrityEvents,
+      interpretation: "Integrity events are review signals only and must not be treated as automatic evidence of misconduct.",
+    },
+  });
+});
+router.get("/learning/tests/:id/item-analysis", managers, async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const test = await prisma.learningTest.findFirst({
+    where: { id: String(req.params.id), organizationId: req.auth!.organizationId, ...learningResourceWhere(actor) },
+    include: {
+      questions: {
+        select: {
+          questionId: true,
+          marks: true,
+          position: true,
+          questionSnapshot: true,
+          question: { select: { code: true, chapter: true, topic: true } },
+        },
+        orderBy: { position: "asc" },
+      },
+      attempts: {
+        where: { organizationId: req.auth!.organizationId, status: LearningAttemptStatus.EVALUATED },
+        select: {
+          studentId: true,
+          score: true,
+          answers: {
+            select: { questionId: true, answer: true, isCorrect: true, awardedMarks: true, timeSpentSeconds: true },
+          },
+        },
+      },
+    },
+  });
+  if (!test) throw new AppError(404, "TEST_NOT_FOUND", "Test not found");
+
+  const report = calculateLearningTestPsychometrics({
+    items: test.questions.map(row => ({ questionId: row.questionId, maxMarks: Number(row.marks) })),
+    attempts: test.attempts.map(attempt => ({
+      studentId: attempt.studentId,
+      totalScore: Number(attempt.score ?? 0),
+      responses: attempt.answers.map(answer => ({
+        questionId: answer.questionId,
+        answer: answer.answer,
+        isCorrect: answer.isCorrect,
+        awardedMarks: answer.awardedMarks == null ? null : Number(answer.awardedMarks),
+        timeSpentSeconds: answer.timeSpentSeconds,
+      })),
+    })),
+  });
+  const metadata = new Map(test.questions.map(row => {
+    const context = remediationQuestionContext({
+      questionId: row.questionId,
+      questionSnapshot: row.questionSnapshot,
+      question: { ...row.question, learningOutcomes: [] },
+    });
+    return [row.questionId, { code: context.code, chapter: context.chapter, topic: context.topic, position: row.position }];
+  }));
+
+  await audit(req, "ITEM_ANALYSIS", "LearningTest", test.id, {
+    attemptCount: report.attemptCount,
+    questionCount: report.questionCount,
+    reliabilityAlpha: report.reliabilityAlpha,
+  });
+  res.json({
+    data: {
+      ...report,
+      items: report.items.map(item => ({ ...item, question: metadata.get(item.questionId) ?? null })),
+    },
+  });
+});
+
+router.post("/learning/attempts/:id/remediation", allow(Role.STUDENT, Role.PARENT), async (req: AuthRequest, res) => {
+  const actor = await learningActorForRequest(req);
+  const attempt = await prisma.learningTestAttempt.findFirst({
+    where: { id: String(req.params.id), organizationId: req.auth!.organizationId },
+    select: { id: true, studentId: true, status: true, testId: true },
+  });
+  if (!attempt || attempt.status !== LearningAttemptStatus.EVALUATED) {
+    throw new AppError(404, "ATTEMPT_NOT_FOUND", "Evaluated test attempt not found");
+  }
+  await assertStudentTargetAccess(actor, attempt.studentId);
+  const visible = await prisma.learningTest.findFirst({
+    where: { id: attempt.testId, organizationId: req.auth!.organizationId, ...learningResourceWhere(actor) },
+    select: { id: true },
+  });
+  if (!visible) throw learningDenied();
+
+  const data = await regenerateLearningAttemptRemediation({
+    organizationId: req.auth!.organizationId,
+    attemptId: attempt.id,
+    studentUserId: attempt.studentId,
+  });
+  await audit(req, "GENERATE_REMEDIATION", "LearningTestAttempt", attempt.id, {
+    studentId: attempt.studentId,
+    weakQuestionCount: data.weakQuestions.length,
+    materialCount: data.materials.length,
+    recommendationCount: data.recommendationCount,
+  });
+  res.json({ data });
+});
+
 router.get("/learning/tests/:id/results", async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const test = await prisma.learningTest.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor) }, select: { id: true } });

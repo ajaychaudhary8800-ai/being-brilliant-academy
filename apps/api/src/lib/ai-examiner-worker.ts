@@ -1,4 +1,4 @@
-import { AIExaminerEvaluationStatus, AIExaminerRubricStatus, AnswerSheetStatus, ExaminationStatus } from "@prisma/client";
+import { AIExaminerEvaluationStatus, AIExaminerRubricStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AnswerSheetStatus, ExaminationStatus, Prisma } from "@prisma/client";
 import { env } from "../config.js";
 import { logger } from "./logger.js";
 import { systemPrisma } from "./prisma.js";
@@ -7,46 +7,47 @@ import {
   AI_EXAMINER_REVIEW_THRESHOLD,
   AIExaminerProviderError,
   evaluateWithAIProvider,
-  type AIExaminerRubricQuestion,
 } from "./ai-examiner-engine.js";
-import { aiExaminerConfidenceNeedsReview } from "./ai-examiner-policy.js";
+import {
+  aiExaminerProviderQuestions,
+  applyAIExaminerCodeVerifications,
+  overlayTrustedAIExaminerOmrAnswers,
+  reconcileAIExaminerProviderResult,
+  resolveAIExaminerRubricQuestions,
+} from "./ai-examiner-orchestration.js";
+import { AIExaminerScoringError } from "./ai-examiner-deterministic.js";
+import { parseAIExaminerExamProfile } from "./ai-examiner-exam-profile.js";
+import { decideAIExaminerSecondPass } from "./ai-examiner-second-pass.js";
+import { collectTrustedAIExaminerOmrAnswers } from "./ai-examiner-scan-ingestion.js";
+import {
+  AIExaminerCodeRunnerError,
+  runAIExaminerCodeSandbox,
+} from "./ai-examiner-code-runner.js";
+import {
+  evaluateWithIndependentAIExaminerProvider,
+  independentAIExaminerProviderConfigured,
+  independentAIExaminerProviderReadiness,
+} from "./ai-examiner-second-pass-provider.js";
 
-function errorDetails(error: unknown) {
-  if (error instanceof AIExaminerProviderError) return { code: error.code, message: error.message };
-  return { code: "AI_EXAMINER_INTERNAL_ERROR", message: error instanceof Error ? error.message : "AI evaluation failed" };
+function prismaJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-function parseRubric(value: unknown, modelAnswer: unknown): AIExaminerRubricQuestion[] {
-  const rubric = value && typeof value === "object" && "questions" in value
-    ? (value as { questions?: unknown[] }).questions
-    : null;
-  if (!Array.isArray(rubric)) throw new AIExaminerProviderError("AI_EXAMINER_RUBRIC_INVALID", "Active rubric has no question definitions");
-
-  const answers = new Map<string, string>();
-  if (modelAnswer && typeof modelAnswer === "object" && "questions" in modelAnswer) {
-    const rows = (modelAnswer as { questions?: unknown[] }).questions;
-    if (Array.isArray(rows)) {
-      for (const row of rows) {
-        if (!row || typeof row !== "object") continue;
-        const key = "key" in row ? String((row as { key?: unknown }).key ?? "") : "";
-        const answer = "answer" in row ? String((row as { answer?: unknown }).answer ?? "") : "";
-        if (key && answer) answers.set(key.toLowerCase(), answer);
-      }
-    }
+function examProfileHighStakes(snapshot: unknown) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return false;
+  const config = (snapshot as Record<string, unknown>).config;
+  if (!config) return false;
+  try {
+    return parseAIExaminerExamProfile(config).highStakes;
+  } catch {
+    // A malformed assigned profile must fail safe: require stronger verification rather than silently downgrade scrutiny.
+    return true;
   }
+}
 
-  return rubric.map((row, index) => {
-    if (!row || typeof row !== "object") throw new AIExaminerProviderError("AI_EXAMINER_RUBRIC_INVALID", `Rubric question ${index + 1} is invalid`);
-    const source = row as Record<string, unknown>;
-    const key = String(source.key ?? "").trim();
-    const maxMarks = Number(source.maxMarks);
-    const criteria = String(source.criteria ?? "").trim();
-    const concepts = Array.isArray(source.concepts) ? source.concepts.map(value => String(value).trim()).filter(Boolean) : [];
-    if (!key || !Number.isFinite(maxMarks) || maxMarks <= 0 || !criteria) {
-      throw new AIExaminerProviderError("AI_EXAMINER_RUBRIC_INVALID", `Rubric question ${index + 1} is incomplete`);
-    }
-    return { key, maxMarks, criteria, concepts, modelAnswer: answers.get(key.toLowerCase()) ?? null };
-  });
+function errorDetails(error: unknown) {
+  if (error instanceof AIExaminerProviderError || error instanceof AIExaminerScoringError) return { code: error.code, message: error.message };
+  return { code: "AI_EXAMINER_INTERNAL_ERROR", message: error instanceof Error ? error.message : "AI evaluation failed" };
 }
 
 async function restoreAnswerSheetAfterFailure(answerSheetId: string, organizationId: string, isLate: boolean) {
@@ -76,6 +77,21 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
       answerSheet: {
         include: {
           questionPaper: true,
+          scanBinding: {
+            include: {
+              pages: {
+                select: {
+                  pageNumber: true,
+                  totalPages: true,
+                  status: true,
+                  validationResult: true,
+                  scannerEngine: true,
+                  scannerVersion: true,
+                },
+                orderBy: { pageNumber: "asc" },
+              },
+            },
+          },
           examination: {
             include: {
               subject: { select: { name: true } },
@@ -96,7 +112,8 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
     if (evaluation.rubric.status !== AIExaminerRubricStatus.ACTIVE) throw new AIExaminerProviderError("AI_EXAMINER_ACTIVE_RUBRIC_REQUIRED", "The evaluation rubric is no longer active");
     if (evaluation.answerSheet.finalizedAt) throw new AIExaminerProviderError("AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet was finalized before AI evaluation completed");
 
-    const questions = parseRubric(evaluation.rubric.rubric, evaluation.rubric.modelAnswer);
+    const questions = resolveAIExaminerRubricQuestions(evaluation.rubric.rubric, evaluation.rubric.modelAnswer);
+    const providerQuestions = aiExaminerProviderQuestions(questions);
     const result = await evaluateWithAIProvider({
       examination: {
         name: exam.name,
@@ -105,7 +122,7 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
         maximumMarks: exam.maximumMarks,
       },
       instructions: evaluation.rubric.instructions,
-      questions,
+      questions: providerQuestions,
       questionPaper: {
         fileName: paper.fileName,
         mimeType: paper.mimeType,
@@ -118,15 +135,184 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
       },
     });
 
-    const total = result.questions.reduce((sum, question) => sum + question.awardedMarks, 0);
-    const questionConfidence = result.questions.reduce((sum, question) => sum + question.confidence, 0) / result.questions.length;
-    const confidence = Math.min(result.confidence, questionConfidence);
-    const questionRows = result.questions.map(question => ({
-      question,
-      reviewRequired:
-        aiExaminerConfidenceNeedsReview(question.confidence, AI_EXAMINER_REVIEW_THRESHOLD) ||
-        question.flags.length > 0,
-    }));
+    const scanBinding = evaluation.answerSheet.scanBinding;
+    const omrQuestionKeys = questions.filter(question => question.omrValidation).map(question => question.key);
+    let scoringResult = result;
+    let omrEvidence = {
+      available: Boolean(scanBinding),
+      trusted: false,
+      reason: scanBinding ? "OMR scan binding is not locked with fully accepted pages" : null as string | null,
+      appliedQuestionKeys: [] as string[],
+      pageCount: scanBinding?.pages.length ?? 0,
+      scanners: scanBinding
+        ? [...new Set(scanBinding.pages.map(page => `${page.scannerEngine}@${page.scannerVersion}`))]
+        : [] as string[],
+    };
+
+    if (
+      scanBinding?.status === AIExaminerScanBindingStatus.LOCKED &&
+      scanBinding.pages.length > 0 &&
+      scanBinding.pages.every(page => page.status === AIExaminerScanPageStatus.ACCEPTED)
+    ) {
+      const collected = collectTrustedAIExaminerOmrAnswers(scanBinding.pages.map(page => page.validationResult));
+      if (collected.valid) {
+        const overlaid = overlayTrustedAIExaminerOmrAnswers(questions, result, collected.answers);
+        scoringResult = overlaid.result;
+        omrEvidence = {
+          ...omrEvidence,
+          trusted: true,
+          reason: null,
+          appliedQuestionKeys: overlaid.appliedQuestionKeys,
+        };
+      } else {
+        omrEvidence = { ...omrEvidence, reason: collected.reason };
+      }
+    }
+
+    let reconciled = reconcileAIExaminerProviderResult(questions, scoringResult, AI_EXAMINER_REVIEW_THRESHOLD);
+
+    const codeVerifications = new Map();
+    const codeExecutionDiagnostics: Array<Record<string, unknown>> = [];
+    for (const question of questions.filter(item => item.questionType === "PROGRAMMING" || item.requiresCodeExecution)) {
+      const row = reconciled.questions.find(item => item.questionKey.toLocaleLowerCase("en") === question.key.toLocaleLowerCase("en"));
+      if (!row?.extractedAnswer || !question.codeExecution) {
+        codeExecutionDiagnostics.push({
+          questionKey: question.key,
+          status: "NOT_RUN",
+          code: !row?.extractedAnswer ? "AI_EXAMINER_CODE_SOURCE_NOT_EXTRACTED" : "AI_EXAMINER_CODE_POLICY_MISSING",
+        });
+        continue;
+      }
+      try {
+        const executed = await runAIExaminerCodeSandbox({
+          submissionId: `${evaluation.id}:${question.key}`,
+          sourceCode: row.extractedAnswer,
+          policy: question.codeExecution,
+        });
+        codeVerifications.set(question.key.toLocaleLowerCase("en"), executed.verification);
+        codeExecutionDiagnostics.push({
+          questionKey: question.key,
+          status: "COMPLETED",
+          executionId: executed.result.executionId,
+          runnerStatus: executed.result.status,
+          executionAccepted: executed.verification.executionAccepted,
+          passedWeight: executed.verification.passedWeight,
+          totalWeight: executed.verification.totalWeight,
+          scoreFraction: executed.verification.scoreFraction,
+        });
+      } catch (error) {
+        const code = error instanceof AIExaminerCodeRunnerError ? error.code : "AI_EXAMINER_CODE_RUNNER_INTERNAL_ERROR";
+        codeExecutionDiagnostics.push({
+          questionKey: question.key,
+          status: "FAILED",
+          code,
+          message: error instanceof Error ? error.message.slice(0, 1000) : "Code runner failed",
+        });
+      }
+    }
+    if (codeVerifications.size) {
+      reconciled = applyAIExaminerCodeVerifications({ reconciled, questions, verifications: codeVerifications });
+    }
+
+    const total = reconciled.suggestedMarks;
+    const confidence = reconciled.confidence;
+    const questionRows = reconciled.questions;
+    const highStakes = examProfileHighStakes(exam.aiExaminerExamProfileSnapshot);
+    const secondPass = decideAIExaminerSecondPass({
+      overallConfidence: confidence,
+      confidenceThreshold: AI_EXAMINER_REVIEW_THRESHOLD,
+      highStakes,
+      omrReviewRequired: Boolean(scanBinding) && !omrEvidence.trusted,
+      omrQuestionKeys,
+      questions: questionRows.map(question => ({
+        questionKey: question.questionKey,
+        confidence: question.confidence,
+        suggestedMarks: question.suggestedMarks,
+        flags: question.flags,
+        scoringError: question.scoringError,
+        specializedEvidence: question.specializedEvidence,
+        evidenceAudit: question.evidenceAudit,
+      })),
+    });
+    let secondPassExecution: Record<string, unknown> = {
+      required: secondPass.required,
+      status: secondPass.required ? "NOT_CONFIGURED" : "NOT_REQUIRED",
+      readiness: independentAIExaminerProviderReadiness(),
+      targets: [],
+    };
+    if (secondPass.required && independentAIExaminerProviderConfigured()) {
+      try {
+        let verificationResult = await evaluateWithIndependentAIExaminerProvider({
+          examination: {
+            name: exam.name,
+            code: exam.code,
+            subjectName: exam.subject.name,
+            maximumMarks: exam.maximumMarks,
+          },
+          instructions: evaluation.rubric.instructions,
+          questions: providerQuestions,
+          questionPaper: {
+            fileName: paper.fileName,
+            mimeType: paper.mimeType,
+            bytes: Buffer.from(paper.fileData),
+          },
+          answerSheet: {
+            fileName: evaluation.answerSheet.fileName,
+            mimeType: evaluation.answerSheet.mimeType,
+            bytes: Buffer.from(evaluation.answerSheet.fileData),
+          },
+        });
+        if (omrEvidence.trusted) {
+          const trusted = collectTrustedAIExaminerOmrAnswers(scanBinding!.pages.map(page => page.validationResult));
+          if (trusted.valid) {
+            verificationResult = overlayTrustedAIExaminerOmrAnswers(questions, verificationResult, trusted.answers).result;
+          }
+        }
+        const independent = reconcileAIExaminerProviderResult(questions, verificationResult, AI_EXAMINER_REVIEW_THRESHOLD);
+        const targetSet = new Set(secondPass.questionKeys.map(key => key.toLocaleLowerCase("en")));
+        const comparisons = questionRows
+          .filter(row => targetSet.has(row.questionKey.toLocaleLowerCase("en")))
+          .map(primary => {
+            const verifier = independent.questions.find(row => row.questionKey.toLocaleLowerCase("en") === primary.questionKey.toLocaleLowerCase("en"));
+            const difference = primary.suggestedMarks != null && verifier?.suggestedMarks != null
+              ? Math.round(Math.abs(primary.suggestedMarks - verifier.suggestedMarks) * 10000) / 10000
+              : null;
+            const threshold = Math.max(0.5, primary.maxMarks * 0.1);
+            return {
+              questionKey: primary.questionKey,
+              primaryMarks: primary.suggestedMarks,
+              verifierMarks: verifier?.suggestedMarks ?? null,
+              primaryConfidence: primary.confidence,
+              verifierConfidence: verifier?.confidence ?? null,
+              marksDifference: difference,
+              discrepancyThreshold: threshold,
+              materiallyDiscrepant: difference == null ? true : difference > threshold,
+              verifierFlags: verifier?.flags ?? [],
+              verifierReviewRequired: verifier?.reviewRequired ?? true,
+            };
+          });
+        secondPassExecution = {
+          required: true,
+          status: "COMPLETED",
+          readiness: independentAIExaminerProviderReadiness(),
+          verifierProvider: new URL(env.AI_EXAMINER_SECOND_PASS_PROVIDER_URL!).hostname,
+          verifierModel: env.AI_EXAMINER_SECOND_PASS_MODEL,
+          targets: comparisons,
+          materialDiscrepancyCount: comparisons.filter(item => item.materiallyDiscrepant).length,
+          verifierOverallConfidence: independent.confidence,
+        };
+      } catch (error) {
+        secondPassExecution = {
+          required: true,
+          status: "FAILED",
+          readiness: independentAIExaminerProviderReadiness(),
+          code: error instanceof AIExaminerProviderError ? error.code : "AI_EXAMINER_SECOND_PASS_INTERNAL_ERROR",
+          message: error instanceof Error ? error.message.slice(0, 1000) : "Independent verification failed",
+          targets: secondPass.questionKeys,
+        };
+      }
+    }
+
     const completedAt = new Date();
 
     const persisted = await systemPrisma.$transaction(async tx => {
@@ -147,13 +333,13 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
           data: {
             organizationId: evaluation.organizationId,
             evaluationId: evaluation.id,
-            questionKey: row.question.questionKey,
-            maxMarks: row.question.maxMarks,
-            suggestedMarks: row.question.awardedMarks,
-            confidence: row.question.confidence,
-            rubricBreakdown: row.question.rubricBreakdown,
-            feedback: row.question.feedback,
-            extractedAnswer: row.question.extractedAnswer ?? null,
+            questionKey: row.questionKey,
+            maxMarks: row.maxMarks,
+            suggestedMarks: row.suggestedMarks,
+            confidence: row.confidence,
+            rubricBreakdown: row.rubricBreakdown,
+            feedback: row.feedback,
+            extractedAnswer: row.extractedAnswer,
             reviewRequired: row.reviewRequired,
           },
         });
@@ -170,16 +356,31 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
           suggestedMarks: total,
           confidence,
           feedback: result.overallFeedback,
-          diagnostics: {
+          diagnostics: prismaJson({
             ...result.diagnostics,
-            questionDiagnostics: result.questions.map(question => ({
+            questionDiagnostics: questionRows.map(question => ({
               questionKey: question.questionKey,
               concepts: question.concepts,
               flags: question.flags,
+              annotationHints: question.annotationHints,
+              engine: question.engine,
+              deterministicStatus: question.deterministicStatus,
+              scoringError: question.scoringError,
+              specializedEvidence: question.specializedEvidence
+                ? JSON.parse(JSON.stringify(question.specializedEvidence))
+                : null,
+              evidenceAudit: question.evidenceAudit
+                ? JSON.parse(JSON.stringify(question.evidenceAudit))
+                : null,
             })),
             reviewRequiredCount: questionRows.filter(row => row.reviewRequired).length,
+            unresolvedDeterministicCount: reconciled.unresolvedDeterministicCount,
             reviewThreshold: AI_EXAMINER_REVIEW_THRESHOLD,
-          },
+            secondPassVerification: secondPass,
+            secondPassExecution,
+            codeExecution: codeExecutionDiagnostics,
+            omrEvidence,
+          }),
           completedAt,
           errorCode: null,
           errorMessage: null,
@@ -193,13 +394,20 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
           action: "AI_EXAMINER_EVALUATION_COMPLETED",
           entity: "AIExaminerEvaluation",
           entityId: evaluation.id,
-          metadata: {
+          metadata: prismaJson({
             answerSheetId: evaluation.answerSheetId,
             suggestedMarks: total,
             confidence,
             reviewRequiredCount: questionRows.filter(row => row.reviewRequired).length,
+            secondPassRequired: secondPass.required,
+            secondPassReasons: secondPass.reasons,
+            secondPassExecutionStatus: secondPassExecution.status,
+            codeExecutionCompletedCount: codeExecutionDiagnostics.filter(item => item.status === "COMPLETED").length,
+            highStakes,
+            omrEvidenceTrusted: omrEvidence.trusted,
+            omrAppliedQuestionCount: omrEvidence.appliedQuestionKeys.length,
             engineVersion: AI_EXAMINER_ENGINE_VERSION,
-          },
+          }),
         },
       });
       return updated;

@@ -1,6 +1,7 @@
-import { AnswerSheetStatus, ExaminationStatus, Prisma, Role } from "@prisma/client";
+import { AIExaminerCheckedCopyRevisionStatus, AIExaminerEvaluationStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ExaminationStatus, Prisma, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
+import { renderAIExaminerCheckedCopy } from "../lib/ai-examiner-checked-copy.js";
 import { AppError } from "../lib/http.js";
 import {
   answerSubmissionState,
@@ -16,6 +17,11 @@ import {
   replaceableAnswerSheetStatuses,
 } from "../lib/examination-policy.js";
 import { prisma } from "../lib/prisma.js";
+import {
+  aiExaminerRegradeWindow,
+  normalizeAIExaminerRegradeQuestionKeys,
+  regradePolicyFromExamSnapshot,
+} from "../lib/ai-examiner-regrade.js";
 import { historicalCivilDate, resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
 import { loadAuthorizedDocument, storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
 import { allowedAnswerSheetTypes, allowedDocumentTypes, assertDocumentFileExtension, decodeVerifiedUpload, type AllowedDocumentType } from "../lib/secure-upload.js";
@@ -70,6 +76,43 @@ async function assertHistoricalStudentEligibility(req: AuthRequest, student: { i
   if (!enrollment && !allowLegacy) throw new AppError(403, "EXAMINATION_ACCESS_DENIED", "Student is not historically eligible for this examination");
 }
 
+async function selfServiceRegradeStudent(req: AuthRequest, requestedStudentId?: string) {
+  if (req.auth!.role === Role.STUDENT) {
+    const student = await prisma.studentProfile.findFirst({
+      where: { organizationId: req.auth!.organizationId, userId: req.auth!.userId },
+      select: { id: true, organizationId: true },
+    });
+    if (!student) throw new AppError(404, "STUDENT_PROFILE_NOT_FOUND", "Student profile not found");
+    if (requestedStudentId && requestedStudentId !== student.id) {
+      throw new AppError(403, "AI_EXAMINER_REGRADE_STUDENT_FORBIDDEN", "Students can request regrade only for their own result");
+    }
+    return student;
+  }
+  if (req.auth!.role === Role.PARENT) {
+    if (!requestedStudentId) throw new AppError(422, "AI_EXAMINER_REGRADE_STUDENT_REQUIRED", "Parent regrade requests require studentId");
+    const link = await prisma.parentStudent.findFirst({
+      where: {
+        organizationId: req.auth!.organizationId,
+        parentId: req.auth!.userId,
+        studentId: requestedStudentId,
+      },
+      select: { student: { select: { id: true, organizationId: true } } },
+    });
+    if (!link) throw new AppError(404, "AI_EXAMINER_REGRADE_RESULT_NOT_FOUND", "No linked student result is available for regrade");
+    return link.student;
+  }
+  throw new AppError(403, "AI_EXAMINER_REGRADE_SELF_SERVICE_FORBIDDEN", "Student or parent access is required");
+}
+
+async function regradePublicationAuditTime(organizationId: string, examinationId: string) {
+  const published = await prisma.auditLog.findFirst({
+    where: { organizationId, entity: "Examination", entityId: examinationId, action: "PUBLISH" },
+    select: { createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+  return published?.createdAt ?? null;
+}
+
 async function mayManage(req: AuthRequest, exam: { branchId: string; academicSessionId: string; courseId: string; batchId: string; subjectId: string; teacherId: string; examDate: Date; teacher: { userId: string } }) {
   assertExaminationManager(req.auth!.role, req.auth!.userId, exam.teacher.userId);
   if (req.auth!.role !== Role.TEACHER) return;
@@ -94,6 +137,193 @@ async function mayManage(req: AuthRequest, exam: { branchId: string; academicSes
   });
   if (!allocation) throw new AppError(403, "EXAMINATION_ALLOCATION_REQUIRED", "An effective TeacherAllocation is required for this examination");
 }
+
+router.get("/examinations/:examinationId/regrade-requests/mine", async (req: AuthRequest, res) => {
+  const examinationId = id.parse(req.params.examinationId);
+  const studentId = z.string().cuid().optional().parse(req.query.studentId);
+  const exam = await examination(req, examinationId);
+  if (exam.status !== ExaminationStatus.RESULTS_PUBLISHED) {
+    throw new AppError(404, "AI_EXAMINER_REGRADE_RESULT_NOT_FOUND", "Published result not found");
+  }
+  const student = await selfServiceRegradeStudent(req, studentId);
+  const sheet = await prisma.examinationAnswerSheet.findFirst({
+    where: {
+      organizationId: req.auth!.organizationId,
+      examinationId: exam.id,
+      studentId: student.id,
+      finalizedAt: { not: null },
+    },
+    select: { id: true },
+  });
+  if (!sheet) throw new AppError(404, "AI_EXAMINER_REGRADE_RESULT_NOT_FOUND", "Published result not found");
+
+  const data = await prisma.aIExaminerRegradeRequest.findMany({
+    where: {
+      organizationId: req.auth!.organizationId,
+      answerSheetId: sheet.id,
+    },
+    select: {
+      id: true,
+      scope: true,
+      questionKeys: true,
+      reason: true,
+      status: true,
+      originalMarks: true,
+      resolvedMarks: true,
+      createdAt: true,
+      decidedAt: true,
+      resolvedAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+  res.json({ data });
+});
+
+router.post("/examinations/:examinationId/regrade-request", async (req: AuthRequest, res) => {
+  const examinationId = id.parse(req.params.examinationId);
+  const body = z.object({
+    studentId: z.string().cuid().optional(),
+    scope: z.nativeEnum(AIExaminerRegradeScope).default(AIExaminerRegradeScope.WHOLE_SCRIPT),
+    questionKeys: z.array(z.string().trim().min(1).max(40)).max(200).optional(),
+    reason: z.string().trim().min(10).max(5000),
+  }).parse(req.body);
+
+  const exam = await examination(req, examinationId);
+  if (exam.status !== ExaminationStatus.RESULTS_PUBLISHED) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_RESULTS_NOT_PUBLISHED", "Regrade requests are available only after results are published");
+  }
+
+  const student = await selfServiceRegradeStudent(req, body.studentId);
+  const policy = regradePolicyFromExamSnapshot(exam.aiExaminerExamProfileSnapshot);
+  if (!policy.enabled) throw new AppError(409, "AI_EXAMINER_REGRADE_DISABLED", "Regrade is disabled for this examination");
+  if (req.auth!.role === Role.STUDENT && !policy.allowStudentRequest) {
+    throw new AppError(403, "AI_EXAMINER_REGRADE_STUDENT_DISABLED", "Student regrade requests are disabled for this examination");
+  }
+  if (req.auth!.role === Role.PARENT && !policy.allowParentRequest) {
+    throw new AppError(403, "AI_EXAMINER_REGRADE_PARENT_DISABLED", "Parent regrade requests are disabled for this examination");
+  }
+
+  const publishedAt = await regradePublicationAuditTime(req.auth!.organizationId, exam.id);
+  const window = aiExaminerRegradeWindow({ publishedAt, requestWindowDays: policy.requestWindowDays });
+  if (!window.open) {
+    throw new AppError(409, window.reason ?? "AI_EXAMINER_REGRADE_WINDOW_CLOSED", "The configured regrade request window is closed");
+  }
+
+  const sheet = await prisma.examinationAnswerSheet.findFirst({
+    where: {
+      organizationId: req.auth!.organizationId,
+      examinationId: exam.id,
+      studentId: student.id,
+      finalizedAt: { not: null },
+    },
+    select: { id: true, studentId: true },
+  });
+  if (!sheet) throw new AppError(404, "AI_EXAMINER_REGRADE_RESULT_NOT_FOUND", "Published result not found");
+
+  const [evaluation, result, priorRequests, openRequest] = await Promise.all([
+    prisma.aIExaminerEvaluation.findFirst({
+      where: {
+        organizationId: req.auth!.organizationId,
+        answerSheetId: sheet.id,
+        status: AIExaminerEvaluationStatus.APPROVED,
+      },
+      include: { questions: { select: { questionKey: true } } },
+      orderBy: { revision: "desc" },
+    }),
+    prisma.examinationResult.findFirst({
+      where: {
+        organizationId: req.auth!.organizationId,
+        examinationId: exam.id,
+        studentId: student.id,
+      },
+      select: { id: true, marksObtained: true, generatedAt: true },
+    }),
+    prisma.aIExaminerRegradeRequest.count({
+      where: {
+        organizationId: req.auth!.organizationId,
+        answerSheetId: sheet.id,
+        status: { not: AIExaminerRegradeRequestStatus.CANCELLED },
+      },
+    }),
+    prisma.aIExaminerRegradeRequest.findFirst({
+      where: {
+        organizationId: req.auth!.organizationId,
+        answerSheetId: sheet.id,
+        status: { in: [
+          AIExaminerRegradeRequestStatus.REQUESTED,
+          AIExaminerRegradeRequestStatus.APPROVED,
+          AIExaminerRegradeRequestStatus.REVIEW_IN_PROGRESS,
+        ] },
+      },
+      select: { id: true },
+    }),
+  ]);
+
+  if (!evaluation || !result || result.marksObtained == null || !result.generatedAt) {
+    throw new AppError(404, "AI_EXAMINER_REGRADE_RESULT_NOT_FOUND", "Published AI Examiner result not found");
+  }
+  if (openRequest) throw new AppError(409, "AI_EXAMINER_REGRADE_ALREADY_OPEN", "An open regrade request already exists for this result");
+  if (priorRequests >= policy.maxRequestsPerAnswerSheet) {
+    throw new AppError(409, "AI_EXAMINER_REGRADE_LIMIT_REACHED", "The maximum number of regrade requests has been reached");
+  }
+
+  let questionKeys: string[];
+  try {
+    questionKeys = normalizeAIExaminerRegradeQuestionKeys({
+      scope: body.scope,
+      questionKeys: body.questionKeys,
+      availableQuestionKeys: evaluation.questions.map(question => question.questionKey),
+    });
+  } catch (error) {
+    throw new AppError(422, "AI_EXAMINER_REGRADE_SCOPE_INVALID", error instanceof Error ? error.message : "Invalid regrade question scope");
+  }
+
+  const data = await prisma.$transaction(async tx => {
+    const request = await tx.aIExaminerRegradeRequest.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        answerSheetId: sheet.id,
+        evaluationId: evaluation.id,
+        resultId: result.id,
+        scope: body.scope,
+        questionKeys,
+        reason: body.reason,
+        originalMarks: Number(result.marksObtained),
+        requestedById: req.auth!.userId,
+      },
+      select: {
+        id: true,
+        scope: true,
+        questionKeys: true,
+        reason: true,
+        status: true,
+        originalMarks: true,
+        createdAt: true,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_EXAMINER_SELF_SERVICE_REGRADE_REQUESTED",
+        entity: "AIExaminerRegradeRequest",
+        entityId: request.id,
+        metadata: {
+          examinationId: exam.id,
+          answerSheetId: sheet.id,
+          studentId: student.id,
+          requesterRole: req.auth!.role,
+          scope: body.scope,
+          questionKeys,
+        },
+      },
+    });
+    return request;
+  }, serializable);
+
+  res.status(201).json({ data, meta: { closesAt: window.closesAt } });
+});
 
 router.put("/examinations/:examinationId/question-paper", async (req: AuthRequest, res) => {
   const exam = await examination(req, id.parse(req.params.examinationId));
@@ -222,6 +452,98 @@ router.get("/answer-sheets/:answerSheetId/file", async (req: AuthRequest, res) =
   const sheet = await prisma.examinationAnswerSheet.findUnique({ where: { id: authorized.id }, select: { fileName: true, mimeType: true, fileSize: true, fileData: true } });
   if (!sheet) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
   res.set(storedDocumentHeaders({ ...sheet, fallbackName: "answer-sheet" }, "inline")).send(storedDocumentBuffer(sheet.fileData));
+});
+
+router.get("/answer-sheets/:answerSheetId/checked-copy", async (req: AuthRequest, res) => {
+  const answerSheetId = id.parse(req.params.answerSheetId);
+  let authorization: Record<string, unknown>;
+  if (req.auth!.role === Role.STUDENT) authorization = { student: { userId: req.auth!.userId } };
+  else if (req.auth!.role === Role.PARENT) authorization = { student: { parents: { some: { organizationId: req.auth!.organizationId, parentId: req.auth!.userId } } } };
+  else if (req.auth!.role === Role.TEACHER) authorization = { examination: { teacher: { userId: req.auth!.userId } } };
+  else if (req.auth!.role === Role.BRANCH_ADMIN) {
+    const branchIds = (await prisma.branchUser.findMany({ where: { organizationId: req.auth!.organizationId, userId: req.auth!.userId }, select: { branchId: true } })).map(row => row.branchId);
+    authorization = { examination: { branchId: { in: branchIds } } };
+  } else if (req.auth!.role === Role.SUPER_ADMIN) authorization = {};
+  else throw new AppError(404, "AI_CHECKED_COPY_NOT_FOUND", "Checked copy not found");
+
+  const sheet = await prisma.examinationAnswerSheet.findFirst({
+    where: { id: answerSheetId, organizationId: req.auth!.organizationId, ...authorization },
+    select: {
+      id: true, examinationId: true, studentId: true, finalizedAt: true, marksObtained: true,
+      examination: {
+        select: {
+          id: true, organizationId: true, status: true, branchId: true, academicSessionId: true, courseId: true,
+          batchId: true, subjectId: true, teacherId: true, examDate: true, teacher: { select: { userId: true } },
+        },
+      },
+      checkedCopy: {
+        select: {
+          revisions: {
+            where: { status: { in: [AIExaminerCheckedCopyRevisionStatus.RENDERED, AIExaminerCheckedCopyRevisionStatus.PUBLISHED] } },
+            select: { id: true, revision: true, status: true, renderedFileName: true, renderedMimeType: true, renderedFileSize: true, renderedFileData: true, renderedFileSha256: true, publishedAt: true },
+            orderBy: { revision: "desc" },
+            take: 1,
+          },
+        },
+      },
+    },
+  });
+  if (!sheet || !sheet.finalizedAt || sheet.marksObtained == null || sheet.examination.status !== ExaminationStatus.RESULTS_PUBLISHED) {
+    throw new AppError(404, "AI_CHECKED_COPY_NOT_FOUND", "Approved checked copy is available only after results are published");
+  }
+
+  if (req.auth!.role === Role.STUDENT) {
+    const student = await prisma.studentProfile.findUnique({
+      where: { userId: req.auth!.userId },
+      select: { id: true, organizationId: true, status: true, user: { select: { isActive: true } } },
+    });
+    await assertHistoricalStudentEligibility(req, student, sheet.examination, "HISTORICAL_READ", true);
+  } else if (req.auth!.role === Role.PARENT) {
+    const link = await prisma.parentStudent.findFirst({
+      where: { organizationId: req.auth!.organizationId, parentId: req.auth!.userId, studentId: sheet.studentId },
+      select: { studentId: true },
+    });
+    if (!link) throw new AppError(404, "AI_CHECKED_COPY_NOT_FOUND", "Checked copy not found");
+  } else {
+    await branchAccess(req, sheet.examination.branchId);
+    await mayManage(req, sheet.examination);
+  }
+
+  const revision = sheet.checkedCopy?.revisions[0];
+  if (!revision?.renderedFileData || !revision.renderedFileName) {
+    throw new AppError(404, "AI_CHECKED_COPY_NOT_FOUND", "Teacher-approved rendered checked copy is not available");
+  }
+
+  if ((req.auth!.role === Role.STUDENT || req.auth!.role === Role.PARENT) && revision.status === AIExaminerCheckedCopyRevisionStatus.RENDERED) {
+    const published = await prisma.aIExaminerCheckedCopyRevision.updateMany({
+      where: { id: revision.id, organizationId: req.auth!.organizationId, status: AIExaminerCheckedCopyRevisionStatus.RENDERED },
+      data: { status: AIExaminerCheckedCopyRevisionStatus.PUBLISHED, publishedAt: new Date() },
+    });
+    if (published.count === 1) {
+      await prisma.auditLog.create({
+        data: {
+          organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "AI_CHECKED_COPY_PUBLISHED",
+          entity: "AIExaminerCheckedCopyRevision", entityId: revision.id, metadata: { answerSheetId: sheet.id, revision: revision.revision },
+        },
+      }).catch(() => null);
+    }
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "AI_CHECKED_COPY_DOWNLOADED",
+      entity: "AIExaminerCheckedCopyRevision", entityId: revision.id,
+      metadata: { answerSheetId: sheet.id, revision: revision.revision, role: req.auth!.role, renderedFileSha256: revision.renderedFileSha256 },
+    },
+  }).catch(() => null);
+
+  res.set({
+    "Content-Type": revision.renderedMimeType || "application/pdf",
+    "Content-Disposition": `attachment; filename="${revision.renderedFileName}"`,
+    "Content-Length": String(revision.renderedFileSize ?? Buffer.byteLength(revision.renderedFileData)),
+    "Cache-Control": "private, no-store",
+    "X-Checked-Copy-Revision": String(revision.revision),
+  }).send(Buffer.from(revision.renderedFileData));
 });
 
 router.patch("/answer-sheets/:answerSheetId/evaluation", async (req: AuthRequest, res) => {

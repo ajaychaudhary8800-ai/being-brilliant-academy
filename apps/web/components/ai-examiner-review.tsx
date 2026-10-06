@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ExternalLink, FileText, Loader2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, FileText, Loader2, ShieldCheck } from "lucide-react";
 import { getAccessToken } from "./auth-provider";
 import { openAuthenticatedDocument } from "./authenticated-download";
 import Sidebar from "./sidebar";
@@ -47,7 +47,7 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
       const json=await fetch(`${API}/ai-examiner/evaluations/${evaluationId}`,{headers:headers()}).then(responseBody);
       const data=json.data as Evaluation;
       setEvaluation(data);
-      setMarks(Object.fromEntries(data.questions.map(question=>[question.id,String(question.finalMarks??question.suggestedMarks??0)])));
+      setMarks(Object.fromEntries(data.questions.map(question=>[question.id,question.finalMarks!=null?String(question.finalMarks):question.suggestedMarks!=null?String(question.suggestedMarks):""])));
       setComments(Object.fromEntries(data.questions.map(question=>[question.id,question.teacherComment??""])));
       setTeacherRemarks(data.feedback??"");
       setError("");
@@ -58,7 +58,7 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
   useEffect(()=>{void load();},[load]);
 
   const total=useMemo(()=>evaluation?.questions.reduce((sum,question)=>sum+(Number(marks[question.id])||0),0)??0,[evaluation,marks]);
-  const suggested=Number(evaluation?.suggestedMarks??0);
+  const suggested=evaluation?.suggestedMarks==null?null:Number(evaluation.suggestedMarks);
   const readonly=evaluation?.status==="APPROVED";
 
   async function openAnswerSheet(){
@@ -66,6 +66,18 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
     try{
       await openAuthenticatedDocument({url:`${API}/exam-workflow/answer-sheets/${evaluation.answerSheet.id}/file`,token:getAccessToken()??"",fileName:evaluation.answerSheet.fileName,fallbackError:"Answer sheet unavailable"});
     }catch(cause){setError(cause instanceof Error?cause.message:"Answer sheet unavailable");}
+  }
+
+  async function openCheckedCopy(){
+    if(!evaluation||evaluation.status!=="APPROVED")return;
+    try{
+      await openAuthenticatedDocument({
+        url:`${API}/ai-examiner/evaluations/${evaluation.id}/checked-copy`,
+        token:getAccessToken()??"",
+        fileName:`${evaluation.answerSheet.fileName.replace(/\.[^.]+$/,"")}-checked.pdf`,
+        fallbackError:"Checked copy unavailable",
+      });
+    }catch(cause){setError(cause instanceof Error?cause.message:"Checked copy unavailable");}
   }
 
   async function openQuestionPaper(){
@@ -120,10 +132,12 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
               <div className="flex flex-wrap gap-2">
                 <button className="btn" onClick={()=>void openQuestionPaper()}><FileText size={16}/>Question Paper</button>
                 <button className="btn" onClick={()=>void openAnswerSheet()}><ExternalLink size={16}/>Answer Sheet</button>
+                {readonly&&<Link className="btn border-red-200 text-red-700" href={`${teacherView?"/teacher":"/admin"}/ai-examiner/checked-copy/${evaluation.id}`}>Review Checked Copy</Link>}
+                {readonly&&<button className="btn border-red-200 text-red-700" onClick={()=>void openCheckedCopy()}><Download size={16}/>Download Approved Copy</button>}
               </div>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <Metric label="AI suggested" value={String(suggested)}/>
+              <Metric label="AI suggested" value={suggested==null?"Pending review":String(suggested)}/>
               <Metric label="Teacher total" value={String(total)}/>
               <Metric label="Questions flagged" value={String(evaluation.questions.filter(question=>question.reviewRequired).length)}/>
             </div>
@@ -133,11 +147,12 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
           <section className="mt-5 space-y-4">
             {evaluation.questions.map(question=>{
               const max=Number(question.maxMarks);
-              const current=Number(marks[question.id]??0);
-              const invalid=!Number.isFinite(current)||current<0||current>max;
+              const rawMark=marks[question.id]??"";
+              const current=Number(rawMark);
+              const invalid=rawMark.trim()===""||!Number.isFinite(current)||current < -max||current>max;
               return <article key={question.id} className={`rounded-2xl border bg-white p-5 ${question.reviewRequired?"border-amber-200":""}`}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div><h3 className="text-lg font-bold">{question.questionKey}</h3><p className="text-sm text-slate-500">Maximum {max} · AI suggested {Number(question.suggestedMarks??0)} · Confidence {Math.round(Number(question.confidence??0)*100)}%</p></div>
+                  <div><h3 className="text-lg font-bold">{question.questionKey}</h3><p className="text-sm text-slate-500">Maximum {max} · AI suggested {question.suggestedMarks==null?"—":Number(question.suggestedMarks)} · Confidence {Math.round(Number(question.confidence??0)*100)}%</p></div>
                   <span className={`rounded-full px-3 py-1 text-xs font-bold ${question.reviewRequired?"bg-amber-50 text-amber-800":"bg-emerald-50 text-emerald-700"}`}>{question.reviewRequired?"Teacher attention required":"High-confidence suggestion"}</span>
                 </div>
                 {question.extractedAnswer&&<div className="mt-4 rounded-xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Extracted student answer</p><p className="mt-2 whitespace-pre-wrap text-sm">{question.extractedAnswer}</p></div>}
@@ -145,8 +160,8 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
                 {Array.isArray(question.rubricBreakdown)&&question.rubricBreakdown.length>0&&<div className="mt-4 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead><tr className="border-b text-slate-500"><th className="py-2">Criterion</th><th>AI marks</th><th>Max</th><th>Reason</th></tr></thead><tbody>{question.rubricBreakdown.map((row,index)=><tr key={index} className="border-b last:border-0"><td className="py-2 pr-3">{row.criterion}</td><td>{row.awardedMarks}</td><td>{row.maxMarks}</td><td>{row.rationale}</td></tr>)}</tbody></table></div>}
                 <div className="mt-4 grid gap-3 md:grid-cols-[180px_1fr]">
                   <label className="text-sm font-semibold">Final marks
-                    <input disabled={readonly} className={`field mt-1 ${invalid?"border-red-400":""}`} type="number" min="0" max={max} step="0.25" value={marks[question.id]??""} onChange={event=>setMarks(state=>({...state,[question.id]:event.target.value}))}/>
-                    {invalid&&<span className="mt-1 block text-xs text-red-600">Enter 0–{max}.</span>}
+                    <input disabled={readonly} className={`field mt-1 ${invalid?"border-red-400":""}`} type="number" min={-max} max={max} step="0.25" value={marks[question.id]??""} onChange={event=>setMarks(state=>({...state,[question.id]:event.target.value}))}/>
+                    {invalid&&<span className="mt-1 block text-xs text-red-600">Enter a value from {-max} to {max}. Negative marks are allowed only when the marking rule requires them.</span>}
                   </label>
                   <label className="text-sm font-semibold">Teacher comment
                     <textarea disabled={readonly} className="field mt-1 min-h-20" value={comments[question.id]??""} onChange={event=>setComments(state=>({...state,[question.id]:event.target.value}))} placeholder="Optional reason for accepting or overriding the AI suggestion."/>
@@ -160,7 +175,7 @@ export function AIExaminerReview({evaluationId,teacherView=false}:{evaluationId:
             <label className="text-sm font-semibold">Final teacher remarks<textarea disabled={readonly} className="field mt-1 min-h-24" value={teacherRemarks} onChange={event=>setTeacherRemarks(event.target.value)} placeholder="Feedback that may be included with the finalized evaluation."/></label>
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div><p className="font-bold">Final total: {total}</p><p className="text-xs text-slate-500">Approval finalizes the answer sheet and writes the teacher-approved marks into the examination result workflow.</p></div>
-              {readonly?<span className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 font-bold text-emerald-800"><CheckCircle2 size={18}/>Teacher approved & finalized</span>:<button className="btn bg-emerald-700 text-white disabled:opacity-40" disabled={saving||evaluation.questions.some(question=>{const value=Number(marks[question.id]);return !Number.isFinite(value)||value<0||value>Number(question.maxMarks);})} onClick={()=>void approve()}>{saving?<Loader2 className="animate-spin" size={18}/>:<CheckCircle2 size={18}/>}Approve & Finalize</button>}
+              {readonly?<span className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 font-bold text-emerald-800"><CheckCircle2 size={18}/>Teacher approved & finalized</span>:<button className="btn bg-emerald-700 text-white disabled:opacity-40" disabled={saving||evaluation.questions.some(question=>{const raw=marks[question.id]??"";const value=Number(raw);const max=Number(question.maxMarks);return raw.trim()===""||!Number.isFinite(value)||value < -max||value>max;})} onClick={()=>void approve()}>{saving?<Loader2 className="animate-spin" size={18}/>:<CheckCircle2 size={18}/>}Approve & Finalize</button>}
             </div>
           </section>
         </>}

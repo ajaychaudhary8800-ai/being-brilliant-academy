@@ -38,6 +38,14 @@ const schema = z.object({
   AI_EXAMINER_REVIEW_THRESHOLD: z.coerce.number().min(0.5).max(1).default(0.85),
   AI_EXAMINER_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(120_000),
   AI_EXAMINER_WORKER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(60_000).default(5_000),
+  AI_EXAMINER_SECOND_PASS_PROVIDER_URL: optionalUrl,
+  AI_EXAMINER_SECOND_PASS_API_KEY: optionalString,
+  AI_EXAMINER_SECOND_PASS_MODEL: optionalString,
+  AI_EXAMINER_CODE_RUNNER_URL: optionalUrl,
+  AI_EXAMINER_CODE_RUNNER_TOKEN: optionalString,
+  AI_EXAMINER_CODE_RUNNER_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(15_000),
+
+  DEVICE_HUB_WORKER_INTERVAL_MS: z.coerce.number().int().min(5_000).max(300_000).default(15_000),
   LIVEKIT_URL: optionalUrl,
   LIVEKIT_API_KEY: optionalString,
   LIVEKIT_API_SECRET: optionalString,
@@ -82,6 +90,8 @@ const schema = z.object({
   };
   requireTogether(["LIVEKIT_RECORDING_S3_REGION", "LIVEKIT_RECORDING_S3_BUCKET", "LIVEKIT_RECORDING_S3_ACCESS_KEY_ID", "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY"], "LiveKit recording storage");
   requireTogether(["AI_EXAMINER_PROVIDER_URL", "AI_EXAMINER_API_KEY", "AI_EXAMINER_MODEL"], "AI Examiner provider");
+  requireTogether(["AI_EXAMINER_SECOND_PASS_PROVIDER_URL", "AI_EXAMINER_SECOND_PASS_API_KEY", "AI_EXAMINER_SECOND_PASS_MODEL"], "AI Examiner second-pass provider");
+  requireTogether(["AI_EXAMINER_CODE_RUNNER_URL", "AI_EXAMINER_CODE_RUNNER_TOKEN"], "AI Examiner code runner");
   if (value.NODE_ENV === "production") {
     requireTogether(["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM"], "SMTP");
     requireTogether(["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SMS_FROM"], "Twilio SMS");

@@ -19,3 +19,53 @@ test("Question Bank editing preserves version history and resets approval", () =
   assert.match(route, /router\.post\("\/learning\/questions\/bulk"/);
   assert.match(route, /router\.get\("\/learning\/questions\/export"/);
 });
+
+
+test("Question Bank 3.1 accepts configurable exam categories and richer assessment metadata", () => {
+  assert.match(route, /examCategory: examCategoryCode/);
+  assert.match(route, /classLevel: z\.nativeEnum\(ClassLevel\)/);
+  assert.match(route, /academicBoard: z\.nativeEnum\(AcademicBoard\)/);
+  assert.match(route, /learningOutcomes:/);
+  assert.match(route, /expectedTimeSeconds:/);
+  assert.match(route, /variantGroupCode:/);
+  assert.match(route, /evaluationConfig:/);
+  assert.doesNotMatch(route, /examCategory: z\.enum\(\["CBSE", "JEE_MAIN", "NEET", "CUET"\]\)/);
+});
+
+test("Question Bank 3.1 exposes normalized exact-content similarity detection", () => {
+  assert.match(route, /router\.post\("\/learning\/questions\/similarity-check"/);
+  assert.match(route, /questionSimilarityHash/);
+  assert.match(route, /NORMALIZED_EXACT_FINGERPRINT/);
+  assert.match(route, /similarityHash: questionSimilarityHash/);
+});
+
+
+test("new Learning Tests snapshot Question Bank content and scoring keys", () => {
+  assert.match(route, /questionDeliverySnapshot/);
+  assert.match(route, /questionVersion:source\.version/);
+  assert.match(route, /questionSnapshot:questionJson/);
+  assert.match(route, /studentQuestionFromSnapshot/);
+  assert.match(route, /correctAnswerForTestQuestion\(tq\)/);
+});
+
+
+test("Question Bank bulk review is scope-safe, lifecycle-safe and audit logged", () => {
+  assert.match(route, /router\.patch\("\/learning\/questions\/bulk-approval"/);
+  assert.match(route, /courseId: id\.optional\(\)/);
+  assert.match(route, /All-filtered review requires Course, Subject, Chapter or search scope/);
+  assert.match(route, /ApprovalStatus\.DRAFT, ApprovalStatus\.PENDING/);
+  assert.match(route, /questionBankItem\.updateMany/);
+  assert.match(route, /BULK_APPROVE/);
+  assert.match(route, /BULK_REJECT/);
+  assert.match(route, /selectionMode/);
+  assert.match(route, /skipped/);
+});
+
+
+test("bulk approval route is declared before the generic question-id PATCH route", () => {
+  const bulk = route.indexOf('router.patch("/learning/questions/bulk-approval"');
+  const generic = route.indexOf('router.patch("/learning/questions/:id"');
+  assert.ok(bulk >= 0);
+  assert.ok(generic >= 0);
+  assert.ok(bulk < generic);
+});

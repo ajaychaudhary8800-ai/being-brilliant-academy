@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 FROM node:22-alpine AS build
-ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH NEXT_TELEMETRY_DISABLED=1
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=1024
 RUN corepack enable
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
