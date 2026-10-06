@@ -218,7 +218,7 @@ export default function Page() {
           </div>
         </div>
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-          Before external signature, verify Provider registered office, CIN, GSTIN, authorized signatory, notices/privacy contacts, support details and payment particulars, and complete Indian counsel review. Do not add unverified RPO/RTO promises while Step 5 remains incomplete.
+          Management-confirmed Provider particulars are recorded in the controlled pack. Before external signature, cross-check them against current official/company records, activate and test the business-role mailboxes, confirm client-facing support details, use approved finance records for payment particulars, and complete Indian counsel review. Step 5 off-site DR evidence is complete, but no fixed contractual RPO/RTO should be promised unless separately approved.
         </div>
       </section>
 
