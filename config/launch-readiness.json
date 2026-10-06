@@ -130,7 +130,7 @@
         "apps/web/app/acceptable-use/page.tsx",
         "apps/web/components/premium-landing.tsx"
       ],
-      "nextAction": "After Indian counsel approval, set the approved legal effective date, enable NEXT_PUBLIC_LEGAL_PAGES_PUBLISHED, verify Privacy/Terms/AUP pages and demo-form/footer links in staging, then publish through the normal deployment process.",
+      "nextAction": "After Indian counsel approval, set LEGAL_EFFECTIVE_DATE and LEGAL_PAGES_PUBLISHED=true, verify Privacy/Terms/AUP pages plus demo-form/footer links in staging, then publish through the normal deployment process.",
       "note": "Privacy, SaaS Terms and Acceptable Use routes plus footer/demo-form links are implementation-prepared behind a publication flag. They remain disabled and the gate remains PENDING_DEPENDENCY until Indian counsel approval."
     },
     {
