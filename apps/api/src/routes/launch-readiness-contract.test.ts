@@ -103,8 +103,14 @@ test("public legal publication blocker matches current SaaS landing surface", as
 
   const hasApprovedLegalLinks =
     /href=["']\/privacy["']/.test(landing) &&
-    /href=["']\/terms["']/.test(landing);
+    /href=["']\/terms["']/.test(landing) &&
+    /href=["']\/acceptable-use["']/.test(landing);
+  const publicationIsGated =
+    /NEXT_PUBLIC_LEGAL_PAGES_PUBLISHED/.test(landing) &&
+    /LEGAL_PAGES_PUBLISHED/.test(landing);
 
-  if (legalGate!.status === "READY") assert.equal(hasApprovedLegalLinks, true);
-  else assert.equal(hasApprovedLegalLinks, false);
+  assert.equal(hasApprovedLegalLinks, true, "public legal routes should be pre-wired");
+  if (legalGate!.status !== "READY") {
+    assert.equal(publicationIsGated, true, "legal links must remain behind the publication flag until approval");
+  }
 });
