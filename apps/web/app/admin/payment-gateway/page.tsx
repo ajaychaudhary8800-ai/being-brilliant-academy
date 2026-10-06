@@ -18,7 +18,7 @@ type Gateway = {
   allowPartialPayments: boolean;
   paymentMethods: string[];
   lastVerifiedAt: string | null;
-  webhookUrl: string;
+  webhookPath: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -194,8 +194,8 @@ export default function PaymentGatewayPage() {
   }
 
   async function copyWebhook() {
-    if (!gateway?.webhookUrl) return;
-    await navigator.clipboard.writeText(gateway.webhookUrl);
+    if (!gateway?.webhookPath) return;
+    await navigator.clipboard.writeText(`${API}${gateway.webhookPath}`);
     setNotice("Webhook URL copied.");
   }
 
@@ -280,9 +280,9 @@ export default function PaymentGatewayPage() {
         <div className="card p-5">
           <h2 className="text-xl font-bold">Webhook & settlement controls</h2>
           <p className="mt-2 text-sm leading-6 text-slate-500">Add the generated URL in the institution's Razorpay Dashboard and subscribe to <b>payment.captured</b>, <b>payment.failed</b> and <b>refund.processed</b>.</p>
-          {gateway?.webhookUrl ? (
+          {gateway?.webhookPath ? (
             <div className="mt-4 rounded-xl bg-slate-50 p-4 dark:bg-slate-900">
-              <p className="break-all font-mono text-xs">{gateway.webhookUrl}</p>
+              <p className="break-all font-mono text-xs">{`${API}${gateway.webhookPath}`}</p>
               <button type="button" onClick={() => void copyWebhook()} className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-brand-700"><Copy size={15}/>Copy webhook URL</button>
             </div>
           ) : <p className="mt-4 text-sm text-slate-500">Save the gateway once to generate its tenant-specific webhook URL.</p>}
