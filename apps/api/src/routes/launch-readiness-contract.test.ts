@@ -93,9 +93,10 @@ test("launch documents preserve critical operational and legal no-go controls", 
 });
 
 test("public legal publication blocker matches current SaaS landing surface", async () => {
-  const [manifestRaw, landing] = await Promise.all([
+  const [manifestRaw, landing, home] = await Promise.all([
     readFile(manifestUrl, "utf8"),
     readFile(landingUrl, "utf8"),
+    readFile(new URL("../../../web/app/page.tsx", import.meta.url), "utf8"),
   ]);
   const manifest = JSON.parse(manifestRaw) as { gates: Array<{ id: string; status: string }> };
   const legalGate = manifest.gates.find(gate => gate.id === "public-legal-pages");
@@ -106,7 +107,7 @@ test("public legal publication blocker matches current SaaS landing surface", as
     /href=["']\/terms["']/.test(landing) &&
     /href=["']\/acceptable-use["']/.test(landing);
   const publicationIsGated =
-    /NEXT_PUBLIC_LEGAL_PAGES_PUBLISHED/.test(landing) &&
+    /LEGAL_PAGES_PUBLISHED/.test(landing) &&
     /LEGAL_PAGES_PUBLISHED/.test(landing);
 
   assert.equal(hasApprovedLegalLinks, true, "public legal routes should be pre-wired");
