@@ -1,20 +1,23 @@
 # Provider Execution Particulars
 
 **Product:** Being Brilliant ERP + LMS + CRM  
-**Provider:** Adhyay Eduventure Private Limited  
+**Provider:** ADHYAY EDUVENTURE PRIVATE LIMITED  
 **Management confirmation date:** 6 October 2026
 
-This file records provider particulars supplied and confirmed by company management for the controlled legal pack. It does not replace cross-checking against current MCA/GST/company records or Indian counsel review before first external signature.
-
-**Record-reconciliation note:** an official MCA Company Information extract dated 23 October 2024 confirms the company name and CIN but shows a different registered office and the director name as **CHOUDHARY AJAY SINGH HOON**. Because that extract predates the management confirmation below, the current registered office and exact execution name remain pending reconciliation against a current official record.
+This file records provider particulars for the controlled legal pack. For MCA-covered particulars, management has directed that the official MCA Company Information extract dated **23 October 2024** be used as the source of record. GST particulars remain management-supplied pending separate official GST verification. Indian counsel review is still required before first external signature.
 
 ## Corporate particulars
 
-- **Registered office:** C-40 First Floor Near Atal Chowk Nand gram Ghaziabad 201003
+- **Registered office:** KH NO 257 PLOT NO 26 ROYAL GREEN CITY, PHASE II VILL DUHAI, Ghaziabad, Ghaziabad, Ghaziabad, Uttar Pradesh, India, 201001
 - **CIN:** U80100UP2017PTC089682
 - **GSTIN:** 09AAPCA1080N2Z7
-- **Authorized signatory:** CHOUDHARY AJAY SINGH
-- **Designation:** DIRECTOR
+- **Authorized signatory:** CHOUDHARY AJAY SINGH HOON
+- **Designation:** Director
+- **ROC:** ROC Kanpur
+- **Registration number:** 089682
+- **Date of incorporation:** 03/02/2017
+- **Company status:** Active
+- **MCA source date:** 23/10/2024
 
 ## Designated business-role contacts
 
@@ -48,6 +51,6 @@ Bank account and payment destination details are not stored in source control. T
 
 Before first external signature or public legal-page publication:
 
-1. cross-check the registered office, CIN, GSTIN and authorized signatory against current official/company records;
-2. obtain Indian counsel review of the controlled legal pack; and
+1. verify GSTIN / GST registration particulars against an official GST record;
+2. obtain Indian counsel review of the controlled legal pack, including whether a fresher MCA extract is required before signature; and
 3. record the counsel-approved version/date before changing the legal-execution launch gate to READY.
