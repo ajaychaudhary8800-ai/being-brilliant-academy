@@ -3,6 +3,7 @@
 **Product:** Being Brilliant ERP + LMS + CRM  
 **Owner:** Platform leadership / commercial operations  
 **Effective:** 25 September 2026  
+**Last evidence update:** 6 October 2026  
 **Current launch decision:** **HOLD**
 
 Step 14 installs the final pre-launch control framework. It does not override unresolved external dependencies or declare the platform commercially launched.
@@ -39,25 +40,30 @@ The following areas are operationally ready based on implemented controls and re
 - Local backup freshness and container health monitoring.
 - Production change-control through protected CI.
 - API/web/backup container-build validation.
+- Cloudflare R2 off-site backup, retrieval, checksum verification and isolated restore evidence.
+
+### Step 5 — Off-site Backup & Disaster Recovery
+
+Status: **READY**
+
+Verified on 6 October 2026:
+
+- scheduled production backups are present in Cloudflare R2;
+- the latest R2 backup was downloaded back from the off-site provider;
+- `database.dump` and `files.tar.gz` passed SHA-256 verification;
+- the database was restored into a temporary isolated PostgreSQL cluster on loopback port `55432`;
+- file storage was restored into a temporary isolated directory;
+- representative administrator, teacher, student and parent records were validated;
+- measured core database + file restore duration was 7 seconds for the tested backup; and
+- the temporary DR environment was stopped and removed after validation.
+
+Evidence: `docs/DR_RESTORE_EVIDENCE_2026-10-06.md`.
+
+This evidence clears the current technical off-site DR launch gate. It does **not** create a contractual RPO/RTO commitment.
 
 ## 2. Current hard launch blockers
 
-### A. Step 5 — Off-site Backup & Disaster Recovery
-
-Status: **PENDING_DEPENDENCY**
-
-Before full commercial launch:
-
-- configure real off-site object storage;
-- verify scheduled off-site upload;
-- verify off-site checksum/integrity;
-- complete isolated restore;
-- record measured recovery evidence;
-- only then define contractual RPO/RTO where appropriate.
-
-Local backup health does not satisfy this requirement.
-
-### B. Corporate/legal execution particulars
+### A. Corporate/legal execution particulars
 
 Status: **BLOCKED_EXTERNAL**
 
@@ -76,7 +82,7 @@ Before the first external signature or public legal publication, verify:
 
 Do not infer or invent these values from unverified directories.
 
-### C. Public Privacy / Terms / AUP publication
+### B. Public Privacy / Terms / AUP publication
 
 Status: **PENDING_DEPENDENCY**
 
@@ -93,7 +99,7 @@ After corporate particulars and counsel review:
 
 Do not publish draft legal templates as final legal notices.
 
-### D. Step 11 — First Real Paying Client
+### C. Step 11 — First Real Paying Client
 
 Status: **PENDING_DEPENDENCY**
 
@@ -164,7 +170,7 @@ Do not commercially launch if any of the following is true:
 - production readiness/database/Redis failing;
 - critical worker repeatedly unhealthy;
 - local backup failing/stale;
-- Step 5 remains unresolved for the agreed launch standard;
+- verified off-site backup/restore evidence becomes stale, fails, or is no longer representative of the production backup path;
 - legal company particulars are unverified;
 - public legal notices are missing;
 - contract commitments exceed implemented infrastructure;
