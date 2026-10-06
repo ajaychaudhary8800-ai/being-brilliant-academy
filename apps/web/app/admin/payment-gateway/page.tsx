@@ -226,7 +226,7 @@ export default function PaymentGatewayPage() {
         <div className="card p-5">
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-700"><WalletCards size={20}/></span>
-            <div><h2 className="text-xl font-bold">Institution Razorpay account</h2><p className="text-sm text-slate-500">Student money settles to the institution's own merchant account.</p></div>
+            <div><h2 className="text-xl font-bold">Institution Razorpay account</h2><p className="text-sm text-slate-500">Student money settles to the institution&apos;s own merchant account.</p></div>
           </div>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
