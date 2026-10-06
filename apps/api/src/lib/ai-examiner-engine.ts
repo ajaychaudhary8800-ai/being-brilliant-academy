@@ -254,9 +254,11 @@ Critical grading rules:
 18. Respect each question's languagePolicy. Accept only the configured academic languages, and allow code-switching or transliteration only when explicitly permitted.
 19. Unless evaluateLanguageMechanics is true, do not deduct marks for grammar, spelling, script choice, accent, or language mechanics when the academic content satisfies the rubric.
 20. When requireOriginalLanguageEvidence is true, preserve the student's original-language wording in extractedAnswer and evidenceText. Do not substitute a translation as quoted evidence. You may reason across languages, but any translation must be treated as interpretation rather than original evidence.
-21. annotationHints are optional visual coordinates for a red-pen checked-copy layer. Use coordinates relative to the STUDENT ANSWER SHEET page, with x/y/width/height normalized from 0 to 1 and y measured from the top.
-22. Add annotationHints only when you can visually locate the relevant student work. Use TICK for correct work, CROSS for a specific incorrect item, UNDERLINE/HIGHLIGHT for a visible error region, and NOTE for a concise margin-style correction. Never invent coordinates or place annotations on the question paper.
-23. If the answer location is uncertain, return no annotation hint for that point. Checked-copy rendering will fall back to a clearly identified margin note instead.`;
+21. annotationHints are optional visual coordinates for the automatic red-pen checked-copy layer. Coordinates MUST refer to the STUDENT ANSWER SHEET page only, with x/y/width/height normalized from 0 to 1 and y measured from the top. Keep every rectangle inside the page.
+22. For each visible rubric evidence point you actually used, add the smallest useful annotationHint around that exact student work. Prefer TICK for a correct step/final result, CROSS for a specific incorrect step/result, UNDERLINE or HIGHLIGHT for the precise visible error/evidence region, and NOTE only when a short correction is needed.
+23. When a rubricBreakdown row has evidenceText and that exact evidence is visibly locatable, set the matching annotationHint.text to the same faithful excerpt (or a contained exact excerpt) so placement can be matched deterministically. Do not paraphrase evidence in annotationHint.text.
+24. Order annotationHints in the same reading order as the student's answer. The last reliable hint for a question should normally correspond to the final visible step/result so the question score can be placed beside the end of that answer.
+25. Never invent coordinates, never place annotations on the question paper, and never guess an answer location from nearby content. If the location is uncertain, omit that hint; the checked-copy workflow will route the item to position review instead.`;
 }
 
 function dataUrl(document: AIExaminerDocument) {

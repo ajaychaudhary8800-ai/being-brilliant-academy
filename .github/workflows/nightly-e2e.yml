@@ -92,7 +92,9 @@ jobs:
 
       - name: Run enterprise staff meeting workflow
         env:
-          QA_REUSE_AUTH_STATE: "true"
+          # Use fresh API sessions so earlier smoke/workflow traffic cannot exhaust
+          # the per-session application rate limit before the meeting lifecycle.
+          QA_REUSE_AUTH_STATE: "false"
         run: pnpm exec playwright test e2e/meetings-workflow.spec.ts --project=desktop-chromium --grep "@meeting-workflow" --workers=1 --retries=0
 
       - name: Upload QA evidence

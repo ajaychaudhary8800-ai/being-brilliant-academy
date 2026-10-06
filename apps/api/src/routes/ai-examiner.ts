@@ -1,4 +1,4 @@
-import { AcademicBoard, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerCheckedCopyRevisionStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBatchPageStatus, AIExaminerScanBatchStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
+import { AcademicBoard, AIExaminerAnnotationApprovalState, AIExaminerAnnotationAuthorType, AIExaminerAnnotationType, AIExaminerBenchmarkRunStatus, AIExaminerBenchmarkSuiteStatus, AIExaminerCheckedCopyRevisionStatus, AIExaminerEvaluationStatus, AIExaminerExamProfileStatus, AIExaminerReviewMode, AIExaminerReviewRoundKind, AIExaminerReviewRoundStatus, AIExaminerRubricStatus, AIExaminerScanBatchPageStatus, AIExaminerScanBatchStatus, AIExaminerScanBindingStatus, AIExaminerScanPageStatus, AIExaminerRegradeRequestStatus, AIExaminerRegradeScope, AnswerSheetStatus, ClassLevel, ExaminationStatus, Prisma, QuestionType, Role } from "@prisma/client";
 import crypto from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
@@ -34,6 +34,8 @@ import { analyzeAIExaminerOriginality } from "../lib/ai-examiner-originality.js"
 import { aiExaminerEvidenceMimeTypes, assertAIExaminerEvidenceKindMatchesMime, decodeAIExaminerEvidenceUpload, normalizeAIExaminerEvidenceUrl } from "../lib/ai-examiner-evidence-upload.js";
 import { renderAIExaminerCheckedCopy } from "../lib/ai-examiner-checked-copy.js";
 import { buildAIExaminerCheckedCopyDraft } from "../lib/ai-examiner-checked-copy-state.js";
+import { ensureAIExaminerCheckedCopyDraft } from "../lib/ai-examiner-checked-copy-draft.js";
+import { finalizeAIExaminerCheckedCopyIfReady } from "../lib/ai-examiner-checked-copy-finalize.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
@@ -3739,6 +3741,78 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
     });
     if (answer.count !== 1) throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet review state changed before approval");
 
+    // A teacher may review the AI red-pen draft before finalizing marks. Keep that
+    // non-destructive draft, but synchronize managed score annotations with the
+    // authoritative teacher-approved marks. If the teacher changed a question score,
+    // AI-authored semantic marks for that question must be reviewed again.
+    const checkedCopyDrafts = await tx.aIExaminerCheckedCopyRevision.findMany({
+      where: {
+        organizationId: req.auth!.organizationId,
+        evaluationId: evaluation.id,
+        status: AIExaminerCheckedCopyRevisionStatus.DRAFT,
+      },
+      select: { id: true },
+    });
+    if (checkedCopyDrafts.length) {
+      const revisionIds = checkedCopyDrafts.map(row => row.id);
+      const changedQuestionKeys: string[] = [];
+      for (const question of evaluation.questions) {
+        const reviewed = byKey.get(question.questionKey.toLowerCase())!;
+        const suggested = question.suggestedMarks == null ? null : Number(question.suggestedMarks);
+        if (suggested == null || Math.abs(reviewed.finalMarks - suggested) > 0.001) changedQuestionKeys.push(question.questionKey);
+        await tx.aIExaminerAnnotation.updateMany({
+          where: {
+            organizationId: req.auth!.organizationId,
+            revisionId: { in: revisionIds },
+            type: AIExaminerAnnotationType.QUESTION_SCORE,
+            questionKey: question.questionKey,
+          },
+          data: {
+            marks: reviewed.finalMarks,
+            content: `${question.questionKey}: ${reviewed.finalMarks}/${Number(question.maxMarks)}`,
+          },
+        });
+      }
+      await tx.aIExaminerAnnotation.updateMany({
+        where: {
+          organizationId: req.auth!.organizationId,
+          revisionId: { in: revisionIds },
+          type: AIExaminerAnnotationType.TOTAL_SCORE,
+        },
+        data: { marks: total, content: `Total = ${total}/${exam.maximumMarks}` },
+      });
+      if (changedQuestionKeys.length) {
+        await tx.aIExaminerAnnotation.updateMany({
+          where: {
+            organizationId: req.auth!.organizationId,
+            revisionId: { in: revisionIds },
+            questionKey: { in: changedQuestionKeys },
+            approvalState: { not: AIExaminerAnnotationApprovalState.REJECTED },
+            type: { notIn: [AIExaminerAnnotationType.QUESTION_SCORE, AIExaminerAnnotationType.TOTAL_SCORE] },
+          },
+          data: { approvalState: AIExaminerAnnotationApprovalState.POSITION_REVIEW_REQUIRED },
+        });
+      }
+      await tx.aIExaminerCheckedCopyRevision.updateMany({
+        where: { id: { in: revisionIds }, organizationId: req.auth!.organizationId },
+        data: { annotationRevision: { increment: 1 } },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: req.auth!.organizationId,
+          actorId: req.auth!.userId,
+          action: "AI_CHECKED_COPY_FINAL_MARKS_SYNCED",
+          entity: "AIExaminerEvaluation",
+          entityId: evaluation.id,
+          metadata: {
+            revisionIds,
+            changedQuestionKeys,
+            teacherApprovedMarks: total,
+          },
+        },
+      });
+    }
+
     const result = examinationResultFor(total, exam.maximumMarks, exam.passingMarks, now);
     await tx.examinationResult.upsert({
       where: { examinationId_studentId: { examinationId: exam.id, studentId: evaluation.answerSheet.studentId } },
@@ -3799,7 +3873,56 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
       include: { questions: { orderBy: { createdAt: "asc" } } },
     });
   });
-  res.json({ data: approved, meta: { finalMarks: total, finalized: true } });
+  let checkedCopyMeta: { status: "RENDERED" | "EXCEPTIONS_REMAIN" | "RETRY_REQUIRED"; exceptions: number | null; revisionId: string | null } = {
+    status: "RETRY_REQUIRED",
+    exceptions: null,
+    revisionId: null,
+  };
+  try {
+    const ensured = await ensureAIExaminerCheckedCopyDraft({
+      evaluationId: evaluation.id,
+      organizationId: req.auth!.organizationId,
+      createdById: req.auth!.userId,
+    });
+    const exceptions = ensured.revision.annotations.filter(row =>
+      row.approvalState === AIExaminerAnnotationApprovalState.POSITION_REVIEW_REQUIRED || !row.anchor
+    ).length;
+    if (exceptions === 0) {
+      await finalizeAIExaminerCheckedCopyIfReady({
+        organizationId: req.auth!.organizationId,
+        revisionId: ensured.revision.id,
+        actorId: req.auth!.userId,
+      });
+      checkedCopyMeta = {
+        status: "RENDERED",
+        exceptions: 0,
+        revisionId: ensured.revision.id,
+      };
+    } else {
+      checkedCopyMeta = {
+        status: "EXCEPTIONS_REMAIN",
+        exceptions,
+        revisionId: ensured.revision.id,
+      };
+    }
+  } catch (checkedCopyError) {
+    checkedCopyMeta = { status: "RETRY_REQUIRED", exceptions: null, revisionId: checkedCopyMeta.revisionId };
+    await prisma.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "AI_CHECKED_COPY_POST_FINALIZE_RETRY_REQUIRED",
+        entity: "AIExaminerEvaluation",
+        entityId: evaluation.id,
+        metadata: {
+          answerSheetId: evaluation.answerSheet.id,
+          message: checkedCopyError instanceof Error ? checkedCopyError.message.slice(0, 1000) : "Unknown checked-copy finalization error",
+        },
+      },
+    }).catch(() => null);
+  }
+
+  res.json({ data: approved, meta: { finalMarks: total, finalized: true, checkedCopy: checkedCopyMeta } });
 });
 
 router.post("/evaluations/:evaluationId/cancel", async (req: AuthRequest, res) => {

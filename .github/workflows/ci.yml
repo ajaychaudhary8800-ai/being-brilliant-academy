@@ -54,12 +54,22 @@ jobs:
         run: pnpm --filter @bba/api test
       - name: Validate launch readiness manifest
         run: pnpm launch:check
+      - name: Validate ERP 4.0 software release readiness
+        run: pnpm software:release:require-ready
       - run: pnpm typecheck
       - run: pnpm build
       - name: Runtime health smoke test
         run: |
           pnpm --filter @bba/api start > api.log 2>&1 &
-          for i in $(seq 1 30); do curl -fsS http://localhost:4000/health/ready && exit 0; sleep 2; done
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:4000/health/ready && break
+            sleep 2
+          done
+          curl -fsS http://localhost:4000/health/ready || { cat api.log; exit 1; }
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:4000/health/operational && exit 0
+            sleep 2
+          done
           cat api.log
           exit 1
   containers:

@@ -17,6 +17,7 @@ import {
 } from "./ai-examiner-orchestration.js";
 import { AIExaminerScoringError } from "./ai-examiner-deterministic.js";
 import { parseAIExaminerExamProfile } from "./ai-examiner-exam-profile.js";
+import { ensureAIExaminerCheckedCopyDraft } from "./ai-examiner-checked-copy-draft.js";
 import { decideAIExaminerSecondPass } from "./ai-examiner-second-pass.js";
 import { collectTrustedAIExaminerOmrAnswers } from "./ai-examiner-scan-ingestion.js";
 import {
@@ -413,7 +414,32 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
       return updated;
     });
 
-    return { processed: true, evaluation: persisted };
+    let checkedCopyAutoDraft: "CREATED" | "EXISTING" | "FAILED" = "FAILED";
+    try {
+      const ensured = await ensureAIExaminerCheckedCopyDraft({
+        evaluationId: evaluation.id,
+        organizationId: evaluation.organizationId,
+        createdById: evaluation.requestedById,
+      });
+      checkedCopyAutoDraft = ensured.existing ? "EXISTING" : "CREATED";
+    } catch (checkedCopyError) {
+      await systemPrisma.auditLog.create({
+        data: {
+          organizationId: evaluation.organizationId,
+          actorId: evaluation.requestedById,
+          action: "AI_CHECKED_COPY_AUTO_DRAFT_FAILED",
+          entity: "AIExaminerEvaluation",
+          entityId: evaluation.id,
+          metadata: {
+            answerSheetId: evaluation.answerSheetId,
+            message: checkedCopyError instanceof Error ? checkedCopyError.message.slice(0, 1000) : "Unknown checked-copy draft error",
+          },
+        },
+      }).catch(() => null);
+      logger.warn({ evaluationId: evaluation.id, err: checkedCopyError }, "AI checked-copy auto draft failed; teacher review remains available");
+    }
+
+    return { processed: true, evaluation: persisted, checkedCopyAutoDraft };
   } catch (error) {
     const details = errorDetails(error);
     const failedAt = new Date();

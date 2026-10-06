@@ -12,7 +12,9 @@ RUN pnpm --filter @bba/api exec tsc -p tsconfig.json --noCheck
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production PORT=4000
-RUN apk add --no-cache tini curl su-exec imagemagick poppler-utils font-dejavu && addgroup -S app && adduser -S -G app app && mkdir -p /data/storage && chown app:app /data/storage
+RUN apk add --no-cache tini curl su-exec imagemagick poppler-utils font-dejavu font-urw-base35 rsvg-convert \
+    && command -v rsvg-convert >/dev/null \
+    && addgroup -S app && adduser -S -G app app && mkdir -p /data/storage && chown app:app /data/storage
 WORKDIR /workspace
 COPY --from=build --chown=app:app /workspace/package.json /workspace/pnpm-lock.yaml /workspace/pnpm-workspace.yaml ./
 COPY --from=build --chown=app:app /workspace/node_modules ./node_modules
