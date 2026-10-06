@@ -113,8 +113,8 @@
         "docs/legal-sales/LEGAL_RESEARCH_NOTES.md",
         "docs/legal-sales/COUNSEL_REVIEW_HANDOFF.md"
       ],
-      "nextAction": "Reconcile the 23 October 2024 MCA registered-office/director-name evidence with a current official MCA record or later registered-office filing, verify GST particulars from an official record, and complete Indian counsel review before first external signature.",
-      "note": "Official MCA evidence dated 23 October 2024 confirms the company name and CIN but shows a different registered office from the management-supplied 6 October 2026 address and uses the director name CHOUDHARY AJAY SINGH HOON. Business-role mail flow, public support number and SPF/DKIM/DMARC are verified. Gate remains blocked until the address/name discrepancy is reconciled against a current official record, GST particulars are verified, and Indian counsel review is complete."
+      "nextAction": "Verify GST particulars from an official GST record and complete Indian counsel review before first external signature. Counsel should also confirm whether the supplied 23 October 2024 MCA extract is sufficient for the contemplated execution date.",
+      "note": "Management directed that the official MCA Company Information extract dated 23 October 2024 be used for MCA-covered particulars. The controlled pack now uses the MCA company name, CIN, registered office and Director/signatory name from that extract. Business-role mail flow, public support number and SPF/DKIM/DMARC are verified. Gate remains blocked only for official GST verification and Indian counsel review/approval."
     },
     {
       "id": "public-legal-pages",
