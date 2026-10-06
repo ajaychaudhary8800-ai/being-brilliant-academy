@@ -100,20 +100,19 @@ Do not enable the publication flag before legal approval.
 
 Status: **PENDING_DEPENDENCY**
 
-A real institution must complete:
+The internal evidence process is prepared in `docs/FIRST_CLIENT_GO_LIVE_EVIDENCE.md`. For the first real institution, that record must tie together:
 
-- qualified sales process;
-- agreed plan/scope;
-- signed/accepted commercial documents;
-- required payment/activation condition;
-- tenant provisioning;
-- data/configuration;
-- UAT;
-- client approval;
-- go-live;
-- post-go-live smoke validation.
+- qualified SaaS Sales process and a **WON** lead linked to the actual customer organization;
+- agreed plan/scope and signed/accepted commercial documents;
+- real payment/activation evidence;
+- production tenant provisioning and aligned subscription;
+- onboarding **READY / 100%**;
+- required data/configuration and training;
+- UAT/client acceptance;
+- final handover/go-live approval; and
+- successful post-go-live smoke validation.
 
-Synthetic QA tenants do not satisfy this gate.
+Synthetic QA, demo and internal tenants do not satisfy this gate.
 
 ## 3. Downstream formal release
 
