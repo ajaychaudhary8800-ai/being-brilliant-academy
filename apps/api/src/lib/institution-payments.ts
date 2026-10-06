@@ -363,6 +363,20 @@ async function capturePayment(gatewayId: string, eventId: string, event: any) {
           },
         });
       }
+      await tx.notification.create({
+        data: {
+          organizationId: current.organizationId,
+          userId: current.payerUserId,
+          title: "Fee payment confirmed",
+          body: `Your online fee payment of INR ${(current.amountPaise / 100).toFixed(2)} has been confirmed. Receipt ${receiptNumber} is now available in Fees.`,
+          category: "FINANCE",
+          sourceModule: "FEES",
+          sourceEntityId: feePayment.id,
+          actionUrl: "/portal",
+          priority: "NORMAL",
+          channels: ["IN_APP"],
+        },
+      });
       return { paymentId: feePayment.id, receiptNumber, duplicate: false };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return { handled: true, orderId: order.id, ...result };
