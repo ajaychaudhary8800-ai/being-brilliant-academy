@@ -76,6 +76,7 @@ const schema = z.object({
   RAZORPAY_KEY_SECRET: optionalString,
   RAZORPAY_WEBHOOK_SECRET: optionalString,
   RAZORPAY_MODE: z.enum(["test", "live"]).default("test"),
+  PAYMENT_CREDENTIAL_ENCRYPTION_KEY: z.preprocess((value) => value === "" ? undefined : value, z.string().min(32).optional()),
 }).superRefine((value, context) => {
   if (value.NODE_ENV === "production") {
     if (value.JWT_ACCESS_SECRET.includes("replace-with")) context.addIssue({ code: "custom", path: ["JWT_ACCESS_SECRET"], message: "Production access secret must be replaced" });
