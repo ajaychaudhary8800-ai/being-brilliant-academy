@@ -17,21 +17,21 @@ This Order Form is issued under the Being Brilliant SaaS Master Agreement betwee
 
 ## B. Order details
 
-**Order No.:** [[NUMBER]]  
-**Effective date:** [[DATE]]  
-**Initial term:** [[12 MONTHS / OTHER]]  
-**Billing cycle:** [[ANNUAL / MONTHLY]]  
-**Plan:** [[ESSENTIALS / GROWTH / PROFESSIONAL / ENTERPRISE]]  
-**Subscription start:** [[DATE]]  
-**Target go-live:** [[DATE]]
+**Order No.:** [[ORDER NUMBER]]  
+**Effective date:** [[EFFECTIVE DATE]]  
+**Initial term:** [[INITIAL TERM]]  
+**Billing cycle:** [[BILLING CYCLE]]  
+**Plan:** [[PLAN]]  
+**Subscription start:** [[SUBSCRIPTION START]]  
+**Target go-live:** [[TARGET GO-LIVE]]
 
 ## C. Contracted capacity
 
 | Metric | Contracted limit |
 | --- | ---: |
-| Active students | [[NUMBER]] |
-| Active users | [[NUMBER]] |
-| Branches/campuses | [[NUMBER]] |
+| Active students | [[ACTIVE STUDENT CAPACITY]] |
+| Active users | [[ACTIVE USER CAPACITY]] |
+| Branches/campuses | [[BRANCH CAPACITY]] |
 
 No feature or capacity is granted merely because it appears elsewhere in marketing material. The enabled plan and any written add-ons in this Order Form control.
 
@@ -39,15 +39,15 @@ No feature or capacity is granted merely because it appears elsewhere in marketi
 
 | Charge | Amount (₹) | Frequency |
 | --- | ---: | --- |
-| SaaS subscription | [[AMOUNT]] | [[Annual/Monthly]] |
-| Implementation | [[AMOUNT]] | One-time |
-| Data migration | [[AMOUNT]] | One-time |
-| Integration/add-on | [[AMOUNT]] | [[One-time/Recurring]] |
+| SaaS subscription | [[SUBSCRIPTION AMOUNT]] | [[BILLING CYCLE]] |
+| Implementation | [[IMPLEMENTATION AMOUNT]] | One-time |
+| Data migration | [[DATA MIGRATION AMOUNT]] | One-time |
+| Integration/add-on | [[INTEGRATION ADD-ON AMOUNT]] | [[ADD-ON FREQUENCY]] |
 
-**Subtotal:** ₹[[AMOUNT]]  
+**Subtotal:** ₹[[SUBTOTAL]]  
 **GST:** as applicable  
-**Payment due:** [[IN ADVANCE / X DAYS]]  
-**Quote validity:** [[DATE]]
+**Payment due:** [[PAYMENT DUE]]  
+**Quote validity:** [[QUOTE VALIDITY]]
 
 Standard catalogue prices, implementation rules and capacity references are defined in `docs/COMMERCIAL_PACKAGING_PRICING.md`.
 
@@ -55,11 +55,11 @@ Standard catalogue prices, implementation rules and capacity references are defi
 
 ## E. Included modules/add-ons
 
-[[LIST ENABLED MODULES AND ANY CONTRACT-SPECIFIC ENTITLEMENTS]]
+[[ENABLED MODULES AND ENTITLEMENTS]]
 
 ## F. Special commercial terms
 
-[[NONE / INSERT APPROVED EXCEPTION]]
+[[SPECIAL COMMERCIAL TERMS]]
 
 Any discount, custom capacity, white-label term or module override must be written here and reflected in the platform plan/entitlement configuration. Sales discussions do not override this Order Form.
 
@@ -83,6 +83,6 @@ Designation: DIRECTOR
 Signature/date: __________________
 
 **For Client**  
-Name: [[NAME]]  
-Designation: [[DESIGNATION]]  
+Name: [[CLIENT SIGNATORY NAME]]  
+Designation: [[CLIENT SIGNATORY DESIGNATION]]  
 Signature/date: __________________
