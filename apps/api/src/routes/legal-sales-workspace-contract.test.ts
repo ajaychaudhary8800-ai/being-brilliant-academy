@@ -65,6 +65,15 @@ test("runtime API image packages the controlled legal sales source", async () =>
   assert.match(server, /onlyPaths\(\["\/platform\/legal-sales"\], legalSalesDocuments\)/);
 });
 
+test("legal sales print output renders client-facing markdown without admin chrome", async () => {
+  const page = await readFile(pageUrl, "utf8");
+  assert.match(page, /function PrintableMarkdown/);
+  assert.match(page, /legal-sales-print-document/);
+  assert.match(page, /print-table/);
+  assert.match(page, /admin-workspace-main>div>header/);
+  assert.doesNotMatch(page, /<pre className="legal-sales-print-content/);
+});
+
 test("platform navigation and UI expose view, generate, download and print controls", async () => {
   const [sidebar, page] = await Promise.all([
     readFile(sidebarUrl, "utf8"),
