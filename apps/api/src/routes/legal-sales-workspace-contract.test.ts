@@ -197,3 +197,23 @@ test("handover acceptance requires actual go-live facts and avoids generic place
   assert.doesNotMatch(page, /\["GO LIVE DATE", context\.targetGoLive/);
   assert.doesNotMatch(page, /\["OPEN GO-LIVE EXCEPTIONS",/);
 });
+
+
+test("client context can reuse explicit real contracting and closeout facts without inventing them", async () => {
+  const page = await readFile(pageUrl, "utf8");
+  for (const pair of [
+    ["EFFECTIVE DATE", "context.effectiveDate"],
+    ["SUBSCRIPTION START", "context.subscriptionStart"],
+    ["GO LIVE DATE", "context.goLiveDate"],
+    ["CLIENT SIGNATORY NAME", "context.clientSignatoryName"],
+    ["CLIENT SIGNATORY DESIGNATION", "context.clientSignatoryDesignation"],
+    ["PROVIDER PROJECT CONTACT", "context.providerProjectContact"],
+    ["CLIENT PROJECT CONTACT", "context.clientProjectContact"],
+    ["OPEN GO-LIVE EXCEPTIONS", "context.openGoLiveExceptions"],
+  ]) {
+    assert.ok(page.includes(`["${pair[0]}", ${pair[1]}]`), `missing explicit context mapping for ${pair[0]}`);
+  }
+  assert.match(page, /Actual go-live date/);
+  assert.match(page, /Client signatory name/);
+  assert.match(page, /Client project contact/);
+});
