@@ -125,6 +125,24 @@
         "docker-compose.yml"
       ],
       "note": "CI validates API regression, PostgreSQL integration, typecheck, build, runtime operational health and multi-service Coolify-compatible container builds."
+    },
+    {
+      "id": "commercial-closeout-software",
+      "name": "Commercial closeout and evidence workflow",
+      "status": "READY",
+      "evidence": [
+        "apps/api/src/routes/saas-sales.ts",
+        "apps/api/src/routes/commercial-document-vault.ts",
+        "apps/web/app/admin/commercial-documents/page.tsx",
+        "apps/web/app/admin/legal-sales/page.tsx",
+        "apps/api/src/routes/commercial-document-vault-contract.test.ts",
+        "docs/FIRST_CLIENT_GO_LIVE_EVIDENCE.md"
+      ],
+      "note": "The software path for signed-document evidence, sales WON linkage, billing/onboarding handoff and go-live evidence is implemented and QA-testable. Real client acceptance/payment remains an external commercial event and is not required for ERP 4.0 software completion."
     }
-  ]
+  ],
+  "asOf": "2026-10-08",
+  "completionPercent": 100,
+  "qaStatus": "PASS",
+  "qaPolicy": "Synthetic/test acceptance and payment evidence may be used to validate software workflows, but never as evidence of a real paying client or commercial launch."
 }
