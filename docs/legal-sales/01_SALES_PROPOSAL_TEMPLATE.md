@@ -2,7 +2,7 @@
 
 **Proposal No.:** [[PROPOSAL NUMBER]]  
 **Date:** [[DATE]]  
-**Valid Until:** [[DATE]]  
+**Valid Until:** [[VALID UNTIL]]  
 **Prepared for:** [[CLIENT LEGAL NAME]]  
 **Institution:** [[INSTITUTION NAME]]  
 **Prepared by:** Adhyay Eduventure Private Limited
@@ -17,9 +17,9 @@ The implementation objective is to reduce duplicate data entry, improve fee/admi
 
 **Recommended plan:** [[ESSENTIALS / GROWTH / PROFESSIONAL / ENTERPRISE]]  
 **Billing cycle:** [[MONTHLY / ANNUAL]]  
-**Active-student capacity:** [[LIMIT]]  
-**Active-user capacity:** [[LIMIT]]  
-**Branch capacity:** [[LIMIT]]
+**Active-student capacity:** [[ACTIVE STUDENT CAPACITY]]  
+**Active-user capacity:** [[ACTIVE USER CAPACITY]]  
+**Branch capacity:** [[BRANCH CAPACITY]]
 
 Plan selection must match the current commercial catalogue in `docs/COMMERCIAL_PACKAGING_PRICING.md`. Do not promise a higher-tier module under a lower-tier plan.
 
@@ -52,13 +52,13 @@ Target dates are dependent on client inputs, data quality and third-party/DNS de
 
 | Item | Quantity | Price | Tax |
 | --- | ---: | ---: | ---: |
-| [[PLAN]] subscription | [[1]] | ₹[[AMOUNT]] | GST as applicable |
-| Implementation | [[QTY]] | ₹[[AMOUNT]] | GST as applicable |
-| [[ADD-ON]] | [[QTY]] | ₹[[AMOUNT]] | GST as applicable |
+| [[PLAN]] subscription | 1 | ₹[[SUBSCRIPTION AMOUNT]] | GST as applicable |
+| Implementation | [[IMPLEMENTATION QTY]] | ₹[[IMPLEMENTATION AMOUNT]] | GST as applicable |
+| [[ADD-ON]] | [[ADD-ON QTY]] | ₹[[ADD-ON AMOUNT]] | GST as applicable |
 
-**Total before tax:** ₹[[AMOUNT]]  
-**Applicable tax:** ₹[[AMOUNT]]  
-**Grand total:** ₹[[AMOUNT]]
+**Total before tax:** ₹[[TOTAL BEFORE TAX]]  
+**Applicable tax:** ₹[[TAX AMOUNT]]  
+**Grand total:** ₹[[GRAND TOTAL]]
 
 Third-party messaging, payment-gateway, domain, travel/stay and separately scoped integration/development charges are excluded unless expressly listed.
 

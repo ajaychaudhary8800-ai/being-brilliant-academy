@@ -74,7 +74,22 @@ function downloadText(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
+const planDefaults: Record<string, { students: string; users: string; branches: string; monthly: string; annual: string }> = {
+  ESSENTIALS: { students: "300", users: "1000", branches: "1", monthly: "4999", annual: "49990" },
+  GROWTH: { students: "800", users: "3000", branches: "1", monthly: "8999", annual: "89990" },
+  PROFESSIONAL: { students: "2000", users: "7000", branches: "5", monthly: "14999", annual: "149990" },
+  ENTERPRISE: { students: "5000", users: "18000", branches: "20", monthly: "29999", annual: "299990" },
+};
+
 function contextReplacements(context: ClientContext): Record<string, string> {
+  const selectedPlan = planDefaults[context.plan];
+  const subscriptionAmount = selectedPlan
+    ? context.billingCycle === "ANNUAL" ? selectedPlan.annual : context.billingCycle === "MONTHLY" ? selectedPlan.monthly : ""
+    : "";
+  const implementationAmount = selectedPlan
+    ? context.billingCycle === "ANNUAL" ? "0" : context.billingCycle === "MONTHLY" ? selectedPlan.monthly : ""
+    : "";
+
   const pairs: Array<[string, string]> = [
     ["CLIENT LEGAL NAME", context.clientLegalName],
     ["CLIENT", context.clientLegalName],
@@ -89,6 +104,12 @@ function contextReplacements(context: ClientContext): Record<string, string> {
     ["MONTHLY / ANNUAL", context.billingCycle],
     ["DATE", context.documentDate],
     ["PROPOSAL NUMBER", context.proposalNumber],
+    ["ACTIVE STUDENT CAPACITY", selectedPlan?.students ?? ""],
+    ["ACTIVE USER CAPACITY", selectedPlan?.users ?? ""],
+    ["BRANCH CAPACITY", selectedPlan?.branches ?? ""],
+    ["SUBSCRIPTION AMOUNT", subscriptionAmount],
+    ["IMPLEMENTATION QTY", selectedPlan ? "1" : ""],
+    ["IMPLEMENTATION AMOUNT", implementationAmount],
   ];
   return Object.fromEntries(pairs.filter(([, value]) => value.trim().length > 0));
 }
@@ -218,7 +239,7 @@ export default function Page() {
           </div>
         </div>
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-          Provider particulars are anchored to the supplied official MCA extract and official GST REG-06 certificate; business-role mailboxes, support details and outbound mail authentication are verified. Indian counsel review is recorded as complete on 6 October 2026 and the controlled pack was approved without changes. Public Privacy, Terms and AUP pages still require controlled runtime activation and staging verification before publication. Payment destination details must still be inserted only from approved company finance records when issuing quotations/invoices. Step 5 off-site DR evidence is complete, but no fixed contractual RPO/RTO should be promised unless separately approved.
+          Provider particulars are anchored to the supplied official MCA extract and official GST REG-06 certificate; business-role mailboxes, support details and outbound mail authentication are verified. Indian counsel review is recorded as complete on 6 October 2026 and the controlled pack was approved without changes. Public Privacy, Terms and AUP pages were published and verified in production on 6 October 2026. Payment destination details must still be inserted only from approved company finance records when issuing quotations/invoices. Step 5 off-site DR evidence is complete, but no fixed contractual RPO/RTO should be promised unless separately approved.
         </div>
       </section>
 

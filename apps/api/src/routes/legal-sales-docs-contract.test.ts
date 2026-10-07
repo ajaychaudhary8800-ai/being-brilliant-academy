@@ -28,6 +28,26 @@ test("Step 9 legal-sales pack contains the complete controlled document set", as
   }
 });
 
+test("sales proposal uses distinct commercial placeholders for capacities and amounts", async () => {
+  const proposal = await readFile(legal("01_SALES_PROPOSAL_TEMPLATE.md"), "utf8");
+  for (const token of [
+    "ACTIVE STUDENT CAPACITY",
+    "ACTIVE USER CAPACITY",
+    "BRANCH CAPACITY",
+    "SUBSCRIPTION AMOUNT",
+    "IMPLEMENTATION AMOUNT",
+    "TOTAL BEFORE TAX",
+    "TAX AMOUNT",
+    "GRAND TOTAL",
+    "VALID UNTIL",
+  ]) {
+    assert.match(proposal, new RegExp(`\\[\\[${token}\\]\\]`));
+  }
+  assert.doesNotMatch(proposal, /\[\[LIMIT\]\]/);
+  assert.doesNotMatch(proposal, /\[\[AMOUNT\]\]/);
+  assert.doesNotMatch(proposal, /\[\[1\]\]/);
+});
+
 test("Order Form and proposal remain anchored to the approved Step 8 commercial catalogue", async () => {
   const [proposal, order] = await Promise.all([
     readFile(legal("01_SALES_PROPOSAL_TEMPLATE.md"), "utf8"),
