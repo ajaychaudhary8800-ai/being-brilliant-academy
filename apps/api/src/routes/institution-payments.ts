@@ -6,6 +6,7 @@ import { encryptInstitutionPaymentSecret, institutionPaymentEncryptionReady } fr
 import {
   normalizedGatewayMethods,
   processInstitutionRazorpayWebhook,
+  reconcileInstitutionPaymentOrder,
   requestInstitutionPaymentRefund,
   verifyInstitutionGatewayCredentials,
 } from "../lib/institution-payments.js";
@@ -232,6 +233,15 @@ router.get("/organization/payment-gateway/orders", requireAuth, allow(Role.SUPER
     })),
     meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) },
   });
+});
+
+router.post("/organization/payment-gateway/orders/:orderId/reconcile", requireAuth, allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
+  const data = await reconcileInstitutionPaymentOrder({
+    organizationId: req.auth!.organizationId,
+    orderId: String(req.params.orderId),
+    requestedById: req.auth!.userId,
+  });
+  res.status(200).json({ data });
 });
 
 router.post("/organization/payment-gateway/orders/:orderId/refund", requireAuth, allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
