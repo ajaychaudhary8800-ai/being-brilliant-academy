@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-10-07",
+  "asOf": "2026-10-08",
   "product": "Being Brilliant ERP + LMS + CRM",
   "declaredStatus": "HOLD",
   "statusRule": "GO only when every gate with blocking=true is READY.",
@@ -145,8 +145,8 @@
         "docs/FIRST_CLIENT_GO_LIVE_EVIDENCE.md",
         "docs/GREEN_SHINE_FIRST_CLIENT_GO_LIVE.md"
       ],
-      "nextAction": "Use docs/GREEN_SHINE_FIRST_CLIENT_GO_LIVE.md with docs/FIRST_CLIENT_GO_LIVE_EVIDENCE.md to take Green Shine World School through real commercial acceptance, genuine payment/activation evidence, WON lead linkage, onboarding READY / 100%, UAT/client acceptance, production go-live and smoke validation.",
-      "note": "Green Shine World School is the designated first real paying institution candidate and first external school client candidate. Being Brilliant Academy is the internal coaching reference implementation and does not satisfy the external-paying-client gate. The gate remains PENDING_DEPENDENCY until Green Shine (or another real external institution) completes every Step 11 evidence condition."
+      "nextAction": "Hard-copy proposal GSWS-PRO-2026-001 has been submitted at the Green Shine World School office. Obtain real commercial acceptance/signatures, then record genuine payment/activation evidence, mark and link the SaaS Sales lead WON, complete onboarding READY / 100%, UAT/client acceptance, production go-live and smoke validation.",
+      "note": "Green Shine World School remains the designated first real paying institution candidate. Management confirmed on 8 October 2026 that proposal GSWS-PRO-2026-001 was submitted physically at the school office; delivery does not equal acceptance. Being Brilliant Academy remains the internal coaching reference implementation and does not satisfy the external-paying-client gate. The gate stays PENDING_DEPENDENCY until Green Shine (or another real external institution) completes every Step 11 evidence condition."
     },
     {
       "id": "formal-release",
