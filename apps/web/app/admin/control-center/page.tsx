@@ -223,6 +223,7 @@ export default function Page() {
                 ["/admin/saas-plans","SaaS plans & pricing"],
                 ["/admin/saas-billing","Billing & subscriptions"],
                 ["/admin/saas-sales","SaaS sales pipeline"],
+                ["/admin/commercial-documents","Commercial document vault"],
                 ["/admin/legal-sales","Sales/legal documents"],
                 ["/admin/implementation-kit","Implementation & UAT"],
               ].map(([href,label]) => <Link key={href} href={href} className="rounded-xl border p-3 font-semibold hover:border-brand-300 hover:text-brand-700">{label}</Link>)}
