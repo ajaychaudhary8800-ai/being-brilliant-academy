@@ -10,6 +10,7 @@ const pageUrl = new URL("../../../web/app/admin/legal-sales/page.tsx", import.me
 const readmeUrl = new URL("../../../../docs/legal-sales/README.md", import.meta.url);
 const orderFormUrl = new URL("../../../../docs/legal-sales/02_ORDER_FORM_QUOTATION.md", import.meta.url);
 const sowUrl = new URL("../../../../docs/legal-sales/04_IMPLEMENTATION_SOW.md", import.meta.url);
+const handoverUrl = new URL("../../../../docs/legal-sales/11_CLIENT_HANDOVER_ACCEPTANCE.md", import.meta.url);
 
 test("platform legal sales workspace exposes the complete controlled Step 9 pack", async () => {
   const route = await readFile(routeUrl, "utf8");
@@ -175,4 +176,44 @@ test("Step 9 README points operators to the ERP workspace", async () => {
   const readme = await readFile(readmeUrl, "utf8");
   assert.match(readme, /\/admin\/legal-sales/);
   assert.match(readme, /Platform Super Admin/);
+});
+
+
+test("handover acceptance requires actual go-live facts and avoids generic placeholders", async () => {
+  const [handover, page] = await Promise.all([
+    readFile(handoverUrl, "utf8"),
+    readFile(pageUrl, "utf8"),
+  ]);
+  for (const token of [
+    "CLIENT LEGAL NAME",
+    "INSTITUTION",
+    "ORDER NUMBER",
+    "GO LIVE DATE",
+    "PLAN",
+    "OPEN GO-LIVE EXCEPTIONS",
+  ]) assert.match(handover, new RegExp("\\[\\[" + token + "\\]\\]"));
+  assert.doesNotMatch(handover, /\[\[(?:NUMBER|DATE|NONE \/ LIST WITH OWNER AND TARGET)\]\]/);
+  assert.doesNotMatch(page, /\["GO LIVE DATE", context\.documentDate/);
+  assert.doesNotMatch(page, /\["GO LIVE DATE", context\.targetGoLive/);
+  assert.match(page, /\["OPEN GO-LIVE EXCEPTIONS", context\.openGoLiveExceptions\]/);
+});
+
+
+test("client context can reuse explicit real contracting and closeout facts without inventing them", async () => {
+  const page = await readFile(pageUrl, "utf8");
+  for (const pair of [
+    ["EFFECTIVE DATE", "context.effectiveDate"],
+    ["SUBSCRIPTION START", "context.subscriptionStart"],
+    ["GO LIVE DATE", "context.goLiveDate"],
+    ["CLIENT SIGNATORY NAME", "context.clientSignatoryName"],
+    ["CLIENT SIGNATORY DESIGNATION", "context.clientSignatoryDesignation"],
+    ["PROVIDER PROJECT CONTACT", "context.providerProjectContact"],
+    ["CLIENT PROJECT CONTACT", "context.clientProjectContact"],
+    ["OPEN GO-LIVE EXCEPTIONS", "context.openGoLiveExceptions"],
+  ]) {
+    assert.ok(page.includes(`["${pair[0]}", ${pair[1]}]`), `missing explicit context mapping for ${pair[0]}`);
+  }
+  assert.match(page, /Actual go-live date/);
+  assert.match(page, /Client signatory name/);
+  assert.match(page, /Client project contact/);
 });
