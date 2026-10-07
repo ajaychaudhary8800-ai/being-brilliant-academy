@@ -74,6 +74,7 @@ test("Platform Admin UI exposes the 14-step roadmap, live health and launch bloc
     "/admin/saas-plans",
     "/admin/saas-billing",
     "/admin/saas-sales",
+    "/admin/commercial-documents",
     "/admin/legal-sales",
     "/admin/implementation-kit",
   ]) assert.ok(page.includes(expected), "missing web control " + expected);
