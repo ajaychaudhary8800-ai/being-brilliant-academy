@@ -1,9 +1,9 @@
 # Implementation Statement of Work (SOW)
 
-**Client:** [[CLIENT]]  
-**Order Form:** [[NUMBER]]  
+**Client:** [[CLIENT LEGAL NAME]]  
+**Order Form:** [[ORDER NUMBER]]  
 **Project:** Being Brilliant ERP + LMS + CRM implementation  
-**Target go-live:** [[DATE]]
+**Target go-live:** [[TARGET GO-LIVE]]
 
 ## 1. Objectives
 
@@ -12,20 +12,20 @@ Configure the contracted tenant, branches, roles and entitled modules; migrate o
 ## 2. Included implementation scope
 
 - Tenant creation and subscription/entitlement configuration.
-- [[NUMBER]] branch/campus setup.
+- [[BRANCH CAPACITY]] branch/campus setup.
 - Core institution settings.
 - Initial administrator account.
-- [[COURSES / SESSIONS / SUBJECTS / BATCHES]] configuration guidance.
+- [[ACADEMIC CONFIGURATION SCOPE]] configuration guidance.
 - Standard remote administrator training.
 - UAT support.
 - Production go-live checklist.
 
 ## 3. Data migration
 
-**Migration included:** [[YES/NO]]  
-**Sources:** [[FILES/SYSTEMS]]  
-**Objects:** [[STUDENTS / TEACHERS / FEES / OTHER]]  
-**Included cleansing/transformation:** [[DETAILS]]
+**Migration included:** [[MIGRATION INCLUDED]]  
+**Sources:** [[MIGRATION SOURCES]]  
+**Objects:** [[MIGRATION OBJECTS]]  
+**Included cleansing/transformation:** [[MIGRATION TRANSFORMATION DETAILS]]
 
 Client is responsible for source-data legality, completeness, accuracy and timely delivery. Provider will identify validation errors but is not responsible for correcting unknown historical business errors unless separately scoped.
 
@@ -71,7 +71,7 @@ Client-caused delay moves dependent dates without constituting Provider breach.
 
 Client will test the agreed critical workflows. A Severity-1 defect blocks acceptance. Minor defects that do not prevent contracted production use may be listed as post-go-live actions with agreed target treatment.
 
-If Client does not provide material UAT feedback within [[5]] business days after a written acceptance request, Provider may escalate for project-governance review; silence alone should not be treated as acceptance where mandatory law or an executed Order Form requires express acceptance.
+If Client does not provide material UAT feedback within [[UAT FEEDBACK DAYS]] business days after a written acceptance request, Provider may escalate for project-governance review; silence alone should not be treated as acceptance where mandatory law or an executed Order Form requires express acceptance.
 
 ## 8. Change control
 
@@ -79,9 +79,9 @@ Any material change in modules, branch count, migration scope, integrations, cus
 
 ## 9. Project communications
 
-Provider project contact: [[NAME/EMAIL]]  
-Client project contact: [[NAME/EMAIL]]  
-Governance cadence: [[WEEKLY / OTHER]]
+Provider project contact: [[PROVIDER PROJECT CONTACT]]  
+Client project contact: [[CLIENT PROJECT CONTACT]]  
+Governance cadence: [[GOVERNANCE CADENCE]]
 
 ## 10. Sign-off
 
