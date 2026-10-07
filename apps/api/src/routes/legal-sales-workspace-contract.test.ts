@@ -142,6 +142,18 @@ test("order form client PDF cannot be exported with unresolved placeholders and 
   assert.match(orderForm, /\| Acceptance \| Provider \| Client \|/);
 });
 
+test("implementation SOW prefills standard no-migration defaults without inventing client dates or contacts", async () => {
+  const page = await readFile(pageUrl, "utf8");
+  assert.match(page, /\["ACADEMIC CONFIGURATION SCOPE", selectedPlan \? "Standard academic-session, branch\/campus, class\/course, section\/batch, subject, role and entitled-module configuration" : ""\]/);
+  assert.match(page, /\["MIGRATION INCLUDED", selectedPlan \? "NO" : ""\]/);
+  assert.match(page, /\["MIGRATION SOURCES", selectedPlan \? "Not applicable — legacy data migration is excluded unless separately contracted" : ""\]/);
+  assert.match(page, /\["MIGRATION OBJECTS", selectedPlan \? "Not applicable" : ""\]/);
+  assert.match(page, /\["MIGRATION TRANSFORMATION DETAILS", selectedPlan \? "Not applicable" : ""\]/);
+  assert.doesNotMatch(page, /\["TARGET GO-LIVE", selectedPlan/);
+  assert.doesNotMatch(page, /\["CLIENT PROJECT CONTACT", selectedPlan/);
+  assert.doesNotMatch(page, /\["PROVIDER PROJECT CONTACT", selectedPlan/);
+});
+
 test("platform navigation and UI expose view, generate, download and print controls", async () => {
   const [sidebar, page] = await Promise.all([
     readFile(sidebarUrl, "utf8"),
