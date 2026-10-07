@@ -101,8 +101,14 @@ function PrintableMarkdown({ content }: { content: string }) {
       continue;
     }
 
+    if (line === "Plan selection must match the current commercial catalogue in `docs/COMMERCIAL_PACKAGING_PRICING.md`. Do not promise a higher-tier module under a lower-tier plan.") {
+      index += 1;
+      continue;
+    }
+
     if (line.startsWith("# ")) {
-      blocks.push(<h1 key={`h1-${index}`} className="print-title">{renderInlineMarkdown(line.slice(2))}</h1>);
+      const clientTitle = line.slice(2).replace(/\s+Template$/, "");
+      blocks.push(<h1 key={`h1-${index}`} className="print-title">{renderInlineMarkdown(clientTitle)}</h1>);
       index += 1;
       continue;
     }
@@ -121,9 +127,15 @@ function PrintableMarkdown({ content }: { content: string }) {
         rows.push(tableCells(lines[index] ?? ""));
         index += 1;
       }
+      const visibleRows = rows.filter(row => {
+        const item = (row[0] ?? "").trim().toLowerCase();
+        const qty = (row[1] ?? "").trim();
+        const price = (row[2] ?? "").replace(/\s/g, "").trim();
+        return !((item === "none" || item === "0" || item === "-") && qty === "0" && (price === "₹0" || price === "0"));
+      });
       blocks.push(<table key={`table-${index}`} className="print-table">
         <thead><tr>{header.map((cell, cellIndex) => <th key={cellIndex}>{renderInlineMarkdown(cell)}</th>)}</tr></thead>
-        <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{renderInlineMarkdown(cell)}</td>)}</tr>)}</tbody>
+        <tbody>{visibleRows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{renderInlineMarkdown(cell)}</td>)}</tr>)}</tbody>
       </table>);
       continue;
     }
@@ -446,7 +458,7 @@ export default function Page() {
         @media print{
           @page{size:A4;margin:16mm 15mm}
           body{background:white!important;color:#111!important}
-          .admin-navigation-shell,.admin-logout,.legal-sales-print-hide,.admin-workspace-main>div>header{display:none!important}
+          .admin-navigation-shell,.admin-logout,.legal-sales-print-hide,.admin-workspace-main>div>header,.legal-sales-workspace>p[role="status"],.legal-sales-workspace section.card>header{display:none!important}
           .admin-workspace-main{margin-left:0!important;padding:0!important}
           .admin-workspace-main>div{max-width:none!important}
           .legal-sales-workspace{margin:0!important}
