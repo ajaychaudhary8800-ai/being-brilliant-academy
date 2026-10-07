@@ -1935,7 +1935,7 @@ function FeeCard({
           <p className="text-xs font-bold uppercase text-slate-400">Payment history</p>
           {item.payments.map((payment) => (
             <div key={payment.id} className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span>{shortDate(payment.paymentDate)} · {money(payment.amountPaise)} · {readable(payment.paymentMode)} · Receipt {payment.receiptNumber}</span>
+              <span>{dateTime(payment.paymentDate)} · {money(payment.amountPaise)} · {readable(payment.paymentMode)} · Receipt {payment.receiptNumber}</span>
               <button type="button" className="font-bold text-brand-700" onClick={() => void receipt(payment.id, payment.receiptNumber)}>
                 Download receipt
               </button>

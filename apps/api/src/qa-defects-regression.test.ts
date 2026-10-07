@@ -28,3 +28,10 @@ test("parent homework evaluation and user account editing are exposed", async ()
   assert.match(users, /Edit account/);
   assert.match(users, /method: "PATCH"/);
 });
+
+
+test("fee payment history renders full payment timestamps instead of the date-only formatter", async () => {
+  const portal = await readFile(new URL("../../web/components/portal-workspace.tsx", import.meta.url), "utf8");
+  assert.match(portal, /dateTime\(payment\.paymentDate\)/);
+  assert.doesNotMatch(portal, /shortDate\(payment\.paymentDate\)/);
+});
