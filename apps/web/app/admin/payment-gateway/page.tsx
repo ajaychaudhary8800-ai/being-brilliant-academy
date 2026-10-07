@@ -220,8 +220,9 @@ export default function PaymentGatewayPage() {
 
   async function copyWebhook() {
     if (!gateway?.webhookPath) return;
-    await navigator.clipboard.writeText(`${API}${gateway.webhookPath}`);
-    setNotice("Webhook URL copied.");
+    const webhookUrl = new URL(gateway.webhookPath, window.location.origin).toString();
+    await navigator.clipboard.writeText(webhookUrl);
+    setNotice("Full webhook URL copied.");
   }
 
   return (
