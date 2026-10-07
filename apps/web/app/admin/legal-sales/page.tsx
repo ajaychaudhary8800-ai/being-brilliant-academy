@@ -101,7 +101,10 @@ function PrintableMarkdown({ content }: { content: string }) {
       continue;
     }
 
-    if (line === "Plan selection must match the current commercial catalogue in `docs/COMMERCIAL_PACKAGING_PRICING.md`. Do not promise a higher-tier module under a lower-tier plan.") {
+    if (
+      line.includes("docs/COMMERCIAL_PACKAGING_PRICING.md") ||
+      line.startsWith("**Payment particulars control:**")
+    ) {
       index += 1;
       continue;
     }
@@ -206,12 +209,23 @@ function contextReplacements(context: ClientContext): Record<string, string> {
     ["MONTHLY / ANNUAL", context.billingCycle],
     ["DATE", context.documentDate],
     ["PROPOSAL NUMBER", context.proposalNumber],
+    ["ORDER NUMBER", context.orderNumber],
+    ["TARGET GO-LIVE", context.targetGoLive],
+    ["BILLING CYCLE", context.billingCycle],
     ["ACTIVE STUDENT CAPACITY", selectedPlan?.students ?? ""],
     ["ACTIVE USER CAPACITY", selectedPlan?.users ?? ""],
     ["BRANCH CAPACITY", selectedPlan?.branches ?? ""],
     ["SUBSCRIPTION AMOUNT", subscriptionAmount],
     ["IMPLEMENTATION QTY", selectedPlan ? "1" : ""],
     ["IMPLEMENTATION AMOUNT", implementationAmount],
+    ["SUBTOTAL", subscriptionAmount],
+    ["INITIAL TERM", context.billingCycle === "ANNUAL" ? "12 MONTHS" : ""],
+    ["DATA MIGRATION AMOUNT", selectedPlan ? "0" : ""],
+    ["INTEGRATION ADD-ON AMOUNT", selectedPlan ? "0" : ""],
+    ["ADD-ON FREQUENCY", selectedPlan ? "One-time" : ""],
+    ["PAYMENT DUE", context.billingCycle ? "IN ADVANCE" : ""],
+    ["UAT FEEDBACK DAYS", selectedPlan ? "5" : ""],
+    ["GOVERNANCE CADENCE", selectedPlan ? "WEEKLY" : ""],
   ];
   return Object.fromEntries(pairs.filter(([, value]) => value.trim().length > 0));
 }

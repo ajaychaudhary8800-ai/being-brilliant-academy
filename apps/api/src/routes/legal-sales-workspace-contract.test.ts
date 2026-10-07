@@ -8,6 +8,8 @@ const dockerUrl = new URL("../../Dockerfile", import.meta.url);
 const sidebarUrl = new URL("../../../web/components/sidebar.tsx", import.meta.url);
 const pageUrl = new URL("../../../web/app/admin/legal-sales/page.tsx", import.meta.url);
 const readmeUrl = new URL("../../../../docs/legal-sales/README.md", import.meta.url);
+const orderFormUrl = new URL("../../../../docs/legal-sales/02_ORDER_FORM_QUOTATION.md", import.meta.url);
+const sowUrl = new URL("../../../../docs/legal-sales/04_IMPLEMENTATION_SOW.md", import.meta.url);
 
 test("platform legal sales workspace exposes the complete controlled Step 9 pack", async () => {
   const route = await readFile(routeUrl, "utf8");
@@ -67,7 +69,8 @@ test("runtime API image packages the controlled legal sales source", async () =>
 
 test("client proposal print hides internal guidance and zero-value add-on rows", async () => {
   const page = await readFile(pageUrl, "utf8");
-  assert.match(page, /Plan selection must match the current commercial catalogue/);
+  assert.match(page, /line\.includes\("docs\/COMMERCIAL_PACKAGING_PRICING\.md"\)/);
+  assert.match(page, /line\.startsWith\("\*\*Payment particulars control:\*\*"\)/);
   assert.match(page, /clientTitle = line\.slice\(2\)\.replace/);
   assert.match(page, /visibleRows = rows\.filter/);
   assert.match(page, /role="status"/);
@@ -81,6 +84,43 @@ test("legal sales print output renders client-facing markdown without admin chro
   assert.match(page, /print-table/);
   assert.match(page, /admin-workspace-main>div>header/);
   assert.doesNotMatch(page, /<pre className="legal-sales-print-content/);
+});
+
+test("order form and SOW use unambiguous client-generation placeholders", async () => {
+  const [orderForm, sow] = await Promise.all([
+    readFile(orderFormUrl, "utf8"),
+    readFile(sowUrl, "utf8"),
+  ]);
+  for (const token of [
+    "ORDER NUMBER",
+    "EFFECTIVE DATE",
+    "SUBSCRIPTION START",
+    "TARGET GO-LIVE",
+    "ACTIVE STUDENT CAPACITY",
+    "ACTIVE USER CAPACITY",
+    "BRANCH CAPACITY",
+    "SUBSCRIPTION AMOUNT",
+    "IMPLEMENTATION AMOUNT",
+    "DATA MIGRATION AMOUNT",
+    "INTEGRATION ADD-ON AMOUNT",
+    "SUBTOTAL",
+    "CLIENT SIGNATORY NAME",
+  ]) assert.match(orderForm, new RegExp("\\\[\\\[" + token + "\\\]\\\]"));
+  for (const token of [
+    "ORDER NUMBER",
+    "TARGET GO-LIVE",
+    "BRANCH CAPACITY",
+    "ACADEMIC CONFIGURATION SCOPE",
+    "MIGRATION INCLUDED",
+    "MIGRATION SOURCES",
+    "MIGRATION OBJECTS",
+    "UAT FEEDBACK DAYS",
+    "PROVIDER PROJECT CONTACT",
+    "CLIENT PROJECT CONTACT",
+    "GOVERNANCE CADENCE",
+  ]) assert.match(sow, new RegExp("\\\[\\\[" + token + "\\\]\\\]"));
+  assert.doesNotMatch(orderForm, /\[\[(?:NUMBER|AMOUNT|DATE)\]\]/);
+  assert.doesNotMatch(sow, /\[\[(?:NUMBER|DATE|NAME\/EMAIL)\]\]/);
 });
 
 test("platform navigation and UI expose view, generate, download and print controls", async () => {
