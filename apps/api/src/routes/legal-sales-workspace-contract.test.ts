@@ -65,6 +65,15 @@ test("runtime API image packages the controlled legal sales source", async () =>
   assert.match(server, /onlyPaths\(\["\/platform\/legal-sales"\], legalSalesDocuments\)/);
 });
 
+test("client proposal print hides internal guidance and zero-value add-on rows", async () => {
+  const page = await readFile(pageUrl, "utf8");
+  assert.match(page, /Plan selection must match the current commercial catalogue/);
+  assert.match(page, /clientTitle = line\.slice\(2\)\.replace/);
+  assert.match(page, /visibleRows = rows\.filter/);
+  assert.match(page, /role="status"/);
+  assert.match(page, /section\.card>header/);
+});
+
 test("legal sales print output renders client-facing markdown without admin chrome", async () => {
   const page = await readFile(pageUrl, "utf8");
   assert.match(page, /function PrintableMarkdown/);
