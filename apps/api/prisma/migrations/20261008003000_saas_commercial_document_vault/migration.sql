@@ -12,6 +12,7 @@ CREATE TABLE "SaaSCommercialDocument" (
   "fileData" BYTEA NOT NULL,
   "contentSha256" TEXT NOT NULL,
   "verificationStatus" TEXT NOT NULL DEFAULT 'UNVERIFIED',
+  "verificationNotes" TEXT,
   "uploadedById" TEXT NOT NULL,
   "verifiedById" TEXT,
   "verifiedAt" TIMESTAMP(3),
