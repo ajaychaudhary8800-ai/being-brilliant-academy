@@ -7,6 +7,8 @@ const serverUrl = new URL("../server.ts", import.meta.url);
 const schemaUrl = new URL("../../prisma/schema.prisma", import.meta.url);
 const migrationUrl = new URL("../../prisma/migrations/20261008003000_saas_commercial_document_vault/migration.sql", import.meta.url);
 const pageUrl = new URL("../../../web/app/admin/commercial-documents/page.tsx", import.meta.url);
+const cryptoUrl = new URL("../lib/commercial-document-crypto.ts", import.meta.url);
+const configUrl = new URL("../config.ts", import.meta.url);
 const sidebarUrl = new URL("../../../web/components/sidebar.tsx", import.meta.url);
 const legalSalesUrl = new URL("../../../web/app/admin/legal-sales/page.tsx", import.meta.url);
 
@@ -17,15 +19,15 @@ test("commercial vault has an auditable lead-linked persistence model", async ()
   assert.match(schema, /organizationId\s+String\?/);
   assert.match(schema, /contentSha256\s+String/);
   assert.match(schema, /verificationStatus\s+String/);
-  assert.match(schema, /fileData\s+Bytes/);
+  assert.match(schema, /encryptedFileData\s+Bytes/);
   assert.match(schema, /documents\s+SaaSCommercialDocument\[\]/);
   assert.match(migration, /CREATE TABLE "SaaSCommercialDocument"/);
   assert.match(migration, /FOREIGN KEY \("leadId"\) REFERENCES "SaaSSalesLead"/);
   assert.match(migration, /"contentSha256"/);
 });
 
-test("vault API is platform-only, validates PDF bytes and does not expose file blobs in listings", async () => {
-  const [route, server] = await Promise.all([readFile(routeUrl, "utf8"), readFile(serverUrl, "utf8")]);
+test("vault API is platform-only, validates PDF bytes, encrypts at rest and does not expose file blobs in listings", async () => {
+  const [route, server, cryptoSource, config] = await Promise.all([readFile(routeUrl, "utf8"), readFile(serverUrl, "utf8"), readFile(cryptoUrl, "utf8"), readFile(configUrl, "utf8")]);
   assert.match(route, /PLATFORM_ADMIN_REQUIRED/);
   assert.match(route, /homeOrganizationId !== "org_default"/);
   assert.match(route, /z\.literal\("application\/pdf"\)/);
@@ -34,8 +36,15 @@ test("vault API is platform-only, validates PDF bytes and does not expose file b
   assert.match(route, /10 \* 1024 \* 1024/);
   assert.match(route, /createHash\("sha256"\)/);
   assert.match(route, /COMMERCIAL_DOCUMENT_DUPLICATE/);
-  assert.match(route, /fileData: _fileData/);
+  assert.doesNotMatch(route, /encryptedFileData:\s*true/);
+  assert.match(route, /encryptCommercialDocument/);
+  assert.match(route, /decryptCommercialDocument/);
+  assert.match(route, /COMMERCIAL_DOCUMENT_INTEGRITY_FAILED/);
   assert.match(route, /Cache-Control", "no-store"/);
+  assert.match(config, /COMMERCIAL_DOCUMENT_ENCRYPTION_KEY/);
+  assert.match(cryptoSource, /aes-256-gcm/);
+  assert.match(cryptoSource, /createCipheriv/);
+  assert.match(cryptoSource, /setAuthTag/);
   assert.match(server, /commercial-document-vault\.js/);
   assert.match(server, /\/platform\/commercial-documents/);
 });
