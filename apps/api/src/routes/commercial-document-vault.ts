@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { AppError } from "../lib/http.js";
+import { commercialDocumentEncryptionReady, decryptCommercialDocument, encryptCommercialDocument } from "../lib/commercial-document-crypto.js";
 import { systemPrisma } from "../lib/prisma.js";
 import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
 import { assertDocumentFileExtension, decodeVerifiedUpload } from "../lib/secure-upload.js";
@@ -33,7 +34,7 @@ router.get("/platform/commercial-documents", async (req: AuthRequest, res) => {
   requirePlatformAdmin(req);
   const q = z.object({
     leadId: z.string().cuid().optional(),
-    includeArchived: z.coerce.boolean().default(false),
+    includeArchived: z.enum(["true", "false"]).optional().transform(value => value === "true"),
   }).parse(req.query);
   const rows = await systemPrisma.saaSCommercialDocument.findMany({
     where: {
@@ -41,7 +42,27 @@ router.get("/platform/commercial-documents", async (req: AuthRequest, res) => {
       ...(q.includeArchived ? {} : { archivedAt: null }),
     },
     orderBy: { createdAt: "desc" },
-    include: {
+    select: {
+      id: true,
+      leadId: true,
+      organizationId: true,
+      documentType: true,
+      documentReference: true,
+      signedAt: true,
+      notes: true,
+      fileName: true,
+      mimeType: true,
+      fileSize: true,
+      contentSha256: true,
+      verificationStatus: true,
+      verificationNotes: true,
+      uploadedById: true,
+      verifiedById: true,
+      verifiedAt: true,
+      archivedById: true,
+      archivedAt: true,
+      createdAt: true,
+      updatedAt: true,
       lead: {
         select: {
           id: true,
@@ -53,10 +74,11 @@ router.get("/platform/commercial-documents", async (req: AuthRequest, res) => {
     },
   });
   res.json({
-    data: rows.map(({ fileData: _fileData, ...row }) => ({
+    data: rows.map(row => ({
       ...row,
       linkedOrganizationId: row.organizationId ?? row.lead.wonOrganizationId ?? null,
     })),
+    meta: { encryptionReady: commercialDocumentEncryptionReady() },
   });
 });
 
@@ -99,7 +121,7 @@ router.post("/platform/commercial-documents", async (req: AuthRequest, res) => {
       fileName: input.fileName,
       mimeType: input.mimeType,
       fileSize: bytes.length,
-      fileData: bytes,
+      encryptedFileData: encryptCommercialDocument(bytes),
       contentSha256,
       uploadedById: req.auth!.userId,
     },
@@ -132,7 +154,9 @@ router.get("/platform/commercial-documents/:id/download", async (req: AuthReques
   requirePlatformAdmin(req);
   const row = await systemPrisma.saaSCommercialDocument.findUnique({ where: { id: String(req.params.id) } });
   if (!row || row.archivedAt) throw new AppError(404, "COMMERCIAL_DOCUMENT_NOT_FOUND", "Commercial document not found");
-  const bytes = storedDocumentBuffer(row.fileData);
+  const bytes = decryptCommercialDocument(row.encryptedFileData);
+  const contentSha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+  if (contentSha256 !== row.contentSha256) throw new AppError(500, "COMMERCIAL_DOCUMENT_INTEGRITY_FAILED", "Stored commercial document failed integrity verification");
   res.set(storedDocumentHeaders({
     fileName: row.fileName,
     mimeType: row.mimeType,
