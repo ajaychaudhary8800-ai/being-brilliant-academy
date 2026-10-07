@@ -79,6 +79,28 @@ test("gateway capture enforces authoritative amount, currency, idempotency and m
   assert.match(service, /providerPaymentId: String\(payment\.id\)/);
 });
 
+test("missed captured webhooks can be reconciled only from provider-authoritative data", async () => {
+  const [route, service, gatewayPage] = await Promise.all([
+    read("./institution-payments.ts"),
+    read("../lib/institution-payments.ts"),
+    read("../../../web/app/admin/payment-gateway/page.tsx"),
+  ]);
+  assert.match(route, /orders\/:orderId\/reconcile/);
+  assert.match(route, /reconcileInstitutionPaymentOrder/);
+  assert.match(service, /export async function reconcileInstitutionPaymentOrder/);
+  assert.match(service, /client\.orders as any\)\.fetch\(order\.providerOrderId\)/);
+  assert.match(service, /fetchPayments\(order\.providerOrderId\)/);
+  assert.match(service, /PROVIDER_ORDER_MISMATCH/);
+  assert.match(service, /MULTIPLE_CAPTURED_PAYMENTS/);
+  assert.match(service, /PROVIDER_PAYMENT_NOT_CAPTURED/);
+  assert.match(service, /String\(notes\.organizationId/);
+  assert.match(service, /String\(notes\.localOrderId/);
+  assert.match(service, /capturePayment\(order\.gatewayId/);
+  assert.match(service, /ONLINE_FEE_PAYMENT_RECONCILIATION_RUN/);
+  assert.match(gatewayPage, /Reconcile/);
+  assert.match(gatewayPage, /orders\/\$\{order\.id\}\/reconcile/);
+});
+
 test("refunds are provider-confirmed before reducing the authoritative fee ledger", async () => {
   const service = await read("../lib/institution-payments.ts");
   assert.match(service, /requestInstitutionPaymentRefund/);
