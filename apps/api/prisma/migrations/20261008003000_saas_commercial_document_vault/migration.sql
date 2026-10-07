@@ -9,7 +9,7 @@ CREATE TABLE "SaaSCommercialDocument" (
   "fileName" TEXT NOT NULL,
   "mimeType" TEXT NOT NULL DEFAULT 'application/pdf',
   "fileSize" INTEGER NOT NULL,
-  "fileData" BYTEA NOT NULL,
+  "encryptedFileData" BYTEA NOT NULL,
   "contentSha256" TEXT NOT NULL,
   "verificationStatus" TEXT NOT NULL DEFAULT 'UNVERIFIED',
   "verificationNotes" TEXT,
