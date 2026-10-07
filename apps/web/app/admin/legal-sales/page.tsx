@@ -74,6 +74,96 @@ function downloadText(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
+
+function renderInlineMarkdown(text: string) {
+  return text.split(/(\*\*[^*]+\*\*|\`[^\`]+\`)/g).filter(Boolean).map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("\`") && part.endsWith("\`")) return <code key={index}>{part.slice(1, -1)}</code>;
+    return <span key={index}>{part}</span>;
+  });
+}
+
+function tableCells(line: string) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(cell => cell.trim());
+}
+
+function PrintableMarkdown({ content }: { content: string }) {
+  const lines = content.split(/\r?\n/);
+  const blocks: React.ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const raw = lines[index] ?? "";
+    const line = raw.trim();
+
+    if (!line) {
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith("# ")) {
+      blocks.push(<h1 key={`h1-${index}`} className="print-title">{renderInlineMarkdown(line.slice(2))}</h1>);
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      blocks.push(<h2 key={`h2-${index}`} className="print-section">{renderInlineMarkdown(line.slice(3))}</h2>);
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith("|") && index + 1 < lines.length && /^\|?[\s|:-]+\|?$/.test((lines[index + 1] ?? "").trim())) {
+      const header = tableCells(line);
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length && (lines[index] ?? "").trim().startsWith("|")) {
+        rows.push(tableCells(lines[index] ?? ""));
+        index += 1;
+      }
+      blocks.push(<table key={`table-${index}`} className="print-table">
+        <thead><tr>{header.map((cell, cellIndex) => <th key={cellIndex}>{renderInlineMarkdown(cell)}</th>)}</tr></thead>
+        <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{renderInlineMarkdown(cell)}</td>)}</tr>)}</tbody>
+      </table>);
+      continue;
+    }
+
+    if (line.startsWith("- ")) {
+      const items: string[] = [];
+      while (index < lines.length && (lines[index] ?? "").trim().startsWith("- ")) {
+        items.push((lines[index] ?? "").trim().slice(2));
+        index += 1;
+      }
+      blocks.push(<ul key={`ul-${index}`} className="print-list">{items.map((item, itemIndex) => <li key={itemIndex}>{renderInlineMarkdown(item)}</li>)}</ul>);
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\d+\.\s+/.test((lines[index] ?? "").trim())) {
+        items.push((lines[index] ?? "").trim().replace(/^\d+\.\s+/, ""));
+        index += 1;
+      }
+      blocks.push(<ol key={`ol-${index}`} className="print-list">{items.map((item, itemIndex) => <li key={itemIndex}>{renderInlineMarkdown(item)}</li>)}</ol>);
+      continue;
+    }
+
+    const paragraph: string[] = [line];
+    index += 1;
+    while (index < lines.length) {
+      const next = (lines[index] ?? "").trim();
+      if (!next || next.startsWith("# ") || next.startsWith("## ") || next.startsWith("|") || next.startsWith("- ") || /^\d+\.\s+/.test(next)) break;
+      paragraph.push(next);
+      index += 1;
+    }
+    blocks.push(<p key={`p-${index}`} className="print-paragraph">
+      {paragraph.map((part, partIndex) => <span key={partIndex}>{renderInlineMarkdown(part)}{partIndex < paragraph.length - 1 ? <br/> : null}</span>)}
+    </p>);
+  }
+
+  return <article className="legal-sales-print-document">{blocks}</article>;
+}
+
 const planDefaults: Record<string, { students: string; users: string; branches: string; monthly: string; annual: string }> = {
   ESSENTIALS: { students: "300", users: "1000", branches: "1", monthly: "4999", annual: "49990" },
   GROWTH: { students: "800", users: "3000", branches: "1", monthly: "8999", annual: "89990" },
@@ -338,10 +428,10 @@ export default function Page() {
                   <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">WORKING COPY</span>
                 </div>
                 <textarea value={workingContent} onChange={event => setWorkingContent(event.target.value)} className="legal-sales-print-hide min-h-[680px] w-full rounded-xl border bg-white p-4 font-mono text-sm leading-6 dark:bg-slate-950"/>
-                <pre className="legal-sales-print-content hidden whitespace-pre-wrap break-words font-sans text-sm leading-6">{workingContent}</pre>
+                <PrintableMarkdown content={workingContent}/>
               </> : <>
                 <div className="legal-sales-print-hide mb-3"><h3 className="font-bold">Controlled source preview</h3><p className="text-xs text-slate-500">Read-only source from the Step 9 repository pack.</p></div>
-                <pre className="legal-sales-print-content whitespace-pre-wrap break-words font-sans text-sm leading-6">{detail.content}</pre>
+                <PrintableMarkdown content={detail.content}/>
               </>}
             </div>
           </section>}
@@ -352,13 +442,27 @@ export default function Page() {
         .field{width:100%;min-height:44px;border:1px solid #cbd5e1;border-radius:.75rem;padding:.65rem .8rem;background:white}
         .field:focus{outline:2px solid #1d4ed8;outline-offset:1px}
         .dark .field{background:#0f172a;border-color:#334155}
+        .legal-sales-print-document{display:none}
         @media print{
+          @page{size:A4;margin:16mm 15mm}
           body{background:white!important;color:#111!important}
-          .admin-navigation-shell,.admin-logout,.legal-sales-print-hide{display:none!important}
+          .admin-navigation-shell,.admin-logout,.legal-sales-print-hide,.admin-workspace-main>div>header{display:none!important}
           .admin-workspace-main{margin-left:0!important;padding:0!important}
-          .legal-sales-workspace>section:not(:has(.legal-sales-print-content)){display:none!important}
+          .admin-workspace-main>div{max-width:none!important}
+          .legal-sales-workspace{margin:0!important}
+          .legal-sales-workspace>section:not(:has(.legal-sales-print-document)){display:none!important}
           .legal-sales-workspace aside,.legal-sales-workspace section.card:first-child{display:none!important}
-          .legal-sales-print-content{display:block!important;white-space:pre-wrap!important;font-size:11pt!important;line-height:1.45!important}
+          .legal-sales-print-document{display:block!important;font-family:Arial,Helvetica,sans-serif;font-size:10.5pt;line-height:1.45;color:#111}
+          .print-title{margin:0 0 18px;font-size:20pt;line-height:1.2;font-weight:700}
+          .print-section{margin:20px 0 9px;font-size:13pt;line-height:1.25;font-weight:700;break-after:avoid}
+          .print-paragraph{margin:0 0 10px}
+          .print-list{margin:0 0 12px;padding-left:22px}
+          .print-list li{margin:2px 0}
+          .print-table{width:100%;border-collapse:collapse;margin:10px 0 14px;font-size:10pt}
+          .print-table th,.print-table td{border:1px solid #bbb;padding:7px 8px;text-align:left;vertical-align:top}
+          .print-table th{font-weight:700;background:#f3f4f6}
+          .print-table th:nth-child(2),.print-table td:nth-child(2),.print-table th:nth-child(3),.print-table td:nth-child(3){text-align:right}
+          .legal-sales-print-document code{font-family:Arial,Helvetica,sans-serif;font-size:inherit}
           .card{border:0!important;box-shadow:none!important}
         }
       `}</style>
