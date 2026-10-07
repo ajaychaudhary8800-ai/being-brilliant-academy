@@ -69,7 +69,8 @@ test("runtime API image packages the controlled legal sales source", async () =>
 
 test("client proposal print hides internal guidance and zero-value add-on rows", async () => {
   const page = await readFile(pageUrl, "utf8");
-  assert.match(page, /Plan selection must match the current commercial catalogue/);
+  assert.match(page, /line\.includes\("docs\/COMMERCIAL_PACKAGING_PRICING\.md"\)/);
+  assert.match(page, /line\.startsWith\("\*\*Payment particulars control:\*\*"\)/);
   assert.match(page, /clientTitle = line\.slice\(2\)\.replace/);
   assert.match(page, /visibleRows = rows\.filter/);
   assert.match(page, /role="status"/);
