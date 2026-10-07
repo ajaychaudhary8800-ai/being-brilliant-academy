@@ -93,6 +93,7 @@ export default function Page() {
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [encryptionReady, setEncryptionReady] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -107,6 +108,7 @@ export default function Page() {
       ]);
       setLeads(leadJson.data ?? []);
       setDocuments(documentJson.data ?? []);
+      setEncryptionReady(Boolean(documentJson.meta?.encryptionReady));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -237,6 +239,7 @@ export default function Page() {
         </div>
       </section>
 
+      {encryptionReady === false && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Vault encryption is not configured. Set <code>COMMERCIAL_DOCUMENT_ENCRYPTION_KEY</code> on the API service before uploading or downloading signed evidence.</p>}
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</p>}
       {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{notice}</p>}
 
@@ -259,7 +262,7 @@ export default function Page() {
           <Input name="signedAt" type="date" labelText="Signed / issued date"/>
           <label className="text-sm font-semibold md:col-span-2">Signed PDF<input name="file" type="file" accept="application/pdf,.pdf" required className="field mt-1"/></label>
           <label className="text-sm font-semibold md:col-span-2">Notes<textarea name="notes" maxLength={4000} className="field mt-1 min-h-24" placeholder="Optional execution/evidence note"/></label>
-          <button disabled={busy} className="rounded-xl bg-brand-700 px-5 py-3 font-bold text-white disabled:opacity-50 md:col-span-2">{busy ? "Saving…" : "Store in vault"}</button>
+          <button disabled={busy || encryptionReady !== true} className="rounded-xl bg-brand-700 px-5 py-3 font-bold text-white disabled:opacity-50 md:col-span-2">{busy ? "Saving…" : encryptionReady === false ? "Configure encryption key first" : "Store in vault"}</button>
         </form>
       </section>
 
