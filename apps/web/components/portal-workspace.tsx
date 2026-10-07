@@ -358,13 +358,30 @@ function loadRazorpayCheckout() {
   });
 }
 
-function razorpayMethodOptions(methods: string[]) {
+function razorpayCheckoutConfig(methods: string[]) {
   const active = new Set(methods.map(method => method.toUpperCase()));
+  const instruments = [
+    ["UPI", "upi"],
+    ["CARD", "card"],
+    ["NETBANKING", "netbanking"],
+    ["WALLET", "wallet"],
+  ]
+    .filter(([configured]) => active.has(configured))
+    .map(([, method]) => ({ method }));
+
   return {
-    upi: active.has("UPI"),
-    card: active.has("CARD"),
-    netbanking: active.has("NETBANKING"),
-    wallet: active.has("WALLET"),
+    display: {
+      blocks: {
+        bbaMethods: {
+          name: "Payment methods",
+          instruments,
+        },
+      },
+      sequence: ["block.bbaMethods"],
+      preferences: {
+        show_default_blocks: false,
+      },
+    },
   };
 }
 const includes = (query: string, ...values: unknown[]) =>
@@ -1837,7 +1854,7 @@ function FeePaymentAction({
         order_id: checkout.order.id,
         name: "Fee Payment",
         description: "Institution fee payment",
-        method: razorpayMethodOptions(checkout.methods ?? onlinePayments.methods),
+        config: razorpayCheckoutConfig(checkout.methods ?? onlinePayments.methods),
         handler: () => {
           setMessage("Payment submitted successfully. The receipt will appear after verified gateway confirmation.");
           window.setTimeout(() => void reload(), 1800);

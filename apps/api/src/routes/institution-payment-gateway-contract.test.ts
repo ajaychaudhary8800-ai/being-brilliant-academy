@@ -127,6 +127,12 @@ test("web clients expose tenant setup, parent/student checkout and receipt downl
   assert.match(gatewayPage, /new URL\(gateway\.webhookPath, window\.location\.origin\)\.toString\(\)/);
   assert.doesNotMatch(gatewayPage, /\`\$\{API\}\$\{gateway\.webhookPath\}\`/);
   assert.match(portal, /loadRazorpayCheckout/);
+  assert.match(portal, /razorpayCheckoutConfig/);
+  assert.match(portal, /\["UPI", "upi"\]/);
+  assert.match(portal, /sequence:\s*\["block\.bbaMethods"\]/);
+  assert.match(portal, /show_default_blocks:\s*false/);
+  assert.match(portal, /config:\s*razorpayCheckoutConfig/);
+  assert.doesNotMatch(portal, /method:\s*razorpayMethodOptions/);
   assert.match(portal, /Pay .*online|Pay \$\{onlinePayments/);
   assert.match(portal, /Download receipt/);
   assert.match(portal, /ParentFees/);
