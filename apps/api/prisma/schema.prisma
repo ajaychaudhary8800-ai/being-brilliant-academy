@@ -8068,7 +8068,7 @@ model SaaSCommercialDocument {
   fileName           String
   mimeType           String   @default("application/pdf")
   fileSize           Int
-  fileData           Bytes
+  encryptedFileData  Bytes
   contentSha256      String
   verificationStatus String   @default("UNVERIFIED")
   verificationNotes  String?  @db.Text
