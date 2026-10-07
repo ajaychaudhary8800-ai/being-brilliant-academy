@@ -136,7 +136,8 @@ function PrintableMarkdown({ content }: { content: string }) {
         const price = (row[2] ?? "").replace(/\s/g, "").trim();
         return !((item === "none" || item === "0" || item === "-") && qty === "0" && (price === "₹0" || price === "0"));
       });
-      blocks.push(<table key={`table-${index}`} className="print-table">
+      const isSignatureTable = (header[0] ?? "").trim().toLowerCase() === "acceptance";
+      blocks.push(<table key={`table-${index}`} className={`print-table${isSignatureTable ? " print-signature-table" : ""}`}>
         <thead><tr>{header.map((cell, cellIndex) => <th key={cellIndex}>{renderInlineMarkdown(cell)}</th>)}</tr></thead>
         <tbody>{visibleRows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{renderInlineMarkdown(cell)}</td>)}</tr>)}</tbody>
       </table>);
@@ -218,11 +219,13 @@ function contextReplacements(context: ClientContext): Record<string, string> {
     ["SUBSCRIPTION AMOUNT", subscriptionAmount],
     ["IMPLEMENTATION QTY", selectedPlan ? "1" : ""],
     ["IMPLEMENTATION AMOUNT", implementationAmount],
+    ["IMPLEMENTATION FREQUENCY", selectedPlan ? "One-time" : ""],
     ["SUBTOTAL", subscriptionAmount],
     ["INITIAL TERM", context.billingCycle === "ANNUAL" ? "12 MONTHS" : ""],
-    ["DATA MIGRATION AMOUNT", selectedPlan ? "0" : ""],
-    ["INTEGRATION ADD-ON AMOUNT", selectedPlan ? "0" : ""],
-    ["ADD-ON FREQUENCY", selectedPlan ? "One-time" : ""],
+    ["DATA MIGRATION AMOUNT", selectedPlan ? "N/A" : ""],
+    ["DATA MIGRATION FREQUENCY", selectedPlan ? "Not included" : ""],
+    ["INTEGRATION ADD-ON AMOUNT", selectedPlan ? "N/A" : ""],
+    ["INTEGRATION ADD-ON FREQUENCY", selectedPlan ? "Not included" : ""],
     ["PAYMENT DUE", context.billingCycle ? "IN ADVANCE" : ""],
     ["UAT FEEDBACK DAYS", selectedPlan ? "5" : ""],
     ["GOVERNANCE CADENCE", selectedPlan ? "WEEKLY" : ""],
@@ -325,6 +328,7 @@ export default function Page() {
 
   const displayContent = workingContent || detail?.content || "";
   const displayFile = workingContent ? workingFile : detail?.file || "document.md";
+  const printBlocked = Boolean(detail?.generationEnabled && (!workingContent || unresolved.length > 0));
 
   async function copyCurrent() {
     await navigator.clipboard.writeText(displayContent);
@@ -423,7 +427,13 @@ export default function Page() {
                   <button type="button" onClick={() => downloadText(detail.file, detail.content)} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"><Download size={15}/>Source</button>
                   <button type="button" onClick={() => void copyCurrent()} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"><Copy size={15}/>Copy</button>
                   {workingContent && <button type="button" onClick={() => downloadText(displayFile, workingContent)} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"><Download size={15}/>Working copy</button>}
-                  <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"><Printer size={15}/>Print / PDF</button>
+                  <button
+                    type="button"
+                    disabled={printBlocked}
+                    title={printBlocked ? "Generate the working copy and resolve all placeholders before client PDF export." : "Print or save the reviewed client document as PDF."}
+                    onClick={() => window.print()}
+                    className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                  ><Printer size={15}/>Print / PDF</button>
                 </div>
               </div>
             </header>
@@ -444,7 +454,10 @@ export default function Page() {
                   />
                 </label>)}
               </div>
-              {unresolved.length > 0 && <p className="mt-4 text-xs text-amber-700"><b>Unresolved:</b> {unresolved.join(" · ")}</p>}
+              {unresolved.length > 0 && <>
+                <p className="mt-4 text-xs text-amber-700"><b>Unresolved:</b> {unresolved.join(" · ")}</p>
+                <p className="mt-1 text-xs text-amber-700">Client PDF export stays disabled until the working copy has no unresolved placeholders.</p>
+              </>}
             </div>}
 
             <div className="p-5">
@@ -488,6 +501,8 @@ export default function Page() {
           .print-table th,.print-table td{border:1px solid #bbb;padding:7px 8px;text-align:left;vertical-align:top}
           .print-table th{font-weight:700;background:#f3f4f6}
           .print-table th:nth-child(2),.print-table td:nth-child(2),.print-table th:nth-child(3),.print-table td:nth-child(3){text-align:right}
+          .print-signature-table{break-inside:avoid;margin-top:8px}
+          .print-signature-table th,.print-signature-table td{text-align:left!important;padding:8px}
           .legal-sales-print-document code{font-family:Arial,Helvetica,sans-serif;font-size:inherit}
           .card{border:0!important;box-shadow:none!important}
         }

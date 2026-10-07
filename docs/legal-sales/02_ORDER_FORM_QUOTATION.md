@@ -40,9 +40,9 @@ No feature or capacity is granted merely because it appears elsewhere in marketi
 | Charge | Amount (₹) | Frequency |
 | --- | ---: | --- |
 | SaaS subscription | [[SUBSCRIPTION AMOUNT]] | [[BILLING CYCLE]] |
-| Implementation | [[IMPLEMENTATION AMOUNT]] | One-time |
-| Data migration | [[DATA MIGRATION AMOUNT]] | One-time |
-| Integration/add-on | [[INTEGRATION ADD-ON AMOUNT]] | [[ADD-ON FREQUENCY]] |
+| Implementation | [[IMPLEMENTATION AMOUNT]] | [[IMPLEMENTATION FREQUENCY]] |
+| Data migration | [[DATA MIGRATION AMOUNT]] | [[DATA MIGRATION FREQUENCY]] |
+| Integration/add-on | [[INTEGRATION ADD-ON AMOUNT]] | [[INTEGRATION ADD-ON FREQUENCY]] |
 
 **Subtotal:** ₹[[SUBTOTAL]]  
 **GST:** as applicable  
@@ -77,12 +77,8 @@ Any discount, custom capacity, white-label term or module override must be writt
 
 By signing, each party confirms authority to bind its organization and agrees that this Order Form and incorporated documents form the contract.
 
-**For Provider**  
-Name: CHOUDHARY AJAY SINGH HOON  
-Designation: DIRECTOR  
-Signature/date: __________________
-
-**For Client**  
-Name: [[CLIENT SIGNATORY NAME]]  
-Designation: [[CLIENT SIGNATORY DESIGNATION]]  
-Signature/date: __________________
+| Acceptance | Provider | Client |
+| --- | --- | --- |
+| Name | CHOUDHARY AJAY SINGH HOON | [[CLIENT SIGNATORY NAME]] |
+| Designation | DIRECTOR | [[CLIENT SIGNATORY DESIGNATION]] |
+| Signature/date | __________________ | __________________ |
