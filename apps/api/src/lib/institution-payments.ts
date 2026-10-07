@@ -571,6 +571,132 @@ export async function processInstitutionRazorpayWebhook(input: {
   return { eventType: String(event?.event ?? "unknown"), ...result };
 }
 
+export async function reconcileInstitutionPaymentOrder(input: {
+  organizationId: string;
+  orderId: string;
+  requestedById: string;
+}) {
+  const order = await systemPrisma.institutionPaymentOrder.findFirst({
+    where: { id: input.orderId, organizationId: input.organizationId },
+    include: { gateway: true },
+  });
+  if (!order) throw new AppError(404, "PAYMENT_ORDER_NOT_FOUND", "Payment order not found");
+
+  if (order.status === InstitutionPaymentOrderStatus.CAPTURED || order.status === InstitutionPaymentOrderStatus.REFUNDED) {
+    return {
+      orderId: order.id,
+      status: order.status,
+      duplicate: true,
+      providerOrderId: order.providerOrderId,
+      providerPaymentId: order.providerPaymentId,
+      paymentId: order.feePaymentId,
+    };
+  }
+  if (!order.providerOrderId) {
+    throw new AppError(409, "PROVIDER_ORDER_MISSING", "This local payment order has no Razorpay order ID to reconcile");
+  }
+  if (!order.gateway.lastVerifiedAt) {
+    throw new AppError(409, "PAYMENT_GATEWAY_NOT_VERIFIED", "Verify the institution Razorpay credentials before reconciliation");
+  }
+
+  assertGatewayKeyMode(order.gateway);
+  const client = gatewayClient(order.gateway);
+  const providerOrder = await (client.orders as any).fetch(order.providerOrderId);
+  const providerOrderId = String(providerOrder?.id ?? "");
+  const providerOrderAmount = Number(providerOrder?.amount);
+  const providerOrderCurrency = String(providerOrder?.currency ?? "").toUpperCase();
+  const notes = providerOrder?.notes && typeof providerOrder.notes === "object"
+    ? providerOrder.notes as Record<string, unknown>
+    : {};
+
+  const orderMatches =
+    providerOrderId === order.providerOrderId &&
+    providerOrderAmount === order.amountPaise &&
+    providerOrderCurrency === order.currency &&
+    String(notes.organizationId ?? "") === input.organizationId &&
+    String(notes.localOrderId ?? "") === order.id;
+
+  if (!orderMatches) {
+    const raw = { reconciliation: true, providerOrder } as unknown as Prisma.InputJsonValue;
+    await recordReviewRequired(
+      order.id,
+      order.organizationId,
+      "PROVIDER_ORDER_MISMATCH",
+      "Razorpay order details do not match the local institution payment order",
+      raw,
+    );
+    return { orderId: order.id, handled: true, reviewRequired: true, reason: "provider_order_mismatch" };
+  }
+
+  const collection = await (client.orders as any).fetchPayments(order.providerOrderId);
+  const payments = Array.isArray(collection?.items) ? collection.items : [];
+  const capturedPayments = payments.filter((payment: any) => String(payment?.status ?? "").toLowerCase() === "captured");
+
+  if (!capturedPayments.length) {
+    throw new AppError(409, "PROVIDER_PAYMENT_NOT_CAPTURED", "Razorpay does not report a captured payment for this order");
+  }
+  if (capturedPayments.length > 1) {
+    const raw = { reconciliation: true, providerOrder, providerPayments: capturedPayments } as unknown as Prisma.InputJsonValue;
+    await recordReviewRequired(
+      order.id,
+      order.organizationId,
+      "MULTIPLE_CAPTURED_PAYMENTS",
+      "Razorpay returned more than one captured payment for the same order",
+      raw,
+    );
+    return { orderId: order.id, handled: true, reviewRequired: true, reason: "multiple_captured_payments" };
+  }
+
+  const payment = capturedPayments[0];
+  if (String(payment?.order_id ?? "") !== order.providerOrderId) {
+    const raw = { reconciliation: true, providerOrder, providerPayment: payment } as unknown as Prisma.InputJsonValue;
+    await recordReviewRequired(
+      order.id,
+      order.organizationId,
+      "PROVIDER_PAYMENT_MISMATCH",
+      "Captured Razorpay payment does not reference the expected provider order",
+      raw,
+    );
+    return { orderId: order.id, handled: true, reviewRequired: true, reason: "provider_payment_mismatch" };
+  }
+
+  const event = {
+    event: "payment.captured",
+    reconciliation: true,
+    payload: {
+      payment: { entity: payment },
+      order: { entity: providerOrder },
+    },
+  };
+  const result = await capturePayment(order.gatewayId, `reconcile:${String(payment.id)}`, event);
+
+  await systemPrisma.auditLog.create({
+    data: {
+      organizationId: order.organizationId,
+      actorId: input.requestedById,
+      action: "ONLINE_FEE_PAYMENT_RECONCILIATION_RUN",
+      entity: "InstitutionPaymentOrder",
+      entityId: order.id,
+      metadata: safeFinanceAuditMetadata({
+        providerOrderId: order.providerOrderId,
+        providerPaymentId: String(payment.id),
+        handled: result.handled,
+        duplicate: Boolean((result as any).duplicate),
+        reviewRequired: Boolean((result as any).reviewRequired),
+      }),
+    },
+  });
+
+  return {
+    ...result,
+    reconciled: true,
+    providerOrderId: order.providerOrderId,
+    providerPaymentId: String(payment.id),
+    providerOrderStatus: String(providerOrder?.status ?? ""),
+    providerPaymentStatus: String(payment?.status ?? ""),
+  };
+}
+
 export async function requestInstitutionPaymentRefund(input: {
   organizationId: string;
   orderId: string;
