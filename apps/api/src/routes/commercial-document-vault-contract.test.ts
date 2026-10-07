@@ -74,6 +74,8 @@ test("platform UI exposes upload, verification, download and signed-document nav
   ]);
   assert.match(page, /Commercial Document Vault/);
   assert.match(page, /Store in vault/);
+  assert.match(page, /COMMERCIAL_DOCUMENT_ENCRYPTION_KEY/);
+  assert.match(page, /encryptionReady/);
   assert.match(page, /application\/pdf/);
   assert.match(page, /\/platform\/commercial-documents/);
   assert.match(page, /Verify/);
