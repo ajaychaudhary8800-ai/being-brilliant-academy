@@ -10,7 +10,7 @@ import { useTenantBranding } from "./tenant-branding";
 import {
   Award, BarChart3, BookOpen, Building2, CalendarCheck, CalendarClock, ClipboardCheck,
   CreditCard, FileText, GraduationCap, LayoutDashboard, Menu, Settings, CalendarDays, NotebookPen, FileCheck2, PlaySquare,
-  UserRoundCheck, Users, X, BriefcaseBusiness, Landmark, Bus, Library, Bell, Boxes, BrainCircuit, School, ShieldCheck,
+  UserRoundCheck, Users, X, BriefcaseBusiness, Landmark, Bus, Library, Bell, Boxes, BrainCircuit, School, ShieldCheck, FileArchive,
 } from "lucide-react";
 
 type DynamicLabel = "courses" | "groups" | "educators" | "assessments" | "learning";
@@ -26,6 +26,7 @@ const menuGroups: MenuGroup[] = [
     { name: "SaaS Plans", href: "/admin/saas-plans", icon: CreditCard, platformOnly: true },
     { name: "SaaS Billing", href: "/admin/saas-billing", icon: CreditCard, platformOnly: true },
     { name: "SaaS Sales", href: "/admin/saas-sales", icon: BriefcaseBusiness, platformOnly: true },
+    { name: "Commercial Vault", href: "/admin/commercial-documents", icon: FileArchive, platformOnly: true },
     { name: "Sales Documents", href: "/admin/legal-sales", icon: FileCheck2, platformOnly: true },
     { name: "Implementation Kit", href: "/admin/implementation-kit", icon: FileText, platformOnly: true },
     { name: "Institution Settings", href: "/admin/organization-settings", icon: Settings },

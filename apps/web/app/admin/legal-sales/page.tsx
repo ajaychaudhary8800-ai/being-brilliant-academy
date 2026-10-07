@@ -383,6 +383,7 @@ export default function Page() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/admin/saas-sales" className="rounded-lg border px-3 py-2 text-sm font-semibold">Open SaaS Sales</Link>
+            <Link href="/admin/commercial-documents" className="rounded-lg border px-3 py-2 text-sm font-semibold">Commercial Vault</Link>
             <Link href="/admin/implementation-kit" className="rounded-lg border px-3 py-2 text-sm font-semibold">Implementation Kit</Link>
             <button type="button" onClick={() => void loadDocuments()} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"><RefreshCw size={15}/>Refresh</button>
           </div>

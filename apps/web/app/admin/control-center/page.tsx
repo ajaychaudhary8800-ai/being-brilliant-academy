@@ -32,7 +32,8 @@ type LaunchGate = {
   note?: string;
 };
 type Launch = { declaredStatus: "GO" | "HOLD"; gates: LaunchGate[] };
-type ControlCenter = { roadmap: Roadmap; launch: Launch; generatedAt: string };
+type ERP4SoftwareReadiness = { version: string; declaredStatus: string; completionPercent: number; qaStatus?: string; statusRule?: string };
+type ControlCenter = { roadmap: Roadmap; launch: Launch; erp4Software: ERP4SoftwareReadiness; generatedAt: string };
 type ReadyHealth = { status: string; checks?: Record<string, boolean> };
 type OperationalHealth = {
   status: string;
@@ -116,6 +117,7 @@ export default function Page() {
     () => control ? control.roadmap.steps.filter(step => step.status === "COMPLETE").length : null,
     [control],
   );
+  const softwareReady = control?.erp4Software?.declaredStatus === "READY" && control?.erp4Software?.completionPercent === 100;
   const blockers = useMemo(
     () => control ? control.launch.gates.filter(gate => gate.blocking && gate.status !== "READY") : null,
     [control],
@@ -148,7 +150,7 @@ export default function Page() {
       {healthError && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">{healthError}</p>}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={<Target size={18}/>} label="Roadmap complete" value={completeCount === null ? "—/14" : `${completeCount}/14`} tone="neutral"/>
+        <MetricCard icon={<Target size={18}/>} label="ERP 4.0 software" value={control?.erp4Software ? `${control.erp4Software.completionPercent}% ${control.erp4Software.declaredStatus}` : "Unknown"} tone={softwareReady ? "good" : "warn"}/>
         <MetricCard icon={launchStatus === "GO" ? <CheckCircle2 size={18}/> : launchStatus === "HOLD" ? <AlertTriangle size={18}/> : <CircleDot size={18}/>} label="Commercial launch" value={launchStatus ?? "Unknown"} tone={launchTone}/>
         <MetricCard icon={ready?.status === "ready" ? <CheckCircle2 size={18}/> : ready ? <XCircle size={18}/> : <CircleDot size={18}/>} label="API readiness" value={ready?.status ?? "Unknown"} tone={readyTone}/>
         <MetricCard icon={operational?.status === "operational" ? <Activity size={18}/> : operational ? <AlertTriangle size={18}/> : <CircleDot size={18}/>} label="Operational health" value={operational?.status ?? "Unknown"} tone={operationalTone}/>
@@ -157,8 +159,8 @@ export default function Page() {
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.8fr)]">
         <div className="card overflow-hidden">
           <div className="border-b p-5">
-            <h2 className="text-lg font-bold">1–14 roadmap</h2>
-            <p className="mt-1 text-sm text-slate-500">Every step shows what was done and where you control or inspect it from the website.</p>
+            <h2 className="text-lg font-bold">1–14 commercial rollout roadmap</h2>
+            <p className="mt-1 text-sm text-slate-500">ERP 4.0 software completion is tracked separately above. This roadmap also includes real-client and formal commercial-release actions that cannot be completed with synthetic evidence.</p>
           </div>
           {!control ? <div className="p-5 text-sm text-slate-500">Roadmap data is temporarily unavailable. Refresh after the API deployment is healthy.</div> :
           <div className="divide-y">
@@ -223,6 +225,7 @@ export default function Page() {
                 ["/admin/saas-plans","SaaS plans & pricing"],
                 ["/admin/saas-billing","Billing & subscriptions"],
                 ["/admin/saas-sales","SaaS sales pipeline"],
+                ["/admin/commercial-documents","Commercial document vault"],
                 ["/admin/legal-sales","Sales/legal documents"],
                 ["/admin/implementation-kit","Implementation & UAT"],
               ].map(([href,label]) => <Link key={href} href={href} className="rounded-xl border p-3 font-semibold hover:border-brand-300 hover:text-brand-700">{label}</Link>)}

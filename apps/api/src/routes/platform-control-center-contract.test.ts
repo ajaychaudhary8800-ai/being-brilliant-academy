@@ -7,6 +7,7 @@ const serverUrl = new URL("../server.ts", import.meta.url);
 const dockerUrl = new URL("../../Dockerfile", import.meta.url);
 const roadmapUrl = new URL("../../../../config/project-roadmap.json", import.meta.url);
 const launchUrl = new URL("../../../../config/launch-readiness.json", import.meta.url);
+const erp4Url = new URL("../../../../config/erp4-software-readiness.json", import.meta.url);
 const pageUrl = new URL("../../../web/app/admin/control-center/page.tsx", import.meta.url);
 const sidebarUrl = new URL("../../../web/components/sidebar.tsx", import.meta.url);
 const hrUrl = new URL("../../../web/app/admin/hr/page.tsx", import.meta.url);
@@ -40,6 +41,8 @@ test("control center API is platform-only and reads controlled roadmap and launc
   assert.match(route, /PLATFORM_ADMIN_REQUIRED/);
   assert.match(route, /project-roadmap\.json/);
   assert.match(route, /launch-readiness\.json/);
+  assert.match(route, /erp4-software-readiness\.json/);
+  assert.match(route, /erp4Software/);
   assert.match(route, /\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/config/);
   assert.match(route, /\/platform\/control-center/);
 });
@@ -60,7 +63,7 @@ test("Platform Admin UI exposes the 14-step roadmap, live health and launch bloc
     readFile(sidebarUrl, "utf8"),
   ]);
   assert.match(sidebar, /SaaS Control Center.*\/admin\/control-center.*platformOnly: true/);
-  assert.match(page, /1–14 roadmap/);
+  assert.match(page, /1–14 commercial rollout roadmap/);
   assert.match(page, /Live platform health/);
   assert.match(page, /Launch blockers/);
   assert.match(page, /\/health\/ready/);
@@ -74,6 +77,7 @@ test("Platform Admin UI exposes the 14-step roadmap, live health and launch bloc
     "/admin/saas-plans",
     "/admin/saas-billing",
     "/admin/saas-sales",
+    "/admin/commercial-documents",
     "/admin/legal-sales",
     "/admin/implementation-kit",
   ]) assert.ok(page.includes(expected), "missing web control " + expected);
@@ -89,4 +93,22 @@ test("internal HR tenant identifiers remain hidden from user-facing tables", asy
   assert.match(hr, /INTERNAL_KEYS/);
   assert.match(hr, /"organizationId"/);
   assert.doesNotMatch(hr, /<th[^>]*>\s*Organization ID\s*<\/th>/i);
+});
+
+
+test("ERP 4.0 software is explicitly 100 percent READY while commercial launch truth remains separate", async () => {
+  const [erp4, launch, page] = await Promise.all([
+    readFile(erp4Url, "utf8").then(JSON.parse),
+    readFile(launchUrl, "utf8").then(JSON.parse),
+    readFile(pageUrl, "utf8"),
+  ]);
+  assert.equal(erp4.version, "4.0");
+  assert.equal(erp4.declaredStatus, "READY");
+  assert.equal(erp4.completionPercent, 100);
+  assert.equal(erp4.qaStatus, "PASS");
+  assert.ok(erp4.gates.every((gate: any) => gate.status === "READY"));
+  assert.match(erp4.qaPolicy, /Synthetic\/test acceptance and payment evidence/);
+  assert.equal(launch.declaredStatus, "HOLD");
+  assert.match(page, /ERP 4\.0 software/);
+  assert.match(page, /commercial rollout roadmap/);
 });
