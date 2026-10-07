@@ -101,8 +101,11 @@ test("order form and SOW use unambiguous client-generation placeholders", async 
     "BRANCH CAPACITY",
     "SUBSCRIPTION AMOUNT",
     "IMPLEMENTATION AMOUNT",
+    "IMPLEMENTATION FREQUENCY",
     "DATA MIGRATION AMOUNT",
+    "DATA MIGRATION FREQUENCY",
     "INTEGRATION ADD-ON AMOUNT",
+    "INTEGRATION ADD-ON FREQUENCY",
     "SUBTOTAL",
     "CLIENT SIGNATORY NAME",
   ]) assert.match(orderForm, new RegExp("\\\[\\\[" + token + "\\\]\\\]"));
@@ -121,6 +124,22 @@ test("order form and SOW use unambiguous client-generation placeholders", async 
   ]) assert.match(sow, new RegExp("\\\[\\\[" + token + "\\\]\\\]"));
   assert.doesNotMatch(orderForm, /\[\[(?:NUMBER|AMOUNT|DATE)\]\]/);
   assert.doesNotMatch(sow, /\[\[(?:NUMBER|DATE|NAME\/EMAIL)\]\]/);
+});
+
+test("order form client PDF cannot be exported with unresolved placeholders and excluded services are explicit", async () => {
+  const [page, orderForm] = await Promise.all([
+    readFile(pageUrl, "utf8"),
+    readFile(orderFormUrl, "utf8"),
+  ]);
+  assert.match(page, /const printBlocked = Boolean\(detail\?\.generationEnabled && \(!workingContent \|\| unresolved\.length > 0\)\)/);
+  assert.match(page, /Client PDF export stays disabled until the working copy has no unresolved placeholders/);
+  assert.match(page, /\["DATA MIGRATION AMOUNT", selectedPlan \? "N\/A" : ""\]/);
+  assert.match(page, /\["DATA MIGRATION FREQUENCY", selectedPlan \? "Not included" : ""\]/);
+  assert.match(page, /\["INTEGRATION ADD-ON FREQUENCY", selectedPlan \? "Not included" : ""\]/);
+  assert.match(page, /print-signature-table/);
+  assert.match(orderForm, /\[\[DATA MIGRATION FREQUENCY\]\]/);
+  assert.match(orderForm, /\[\[INTEGRATION ADD-ON FREQUENCY\]\]/);
+  assert.match(orderForm, /\| Acceptance \| Provider \| Client \|/);
 });
 
 test("platform navigation and UI expose view, generate, download and print controls", async () => {
