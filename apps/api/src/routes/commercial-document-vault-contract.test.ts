@@ -9,6 +9,8 @@ const migrationUrl = new URL("../../prisma/migrations/20261008003000_saas_commer
 const pageUrl = new URL("../../../web/app/admin/commercial-documents/page.tsx", import.meta.url);
 const cryptoUrl = new URL("../lib/commercial-document-crypto.ts", import.meta.url);
 const configUrl = new URL("../config.ts", import.meta.url);
+const composeUrl = new URL("../../../../docker-compose.yml", import.meta.url);
+const productionEnvUrl = new URL("../../../../.env.production.example", import.meta.url);
 const sidebarUrl = new URL("../../../web/components/sidebar.tsx", import.meta.url);
 const legalSalesUrl = new URL("../../../web/app/admin/legal-sales/page.tsx", import.meta.url);
 
@@ -27,7 +29,7 @@ test("commercial vault has an auditable lead-linked persistence model", async ()
 });
 
 test("vault API is platform-only, validates PDF bytes, encrypts at rest and does not expose file blobs in listings", async () => {
-  const [route, server, cryptoSource, config] = await Promise.all([readFile(routeUrl, "utf8"), readFile(serverUrl, "utf8"), readFile(cryptoUrl, "utf8"), readFile(configUrl, "utf8")]);
+  const [route, server, cryptoSource, config, compose, productionEnv] = await Promise.all([readFile(routeUrl, "utf8"), readFile(serverUrl, "utf8"), readFile(cryptoUrl, "utf8"), readFile(configUrl, "utf8"), readFile(composeUrl, "utf8"), readFile(productionEnvUrl, "utf8")]);
   assert.match(route, /PLATFORM_ADMIN_REQUIRED/);
   assert.match(route, /homeOrganizationId !== "org_default"/);
   assert.match(route, /z\.literal\("application\/pdf"\)/);
@@ -45,6 +47,8 @@ test("vault API is platform-only, validates PDF bytes, encrypts at rest and does
   assert.match(cryptoSource, /aes-256-gcm/);
   assert.match(cryptoSource, /createCipheriv/);
   assert.match(cryptoSource, /setAuthTag/);
+  assert.match(compose, /COMMERCIAL_DOCUMENT_ENCRYPTION_KEY/);
+  assert.match(productionEnv, /COMMERCIAL_DOCUMENT_ENCRYPTION_KEY/);
   assert.match(server, /commercial-document-vault\.js/);
   assert.match(server, /\/platform\/commercial-documents/);
 });
