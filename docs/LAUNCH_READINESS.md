@@ -83,7 +83,7 @@ External customer execution is legally cleared under the reviewed pack. Public l
 
 ### B. Public Privacy / Terms / AUP publication
 
-Status: **PENDING_DEPENDENCY**
+Status: **READY**
 
 The implementation is prepared behind a server-controlled publication gate:
 
@@ -94,7 +94,7 @@ The implementation is prepared behind a server-controlled publication gate:
 - the demo form is pre-wired to the Privacy Notice; and
 - all legal pages and links remain unavailable until both `LEGAL_PAGES_PUBLISHED=true` and `LEGAL_EFFECTIVE_DATE` are configured.
 
-Counsel approval and staging publication verification are complete. The controlled publication record is `docs/PUBLIC_LEGAL_PUBLICATION_EVIDENCE.md`. Staging now serves Privacy, Terms and AUP successfully with effective date **6 October 2026**, and desktop/mobile browser verification passed. The only remaining action for this gate is controlled production publication using `LEGAL_EFFECTIVE_DATE=2026-10-06` and `LEGAL_PAGES_PUBLISHED=true`, followed by production verification.
+Counsel approval, staging verification and controlled production publication are complete. The controlled publication record is `docs/PUBLIC_LEGAL_PUBLICATION_EVIDENCE.md`. Production Web is pinned to approved main commit `2b59dbc893d2fcdc883296e621a0cb2320ef818b`, runs with `LEGAL_EFFECTIVE_DATE=2026-10-06` and `LEGAL_PAGES_PUBLISHED=true`, and post-deploy container verification returned HTTP 200 for Privacy, Terms and AUP plus PASS for the approved effective date and all footer legal links.
 
 ### C. Step 11 — First Real Paying Client
 
