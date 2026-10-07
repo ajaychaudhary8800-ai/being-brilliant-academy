@@ -8071,6 +8071,7 @@ model SaaSCommercialDocument {
   fileData           Bytes
   contentSha256      String
   verificationStatus String   @default("UNVERIFIED")
+  verificationNotes  String?  @db.Text
   uploadedById       String
   verifiedById       String?
   verifiedAt         DateTime?
