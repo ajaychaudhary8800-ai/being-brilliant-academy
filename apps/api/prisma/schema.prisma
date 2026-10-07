@@ -8032,6 +8032,7 @@ model SaaSSalesLead {
   updatedAt                DateTime @updatedAt
 
   activities SaaSSalesActivity[]
+  documents  SaaSCommercialDocument[]
 
   @@index([status, qualification, leadScore])
   @@index([source, createdAt])
@@ -8053,6 +8054,37 @@ model SaaSSalesActivity {
   lead SaaSSalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@index([leadId, createdAt])
+}
+
+
+model SaaSCommercialDocument {
+  id                 String   @id @default(cuid())
+  leadId             String
+  organizationId     String?
+  documentType       String
+  documentReference  String
+  signedAt           DateTime?
+  notes              String?  @db.Text
+  fileName           String
+  mimeType           String   @default("application/pdf")
+  fileSize           Int
+  fileData           Bytes
+  contentSha256      String
+  verificationStatus String   @default("UNVERIFIED")
+  uploadedById       String
+  verifiedById       String?
+  verifiedAt         DateTime?
+  archivedById       String?
+  archivedAt         DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  lead SaaSSalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, documentType, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([verificationStatus, createdAt])
+  @@index([contentSha256])
 }
 
 enum MeetingType {
