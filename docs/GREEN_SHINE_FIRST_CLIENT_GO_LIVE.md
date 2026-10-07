@@ -25,7 +25,7 @@ Management confirmed on 8 October 2026 that proposal `GSWS-PRO-2026-001` was phy
 
 Before provisioning as the Step 11 client:
 
-- [ ] Create a real SaaS Sales lead for Green Shine World School.
+- [x] Create a real SaaS Sales lead for Green Shine World School.
 - [ ] Confirm the contracting/legal entity and authorized sign-off representative.
 - [ ] Confirm selected SaaS plan and billing cycle.
 - [ ] Complete/accept the Order Form.
@@ -36,6 +36,7 @@ Before provisioning as the Step 11 client:
 
 Record:
 
+- SaaS Sales stage: PROPOSAL_SENT
 - SaaS Sales lead ID:
 - Contracting entity:
 - Selected plan:
@@ -64,21 +65,32 @@ Record:
 
 ## 3. Production tenant provisioning
 
-- [ ] Create the Green Shine World School production organization.
+- [x] Create the Green Shine World School production organization.
 - [ ] Link the WON SaaS Sales lead through `wonOrganizationId`.
 - [ ] Confirm subscription status and plan alignment.
 - [ ] Tenant Super Admin completes secure account setup.
-- [ ] Create at least one active branch/campus.
+- [x] Create at least one active branch/campus.
 - [ ] Confirm shared workspace login.
-- [ ] Configure branding and institution terminology.
+- [x] Configure branding and institution terminology.
 - [ ] Configure custom domain/TLS only if contracted.
+
+Verified existing production state before commercial acceptance:
+
+- Production organization already exists and is ACTIVE.
+- Workspace slug: `green-shine`.
+- At least one active branch/campus is present.
+- Branding is configured.
+- Existing tenant plan observed before commercial conversion: STANDARD.
+- Proposed commercial plan: PROFESSIONAL ANNUAL.
+- Subscription/ledger must **not** be treated as aligned until the real commercial acceptance/payment or approved activation condition is recorded.
 
 Record:
 
 - Organization ID:
-- Workspace slug:
+- Workspace slug: `green-shine`
 - Subscription ID:
-- Plan code:
+- Current pre-acceptance plan code: STANDARD
+- Contracted plan code after acceptance: PROFESSIONAL
 - Shared access URL:
 - Custom URL, if applicable:
 
@@ -140,6 +152,21 @@ Record:
 - Smoke result:
 - Client approver:
 - Internal approver:
+
+## Rapid closeout sequence after real acceptance
+
+Execute these actions in this order as soon as genuine client acceptance is evidenced; they may be operationally prepared in parallel, but no evidence step may be marked complete by assumption:
+
+1. Record the exact contracting entity, authorized signatory, acceptance date and signed/accepted document references.
+2. Complete the Order Form and Implementation SOW using only real client particulars; preserve the Professional Annual commercial terms unless a duly approved negotiation changes them.
+3. Mark the SaaS Sales lead **WON** and link the existing Green Shine production organization through `wonOrganizationId`.
+4. Issue/record the real invoice or approved activation condition; verify finance evidence and payment status where payment is required before activation.
+5. Align the production subscription/ledger from the current pre-acceptance state to the contracted PROFESSIONAL ANNUAL plan.
+6. Mark migration **NOT REQUIRED** only if the executed SOW excludes legacy migration; otherwise complete the contracted migration.
+7. Complete administrator/client training and the contracted UAT workflows, then record client UAT acceptance.
+8. Move onboarding to **READY / 100%**, record go-live approval and complete the handover/acceptance certificate.
+9. Run the production smoke checklist and record PASS evidence.
+10. Only then change Step 11 to COMPLETE and the first-paying-client launch gate to READY.
 
 ## Completion rule
 
