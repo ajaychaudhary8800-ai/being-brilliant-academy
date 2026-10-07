@@ -63,7 +63,7 @@ test("Platform Admin UI exposes the 14-step roadmap, live health and launch bloc
     readFile(sidebarUrl, "utf8"),
   ]);
   assert.match(sidebar, /SaaS Control Center.*\/admin\/control-center.*platformOnly: true/);
-  assert.match(page, /1–14 roadmap/);
+  assert.match(page, /1–14 commercial rollout roadmap/);
   assert.match(page, /Live platform health/);
   assert.match(page, /Launch blockers/);
   assert.match(page, /\/health\/ready/);
