@@ -18,6 +18,7 @@ function configCandidates(fileName: string) {
 
 const roadmapUrls = configCandidates("project-roadmap.json");
 const launchReadinessUrls = configCandidates("launch-readiness.json");
+const erp4SoftwareReadinessUrls = configCandidates("erp4-software-readiness.json");
 
 function requirePlatformAdmin(req: AuthRequest) {
   if (req.auth?.role !== Role.SUPER_ADMIN || req.auth.homeOrganizationId !== "org_default") {
@@ -43,14 +44,16 @@ router.use(requireAuth);
 
 router.get("/platform/control-center", async (req: AuthRequest, res) => {
   requirePlatformAdmin(req);
-  const [roadmap, launch] = await Promise.all([
+  const [roadmap, launch, erp4Software] = await Promise.all([
     readJson(roadmapUrls),
     readJson(launchReadinessUrls),
+    readJson(erp4SoftwareReadinessUrls),
   ]);
   res.json({
     data: {
       roadmap,
       launch,
+      erp4Software,
       generatedAt: new Date().toISOString(),
     },
   });
