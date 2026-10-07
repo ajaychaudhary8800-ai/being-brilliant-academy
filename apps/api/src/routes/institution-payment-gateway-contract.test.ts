@@ -63,6 +63,8 @@ test("fee checkout does not mutate the fee ledger until a verified webhook captu
   const rawIndex = server.indexOf('app.use("/api/v1/institution-payments/razorpay/webhook/:gatewayId", express.raw');
   const jsonIndex = server.indexOf('app.use(express.json');
   assert.ok(rawIndex >= 0 && rawIndex < jsonIndex, "institution webhook must preserve the raw body before JSON parsing");
+  assert.ok(server.includes('onlyPaths(["/platform/saas", "/organization/entitlements", "/organization/subscription"], saasCommercial)'));
+  assert.ok(!server.includes('app.use("/api/v1", saasCommercial)'));
 });
 
 test("gateway capture enforces authoritative amount, currency, idempotency and manual-review safety", async () => {
