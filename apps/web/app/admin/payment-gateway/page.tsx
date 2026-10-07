@@ -172,6 +172,31 @@ export default function PaymentGatewayPage() {
     }
   }
 
+  async function reconcile(order: Order) {
+    if (!order.providerOrderId) return;
+    if (!window.confirm(`Verify this order directly with Razorpay and post it to the fee ledger only if Razorpay confirms a captured payment?`)) return;
+    setBusy(`reconcile:${order.id}`);
+    setNotice("");
+    setError("");
+    try {
+      const data = await api(`/organization/payment-gateway/orders/${order.id}/reconcile`, {
+        method: "POST",
+      });
+      if (data?.reviewRequired) {
+        setNotice("Razorpay data was retrieved, but this payment requires finance review before it can be posted.");
+      } else if (data?.duplicate) {
+        setNotice("This payment is already reconciled.");
+      } else {
+        setNotice("Captured Razorpay payment reconciled successfully. The fee ledger and receipt are now updated.");
+      }
+      await load();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function refund(order: Order) {
     const remaining = order.amountPaise - order.refundedPaise;
     if (remaining <= 0) return;
@@ -318,7 +343,17 @@ export default function PaymentGatewayPage() {
                   <td className="p-3 font-mono text-xs">{order.providerOrderId ?? "—"}<br/>{order.providerPaymentId ?? ""}</td>
                   <td className="p-3">{order.receipt?.receiptNumber ?? "—"}</td>
                   <td className="p-3">{new Date(order.createdAt).toLocaleString("en-IN")}</td>
-                  <td className="p-3">{order.status === "CAPTURED" && remaining > 0 ? <button disabled={busy !== ""} onClick={() => void refund(order)} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-700">{busy === `refund:${order.id}` ? "Requesting…" : "Refund remaining"}</button> : "—"}</td>
+                  <td className="p-3">
+                    {order.status === "CAPTURED" && remaining > 0 ? (
+                      <button disabled={busy !== ""} onClick={() => void refund(order)} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-700">
+                        {busy === `refund:${order.id}` ? "Requesting…" : "Refund remaining"}
+                      </button>
+                    ) : order.providerOrderId && !["CAPTURED", "REFUNDED"].includes(order.status) ? (
+                      <button disabled={busy !== ""} onClick={() => void reconcile(order)} className="rounded-lg border border-amber-300 px-3 py-2 text-xs font-bold text-amber-800">
+                        {busy === `reconcile:${order.id}` ? "Reconciling…" : "Reconcile"}
+                      </button>
+                    ) : "—"}
+                  </td>
                 </tr>;
               })}
               {!orders.length && <tr><td colSpan={8} className="p-8 text-center text-slate-500">No online fee transactions yet.</td></tr>}
