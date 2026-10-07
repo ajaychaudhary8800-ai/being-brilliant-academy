@@ -4,10 +4,22 @@
 **Institution:** Green Shine World School  
 **Institution type:** School  
 **Rollout role:** Designated first external school client candidate for Step 11  
-**Current status:** PREPARATION  
+**Current status:** COMMERCIAL_ACCEPTANCE_PENDING  
+**Proposal status:** HARD-COPY SUBMITTED — AWAITING ACCEPTANCE  
 **Gate status:** NOT COMPLETE
 
 This record is a client-specific execution companion to [FIRST_CLIENT_GO_LIVE_EVIDENCE.md](./FIRST_CLIENT_GO_LIVE_EVIDENCE.md). It does not mark any commercial, payment, UAT or go-live step complete by assumption.
+
+## Proposal delivery record
+
+Management confirmed on 8 October 2026 that proposal `GSWS-PRO-2026-001` was physically submitted as a hard copy at the Green Shine World School office. This records proposal delivery only. It is **not** evidence of commercial acceptance, signature, payment, subscription activation, WON status, UAT acceptance or go-live approval.
+
+- Delivery method: Hard copy submitted at school office
+- Proposal reference: `GSWS-PRO-2026-001`
+- Proposed plan: PROFESSIONAL
+- Proposed billing cycle: ANNUAL
+- Proposed subscription amount: ₹149,990 before applicable GST
+- Current commercial state: Awaiting client acceptance
 
 ## 1. Commercial qualification
 
