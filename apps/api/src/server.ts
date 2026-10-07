@@ -323,7 +323,7 @@ app.use("/api/v1", onlyPaths(["/learning"], learningEcosystem));
 app.use("/api/v1", onlyPaths(["/finance/payments", "/finance/payment-offsets"], paymentOffsets));
 
 app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations));
-app.use("/api/v1", saasCommercial);
+app.use("/api/v1", onlyPaths(["/platform/saas", "/organization/entitlements", "/organization/subscription"], saasCommercial));
 app.use("/api/v1", institutionPayments);
 app.use("/api/v1", onlyPaths(["/analytics"], analytics));
 app.use("/api/v1", onlyPaths(["/automations"], automation));
