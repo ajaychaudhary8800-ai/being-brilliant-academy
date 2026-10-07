@@ -195,7 +195,7 @@ test("handover acceptance requires actual go-live facts and avoids generic place
   assert.doesNotMatch(handover, /\[\[(?:NUMBER|DATE|NONE \/ LIST WITH OWNER AND TARGET)\]\]/);
   assert.doesNotMatch(page, /\["GO LIVE DATE", context\.documentDate/);
   assert.doesNotMatch(page, /\["GO LIVE DATE", context\.targetGoLive/);
-  assert.doesNotMatch(page, /\["OPEN GO-LIVE EXCEPTIONS",/);
+  assert.match(page, /\["OPEN GO-LIVE EXCEPTIONS", context\.openGoLiveExceptions\]/);
 });
 
 
