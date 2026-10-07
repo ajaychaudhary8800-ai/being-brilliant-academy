@@ -124,6 +124,8 @@ test("web clients expose tenant setup, parent/student checkout and receipt downl
   assert.match(gatewayPage, /Verify credentials/);
   assert.match(gatewayPage, /Enable online fees/);
   assert.match(gatewayPage, /refund/);
+  assert.match(gatewayPage, /new URL\(gateway\.webhookPath, window\.location\.origin\)\.toString\(\)/);
+  assert.doesNotMatch(gatewayPage, /\`\$\{API\}\$\{gateway\.webhookPath\}\`/);
   assert.match(portal, /loadRazorpayCheckout/);
   assert.match(portal, /Pay .*online|Pay \$\{onlinePayments/);
   assert.match(portal, /Download receipt/);

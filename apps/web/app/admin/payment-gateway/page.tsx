@@ -80,6 +80,7 @@ export default function PaymentGatewayPage() {
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [publicWebhookUrl, setPublicWebhookUrl] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -104,6 +105,15 @@ export default function PaymentGatewayPage() {
   useEffect(() => { void load(); }, [load]);
 
   const gateway = snapshot?.gateway ?? null;
+
+  useEffect(() => {
+    if (!gateway?.webhookPath) {
+      setPublicWebhookUrl("");
+      return;
+    }
+    setPublicWebhookUrl(new URL(gateway.webhookPath, window.location.origin).toString());
+  }, [gateway?.webhookPath]);
+
   const configured = Boolean(gateway);
   const verified = Boolean(gateway?.lastVerifiedAt);
   const enabled = Boolean(gateway?.isEnabled);
@@ -220,8 +230,9 @@ export default function PaymentGatewayPage() {
 
   async function copyWebhook() {
     if (!gateway?.webhookPath) return;
-    await navigator.clipboard.writeText(`${API}${gateway.webhookPath}`);
-    setNotice("Webhook URL copied.");
+    const webhookUrl = publicWebhookUrl || new URL(gateway.webhookPath, window.location.origin).toString();
+    await navigator.clipboard.writeText(webhookUrl);
+    setNotice("Full webhook URL copied.");
   }
 
   return (
@@ -307,7 +318,7 @@ export default function PaymentGatewayPage() {
           <p className="mt-2 text-sm leading-6 text-slate-500">Add the generated URL in the institution&apos;s Razorpay Dashboard and subscribe to <b>payment.captured</b>, <b>payment.failed</b> and <b>refund.processed</b>.</p>
           {gateway?.webhookPath ? (
             <div className="mt-4 rounded-xl bg-slate-50 p-4 dark:bg-slate-900">
-              <p className="break-all font-mono text-xs">{`${API}${gateway.webhookPath}`}</p>
+              <p className="break-all font-mono text-xs">{publicWebhookUrl || gateway.webhookPath}</p>
               <button type="button" onClick={() => void copyWebhook()} className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-brand-700"><Copy size={15}/>Copy webhook URL</button>
             </div>
           ) : <p className="mt-4 text-sm text-slate-500">Save the gateway once to generate its tenant-specific webhook URL.</p>}
