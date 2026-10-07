@@ -35,7 +35,7 @@ Before treating the customer as commercially accepted, record:
 - Any negotiated deviations/approvals:
 - Commercial acceptance date:
 
-Do not place bank credentials, payment secrets or private personal contact data in this repository.
+Do not place bank credentials, payment secrets or private personal contact data in this repository. Store returned signed PDFs and other approved client evidence in the Platform Super Admin **Commercial Document Vault** (`/admin/commercial-documents`); record only non-sensitive references in this repository.
 
 ## 3. Paying-client evidence
 
