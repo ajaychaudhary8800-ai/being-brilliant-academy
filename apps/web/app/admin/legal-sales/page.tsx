@@ -227,6 +227,11 @@ function contextReplacements(context: ClientContext): Record<string, string> {
     ["INTEGRATION ADD-ON AMOUNT", selectedPlan ? "N/A" : ""],
     ["INTEGRATION ADD-ON FREQUENCY", selectedPlan ? "Not included" : ""],
     ["PAYMENT DUE", context.billingCycle ? "IN ADVANCE" : ""],
+    ["ACADEMIC CONFIGURATION SCOPE", selectedPlan ? "Standard academic-session, branch/campus, class/course, section/batch, subject, role and entitled-module configuration" : ""],
+    ["MIGRATION INCLUDED", selectedPlan ? "NO" : ""],
+    ["MIGRATION SOURCES", selectedPlan ? "Not applicable — legacy data migration is excluded unless separately contracted" : ""],
+    ["MIGRATION OBJECTS", selectedPlan ? "Not applicable" : ""],
+    ["MIGRATION TRANSFORMATION DETAILS", selectedPlan ? "Not applicable" : ""],
     ["UAT FEEDBACK DAYS", selectedPlan ? "5" : ""],
     ["GOVERNANCE CADENCE", selectedPlan ? "WEEKLY" : ""],
   ];
