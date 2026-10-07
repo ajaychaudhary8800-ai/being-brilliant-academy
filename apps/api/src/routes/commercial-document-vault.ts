@@ -5,7 +5,7 @@ import { z } from "zod";
 import { AppError } from "../lib/http.js";
 import { commercialDocumentEncryptionReady, decryptCommercialDocument, encryptCommercialDocument } from "../lib/commercial-document-crypto.js";
 import { systemPrisma } from "../lib/prisma.js";
-import { storedDocumentBuffer, storedDocumentHeaders } from "../lib/secure-download.js";
+import { storedDocumentHeaders } from "../lib/secure-download.js";
 import { assertDocumentFileExtension, decodeVerifiedUpload } from "../lib/secure-upload.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
