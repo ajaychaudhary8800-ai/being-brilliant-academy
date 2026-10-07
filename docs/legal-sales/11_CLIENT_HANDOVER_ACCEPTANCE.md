@@ -2,8 +2,8 @@
 
 **Client:** [[CLIENT LEGAL NAME]]  
 **Institution:** [[INSTITUTION]]  
-**Order Form:** [[NUMBER]]  
-**Go-live date:** [[DATE]]  
+**Order Form:** [[ORDER NUMBER]]  
+**Go-live date:** [[GO LIVE DATE]]  
 **Plan:** [[PLAN]]
 
 ## 1. Provisioning status
@@ -38,7 +38,7 @@ Critical workflows tested as applicable:
 - [ ] Finance/library/inventory/transport/hostel as contracted.
 - [ ] Reports/analytics.
 
-**Open go-live exceptions:** [[NONE / LIST WITH OWNER AND TARGET]]
+**Open go-live exceptions:** [[OPEN GO-LIVE EXCEPTIONS]]
 
 ## 4. Training and operational handover
 
