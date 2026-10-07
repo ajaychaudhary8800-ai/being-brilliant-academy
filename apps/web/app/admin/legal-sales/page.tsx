@@ -31,6 +31,14 @@ type ClientContext = {
   orderNumber: string;
   proposalNumber: string;
   targetGoLive: string;
+  effectiveDate: string;
+  subscriptionStart: string;
+  goLiveDate: string;
+  clientSignatoryName: string;
+  clientSignatoryDesignation: string;
+  providerProjectContact: string;
+  clientProjectContact: string;
+  openGoLiveExceptions: string;
 };
 
 const blankContext: ClientContext = {
@@ -45,6 +53,14 @@ const blankContext: ClientContext = {
   orderNumber: "",
   proposalNumber: "",
   targetGoLive: "",
+  effectiveDate: "",
+  subscriptionStart: "",
+  goLiveDate: "",
+  clientSignatoryName: "",
+  clientSignatoryDesignation: "",
+  providerProjectContact: "",
+  clientProjectContact: "",
+  openGoLiveExceptions: "",
 };
 
 const authHeaders = () => ({
@@ -212,6 +228,14 @@ function contextReplacements(context: ClientContext): Record<string, string> {
     ["PROPOSAL NUMBER", context.proposalNumber],
     ["ORDER NUMBER", context.orderNumber],
     ["TARGET GO-LIVE", context.targetGoLive],
+    ["EFFECTIVE DATE", context.effectiveDate],
+    ["SUBSCRIPTION START", context.subscriptionStart],
+    ["GO LIVE DATE", context.goLiveDate],
+    ["CLIENT SIGNATORY NAME", context.clientSignatoryName],
+    ["CLIENT SIGNATORY DESIGNATION", context.clientSignatoryDesignation],
+    ["PROVIDER PROJECT CONTACT", context.providerProjectContact],
+    ["CLIENT PROJECT CONTACT", context.clientProjectContact],
+    ["OPEN GO-LIVE EXCEPTIONS", context.openGoLiveExceptions],
     ["BILLING CYCLE", context.billingCycle],
     ["ACTIVE STUDENT CAPACITY", selectedPlan?.students ?? ""],
     ["ACTIVE USER CAPACITY", selectedPlan?.users ?? ""],
@@ -416,6 +440,14 @@ export default function Page() {
               <Input label="Order number" value={context.orderNumber} onChange={value => updateContext("orderNumber", value)}/>
               <Input label="Proposal number" value={context.proposalNumber} onChange={value => updateContext("proposalNumber", value)}/>
               <Input label="Target go-live" type="date" value={context.targetGoLive} onChange={value => updateContext("targetGoLive", value)}/>
+              <Input label="Effective date" type="date" value={context.effectiveDate} onChange={value => updateContext("effectiveDate", value)}/>
+              <Input label="Subscription start" type="date" value={context.subscriptionStart} onChange={value => updateContext("subscriptionStart", value)}/>
+              <Input label="Actual go-live date" type="date" value={context.goLiveDate} onChange={value => updateContext("goLiveDate", value)}/>
+              <Input label="Client signatory name" value={context.clientSignatoryName} onChange={value => updateContext("clientSignatoryName", value)}/>
+              <Input label="Client signatory designation" value={context.clientSignatoryDesignation} onChange={value => updateContext("clientSignatoryDesignation", value)}/>
+              <Input label="Provider project contact" value={context.providerProjectContact} onChange={value => updateContext("providerProjectContact", value)}/>
+              <Input label="Client project contact" value={context.clientProjectContact} onChange={value => updateContext("clientProjectContact", value)}/>
+              <Input label="Open go-live exceptions" value={context.openGoLiveExceptions} onChange={value => updateContext("openGoLiveExceptions", value)}/>
             </div>
             <button type="button" onClick={applyContext} className="mt-4 rounded-xl border border-brand-300 px-4 py-2.5 text-sm font-semibold text-brand-700">Apply client context</button>
           </section>
