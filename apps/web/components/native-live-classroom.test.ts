@@ -107,3 +107,17 @@ test("whiteboard history synchronization stays packet-sized instead of broadcast
   assert.match(source, /type: "whiteboard-undo"/);
   assert.match(source, /for \(const item of group\) await publish\(\{ type: "whiteboard", stroke: item \}, true\)/);
 });
+
+
+test("whiteboard supports teaching templates, equations, lines and fullscreen presentation", () => {
+  assert.match(source, /Whiteboard background/);
+  assert.match(source, /Ruled board/);
+  assert.match(source, /Graph grid/);
+  assert.match(source, /Coordinate axes/);
+  assert.match(source, /insertEquation/);
+  assert.match(source, /Equation/);
+  assert.match(source, /insertWhiteboardShape\("line"\)/);
+  assert.match(source, /Fullscreen whiteboard/);
+  assert.match(source, /requestFullscreen/);
+  assert.match(source, /whiteboard-background/);
+});
