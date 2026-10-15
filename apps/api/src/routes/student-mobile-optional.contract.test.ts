@@ -16,6 +16,7 @@ test("student form marks personal mobile optional and sends null when blank", as
   assert.match(page, /mobile:\s*form\.mobile\.trim\(\) \|\| null/);
   assert.match(page, /'aadhaarNo', 'mobile'\]\.includes\(key\)/);
   assert.match(page, /\['mobile', 'Mobile'\]/);
+  assert.match(page, /mobile: student\.user\.phone \?\? ""/);
 });
 
 test("student mobile is nullable in database while non-null numbers remain unique", async () => {
