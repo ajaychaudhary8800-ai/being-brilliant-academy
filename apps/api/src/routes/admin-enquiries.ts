@@ -143,7 +143,7 @@ router.post("/enquiries/:id/convert",async(req:AuthRequest,res)=>{
       if(!organization)throw new AppError(404,"ORGANIZATION_NOT_FOUND","Organization not found");
       const admissionDate=parseDateOnly(institutionCalendarDate(new Date(),organization.timezone));
       const rollNo=normalizeAcademicRollNumber(data.rollNo);
-      const user=await tx.user.create({data:{organizationId:req.auth!.organizationId,name:enquiry.studentName,email:data.email,phone:enquiry.mobile,passwordHash,role:Role.STUDENT}});
+      const user=await tx.user.create({data:{organizationId:req.auth!.organizationId,name:enquiry.studentName,email:data.email,phone:null,passwordHash,role:Role.STUDENT}});
       const student=await tx.studentProfile.create({data:{organizationId:req.auth!.organizationId,userId:user.id,admissionNo:data.admissionNo,rollNo,gender:data.gender,dateOfBirth:data.dateOfBirth,fatherName:data.fatherName,motherName:data.motherName,className:batch.course!.title,parentMobile:enquiry.mobile,address:data.address,academicSession:batch.session.name,academicSessionId:batch.academicSessionId,admissionDate,branchId:batch.branchId,batchId:batch.id},include:{user:{select:{id:true,name:true,email:true,phone:true,role:true,isActive:true}},branch:true,batch:true}});
       const enrollment=await createActiveAcademicEnrollment(tx,{organizationId:req.auth!.organizationId,studentId:student.id,academicSessionId:batch.academicSessionId,branchId:batch.branchId,courseId:batch.course!.id,batchId:batch.id,rollNo,source:StudentAcademicEnrollmentSource.ADMISSION,effectiveFrom:admissionDate,createdById:req.auth!.userId});
       assertAcademicProjectionConsistent(student,enrollment);
