@@ -12,7 +12,7 @@ test("student admissions and imports permit omitted or blank personal mobile num
 });
 
 test("student form marks personal mobile optional and sends null when blank", async () => {
-  const page = await readFile(new URL("../../../../web/app/admin/students/page.tsx", import.meta.url), "utf8");
+  const page = await readFile(new URL("../../../web/app/admin/students/page.tsx", import.meta.url), "utf8");
   assert.match(page, /mobile:\s*form\.mobile\.trim\(\) \|\| null/);
   assert.match(page, /'aadhaarNo', 'mobile'\]\.includes\(key\)/);
   assert.match(page, /\['mobile', 'Mobile'\]/);
