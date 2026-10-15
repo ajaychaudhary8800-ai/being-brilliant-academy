@@ -90,6 +90,56 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
     const uniqueFixtureMobile = () => `91${String(phoneBase + ++httpSequence).slice(-10).padStart(10, "1")}`;
     const studentBody = (suffix: string, overrides: Record<string, unknown> = {}) => ({ admissionNo: `HTTP-${suffix}-${key.slice(0, 8)}`, rollNo: `H-${suffix}`, name: `HTTP Student ${suffix}`, gender: Gender.OTHER, dateOfBirth: "2010-01-01", fatherName: "Parent One", motherName: "Parent Two", mobile: uniqueFixtureMobile(), parentMobile: "9999999999", email: `http-${suffix}-${key}@example.test`, password: "Student@123", address: "Integration address", branchId: branch.id, batchId: batch.id, academicSession: session.name, admissionDate: session.startsAt.toISOString().slice(0, 10), ...overrides });
 
+    await t.test("siblings can register without personal mobile numbers using the same guardian phone", async () => {
+      const guardianPhone = "9999999999";
+      const first = await request("/students", "POST", studentBody("sibling-one", { mobile: "", parentMobile: guardianPhone }));
+      assert.equal(first.status, 201, JSON.stringify(first.payload));
+      assert.equal(first.payload.data.user.phone, null);
+      createdUserIds.push(first.payload.data.user.id);
+
+      const second = await request("/students", "POST", studentBody("sibling-two", { mobile: null, parentMobile: guardianPhone }));
+      assert.equal(second.status, 201, JSON.stringify(second.payload));
+      assert.equal(second.payload.data.user.phone, null);
+      createdUserIds.push(second.payload.data.user.id);
+
+      const { mobile: _withoutPersonalPhone, ...omittedPhoneBody } = studentBody("sibling-three", { parentMobile: guardianPhone });
+      const third = await request("/students", "POST", omittedPhoneBody);
+      assert.equal(third.status, 201, JSON.stringify(third.payload));
+      assert.equal(third.payload.data.user.phone, null);
+      createdUserIds.push(third.payload.data.user.id);
+
+      const imported = await request("/students/import", "POST", { rows: [studentBody("sibling-import", { mobile: "", parentMobile: guardianPhone })] });
+      assert.equal(imported.status, 201, JSON.stringify(imported.payload));
+      assert.equal(imported.payload.data.createdCount, 1);
+      assert.equal(imported.payload.data.created[0].user.phone, null);
+      createdUserIds.push(imported.payload.data.created[0].user.id);
+
+      const siblingProfiles = await systemPrisma.studentProfile.findMany({ where: { organizationId, id: { in: [first.payload.data.id, second.payload.data.id, third.payload.data.id, imported.payload.data.created[0].id] } } });
+      assert.equal(siblingProfiles.length, 4);
+      assert.ok(siblingProfiles.every(profile => profile.parentMobile === guardianPhone));
+
+      const personalPhone = uniqueFixtureMobile();
+      const assigned = await request(`/students/${first.payload.data.id}`, "PATCH", { mobile: personalPhone });
+      assert.equal(assigned.status, 200, JSON.stringify(assigned.payload));
+      assert.equal(assigned.payload.data.user.phone, personalPhone);
+      const duplicatePhone = await request("/students", "POST", studentBody("sibling-duplicate-phone", { mobile: personalPhone, parentMobile: guardianPhone }));
+      assert.equal(duplicatePhone.status, 409, JSON.stringify(duplicatePhone.payload));
+      assert.equal(duplicatePhone.payload.error.code, "STUDENT_MOBILE_EXISTS");
+      assert.equal(await systemPrisma.user.count({ where: { email: `http-sibling-duplicate-phone-${key}@example.test` } }), 0);
+
+      const cleared = await request(`/students/${first.payload.data.id}`, "PATCH", { mobile: "" });
+      assert.equal(cleared.status, 200, JSON.stringify(cleared.payload));
+      assert.equal(cleared.payload.data.user.phone, null);
+      const restored = await request(`/students/${first.payload.data.id}`, "PATCH", { mobile: personalPhone });
+      assert.equal(restored.status, 200, JSON.stringify(restored.payload));
+      const clearedWithNull = await request(`/students/${first.payload.data.id}`, "PATCH", { mobile: null });
+      assert.equal(clearedWithNull.status, 200, JSON.stringify(clearedWithNull.payload));
+      assert.equal(clearedWithNull.payload.data.user.phone, null);
+
+      const noGuardian = await request("/students", "POST", studentBody("sibling-no-guardian", { mobile: "", parentMobile: "" }));
+      assert.equal(noGuardian.status, 422, JSON.stringify(noGuardian.payload));
+    });
+
     await t.test("production student routes dual-write create/import/PATCH and preserve compatible reads", async () => {
       const admitted = await request("/students", "POST", studentBody("admit"));
       assert.equal(admitted.status, 201, JSON.stringify(admitted.payload));

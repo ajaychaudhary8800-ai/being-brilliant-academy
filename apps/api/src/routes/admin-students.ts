@@ -18,6 +18,8 @@ const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
 
 const phone = z.string().trim().regex(/^\+?[0-9][0-9 -]{6,19}$/, "Enter a valid mobile number");
+// Children may not own a phone. Keep guardian contact mandatory and store missing student phones as SQL NULL.
+const optionalStudentMobile = phone.or(z.literal("")).nullish();
 const studentPhotoReference = z.union([
   z.string().url(),
   z.string().regex(/^\/api\/v1\/uploaded-images\/student-photo\/[A-Za-z0-9_-]{1,100}\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/, "Invalid student photo reference"),
@@ -30,7 +32,7 @@ const input = z.object({
   dateOfBirth: z.coerce.date(),
   fatherName: z.string().trim().min(2).max(100),
   motherName: z.string().trim().min(2).max(100),
-  mobile: phone,
+  mobile: optionalStudentMobile,
   parentMobile: phone,
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(8).max(128).optional(),
@@ -76,6 +78,7 @@ function duplicateError(error: unknown) {
   const target = known.meta?.target;
   if (target?.includes("admissionNo")) return new AppError(409, "ADMISSION_NO_EXISTS", "Admission number already exists");
   if (target?.includes("email")) return new AppError(409, "EMAIL_EXISTS", "Email already exists");
+  if (target?.includes("phone")) return new AppError(409, "STUDENT_MOBILE_EXISTS", "Student mobile already exists. Leave Student Mobile blank if the child does not have a personal phone.");
   if (target?.includes("aadhaarNo")) return new AppError(409, "AADHAAR_EXISTS", "Aadhaar number already exists");
   return academicPlacementConflict(error) ?? new AppError(409, "DUPLICATE_STUDENT", "A unique student value already exists");
 }
@@ -111,7 +114,7 @@ async function createStudent(req: AuthRequest, data: z.infer<typeof input> & { p
       assertBranchAccess(branchIds, batch.branchId);
       await assertCapacity(tx, batch);
       const rollNo = normalizeAcademicRollNumber(data.rollNo);
-      const user = await tx.user.create({ data: { organizationId: req.auth!.organizationId, name: data.name, email: data.email, phone: data.mobile, avatarUrl: data.photoUrl ?? null, passwordHash, role: Role.STUDENT, isActive: data.status === StudentStatus.ACTIVE } });
+      const user = await tx.user.create({ data: { organizationId: req.auth!.organizationId, name: data.name, email: data.email, phone: data.mobile || null, avatarUrl: data.photoUrl ?? null, passwordHash, role: Role.STUDENT, isActive: data.status === StudentStatus.ACTIVE } });
       const profile = await tx.studentProfile.create({
         data: { organizationId: req.auth!.organizationId, userId: user.id, admissionNo: data.admissionNo, rollNo, gender: data.gender, dateOfBirth: data.dateOfBirth, fatherName: data.fatherName, motherName: data.motherName, className: batch.course!.title, parentMobile: data.parentMobile, address: data.address, branchId: batch.branchId, batchId: batch.id, academicSessionId: batch.academicSessionId, academicSession: batch.session.name, admissionDate: data.admissionDate, bloodGroup: data.bloodGroup ?? null, category: data.category ?? null, aadhaarNo: data.aadhaarNo ?? null, status: data.status, remarks: data.remarks ?? null },
         select: studentSelect,
@@ -237,7 +240,7 @@ router.patch("/students/:id", async (req: AuthRequest, res) => {
       assertBranchAccess(branchIds, old.branchId);
       replacedPhoto = old.user.avatarUrl;
       const { name, email, mobile, photoUrl, password: _password, branchId: _branchId, batchId: _batchId, academicSession: _academicSession, rollNo: _rollNo, ...profileFields } = data;
-      await tx.user.update({ where: { id: old.userId }, data: { ...(name ? { name } : {}), ...(email ? { email } : {}), ...(mobile ? { phone: mobile } : {}), ...(photoUrl !== undefined ? { avatarUrl: photoUrl } : {}), ...(passwordHash ? { passwordHash } : {}), ...(data.status ? { isActive: data.status === StudentStatus.ACTIVE } : {}) } });
+      await tx.user.update({ where: { id: old.userId }, data: { ...(name ? { name } : {}), ...(email ? { email } : {}), ...(mobile !== undefined ? { phone: mobile || null } : {}), ...(photoUrl !== undefined ? { avatarUrl: photoUrl } : {}), ...(passwordHash ? { passwordHash } : {}), ...(data.status ? { isActive: data.status === StudentStatus.ACTIVE } : {}) } });
       const placementRequested = data.batchId !== undefined || data.branchId !== undefined || data.academicSession !== undefined || data.rollNo !== undefined;
       let currentEnrollment = null;
       if (placementRequested) {
