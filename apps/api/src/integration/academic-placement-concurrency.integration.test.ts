@@ -137,7 +137,7 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
       assert.equal(clearedWithNull.payload.data.user.phone, null);
 
       const noGuardian = await request("/students", "POST", studentBody("sibling-no-guardian", { mobile: "", parentMobile: "" }));
-      assert.equal(noGuardian.status, 400, JSON.stringify(noGuardian.payload));
+      assert.equal(noGuardian.status, 422, JSON.stringify(noGuardian.payload));
     });
 
     await t.test("production student routes dual-write create/import/PATCH and preserve compatible reads", async () => {
