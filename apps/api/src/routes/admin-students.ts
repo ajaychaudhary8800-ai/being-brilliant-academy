@@ -30,7 +30,7 @@ const input = z.object({
   dateOfBirth: z.coerce.date(),
   fatherName: z.string().trim().min(2).max(100),
   motherName: z.string().trim().min(2).max(100),
-  mobile: phone,
+  mobile: z.preprocess(value => value === "" || value === undefined ? null : value, phone.nullable()),
   parentMobile: phone,
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(8).max(128).optional(),
@@ -76,6 +76,7 @@ function duplicateError(error: unknown) {
   const target = known.meta?.target;
   if (target?.includes("admissionNo")) return new AppError(409, "ADMISSION_NO_EXISTS", "Admission number already exists");
   if (target?.includes("email")) return new AppError(409, "EMAIL_EXISTS", "Email already exists");
+  if (target?.includes("phone")) return new AppError(409, "STUDENT_MOBILE_EXISTS", "Student mobile number is already assigned to another account; leave it blank if the student has no personal number");
   if (target?.includes("aadhaarNo")) return new AppError(409, "AADHAAR_EXISTS", "Aadhaar number already exists");
   return academicPlacementConflict(error) ?? new AppError(409, "DUPLICATE_STUDENT", "A unique student value already exists");
 }
@@ -237,7 +238,7 @@ router.patch("/students/:id", async (req: AuthRequest, res) => {
       assertBranchAccess(branchIds, old.branchId);
       replacedPhoto = old.user.avatarUrl;
       const { name, email, mobile, photoUrl, password: _password, branchId: _branchId, batchId: _batchId, academicSession: _academicSession, rollNo: _rollNo, ...profileFields } = data;
-      await tx.user.update({ where: { id: old.userId }, data: { ...(name ? { name } : {}), ...(email ? { email } : {}), ...(mobile ? { phone: mobile } : {}), ...(photoUrl !== undefined ? { avatarUrl: photoUrl } : {}), ...(passwordHash ? { passwordHash } : {}), ...(data.status ? { isActive: data.status === StudentStatus.ACTIVE } : {}) } });
+      await tx.user.update({ where: { id: old.userId }, data: { ...(name ? { name } : {}), ...(email ? { email } : {}), ...(mobile !== undefined ? { phone: mobile } : {}), ...(photoUrl !== undefined ? { avatarUrl: photoUrl } : {}), ...(passwordHash ? { passwordHash } : {}), ...(data.status ? { isActive: data.status === StudentStatus.ACTIVE } : {}) } });
       const placementRequested = data.batchId !== undefined || data.branchId !== undefined || data.academicSession !== undefined || data.rollNo !== undefined;
       let currentEnrollment = null;
       if (placementRequested) {
