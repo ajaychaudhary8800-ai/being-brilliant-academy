@@ -63,9 +63,9 @@ router.get("/allocation-subject-options", async (req: AuthRequest, res) => {
   if (!teacher || !course || course.branchId && course.branchId !== teacher.branchId) throw new AppError(422, "INVALID_ALLOCATION_CONTEXT", "Teacher and course must be available in the same branch");
   if (req.auth!.role === Role.BRANCH_ADMIN && !await prisma.branchUser.findFirst({ where: { userId: req.auth!.userId, branchId: teacher.branchId }, select: { branchId: true } })) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
   const [teacherSubjects, courseSubjects] = await Promise.all([
-    prisma.teacherSubject.findMany({ where: { teacherId: query.teacherId, organizationId: req.auth!.organizationId }, select: { subjectId: true } }),
+    prisma.teacherSubject.findMany({ where: { teacherId: query.teacherId }, select: { subjectId: true } }),
     prisma.courseSubject.findMany({
-      where: { courseId: query.courseId, organizationId: req.auth!.organizationId, isActive: true },
+      where: { courseId: query.courseId, isActive: true },
       select: { subject: { select: { id: true, name: true, code: true, status: true, legacyReviewStatus: true } } },
       orderBy: { subject: { name: "asc" } },
     }),
