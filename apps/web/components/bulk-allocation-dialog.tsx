@@ -33,7 +33,9 @@ export default function BulkAllocationDialog({ sessions, branches, close, saved 
       }));
     });
   }), [selections, courses]);
-  const periodsValid = allocationRows.length > 0 && allocationRows.length <= 500 &&
+  const defaultPeriodCount = Number(weeklyPeriods);
+  const defaultPeriodsValid = weeklyPeriods.trim() !== "" && Number.isInteger(defaultPeriodCount) && defaultPeriodCount >= 1 && defaultPeriodCount <= 100;
+  const periodsValid = defaultPeriodsValid && allocationRows.length > 0 && allocationRows.length <= 500 &&
     allocationRows.every(row => {
       const value = Number(periodOverrides[periodMatrixKey(row)] ?? weeklyPeriods);
       return Number.isInteger(value) && value >= 1 && value <= 100 &&
