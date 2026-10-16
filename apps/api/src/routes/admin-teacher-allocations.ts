@@ -2,6 +2,7 @@ import { Prisma, Role, SubjectLegacyReviewStatus, SubjectStatus, TeacherAllocati
 import { Router } from "express";
 import { z } from "zod";
 import { expandAllocationSelections } from "../lib/allocation-expansion.js";
+import { applyAllocationPeriods } from "../lib/allocation-periods.js";
 import { AppError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -34,6 +35,8 @@ const bulkInput = z.object({
     batchIds: z.array(id).min(1).max(50),
     subjectIds: z.array(id).min(1).max(50),
   })).min(1).max(25),
+  // Optional per-group / per-subject overrides, retaining compatibility with the existing uniform value.
+  periodOverrides: z.array(z.object({ courseId: id, batchId: id, subjectId: id, weeklyPeriods: z.number().int().min(1).max(100) })).max(500).optional(),
   weeklyPeriods: z.number().int().min(1).max(100),
   effectiveFrom: z.coerce.date(),
   effectiveTo: z.coerce.date().nullable().optional(),
@@ -118,6 +121,9 @@ async function expandAllocations(req: AuthRequest, data: BulkInput) {
     if (new Set(item.batchIds).size !== item.batchIds.length) throw new AppError(422, "DUPLICATE_BATCH_SELECTION", "Select each academic group only once per course");
     if (new Set(item.subjectIds).size !== item.subjectIds.length) throw new AppError(422, "DUPLICATE_SUBJECT_SELECTION", "Select each subject only once per course");
   }
+  const selectedRows = expandAllocationSelections(data.selections);
+  if (selectedRows.length > 500) throw new AppError(422, "ALLOCATION_LIMIT_EXCEEDED", "A single bulk allocation may create at most 500 rows");
+  const selectedWithPeriods = applyAllocationPeriods(selectedRows, data.weeklyPeriods, data.periodOverrides);
   const batchIds = [...new Set(data.selections.flatMap(item => item.batchIds))];
   const subjectIds = [...new Set(data.selections.flatMap(item => item.subjectIds))];
   const [branch, session, teacher, courses, batches, subjects, teacherSubjects, courseSubjects] = await Promise.all([
@@ -141,7 +147,7 @@ async function expandAllocations(req: AuthRequest, data: BulkInput) {
   const subjectMap = new Map(subjects.map(subject => [subject.id, subject]));
   const teacherSubjectIds = new Set(teacherSubjects.map(item => item.subjectId));
   const courseSubjectKeys = new Set(courseSubjects.map(item => `${item.courseId}:${item.subjectId}`));
-  const rows: ExpandedAllocation[] = expandAllocationSelections(data.selections).map(selection => {
+  const rows: ExpandedAllocation[] = selectedWithPeriods.map(selection => {
     const course = courseMap.get(selection.courseId)!;
     const batch = batchMap.get(selection.batchId);
     if (!batch || batch.branchId !== data.branchId || batch.courseId !== selection.courseId || batch.academicSessionId !== data.academicSessionId) throw new AppError(422, "INVALID_BATCH", "Every academic group must match its selected branch, course and academic session");
@@ -149,7 +155,7 @@ async function expandAllocations(req: AuthRequest, data: BulkInput) {
     return {
       academicSessionId: data.academicSessionId, branchId: data.branchId, courseId: selection.courseId,
       batchId: selection.batchId, teacherId: data.teacherId, subjectId: selection.subjectId, subjectName: subjectMap.get(selection.subjectId)!.name,
-      weeklyPeriods: data.weeklyPeriods, effectiveFrom: data.effectiveFrom, effectiveTo: data.effectiveTo,
+      weeklyPeriods: selection.weeklyPeriods, effectiveFrom: data.effectiveFrom, effectiveTo: data.effectiveTo,
       remarks: data.remarks, status: data.status, courseTitle: course.title, batchName: batch.name,
     };
   });
@@ -169,7 +175,7 @@ router.post("/teacher-allocations/preview", async (req: AuthRequest, res) => {
     try { await ensureUnique(row); return null; }
     catch (error) { if (error instanceof AppError && error.code === "ACTIVE_ALLOCATION_OVERLAP") return { courseId: row.courseId, batchId: row.batchId, subjectId: row.subjectId }; throw error; }
   }))).filter(Boolean);
-  res.json({ data: { teacherName: expanded.teacherName, rows: expanded.rows.map(({ courseTitle, batchName, subjectName, courseId, batchId, subjectId }) => ({ courseId, courseTitle, batchId, batchName, subjectId, subjectName })), count: expanded.rows.length, conflicts } });
+  res.json({ data: { teacherName: expanded.teacherName, rows: expanded.rows.map(({ courseTitle, batchName, subjectName, courseId, batchId, subjectId, weeklyPeriods }) => ({ courseId, courseTitle, batchId, batchName, subjectId, subjectName, weeklyPeriods })), count: expanded.rows.length, conflicts } });
 });
 router.post("/teacher-allocations/bulk", async (req: AuthRequest, res) => {
   const expanded = await expandAllocations(req, bulkInput.parse(req.body));
