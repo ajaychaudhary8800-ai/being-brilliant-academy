@@ -18,7 +18,7 @@ test("the class-section-subject matrix submits exact periods per unique allocati
   assert.match(form, /<AllocationPeriodMatrix rows=\{allocationRows\}/);
   assert.match(form, /periodOverrides: allocationRows\.map\(row => \(\{ courseId: row\.courseId, batchId: row\.batchId, subjectId: row\.subjectId/);
   assert.match(form, /disabled=\{loading \|\| conflicts > 0 \|\| !ready\}/);
-  assert.match(form, /row\.weeklyPeriods\} periods\/week/);
+  assert.match(form, /row\.weeklyPeriods\}<\/b> periods\/week/);
   assert.match(matrix, /Exact weekdays and timings are configured in Timetable Management/);
   assert.match(matrix, /type="number"/);
   assert.match(matrix, /aria-label=\{`Weekly periods for/);
