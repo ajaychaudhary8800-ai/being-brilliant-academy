@@ -82,7 +82,7 @@ async function plan(req: AuthRequest, batchId: string, day: TimetableDay, entrie
     if (!period || period.type !== "TEACHING") { conflict("NOT_A_TEACHING_PERIOD", "Only configured teaching periods may have subjects and teachers"); continue; }
     if (!pairs.has(entry.teacherId + ":" + entry.subjectId)) { conflict("SUBJECT_NOT_ALLOCATED", "Assign this subject and teacher to the section before scheduling"); continue; }
     if (!rooms.has(entry.classroomId)) { conflict("INVALID_CLASSROOM", "Select an active classroom belonging to this branch"); continue; }
-    const base = { organizationId: req.auth!.organizationId, branchId: context.batch.branchId,
+    const base = { organizationId: req.auth!.organizationId!, branchId: context.batch.branchId,
       academicSessionId: context.batch.academicSessionId, day,
       startMinute: { lt: period.endMinute }, endMinute: { gt: period.startMinute } };
     const [sectionOccupied, teacherOccupied, roomOccupied, archivedExact] = await Promise.all([
@@ -125,13 +125,13 @@ router.post("/timetables/school-day", async (req: AuthRequest, res) => {
     const results = [];
     for (const entry of checked.prepared) {
       const row = await tx.timetable.create({
-        data: { organizationId: req.auth!.organizationId, branchId: context.batch.branchId,
+        data: { organizationId: req.auth!.organizationId!, branchId: context.batch.branchId,
           courseId: context.batch.courseId, batchId: context.batch.id,
           academicSessionId: context.batch.academicSessionId, academicSession: context.batch.academicSession,
           day: parsed.day, status: TimetableStatus.ACTIVE, ...entry },
         select: { id: true, periodNumber: true },
       });
-      await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId,
+      await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId!, actorId: req.auth!.userId,
         action: "CREATE", entity: "Timetable", entityId: row.id,
         metadata: { schoolClassDay: true, batchId: context.batch.id, day: parsed.day, periodNumber: row.periodNumber } } });
       results.push(row);
