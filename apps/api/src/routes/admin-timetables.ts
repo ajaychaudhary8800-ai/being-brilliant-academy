@@ -115,6 +115,17 @@ async function checkClassDay(
   const conflicts: Array<{ periodNumber: number; code: string; message: string }> = [];
   for (const entry of ordered) {
     try {
+      // A school teacher must hold an active subject allocation for this
+      // section; a valid teacher and subject independently are insufficient.
+      const assigned = await db.teacherAllocation.findFirst({
+        where: { organizationId: req.auth!.organizationId, branchId: entry.branchId,
+          academicSessionId: batch.academicSessionId, batchId: entry.batchId,
+          courseId: entry.courseId, teacherId: entry.teacherId,
+          subjectId: entry.subjectId, status: "ACTIVE" },
+        select: { id: true },
+      });
+      if (!assigned) throw new AppError(422, "SCHOOL_TEACHER_NOT_ALLOCATED",
+        "This subject is not actively allocated to the selected teacher for this section");
       await validate(entry, undefined, db);
       const existing = await db.timetable.findFirst({
         where: {
