@@ -94,7 +94,8 @@ export default function WeeklyTimetableDialog({ options, onClose, onSaved }: {
     Promise.all(DAYS.filter(day => selectedDays.includes(day)).map(async day => {
       const params = new URLSearchParams({ branchId, academicSessionId, day });
       const result = await fetch(`${API}/admin/timetable-periods?${params}`, { headers: headers(), signal: controller.signal }).then(json);
-      return [day, (result.data ?? []).filter((row: ConfiguredPeriod) => row.isActive && row.type === "TEACHING")] as const;
+      const periods: ConfiguredPeriod[] = (result.data ?? []).filter((row: ConfiguredPeriod) => row.isActive && row.type === "TEACHING");
+      return [day, periods] as const;
     })).then(rows => {
       if (controller.signal.aborted) return;
       const settings = Object.fromEntries(rows) as Partial<Record<Day, ConfiguredPeriod[]>>;
