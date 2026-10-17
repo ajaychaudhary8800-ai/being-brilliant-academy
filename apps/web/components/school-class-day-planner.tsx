@@ -162,7 +162,7 @@ export default function SchoolClassDayPlanner({ options, onClose, onSaved }: {
               const selected = slots[period.periodNumber] ?? { allocationId: "", classroomId: "" };
               const conflict = preview?.conflicts.find(row => row.periodNumber === period.periodNumber);
               return <tr key={period.id} className={"border-t " + (period.type === "BREAK" ? "bg-amber-50" : "")}>
-                <td className="p-3 font-semibold">{period.type === "BREAK" ? (period.label || "Break") : "Period " + period.periodNumber}</td>
+                <td className="p-3 font-semibold">{period.type === "BREAK" ? (period.label || "Break") : (period.label || "Period " + period.periodNumber)}</td>
                 <td className="p-3 whitespace-nowrap">{clock(period.startMinute)}–{clock(period.endMinute)}</td>
                 <td className="p-3">{period.type === "BREAK" ? <span className="font-medium">Whole-school non-teaching block (no teacher needed)</span>
                   : existing ? <span>{existing.subject.name} · {existing.teacher.user.name}</span>
