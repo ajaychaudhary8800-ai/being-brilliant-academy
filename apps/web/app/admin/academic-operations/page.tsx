@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarClock, CheckCircle2, Clock3, Plus, RefreshCw, UserRoundCheck, Users } from "lucide-react";
 import { AuthGate, getAccessToken } from "../../../components/auth-provider";
 import Sidebar from "../../../components/sidebar";
+import { useGroupTerminology } from "../../../components/use-group-terminology";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 const headers = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${getAccessToken() ?? ""}` });
@@ -19,6 +20,7 @@ type Period = { periodNumber: number; startTime: string; endTime: string; type: 
 type Tab = "workload" | "substitutions" | "periods";
 
 const days = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
+const SCHOOL_BREAK_PRESETS = ["Morning Assembly", "Lunch", "Short Break", "Recess", "Club Activity (Unsupervised)", "Games / Free Play", "School Dispersal"];
 const blankPeriod = (number: number): Period => ({ periodNumber: number, startTime: "09:00", endTime: "09:45", type: "TEACHING", label: "", isActive: true });
 
 function clock(value: number) {
@@ -29,6 +31,7 @@ function pretty(value: string) {
 }
 
 function Content() {
+  const schoolMode = useGroupTerminology().mode === "SCHOOL";
   const today = new Date().toISOString().slice(0, 10);
   const [tab, setTab] = useState<Tab>("workload");
   const [branches, setBranches] = useState<Option[]>([]);
@@ -264,7 +267,7 @@ function Content() {
               <Field label="Start"><input aria-label="Start time" type="time" className="field" value={period.startTime} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, startTime: event.target.value } : row))}/></Field>
               <Field label="End"><input aria-label="End time" type="time" className="field" value={period.endTime} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, endTime: event.target.value } : row))}/></Field>
               <Field label="Type"><select className="field" value={period.type} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, type: event.target.value as Period["type"] } : row))}><option value="TEACHING">Teaching</option><option value="BREAK">Break</option></select></Field>
-              <Field label="Label"><input className="field" placeholder="e.g. Lunch / Period 1" value={period.label} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, label: event.target.value } : row))}/></Field>
+              <Field label="Label"><div className="space-y-1">{schoolMode && period.type === "BREAK" && <select aria-label="School break/activity preset" className="field" value={SCHOOL_BREAK_PRESETS.includes(period.label) ? period.label : ""} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, label: event.target.value } : row))}><option value="">Choose school activity…</option>{SCHOOL_BREAK_PRESETS.map(label => <option key={label}>{label}</option>)}</select>}<input className="field" placeholder="e.g. Assembly / Lunch / Period 1" value={period.label} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, label: event.target.value } : row))}/></div></Field>
               <label className="flex items-end gap-2 pb-2 text-sm font-semibold"><input type="checkbox" checked={period.isActive} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, isActive: event.target.checked } : row))}/>Active</label>
               <div className="flex items-end"><button type="button" className="rounded-lg border px-3 py-2 text-sm font-semibold text-red-600" onClick={() => setPeriods(value => value.filter((_, rowIndex) => rowIndex !== index))}>Remove</button></div>
             </div>)}
