@@ -185,7 +185,7 @@ export default function SchoolClassTimetable({ options, onClose, onSaved }: {
           <p className="mt-4 rounded-xl border p-8 text-sm">No active bell periods for {day}. Configure teaching and break periods in Academic Operations first.</p>}
         <section aria-label="Copy entire day timetable" className="mt-6 rounded-xl border border-sky-200 bg-sky-50 p-4">
           <h3 className="text-lg font-bold">Copy saved day timetable</h3>
-          <p className="mt-1 text-sm text-slate-700">Copy all saved teaching periods from {day} to one or more empty weekdays of this section. Lunch, assembly and recess come from each day's shared bell-period template. The target day must have matching teaching and break periods; times may differ. Existing target lessons, including archived entries, will never be overwritten.</p>
+          <p className="mt-1 text-sm text-slate-700">Copy all saved teaching periods from {day} to one or more empty weekdays of this section. Lunch, assembly and recess come from each day&apos;s shared bell-period template. The target day must have matching teaching and break periods; times may differ. Existing target lessons, including archived entries, will never be overwritten.</p>
           <div className="mt-3 flex flex-wrap gap-4">
             {DAYS.filter(d => d !== day).map(d => <label key={d} className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={copyTargets.includes(d)} disabled={copySaving || loading}
