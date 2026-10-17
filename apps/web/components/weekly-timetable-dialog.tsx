@@ -110,7 +110,7 @@ export default function WeeklyTimetableDialog({ options, onClose, onSaved }: {
       });
     }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Cannot load configured bell periods"); });
     return () => controller.abort();
-  }, [branchId, academicSessionId, selectedDays.join(",")]);
+  }, [branchId, academicSessionId, selectedDays]);
 
   const entries = sortedDays.map(day => ({ branchId, courseId, batchId, teacherId, subjectId, classroomId,
     academicSession, day, ...(slots[day] ?? DEFAULT_SLOT), remarks: remarks.trim() || null, status }));
