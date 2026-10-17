@@ -36,6 +36,8 @@ async function schoolContext(req: AuthRequest, batchId: string, day: TimetableDa
       branch: { select: { branchName: true } }, course: { select: { title: true } } },
   });
   if (!batch) throw new AppError(404, "SCHOOL_SECTION_NOT_FOUND", "Active section not found in your institution");
+  if (!batch.courseId) throw new AppError(422, "SECTION_CLASS_REQUIRED", "Assign a class to the section before scheduling lessons");
+  const classId = batch.courseId;
   if (req.auth!.role === Role.BRANCH_ADMIN) {
     const allowed = await db.branchUser.findFirst({
       where: { branchId: batch.branchId, userId: req.auth!.userId }, select: { branchId: true },
@@ -49,9 +51,9 @@ async function schoolContext(req: AuthRequest, batchId: string, day: TimetableDa
       orderBy: [{ startMinute: "asc" }, { periodNumber: "asc" }],
     }),
     db.teacherAllocation.findMany({
-      where: { organizationId: orgId, branchId: batch.branchId, courseId: batch.courseId,
+      where: { organizationId: orgId, branchId: batch.branchId, courseId: classId,
         batchId: batch.id, academicSessionId: batch.academicSessionId, status: "ACTIVE",
-        subject: { status: "ACTIVE", courses: { some: { courseId: batch.courseId, isActive: true } } },
+        subject: { status: "ACTIVE", courses: { some: { courseId: classId, isActive: true } } },
         teacher: { branchId: batch.branchId, user: { isActive: true } } },
       select: { id: true, subjectId: true, teacherId: true, weeklyPeriods: true,
         subject: { select: { name: true } }, teacher: { select: { user: { select: { name: true } } } } },
@@ -64,7 +66,7 @@ async function schoolContext(req: AuthRequest, batchId: string, day: TimetableDa
         subject: { select: { name: true } }, teacher: { select: { user: { select: { name: true } } } },
         classroom: { select: { name: true } } }, orderBy: { startMinute: "asc" } }),
   ]);
-  return { batch, periods, allocations, classrooms, existing };
+  return { batch: { ...batch, courseId: classId }, periods, allocations, classrooms, existing };
 }
 
 async function plan(req: AuthRequest, batchId: string, day: TimetableDay, entries: Selection[], db: Client) {
