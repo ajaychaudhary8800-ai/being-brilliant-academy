@@ -251,6 +251,8 @@ function Content() {
         </section>}
 
         {tab === "periods" && <section className="mt-5 rounded-2xl border bg-white p-5 shadow-sm">
+          <datalist id="school-bell-labels">{["Assembly", "Morning Prayer", "Lunch", "Recess", "Short Break", "Dispersal", "Period 1", "Period 2", "Period 3", "Period 4", "Period 5", "Period 6", "Period 7", "Period 8"].map(label => <option key={label} value={label}/>)}</datalist>
+          <p className="mb-3 text-sm text-slate-600">Schools: mark Assembly, Lunch and Recess as <b>Break</b> with a label. Keep PT, Music, Art and Activity as <b>Teaching</b> slots, then allocate the subject and teacher in the class-wise timetable.</p>
           <div className="flex flex-wrap items-center gap-3">
             <button disabled={!branchId || !academicSessionId || loading} onClick={() => void loadPeriods()} className="btn border disabled:opacity-50"><CalendarClock size={17}/>{loading ? "Loading…" : "Load day"}</button>
             <button disabled={!branchId || !academicSessionId} onClick={() => setPeriods(value => [...value, blankPeriod(Math.max(0, ...value.map(row => row.periodNumber)) + 1)])} className="btn border disabled:opacity-50"><Plus size={17}/>Add period</button>
@@ -264,7 +266,7 @@ function Content() {
               <Field label="Start"><input aria-label="Start time" type="time" className="field" value={period.startTime} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, startTime: event.target.value } : row))}/></Field>
               <Field label="End"><input aria-label="End time" type="time" className="field" value={period.endTime} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, endTime: event.target.value } : row))}/></Field>
               <Field label="Type"><select className="field" value={period.type} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, type: event.target.value as Period["type"] } : row))}><option value="TEACHING">Teaching</option><option value="BREAK">Break</option></select></Field>
-              <Field label="Label"><input className="field" placeholder="e.g. Lunch / Period 1" value={period.label} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, label: event.target.value } : row))}/></Field>
+              <Field label="Label"><input list="school-bell-labels" className="field" placeholder="e.g. Lunch / Period 1" value={period.label} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, label: event.target.value } : row))}/></Field>
               <label className="flex items-end gap-2 pb-2 text-sm font-semibold"><input type="checkbox" checked={period.isActive} onChange={event => setPeriods(value => value.map((row, rowIndex) => rowIndex === index ? { ...row, isActive: event.target.checked } : row))}/>Active</label>
               <div className="flex items-end"><button type="button" className="rounded-lg border px-3 py-2 text-sm font-semibold text-red-600" onClick={() => setPeriods(value => value.filter((_, rowIndex) => rowIndex !== index))}>Remove</button></div>
             </div>)}
