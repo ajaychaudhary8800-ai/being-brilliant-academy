@@ -74,7 +74,7 @@ export default function SchoolClassTimetable({ options, onClose, onSaved }: {
 
   function change(period: number, patch: Partial<DraftCell>) {
     setDraft(current => ({ ...current,
-      [period]: { allocationId: "", classroomId: "", ...current[period], ...patch } }));
+      [period]: { ...(current[period] ?? { allocationId: "", classroomId: "" }), ...patch } }));
     setPreview(null); setNotice("");
   }
   const planned = useMemo(() => {
