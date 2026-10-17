@@ -25,6 +25,7 @@ type Selection = z.infer<typeof selection>;
 
 async function schoolContext(req: AuthRequest, batchId: string, day: TimetableDay, db: Client) {
   const orgId = req.auth!.organizationId;
+  if (!orgId) throw new AppError(403, "INSTITUTION_REQUIRED", "Organization selection is required");
   const org = await db.organization.findUnique({ where: { id: orgId }, select: { groupLabelType: true } });
   if (org?.groupLabelType !== "SECTION") {
     throw new AppError(403, "SCHOOL_TIMETABLE_ONLY", "Class-wise timetable editing is available for school organizations only");
