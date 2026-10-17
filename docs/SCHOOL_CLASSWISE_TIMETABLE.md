@@ -35,7 +35,13 @@
 - Period cells with existing lessons remain read-only in the class editor; use legacy detailed timetable actions to edit/archive.
 - Default room is required. If a school has not configured a classroom, it must create one before lessons can be scheduled.
 - Optional custom activities with assigned supervisor/room but no academic Subject are not yet modelled; do not represent these as graded subjects. School-wide non-teaching blocks can already use named BREAK labels.
-- Day copying, one-click full-week publishing and class-filtered print/export require separate implementation and QA.
+- One-click full-week publishing and class-filtered print/export require separate implementation and QA.
+- **Copy saved day**: pick one or more destination weekdays; preview and explicitly confirm. Only existing ACTIVE teaching entries in the source are copied; unsaved draft cells are not included.
+- The copy operation will **never overwrite or merge** into a destination day containing any timetable entries (including archived or inactive). Clear or resolve those separately before copying.
+- A target day's active bell template must match the source's teaching/break sequence and named break labels; target times may differ. Break, lunch and assembly stay configured at branch level, so copying does not create duplicate breaks or pseudo-subjects.
+- Copy preview is read-only; the final copy rechecks teacher/room/class clashes, tenant and branch privileges, allocation validity, and weekly workload warnings within one serializable transaction protected by a branch lock. Failure rolls back every target day.
+- `POST /admin/timetables/class-day/copy/preview` and `POST /admin/timetables/class-day/copy`: `{branchId,batchId,sourceDay,targetDays:[]}`. Only authorized school administrators, no cross-school copying.
+
 - Real production attendance/data should not be used for QA; use staging synthetic classes.
 
 ## Acceptance checklist

@@ -37,6 +37,13 @@ export default function SchoolClassTimetable({ options, onClose, onSaved }: {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [reload, setReload] = useState(0);
+  const [copyTargets, setCopyTargets] = useState<Day[]>([]);
+  const [copyPreview, setCopyPreview] = useState<{
+    count: number; days: Array<{ day: Day; count: number }>;
+    conflicts: Array<{ day: Day; periodNumber: number; code: string; message: string }>;
+    warnings: string[];
+  } | null>(null);
+  const [copySaving, setCopySaving] = useState(false);
   const batches = options.batches.filter(item => item.branchId === branchId);
   const courses = Array.from(new Map(batches.map(item =>
     [item.courseId, { id: item.courseId, title: item.course.title }])).values());
@@ -46,7 +53,7 @@ export default function SchoolClassTimetable({ options, onClose, onSaved }: {
 
   useEffect(() => {
     setSlots([]); setExisting([]); setAllocations([]); setDraft({}); setPreview(null);
-    setError(""); setNotice("");
+    setError(""); setNotice(""); setCopyPreview(null); setCopyTargets([]);
     const selected = options.batches.find(item => item.id === batchId);
     if (!selected || !branchId) return;
     const abort = new AbortController();
@@ -108,6 +115,30 @@ export default function SchoolClassTimetable({ options, onClose, onSaved }: {
       setError(cause instanceof Error ? cause.message : "Timetable operation failed");
     } finally { setSaving(false); }
   }
+  async function copyDay(mode: "preview" | "save") {
+    if (!section || !copyTargets.length) return;
+    setCopySaving(true); setError(""); setNotice("");
+    try {
+      const response = await fetch(
+        `${API}/admin/timetables/class-day/copy${mode === "preview" ? "/preview" : ""}`, {
+          method: "POST", headers: headers(),
+          body: JSON.stringify({ branchId, batchId, sourceDay: day, targetDays: copyTargets }),
+        },
+      ).then(json);
+      if (mode === "preview") {
+        setCopyPreview(response.data);
+      } else {
+        const count = Number(response.meta.created);
+        setCopyPreview(null); setCopyTargets([]); setReload(value => value + 1);
+        setNotice(`Copied ${count} saved lesson(s) from ${day} to the selected day(s).`);
+        await onSaved(count);
+      }
+    } catch (cause) {
+      setCopyPreview(null);
+      setError(cause instanceof Error ? cause.message : "Copy day failed");
+    } finally { setCopySaving(false); }
+  }
+
   const input = "w-full rounded-xl border border-slate-300 bg-white p-2 text-sm";
   return <div role="dialog" aria-modal="true" aria-label="Class-wise school timetable"
     className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 p-4">
@@ -152,6 +183,32 @@ export default function SchoolClassTimetable({ options, onClose, onSaved }: {
           <SchoolClassDayGrid slots={slots} existing={existing} allocations={allocations} rooms={rooms}
             defaultRoom={roomId} draft={draft} onChange={change}/> :
           <p className="mt-4 rounded-xl border p-8 text-sm">No active bell periods for {day}. Configure teaching and break periods in Academic Operations first.</p>}
+        <section aria-label="Copy entire day timetable" className="mt-6 rounded-xl border border-sky-200 bg-sky-50 p-4">
+          <h3 className="text-lg font-bold">Copy saved day timetable</h3>
+          <p className="mt-1 text-sm text-slate-700">Copy all saved teaching periods from {day} to one or more empty weekdays of this section. Lunch, assembly and recess come from each day's shared bell-period template. The target day must have matching teaching and break periods; times may differ. Existing target lessons, including archived entries, will never be overwritten.</p>
+          <div className="mt-3 flex flex-wrap gap-4">
+            {DAYS.filter(d => d !== day).map(d => <label key={d} className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={copyTargets.includes(d)} disabled={copySaving || loading}
+                onChange={e => { setCopyTargets(current => e.target.checked ? [...current, d] : current.filter(item => item !== d)); setCopyPreview(null); }}/>
+              {d.slice(0,3)}
+            </label>)}
+          </div>
+          {copyPreview && <div className="mt-3 rounded-lg border bg-white p-3 text-sm">
+            <p className="font-semibold">Copy preview: {copyPreview.count} teaching lesson(s) to {copyPreview.days.length} day(s)</p>
+            {copyPreview.conflicts.length ? <ul className="mt-2 list-disc pl-5 text-red-700">
+              {copyPreview.conflicts.map((item,index) => <li key={index}>{item.day}: {item.message}</li>)}
+            </ul> : <p className="mt-1 text-emerald-700">No conflicts detected. Existing entries remain unchanged.</p>}
+            {copyPreview.warnings.map((item,index) => <p key={index} className="mt-1 text-amber-700">{item}</p>)}
+          </div>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="rounded-lg border bg-white px-4 py-2 text-sm font-semibold"
+              disabled={!existing.some(row => row.status === "ACTIVE") || !copyTargets.length || copySaving || loading}
+              onClick={() => void copyDay("preview")}>Preview copied day(s)</button>
+            <button type="button" className="rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              disabled={!copyPreview || copyPreview.conflicts.length > 0 || !copyPreview.count || copySaving || loading}
+              onClick={() => void copyDay("save")}>{copySaving ? "Working…" : "Copy timetable"}</button>
+          </div>
+        </section>
         {!rooms.length && !loading && <p className="mt-3 text-sm text-amber-800">Add an active classroom to this branch before scheduling lessons.</p>}
         {!allocations.length && !loading && <p className="mt-3 text-sm text-amber-800">Allocate subjects to teachers before scheduling lessons.</p>}
         {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
