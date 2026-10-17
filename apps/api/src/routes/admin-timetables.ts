@@ -1,12 +1,128 @@
-import{Role,TimetableDay,TimetableStatus}from"@prisma/client";import{Router}from"express";import{z}from"zod";import{AppError}from"../lib/http.js";import{prisma}from"../lib/prisma.js";import{allow,requireAuth,type AuthRequest}from"../middleware/auth.js";const router=Router();router.use(requireAuth,allow(Role.SUPER_ADMIN,Role.BRANCH_ADMIN));const time=z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),input=z.object({branchId:z.string().cuid(),courseId:z.string().cuid(),batchId:z.string().cuid(),subjectId:z.string().cuid(),teacherId:z.string().cuid(),classroomId:z.string().min(5),day:z.nativeEnum(TimetableDay),startTime:time,endTime:time,periodNumber:z.number().int().positive().max(50),academicSession:z.string().trim().min(4).max(30),remarks:z.string().trim().max(2000).nullable().optional(),status:z.nativeEnum(TimetableStatus).default(TimetableStatus.ACTIVE)}),select={id:true,day:true,startMinute:true,endMinute:true,periodNumber:true,academicSession:true,remarks:true,status:true,createdAt:true,updatedAt:true,branch:{select:{id:true,branchName:true,branchCode:true}},course:{select:{id:true,title:true,courseCode:true}},batch:{select:{id:true,name:true,code:true}},subject:{select:{id:true,name:true,code:true}},teacher:{select:{id:true,employeeNo:true,user:{select:{name:true,email:true}}}},classroom:{select:{id:true,name:true,code:true,capacity:true}}}as const,shape=(x:any)=>({...x,startTime:clock(x.startMinute),endTime:clock(x.endMinute),branch:{...x.branch,name:x.branch.branchName,code:x.branch.branchCode}});function minute(s:string){const[h,m]=s.split(":").map(Number);return h*60+m}function clock(n:number){return`${String(Math.floor(n/60)).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`};async function scope(req:AuthRequest){if(req.auth!.role!==Role.BRANCH_ADMIN)return null;return(await prisma.branchUser.findMany({where:{userId:req.auth!.userId},select:{branchId:true}})).map(x=>x.branchId)}async function access(req:AuthRequest,id:string){const ids=await scope(req);if(ids&&!ids.includes(id))throw new AppError(403,"BRANCH_FORBIDDEN","Branch access denied")}
-async function validate(d:z.infer<typeof input>,exclude?:string){const start=minute(d.startTime),end=minute(d.endTime);if(end<=start)throw new AppError(422,"INVALID_TIME_RANGE","End time must be after start time");const[batch,subject,teacher,room]=await Promise.all([prisma.batch.findUnique({where:{id:d.batchId},select:{branchId:true,courseId:true,academicSession:true,academicSessionId:true}}),prisma.courseSubject.findUnique({where:{courseId_subjectId:{courseId:d.courseId,subjectId:d.subjectId}},select:{isActive:true}}),prisma.teacherProfile.findUnique({where:{id:d.teacherId},select:{branchId:true}}),prisma.classroom.findUnique({where:{id:d.classroomId},select:{branchId:true,isActive:true}})]);if(!batch||batch.branchId!==d.branchId||batch.courseId!==d.courseId||batch.academicSession!==d.academicSession)throw new AppError(422,"INVALID_BATCH_RELATION","Academic group must belong to the selected branch, course and session");if(!subject?.isActive)throw new AppError(422,"INVALID_SUBJECT_RELATION","Subject must belong to the selected Course");if(!teacher||teacher.branchId!==d.branchId)throw new AppError(422,"INVALID_TEACHER_RELATION","Teacher must belong to the selected Branch");if(!room||room.branchId!==d.branchId||!room.isActive)throw new AppError(422,"INVALID_CLASSROOM_RELATION","Classroom must be active in the selected Branch");const[configuredCount,configuredPeriod]=await Promise.all([prisma.timetablePeriod.count({where:{branchId:d.branchId,academicSessionId:batch.academicSessionId,day:d.day,isActive:true}}),prisma.timetablePeriod.findUnique({where:{branchId_academicSessionId_day_periodNumber:{branchId:d.branchId,academicSessionId:batch.academicSessionId,day:d.day,periodNumber:d.periodNumber}}})]);if(configuredCount&&(!configuredPeriod||!configuredPeriod.isActive||configuredPeriod.type!=="TEACHING"||configuredPeriod.startMinute!==start||configuredPeriod.endMinute!==end))throw new AppError(422,"INVALID_CONFIGURED_PERIOD","Select an active teaching period from the configured timetable day");const overlap={day:d.day,status:{not:TimetableStatus.ARCHIVED},startMinute:{lt:end},endMinute:{gt:start},academicSessionId:batch.academicSessionId,...(exclude?{id:{not:exclude}}:{})};const[batchConflict,teacherConflict,roomConflict]=await Promise.all([prisma.timetable.findFirst({where:{...overlap,batchId:d.batchId},select:{id:true}}),prisma.timetable.findFirst({where:{...overlap,teacherId:d.teacherId},select:{id:true}}),prisma.timetable.findFirst({where:{...overlap,classroomId:d.classroomId},select:{id:true}})]);if(batchConflict)throw new AppError(409,"BATCH_SCHEDULE_CONFLICT","Academic group already has an overlapping period");if(teacherConflict)throw new AppError(409,"TEACHER_SCHEDULE_CONFLICT","Teacher already has an overlapping period");if(roomConflict)throw new AppError(409,"CLASSROOM_SCHEDULE_CONFLICT","Classroom already has an overlapping period");return{startMinute:start,endMinute:end,academicSessionId:batch.academicSessionId}}
+import{Prisma,Role,TimetableDay,TimetableStatus}from"@prisma/client";import{Router}from"express";import{validateWeeklyTimetableEntries}from"../lib/timetable-weekly.js";import{z}from"zod";import{AppError}from"../lib/http.js";import{prisma}from"../lib/prisma.js";import{allow,requireAuth,type AuthRequest}from"../middleware/auth.js";const router=Router();router.use(requireAuth,allow(Role.SUPER_ADMIN,Role.BRANCH_ADMIN));const time=z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),input=z.object({branchId:z.string().cuid(),courseId:z.string().cuid(),batchId:z.string().cuid(),subjectId:z.string().cuid(),teacherId:z.string().cuid(),classroomId:z.string().min(5),day:z.nativeEnum(TimetableDay),startTime:time,endTime:time,periodNumber:z.number().int().positive().max(50),academicSession:z.string().trim().min(4).max(30),remarks:z.string().trim().max(2000).nullable().optional(),status:z.nativeEnum(TimetableStatus).default(TimetableStatus.ACTIVE)}),select={id:true,day:true,startMinute:true,endMinute:true,periodNumber:true,academicSession:true,remarks:true,status:true,createdAt:true,updatedAt:true,branch:{select:{id:true,branchName:true,branchCode:true}},course:{select:{id:true,title:true,courseCode:true}},batch:{select:{id:true,name:true,code:true}},subject:{select:{id:true,name:true,code:true}},teacher:{select:{id:true,employeeNo:true,user:{select:{name:true,email:true}}}},classroom:{select:{id:true,name:true,code:true,capacity:true}}}as const,shape=(x:any)=>({...x,startTime:clock(x.startMinute),endTime:clock(x.endMinute),branch:{...x.branch,name:x.branch.branchName,code:x.branch.branchCode}});function minute(s:string){const[h,m]=s.split(":").map(Number);return h*60+m}function clock(n:number){return`${String(Math.floor(n/60)).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`};async function scope(req:AuthRequest){if(req.auth!.role!==Role.BRANCH_ADMIN)return null;return(await prisma.branchUser.findMany({where:{userId:req.auth!.userId},select:{branchId:true}})).map(x=>x.branchId)}async function access(req:AuthRequest,id:string){const ids=await scope(req);if(ids&&!ids.includes(id))throw new AppError(403,"BRANCH_FORBIDDEN","Branch access denied")}
+async function validate(d:z.infer<typeof input>,exclude?:string,db:Prisma.TransactionClient|typeof prisma=prisma){const start=minute(d.startTime),end=minute(d.endTime);if(end<=start)throw new AppError(422,"INVALID_TIME_RANGE","End time must be after start time");const[batch,subject,teacher,room]=await Promise.all([db.batch.findUnique({where:{id:d.batchId},select:{branchId:true,courseId:true,academicSession:true,academicSessionId:true}}),db.courseSubject.findUnique({where:{courseId_subjectId:{courseId:d.courseId,subjectId:d.subjectId}},select:{isActive:true}}),db.teacherProfile.findUnique({where:{id:d.teacherId},select:{branchId:true}}),db.classroom.findUnique({where:{id:d.classroomId},select:{branchId:true,isActive:true}})]);if(!batch||batch.branchId!==d.branchId||batch.courseId!==d.courseId||batch.academicSession!==d.academicSession)throw new AppError(422,"INVALID_BATCH_RELATION","Academic group must belong to the selected branch, course and session");if(!subject?.isActive)throw new AppError(422,"INVALID_SUBJECT_RELATION","Subject must belong to the selected Course");if(!teacher||teacher.branchId!==d.branchId)throw new AppError(422,"INVALID_TEACHER_RELATION","Teacher must belong to the selected Branch");if(!room||room.branchId!==d.branchId||!room.isActive)throw new AppError(422,"INVALID_CLASSROOM_RELATION","Classroom must be active in the selected Branch");const[configuredCount,configuredPeriod]=await Promise.all([db.timetablePeriod.count({where:{branchId:d.branchId,academicSessionId:batch.academicSessionId,day:d.day,isActive:true}}),db.timetablePeriod.findUnique({where:{branchId_academicSessionId_day_periodNumber:{branchId:d.branchId,academicSessionId:batch.academicSessionId,day:d.day,periodNumber:d.periodNumber}}})]);if(configuredCount&&(!configuredPeriod||!configuredPeriod.isActive||configuredPeriod.type!=="TEACHING"||configuredPeriod.startMinute!==start||configuredPeriod.endMinute!==end))throw new AppError(422,"INVALID_CONFIGURED_PERIOD","Select an active teaching period from the configured timetable day");const overlap={day:d.day,status:{not:TimetableStatus.ARCHIVED},startMinute:{lt:end},endMinute:{gt:start},academicSessionId:batch.academicSessionId,...(exclude?{id:{not:exclude}}:{})};const[batchConflict,teacherConflict,roomConflict]=await Promise.all([db.timetable.findFirst({where:{...overlap,batchId:d.batchId},select:{id:true}}),db.timetable.findFirst({where:{...overlap,teacherId:d.teacherId},select:{id:true}}),db.timetable.findFirst({where:{...overlap,classroomId:d.classroomId},select:{id:true}})]);if(batchConflict)throw new AppError(409,"BATCH_SCHEDULE_CONFLICT","Academic group already has an overlapping period");if(teacherConflict)throw new AppError(409,"TEACHER_SCHEDULE_CONFLICT","Teacher already has an overlapping period");if(roomConflict)throw new AppError(409,"CLASSROOM_SCHEDULE_CONFLICT","Classroom already has an overlapping period");return{startMinute:start,endMinute:end,academicSessionId:batch.academicSessionId}}
 router.get("/timetables/options",async(req:AuthRequest,res)=>{const ids=await scope(req),where=ids?{id:{in:ids},isActive:true}:{isActive:true};const[branches,batches,teachers,classrooms]=await Promise.all([prisma.branch.findMany({where,select:{id:true,branchName:true,branchCode:true}}),prisma.batch.findMany({where:{status:"ACTIVE",branch:{isActive:true},...(ids?{branchId:{in:ids}}:{})},select:{id:true,name:true,code:true,branchId:true,courseId:true,academicSession:true,academicSessionId:true,course:{select:{id:true,title:true}}}}),prisma.teacherProfile.findMany({where:{user:{isActive:true},...(ids?{branchId:{in:ids}}:{})},select:{id:true,branchId:true,user:{select:{name:true}}}}),prisma.classroom.findMany({where:{isActive:true,...(ids?{branchId:{in:ids}}:{})},select:{id:true,name:true,code:true,branchId:true,capacity:true}})]);res.json({data:{branches:branches.map(x=>({...x,name:x.branchName,code:x.branchCode})),batches,teachers,classrooms,subjects:[]}})});
 router.get("/timetables/dashboard",async(req:AuthRequest,res)=>{const ids=await scope(req),where=ids?{branchId:{in:ids}}:{};const[total,active,archived,teachers,rooms]=await Promise.all([prisma.timetable.count({where}),prisma.timetable.count({where:{...where,status:TimetableStatus.ACTIVE}}),prisma.timetable.count({where:{...where,status:TimetableStatus.ARCHIVED}}),prisma.timetable.findMany({where,distinct:["teacherId"],select:{teacherId:true}}),prisma.timetable.findMany({where,distinct:["classroomId"],select:{classroomId:true}})]);res.json({data:{total,active,archived,teachers:teachers.length,classrooms:rooms.length}})});
 router.get("/timetables/export",async(req:AuthRequest,res)=>{const format=z.enum(["excel","pdf"]).parse(req.query.format),ids=await scope(req),data=(await prisma.timetable.findMany({where:ids?{branchId:{in:ids}}:{},select,orderBy:[{day:"asc"},{startMinute:"asc"}]})).map(shape),rows=data.map((x:any)=>[x.day,x.startTime,x.endTime,x.periodNumber,x.branch.name,x.course.title,x.batch.name,x.subject.name,x.teacher.user.name,x.classroom.name,x.academicSession,x.status]);if(format==="pdf")return pdf(res,rows.map((x:any)=>x.join(" | ")));const all=[["Day","Start","End","Period","Branch","Course","Batch","Subject","Teacher","Classroom","Session","Status"],...rows],xml=`<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Timetable"><Table>${all.map(r=>`<Row>${r.map(v=>`<Cell><Data ss:Type="String">${esc(String(v))}</Data></Cell>`).join("")}</Row>`).join("")}</Table></Worksheet></Workbook>`;res.set({"Content-Type":"application/vnd.ms-excel","Content-Disposition":"attachment; filename=timetable.xls"}).send(xml)});
 router.get("/timetables",async(req:AuthRequest,res)=>{const q=z.object({page:z.coerce.number().int().positive().default(1),limit:z.coerce.number().int().min(1).max(100).default(20),search:z.string().trim().optional(),branchId:z.string().cuid().optional(),courseId:z.string().cuid().optional(),batchId:z.string().cuid().optional(),subjectId:z.string().cuid().optional(),teacherId:z.string().cuid().optional(),classroomId:z.string().optional(),day:z.nativeEnum(TimetableDay).optional(),status:z.nativeEnum(TimetableStatus).optional(),academicSession:z.string().optional(),sortBy:z.enum(["day","startMinute","periodNumber","academicSession","status","createdAt"]).default("day"),sortOrder:z.enum(["asc","desc"]).default("asc")}).parse(req.query),ids=await scope(req);if(q.branchId)await access(req,q.branchId);const where={...(ids?{branchId:{in:ids}}:{}),...(q.branchId?{branchId:q.branchId}:{}),...(q.courseId?{courseId:q.courseId}:{}),...(q.batchId?{batchId:q.batchId}:{}),...(q.subjectId?{subjectId:q.subjectId}:{}),...(q.teacherId?{teacherId:q.teacherId}:{}),...(q.classroomId?{classroomId:q.classroomId}:{}),...(q.day?{day:q.day}:{}),...(q.status?{status:q.status}:{}),...(q.academicSession?{academicSession:q.academicSession}:{}),...(q.search?{OR:[{batch:{name:{contains:q.search,mode:"insensitive"as const}}},{subject:{name:{contains:q.search,mode:"insensitive"as const}}},{teacher:{user:{name:{contains:q.search,mode:"insensitive"as const}}}},{classroom:{name:{contains:q.search,mode:"insensitive"as const}}}]}:{})};const[total,data]=await prisma.$transaction([prisma.timetable.count({where}),prisma.timetable.findMany({where,select,skip:(q.page-1)*q.limit,take:q.limit,orderBy:{[q.sortBy]:q.sortOrder}})]);res.json({data:data.map(shape),meta:{total,page:q.page,limit:q.limit,totalPages:Math.max(1,Math.ceil(total/q.limit))}})});
+
+type TimetableEntry = z.infer<typeof input>;
+const weekInput = z.object({ entries: z.array(input).min(1).max(7) });
+type WeekIssue = { day: TimetableDay; code: string; message: string };
+const weekdayOrder: TimetableDay[] = [
+  TimetableDay.MONDAY, TimetableDay.TUESDAY, TimetableDay.WEDNESDAY,
+  TimetableDay.THURSDAY, TimetableDay.FRIDAY, TimetableDay.SATURDAY, TimetableDay.SUNDAY,
+];
+
+/** Serialize timetable writes for one branch. Applies to bulk and individual creates. */
+async function lockTimetableBranch(tx: Prisma.TransactionClient, branchId: string) {
+  await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtext(${"erp-timetable:" + branchId}))`;
+}
+
+async function checkWeek(
+  req: AuthRequest,
+  entries: TimetableEntry[],
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+) {
+  validateWeeklyTimetableEntries(entries);
+  const first = entries[0];
+  await access(req, first.branchId);
+  // Even a Super Admin is limited to their own institution.
+  const owned = await db.branch.findFirst({
+    where: { id: first.branchId, organizationId: req.auth!.organizationId },
+    select: { id: true },
+  });
+  if (!owned) throw new AppError(403, "INSTITUTION_BRANCH_FORBIDDEN", "Selected branch is outside this institution");
+
+  const conflicts: WeekIssue[] = [];
+  for (const entry of entries) {
+    try {
+      await validate(entry, undefined, db);
+      // Archived entries still occupy the legacy database's exact-slot unique key.
+      const batch = await db.batch.findUnique({ where: { id: entry.batchId }, select: { academicSessionId: true } });
+      if (batch) {
+        const existing = await db.timetable.findFirst({
+          where: { branchId: entry.branchId, batchId: entry.batchId, day: entry.day,
+            startMinute: minute(entry.startTime), endMinute: minute(entry.endTime) },
+          select: { id: true },
+        });
+        if (existing) throw new AppError(409, "TIMETABLE_SLOT_EXISTS", "This class already has a timetable entry at this time (including archived entries)");
+      }
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      conflicts.push({ day: entry.day, code: error.code, message: error.message });
+    }
+  }
+
+  // Advisory workload warning; do not change or override approved teacher allocations.
+  const allocation = await db.teacherAllocation.findFirst({
+    where: { organizationId: req.auth!.organizationId, branchId: first.branchId,
+      batchId: first.batchId, teacherId: first.teacherId, subjectId: first.subjectId,
+      status: "ACTIVE" },
+    select: { weeklyPeriods: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  const batch = await db.batch.findUnique({ where: { id: first.batchId }, select: { academicSessionId: true } });
+  const existingCount = batch ? await db.timetable.count({
+    where: { organizationId: req.auth!.organizationId, branchId: first.branchId,
+      academicSessionId: batch.academicSessionId, batchId: first.batchId,
+      teacherId: first.teacherId, subjectId: first.subjectId, status: { not: TimetableStatus.ARCHIVED } },
+  }) : 0;
+  const warnings = allocation && existingCount + entries.length > allocation.weeklyPeriods
+    ? [`This creates ${existingCount + entries.length} weekly timetable periods, above the teacher allocation of ${allocation.weeklyPeriods} for this subject and section.`]
+    : [];
+  return {
+    entries: [...entries].sort((a,b)=>weekdayOrder.indexOf(a.day)-weekdayOrder.indexOf(b.day)),
+    conflicts, warnings,
+    weeklyAllocation: allocation?.weeklyPeriods ?? null,
+    existingScheduled: existingCount,
+  };
+}
+
+router.post("/timetables/weekly/preview", async (req: AuthRequest, res) => {
+  const { entries } = weekInput.parse(req.body);
+  const plan = await checkWeek(req, entries);
+  res.json({ data: { ...plan, count: entries.length } });
+});
+
+router.post("/timetables/weekly", async (req: AuthRequest, res) => {
+  const { entries } = weekInput.parse(req.body);
+  validateWeeklyTimetableEntries(entries);
+  await access(req, entries[0].branchId);
+  const created = await prisma.$transaction(async tx => {
+    await lockTimetableBranch(tx, entries[0].branchId);
+    const plan = await checkWeek(req, entries, tx);
+    if (plan.conflicts.length) {
+      throw new AppError(409, "WEEKLY_TIMETABLE_CONFLICT",
+        plan.conflicts.map(issue=>`${issue.day}: ${issue.message}`).join("; "));
+    }
+    const results = [];
+    for (const entry of plan.entries) {
+      const batch = await tx.batch.findUniqueOrThrow({
+        where: { id: entry.batchId }, select: { academicSessionId: true },
+      });
+      const { startTime, endTime, ...rest } = entry;
+      const saved = await tx.timetable.create({ data: {
+        ...rest, organizationId: req.auth!.organizationId,
+        academicSessionId: batch.academicSessionId,
+        startMinute: minute(startTime), endMinute: minute(endTime),
+      }, select });
+      await tx.auditLog.create({ data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId, action: "CREATE",
+        entity: "Timetable", entityId: saved.id,
+        metadata: { weeklyBulk: true, teacherId: entry.teacherId,
+          batchId: entry.batchId, subjectId: entry.subjectId, day: entry.day },
+      } });
+      results.push(shape(saved));
+    }
+    return results;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10000, timeout: 30000 });
+  res.status(201).json({ data: created, meta: { created: created.length } });
+});
+
 router.get("/timetables/:id",async(req:AuthRequest,res)=>{const x=await prisma.timetable.findUnique({where:{id:String(req.params.id)},select});if(!x)throw new AppError(404,"TIMETABLE_NOT_FOUND","Timetable entry not found");await access(req,x.branch.id);res.json({data:shape(x)})});
 const timetableAudit=(req:AuthRequest,action:string,entityId:string,metadata?:object)=>prisma.auditLog.create({data:{actorId:req.auth!.userId,action,entity:"Timetable",entityId,metadata}});
-router.post("/timetables",async(req:AuthRequest,res)=>{const d=input.parse(req.body);await access(req,d.branchId);const t=await validate(d);const{startTime,endTime,...rest}=d,created=await prisma.timetable.create({data:{...rest,...t},select});await timetableAudit(req,"CREATE",created.id,{teacherId:d.teacherId,batchId:d.batchId,subjectId:d.subjectId});res.status(201).json({data:shape(created)})});
+router.post("/timetables",async(req:AuthRequest,res)=>{const d=input.parse(req.body);await access(req,d.branchId);const created=await prisma.$transaction(async tx=>{await lockTimetableBranch(tx,d.branchId);const t=await validate(d,undefined,tx);const{startTime,endTime,...rest}=d;return tx.timetable.create({data:{...rest,...t},select})},{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000});await timetableAudit(req,"CREATE",created.id,{teacherId:d.teacherId,batchId:d.batchId,subjectId:d.subjectId});res.status(201).json({data:shape(created)})});
 router.patch("/timetables/:id",async(req:AuthRequest,res)=>{const old=await prisma.timetable.findUnique({where:{id:String(req.params.id)},select:{id:true,branchId:true,courseId:true,batchId:true,subjectId:true,teacherId:true,classroomId:true,day:true,startMinute:true,endMinute:true,periodNumber:true,academicSession:true,remarks:true,status:true}});if(!old)throw new AppError(404,"TIMETABLE_NOT_FOUND","Timetable entry not found");await access(req,old.branchId);const p=input.partial().parse(req.body),d={branchId:p.branchId??old.branchId,courseId:p.courseId??old.courseId,batchId:p.batchId??old.batchId,subjectId:p.subjectId??old.subjectId,teacherId:p.teacherId??old.teacherId,classroomId:p.classroomId??old.classroomId,day:p.day??old.day,startTime:p.startTime??clock(old.startMinute),endTime:p.endTime??clock(old.endMinute),periodNumber:p.periodNumber??old.periodNumber,academicSession:p.academicSession??old.academicSession,remarks:p.remarks===undefined?old.remarks:p.remarks,status:p.status??old.status};if(p.branchId)await access(req,p.branchId);const t=await validate(d,old.id),{startTime,endTime,...rest}=d,updated=await prisma.timetable.update({where:{id:old.id},data:{...rest,...t},select});await timetableAudit(req,"UPDATE",updated.id,{teacherId:d.teacherId,batchId:d.batchId,subjectId:d.subjectId});res.json({data:shape(updated)})});
 router.patch("/timetables/:id/status",async(req:AuthRequest,res)=>{const{status}=z.object({status:z.nativeEnum(TimetableStatus)}).parse(req.body),old=await prisma.timetable.findUnique({where:{id:String(req.params.id)},select:{id:true,branchId:true}});if(!old)throw new AppError(404,"TIMETABLE_NOT_FOUND","Timetable entry not found");await access(req,old.branchId);const updated=await prisma.timetable.update({where:{id:old.id},data:{status},select});await timetableAudit(req,"STATUS_CHANGED",updated.id,{status});res.json({data:shape(updated)})});
 router.delete("/timetables/:id",async(req:AuthRequest,res)=>{const old=await prisma.timetable.findUnique({where:{id:String(req.params.id)},select:{id:true,branchId:true,status:true,_count:{select:{substitutions:true}}}});if(!old)throw new AppError(404,"TIMETABLE_NOT_FOUND","Timetable entry not found");await access(req,old.branchId);if(old.status!==TimetableStatus.ARCHIVED)throw new AppError(409,"ARCHIVE_BEFORE_DELETE","Archive the timetable entry before deleting it");if(old._count.substitutions)throw new AppError(409,"TIMETABLE_HAS_SUBSTITUTIONS","Timetable entries with substitution history cannot be deleted");await prisma.timetable.delete({where:{id:old.id}});await timetableAudit(req,"DELETE",old.id);res.status(204).send()});
