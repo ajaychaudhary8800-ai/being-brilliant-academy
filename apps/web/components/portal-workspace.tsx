@@ -209,7 +209,9 @@ type TeacherClass = {
   subject: Named;
   schedule: TimetableItem[];
 };
+type ClassTeacherSection = { id: string; name: string; studentCount: number; branch: { id: string; branchName: string }; course: { id: string; title: string } | null };
 type TeacherStudent = {
+  canMarkDailyAttendance?: boolean;
   id: string;
   attendanceTargetId: string;
   admissionNo: string;
@@ -280,6 +282,7 @@ type TeacherDashboard = {
     branch: Named;
   };
   myClasses: TeacherClass[];
+  classTeacherSections?: ClassTeacherSection[];
   timetable: TimetableItem[];
   homework: TeacherHomework[];
   examinations: TeacherExam[];
@@ -1065,9 +1068,11 @@ function TeacherOverview({ data, common, open, markRead }: { data: TeacherDashbo
 function TeacherClasses({ data, query, openStudents }: { data: TeacherDashboard; query: string; openStudents: () => void }) {
   const terms = useGroupTerminology();
   const items = data.myClasses.filter((item) => includes(query, item.course.title, item.batch.name, item.subject.name, item.branch.branchName));
+  const classSections = (data.classTeacherSections ?? []).filter(section => includes(query, section.course?.title, section.name, section.branch.branchName));
   return (
     <section>
       <SectionTitle title={`My ${terms.courses.toLowerCase()}`} description={`Current subject allocations, schedules and enrolled students by ${terms.course.toLowerCase()} and ${terms.singular.toLowerCase()}.`} />
+      {terms.mode==="SCHOOL"&&classSections.length>0&&<div className="mb-6 rounded-2xl border bg-white p-5"><h3 className="font-bold">My Class Teacher Sections</h3><div className="mt-3 grid gap-3 md:grid-cols-2">{classSections.map(section=><div key={section.id} className="rounded-xl border p-3"><p className="font-semibold">{section.course?.title??"Class"} — {section.name}</p><p className="text-sm text-slate-600">{section.studentCount} students · Daily attendance permitted</p><button onClick={openStudents} className="btn mt-2">View students</button></div>)}</div></div>}
       {items.length ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {items.map((item) => (
@@ -1226,7 +1231,8 @@ function TeacherAttendanceSection({ data, query, reload }: { data: TeacherDashbo
   const [busy, setBusy] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
   const [notice, setNotice] = useState("");
-  const student = data.students.find((item) => item.id === form.student);
+  const eligibleStudents = data.students.filter((item) => item.canMarkDailyAttendance !== false);
+  const student = eligibleStudents.find((item) => item.id === form.student);
   const records = data.attendance.filter((item) => includes(query, item.student.name, item.batch.name, item.status, item.date));
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1259,7 +1265,7 @@ function TeacherAttendanceSection({ data, query, reload }: { data: TeacherDashbo
       <form onSubmit={submit} className="card h-fit p-6">
         <CheckCircle2 className="text-brand-700" />
         <h2 className="mt-3 text-xl font-black">Mark attendance</h2>
-        <p className="mt-1 text-sm text-slate-500">Only students from your assigned {terms.courses.toLowerCase()} are available. Approved-leave protections remain authoritative.</p>
+        <p className="mt-1 text-sm text-slate-500">{terms.mode==="SCHOOL"?"Only students in sections where you are the designated Class Teacher are eligible.":"Only students from your assigned "+terms.courses.toLowerCase()+" are available."} Approved-leave protections remain authoritative.</p>
         {attendanceError && (
           <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
             {attendanceError}
@@ -1270,7 +1276,7 @@ function TeacherAttendanceSection({ data, query, reload }: { data: TeacherDashbo
           Student
           <select required className="field mt-1" value={form.student} onChange={(event) => setForm({ ...form, student: event.target.value })}>
             <option value="">Choose student</option>
-            {data.students.map((item) => (
+            {eligibleStudents.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name} — {item.batch.name}
               </option>
@@ -1295,7 +1301,7 @@ function TeacherAttendanceSection({ data, query, reload }: { data: TeacherDashbo
           Remarks
           <textarea className="field mt-1" value={form.remarks} onChange={(event) => setForm({ ...form, remarks: event.target.value })} />
         </label>
-        <button disabled={busy} className="btn mt-4 bg-brand-700 text-white">
+        <button disabled={busy||eligibleStudents.length===0} className="btn mt-4 bg-brand-700 text-white">
           {busy && <Loader2 className="animate-spin" size={16} />}Mark attendance
         </button>
       </form>
