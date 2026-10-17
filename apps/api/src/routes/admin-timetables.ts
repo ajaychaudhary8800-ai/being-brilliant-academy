@@ -237,11 +237,38 @@ async function planSchoolDayCopy(
       }));
       const checked=await checkClassDay(req,entries,db);
       for(const issue of checked.conflicts) conflicts.push({day:targetDay,...issue});
-      warnings.push(...checked.warnings.map(w=>`${targetDay}: ${w}`));
+      // Weekly workload is summarized over ALL selected target days below.
       plans.push({day:targetDay,entries,sourceIds:copied.map(row=>row.id)});
     }catch(error){
       if(!(error instanceof AppError)) throw error;
       conflicts.push({day:targetDay,periodNumber:0,code:error.code,message:error.message});
+    }
+  }
+  // Sum newly copied lessons across ALL selected target weekdays. A
+  // per-target warning would undercount when copying to several weekdays.
+  const groupedCopy=new Map<string,{entry:TimetableEntry;count:number}>();
+  for(const target of plans) for(const entry of target.entries){
+    const key=entry.teacherId+":"+entry.subjectId;
+    const existing=groupedCopy.get(key);
+    if(existing) existing.count++;
+    else groupedCopy.set(key,{entry,count:1});
+  }
+  for(const group of groupedCopy.values()){
+    const entry=group.entry;
+    const [allocation,count]=await Promise.all([
+      db.teacherAllocation.findFirst({where:{
+        organizationId:req.auth!.organizationId,branchId:data.branchId,batchId:data.batchId,
+        academicSessionId:batch.academicSessionId,teacherId:entry.teacherId,
+        subjectId:entry.subjectId,status:"ACTIVE",
+      },select:{weeklyPeriods:true},orderBy:{updatedAt:"desc"}}),
+      db.timetable.count({where:{
+        organizationId:req.auth!.organizationId,branchId:data.branchId,batchId:data.batchId,
+        academicSessionId:batch.academicSessionId,teacherId:entry.teacherId,
+        subjectId:entry.subjectId,status:{not:TimetableStatus.ARCHIVED},
+      }}),
+    ]);
+    if(allocation && count+group.count>allocation.weeklyPeriods){
+      warnings.push(`Teacher ${entry.teacherId} / subject ${entry.subjectId}: ${count+group.count} scheduled periods after copying exceeds the weekly allocation of ${allocation.weeklyPeriods}.`);
     }
   }
   // New entries have different weekdays, so their teacher/room time slots
