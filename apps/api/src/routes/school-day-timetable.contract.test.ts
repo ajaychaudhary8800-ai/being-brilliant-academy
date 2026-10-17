@@ -20,7 +20,7 @@ test("school class-day planner is school-only and coaching timetable remains unc
 test("school day API validates active section allocations, classrooms and configured bell periods", () => {
   assert.match(api, /status: "ACTIVE", branch: \{ organizationId: orgId, isActive: true \}/);
   assert.match(api, /teacherAllocation.findMany/);
-  assert.match(api, /subject: \{ status: "ACTIVE" \}/);
+  assert.match(api, /subject: \{ status: "ACTIVE", courses:/);
   assert.match(api, /NOT_A_TEACHING_PERIOD/);
   assert.match(api, /SUBJECT_NOT_ALLOCATED/);
   assert.match(api, /INVALID_CLASSROOM/);
