@@ -62,9 +62,23 @@ router.get("/allocation-subject-options", async (req: AuthRequest, res) => {
   const [teacher, course] = await Promise.all([prisma.teacherProfile.findUnique({ where: { id: query.teacherId }, select: { branchId: true } }), prisma.course.findUnique({ where: { id: query.courseId }, select: { branchId: true } })]);
   if (!teacher || !course || course.branchId && course.branchId !== teacher.branchId) throw new AppError(422, "INVALID_ALLOCATION_CONTEXT", "Teacher and course must be available in the same branch");
   if (req.auth!.role === Role.BRANCH_ADMIN && !await prisma.branchUser.findFirst({ where: { userId: req.auth!.userId, branchId: teacher.branchId }, select: { branchId: true } })) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
-  const teacherSubjects = await prisma.teacherSubject.findMany({ where: { teacherId: query.teacherId }, select: { subjectId: true } });
-  const data = await prisma.courseSubject.findMany({ where: { courseId: query.courseId, isActive: true, subjectId: { in: teacherSubjects.map(row => row.subjectId) }, subject: { status: SubjectStatus.ACTIVE, legacyReviewStatus: SubjectLegacyReviewStatus.CONFIRMED } }, select: { subject: { select: { id: true, name: true, code: true } } }, orderBy: { subject: { name: "asc" } } });
-  res.json({ data: data.map(row => row.subject), meta: { reason: data.length ? null : "NO_COMMON_TEACHER_COURSE_SUBJECT" } });
+  const [teacherSubjects, courseSubjects] = await Promise.all([
+    prisma.teacherSubject.findMany({ where: { teacherId: query.teacherId }, select: { subjectId: true } }),
+    prisma.courseSubject.findMany({
+      where: { courseId: query.courseId, isActive: true },
+      select: { subject: { select: { id: true, name: true, code: true, status: true, legacyReviewStatus: true } } },
+      orderBy: { subject: { name: "asc" } },
+    }),
+  ]);
+  const assignedIds = new Set(teacherSubjects.map(row => row.subjectId));
+  const confirmed = courseSubjects.filter(row => row.subject.status === SubjectStatus.ACTIVE && row.subject.legacyReviewStatus === SubjectLegacyReviewStatus.CONFIRMED);
+  const available = confirmed.filter(row => assignedIds.has(row.subject.id));
+  const missingTeacherSubjects = confirmed.filter(row => !assignedIds.has(row.subject.id)).map(row => row.subject.name);
+  const unavailableCourseSubjects = courseSubjects.filter(row => row.subject.status !== SubjectStatus.ACTIVE || row.subject.legacyReviewStatus !== SubjectLegacyReviewStatus.CONFIRMED).map(row => row.subject.name);
+  res.json({
+    data: available.map(row => ({ id: row.subject.id, name: row.subject.name, code: row.subject.code })),
+    meta: { reason: available.length ? null : "NO_COMMON_TEACHER_COURSE_SUBJECT", missingTeacherSubjects, unavailableCourseSubjects },
+  });
 });
 
 router.get("/subjects/:id/dependencies", async (req: AuthRequest, res) => {
