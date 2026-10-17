@@ -51,7 +51,8 @@ async function schoolContext(req: AuthRequest, batchId: string, day: TimetableDa
     db.teacherAllocation.findMany({
       where: { organizationId: orgId, branchId: batch.branchId, courseId: batch.courseId,
         batchId: batch.id, academicSessionId: batch.academicSessionId, status: "ACTIVE",
-        subject: { status: "ACTIVE" }, teacher: { user: { isActive: true } } },
+        subject: { status: "ACTIVE", courses: { some: { courseId: batch.courseId, isActive: true } } },
+        teacher: { branchId: batch.branchId, user: { isActive: true } } },
       select: { id: true, subjectId: true, teacherId: true, weeklyPeriods: true,
         subject: { select: { name: true } }, teacher: { select: { user: { select: { name: true } } } } },
     }),
