@@ -31,6 +31,7 @@ function pretty(value: string) {
 function Content() {
   const today = new Date().toISOString().slice(0, 10);
   const [tab, setTab] = useState<Tab>("workload");
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("tab") === "periods") setTab("periods"); }, []);
   const [branches, setBranches] = useState<Option[]>([]);
   const [sessions, setSessions] = useState<Option[]>([]);
   const [teachers, setTeachers] = useState<Array<Option & { branchId: string }>>([]);
