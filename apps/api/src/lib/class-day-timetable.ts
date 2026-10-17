@@ -1,0 +1,1 @@
+export function sameClassDay(entries: Array<{branchId:string;batchId:string;day:string;periodNumber:number}>): boolean { return entries.every(x => x.branchId === entries[0]?.branchId && x.batchId === entries[0]?.batchId && x.day === entries[0]?.day) && new Set(entries.map(x => x.periodNumber)).size === entries.length; }
