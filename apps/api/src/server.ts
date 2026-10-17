@@ -39,6 +39,7 @@ import adminExaminationBranchEnforcement from "./routes/admin-examination-branch
 import adminClassrooms from "./routes/admin-classrooms.js";
 import adminStudents from "./routes/admin-students.js";
 import adminTimetables from "./routes/admin-timetables.js";
+import adminSchoolTimetables from "./routes/admin-school-timetables.js";
 import adminAcademicOperations from "./routes/admin-academic-operations.js";
 import adminEducationMasters from "./routes/admin-education-masters.js";
 import homeworks from "./routes/homeworks.js";
@@ -352,6 +353,7 @@ app.use("/api/v1/learning", learning);
 app.use("/api/v1/learning", lmsLearning);
 app.use("/api/v1/admin", adminCertificates);
 app.use("/api/v1/admin", adminStudents);
+app.use("/api/v1/admin", adminSchoolTimetables);
 app.use("/api/v1/admin", adminTimetables);
 app.use("/api/v1/admin", homeworks);
 app.use("/api/v1/admin", adminExaminations);
