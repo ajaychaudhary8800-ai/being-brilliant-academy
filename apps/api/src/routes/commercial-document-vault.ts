@@ -178,6 +178,9 @@ router.patch("/platform/commercial-documents/:id/verification", async (req: Auth
     select: { id: true, archivedAt: true },
   });
   if (!existing || existing.archivedAt) throw new AppError(404, "COMMERCIAL_DOCUMENT_NOT_FOUND", "Commercial document not found");
+  if (await systemPrisma.schoolOSQuotation.count({ where: { contractDocumentId: existing.id } })) {
+    throw new AppError(409, "COMMERCIAL_DOCUMENT_LINKED", "Contracted signed evidence cannot be reverified without a formal correction procedure");
+  }
   const updated = await systemPrisma.saaSCommercialDocument.update({
     where: { id: existing.id },
     data: {
