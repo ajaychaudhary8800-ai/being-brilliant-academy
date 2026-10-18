@@ -5,6 +5,7 @@ import { z } from "zod";
 import { AppError } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
 import { isSchoolOSFeature } from "../lib/schoolos-feature-policy.js";
+import { validateSchoolOSApprovedAddonLines } from "../lib/schoolos-addon-pricing-policy.js";
 import { calculateSchoolOSQuote, type SchoolOSQuoteItem } from "../lib/schoolos-quotation.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
@@ -66,6 +67,21 @@ async function buildDraft(input: z.infer<typeof draftInput>) {
     if (cause instanceof RangeError) throw new AppError(422, "QUOTE_PRICING_INVALID", cause.message);
     throw cause;
   }
+  // All non-base line item prices must be approved in the immutable
+  // maker-checker rate catalogue. Never accept arbitrary client-entered prices.
+  const rateRows = input.items.length ? await systemPrisma.schoolOSAddonRate.findMany({
+    where: { status: "APPROVED", OR: input.items.map(item => ({ category: item.category, code: item.code })) },
+  }) : [];
+  let addonRateSnapshot;
+  try {
+    addonRateSnapshot = validateSchoolOSApprovedAddonLines(input.items as SchoolOSQuoteItem[], rateRows, {
+      currency: plan.currency, taxRateBps: plan.taxRateBps,
+      now: new Date(), validUntil: new Date(input.validUntil),
+    });
+  } catch (cause) {
+    throw new AppError(422, "SCHOOLOS_ADDON_PRICING_NOT_APPROVED",
+      cause instanceof Error ? cause.message : "Unapproved or mismatched add-on price");
+  }
   const rateCardSnapshot = {
     planId: plan.id, planCode: plan.code, planName: plan.name,
     planUpdatedAt: plan.updatedAt.toISOString(), currency: plan.currency,
@@ -73,20 +89,20 @@ async function buildDraft(input: z.infer<typeof draftInput>) {
     basePricePaise: input.billingCycle === "MONTHLY" ? plan.monthlyPricePaise : plan.annualPricePaise,
     taxRateBps: plan.taxRateBps, planEntitlements: plan.entitlements, planLimits: plan.limits,
   };
-  return { pricing, rateCardSnapshot, plan };
+  return { pricing, rateCardSnapshot, addonRateSnapshot, plan };
 }
 
 router.post("/platform/schoolos/quotes/preview", async (req: AuthRequest, res) => {
   requirePlatformAdmin(req);
   const input = draftInput.parse(req.body);
-  const { pricing, rateCardSnapshot } = await buildDraft(input);
-  res.json({ data: { pricing, rateCardSnapshot, items: input.items, draftOnly: true } });
+  const { pricing, rateCardSnapshot, addonRateSnapshot } = await buildDraft(input);
+  res.json({ data: { pricing, rateCardSnapshot, addonRateSnapshot, items: input.items, draftOnly: true } });
 });
 
 router.post("/platform/schoolos/quotes", async (req: AuthRequest, res) => {
   requirePlatformAdmin(req);
   const input = draftInput.parse(req.body);
-  const { pricing, rateCardSnapshot, plan } = await buildDraft(input);
+  const { pricing, rateCardSnapshot, addonRateSnapshot, plan } = await buildDraft(input);
   const quote = await systemPrisma.$transaction(async tx => {
     const created = await tx.schoolOSQuotation.create({
       data: {
@@ -96,7 +112,7 @@ router.post("/platform/schoolos/quotes", async (req: AuthRequest, res) => {
         planCode: plan.code, billingCycle: input.billingCycle as SaaSBillingCycle,
         validUntil: new Date(input.validUntil),
         items: input.items as Prisma.InputJsonValue,
-        pricingSnapshot: { pricing, rateCardSnapshot } as Prisma.InputJsonValue,
+        pricingSnapshot: { pricing, rateCardSnapshot, addonRateSnapshot } as Prisma.InputJsonValue,
         subtotalPaise: pricing.subtotalPaise, discountBps: pricing.discountBps,
         discountPaise: pricing.discountPaise, taxRateBps: pricing.taxRateBps,
         taxPaise: pricing.taxPaise, totalPaise: pricing.totalPaise,
@@ -104,7 +120,7 @@ router.post("/platform/schoolos/quotes", async (req: AuthRequest, res) => {
       },
     });
     await tx.schoolOSQuotationRevision.create({
-      data: { quoteId: created.id, version: 1, action: "CREATED", actorId: req.auth!.userId, snapshot: { input, pricing, rateCardSnapshot } as Prisma.InputJsonValue },
+      data: { quoteId: created.id, version: 1, action: "CREATED", actorId: req.auth!.userId, snapshot: { input, pricing, rateCardSnapshot, addonRateSnapshot } as Prisma.InputJsonValue },
     });
     await tx.auditLog.create({
       data: { organizationId: "org_default", actorId: req.auth!.userId, action: "SCHOOLOS_QUOTE_DRAFT_CREATED", entity: "SchoolOSQuotation", entityId: created.id, metadata: { quoteNo: created.quoteNo, organizationId: created.organizationId, totalPaise: created.totalPaise } },
@@ -139,7 +155,7 @@ router.patch("/platform/schoolos/quotes/:id", async (req: AuthRequest, res) => {
   const id = String(req.params.id);
   const input = draftInput.extend({ expectedVersion: z.number().int().min(1) }).parse(req.body);
   const { expectedVersion, ...fields } = input;
-  const { pricing, rateCardSnapshot, plan } = await buildDraft(fields);
+  const { pricing, rateCardSnapshot, addonRateSnapshot, plan } = await buildDraft(fields);
   const saved = await systemPrisma.$transaction(async tx => {
     const updated = await tx.schoolOSQuotation.updateMany({
       where: { id, version: expectedVersion, status: "DRAFT" },
@@ -149,7 +165,7 @@ router.patch("/platform/schoolos/quotes/:id", async (req: AuthRequest, res) => {
         planCode: plan.code, billingCycle: fields.billingCycle as SaaSBillingCycle,
         validUntil: new Date(fields.validUntil),
         items: fields.items as Prisma.InputJsonValue,
-        pricingSnapshot: { pricing, rateCardSnapshot } as Prisma.InputJsonValue,
+        pricingSnapshot: { pricing, rateCardSnapshot, addonRateSnapshot } as Prisma.InputJsonValue,
         subtotalPaise: pricing.subtotalPaise, discountBps: pricing.discountBps,
         discountPaise: pricing.discountPaise, taxRateBps: pricing.taxRateBps,
         taxPaise: pricing.taxPaise, totalPaise: pricing.totalPaise,
@@ -159,7 +175,7 @@ router.patch("/platform/schoolos/quotes/:id", async (req: AuthRequest, res) => {
     if (updated.count !== 1) throw new AppError(409, "SCHOOLOS_QUOTE_VERSION_CONFLICT", "Quote version changed or this quote is no longer editable");
     const quote = await tx.schoolOSQuotation.findUniqueOrThrow({ where: { id } });
     await tx.schoolOSQuotationRevision.create({
-      data: { quoteId: quote.id, version: quote.version, action: "REPRICED", actorId: req.auth!.userId, snapshot: { input: fields, pricing, rateCardSnapshot } as Prisma.InputJsonValue },
+      data: { quoteId: quote.id, version: quote.version, action: "REPRICED", actorId: req.auth!.userId, snapshot: { input: fields, pricing, rateCardSnapshot, addonRateSnapshot } as Prisma.InputJsonValue },
     });
     await tx.auditLog.create({
       data: { organizationId: "org_default", actorId: req.auth!.userId, action: "SCHOOLOS_QUOTE_DRAFT_REVISED", entity: "SchoolOSQuotation", entityId: quote.id, metadata: { quoteNo: quote.quoteNo, version: quote.version } },
