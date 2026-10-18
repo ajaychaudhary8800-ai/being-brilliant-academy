@@ -33,6 +33,7 @@ export default function SchoolOSQuotationsPage() {
   const [items, setItems] = useState<QuoteLine[]>([]);
   const [preview, setPreview] = useState<Breakdown | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reviewReason, setReviewReason] = useState("Internal pricing and client requirements checked");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -63,7 +64,19 @@ export default function SchoolOSQuotationsPage() {
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
-  function editLine(index: number, patch: Partial<QuoteLine>) {
+  async function decide(quote: Quote, decision: "SUBMIT_FOR_REVIEW" | "APPROVE" | "REJECT" | "RETURN_TO_DRAFT") {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await api(`/platform/schoolos/quotes/${quote.id}/decision`, {
+        method: "POST",
+        body: JSON.stringify({ decision, expectedVersion: quote.version, rationale: reviewReason }),
+      });
+      setNotice(`Quotation ${quote.quoteNo}: internal state recorded. Nothing issued or activated.`);
+      await load();
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setBusy(false); }
+  }
+    function editLine(index: number, patch: Partial<QuoteLine>) {
     setItems(previous => previous.map((item, i) => i === index ? { ...item, ...patch } : item));
   }
   return <ProtectedAdminWorkspace roles={["SUPER_ADMIN"]} title="SchoolOS Custom Quotations" description="Platform-only draft calculations. No quotations are sent or paid features activated.">
@@ -97,11 +110,12 @@ export default function SchoolOSQuotationsPage() {
       Base {rupees(preview.basePaise)} · Add-ons {rupees(preview.addonsPaise)} · Discount {rupees(preview.discountPaise)} · GST {rupees(preview.taxPaise)}
       <p className="mt-2 text-xl font-bold">Estimated total: {rupees(preview.totalPaise)}</p>
     </div>}
-    <div className="mt-6 overflow-x-auto rounded-xl border"><h2 className="border-b p-4 font-bold">Saved drafts</h2>
-      <table className="w-full min-w-[600px] text-sm"><thead><tr><th className="p-3 text-left">Quote</th><th className="p-3 text-left">Client</th><th className="p-3 text-left">Plan</th><th className="p-3 text-left">Version</th><th className="p-3 text-left">Amount</th></tr></thead>
-        <tbody>{quotes.map(quote => <tr key={quote.id} className="border-t"><td className="p-3">{quote.quoteNo}</td><td className="p-3">{quote.clientName}</td><td className="p-3">{quote.planCode}</td><td className="p-3">{quote.version}</td><td className="p-3">{rupees(quote.totalPaise)}</td></tr>)}</tbody>
+    <div className="mt-6 overflow-x-auto rounded-xl border"><h2 className="border-b p-4 font-bold">Quotation review queue</h2>
+      <label className="block border-b p-4 text-sm">Review reason <input minLength={12} maxLength={1000} value={reviewReason} onChange={e => setReviewReason(e.target.value)} className="ml-3 w-3/4 rounded border p-2 dark:bg-slate-900" /></label>
+      <table className="w-full min-w-[600px] text-sm"><thead><tr><th className="p-3 text-left">Quote</th><th className="p-3 text-left">Client</th><th className="p-3 text-left">Plan</th><th className="p-3 text-left">Version</th><th className="p-3 text-left">Amount</th><th className="p-3 text-left">Status</th><th className="p-3 text-left">Review action</th></tr></thead>
+        <tbody>{quotes.map(quote => <tr key={quote.id} className="border-t"><td className="p-3">{quote.quoteNo}</td><td className="p-3">{quote.clientName}</td><td className="p-3">{quote.planCode}</td><td className="p-3">{quote.version}</td><td className="p-3">{rupees(quote.totalPaise)}</td><td className="p-3">{quote.status}</td><td className="p-3">{(quote.status === "DRAFT" || quote.status === "REJECTED" || quote.status === "PENDING_APPROVAL") && <button disabled={busy} className="rounded border px-2 py-1 disabled:opacity-40" onClick={() => void decide(quote, quote.status === "DRAFT" ? "SUBMIT_FOR_REVIEW" : quote.status === "REJECTED" ? "RETURN_TO_DRAFT" : "APPROVE")}>{quote.status === "DRAFT" ? "Submit" : quote.status === "REJECTED" ? "Return to draft" : "Approve*"}</button>}{quote.status === "PENDING_APPROVAL" && <button disabled={busy} className="ml-2 rounded border px-2 py-1 disabled:opacity-40" onClick={() => void decide(quote, "REJECT")}>Reject</button>}</td></tr>)}</tbody>
       </table>
     </div>
-    <p className="mt-4 text-sm text-amber-700">Plan prices need commercial reconciliation before issuing quotations. Add-on prices are manual internal estimates, not approved feature catalogue prices.</p>
+    <p className="mt-4 text-sm text-amber-700">*Approval requires a different platform administrator than the creator or latest editor. Plan prices need commercial reconciliation before issuing quotations. Add-on prices are manual internal estimates, not approved feature catalogue prices.</p>
   </ProtectedAdminWorkspace>;
 }
