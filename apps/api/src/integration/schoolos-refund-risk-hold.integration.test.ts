@@ -101,6 +101,7 @@ test("processed partial refund suspends paid modules and AI credits with durable
     assert.equal((await systemPrisma.organization.findUniqueOrThrow({where:{id:orgId}})).subscriptionStatus,
       OrganizationSubscriptionStatus.ACTIVE);
   } finally {
+    await systemPrisma.auditLog.deleteMany({where:{organizationId:orgId,action:"SCHOOLOS_PAYMENT_RISK_HOLD"}});
     await systemPrisma.schoolOSPaymentAdjustment.deleteMany({where:{organizationId:orgId}});
     await systemPrisma.schoolOSPaymentRiskHold.deleteMany({where:{organizationId:orgId}});
     await systemPrisma.saaSWebhookEvent.deleteMany({where:{
