@@ -8,7 +8,7 @@ export function isSchoolOSUsageMetric(value: string): value is SchoolOSUsageMetr
   return schoolOSUsageMetrics.some(item => item.key === value);
 }
 
-type Invoice = { organizationId: string; status: string; currency: string; totalPaise: number; schoolOSQuoteId: string | null; paidAt: Date | null };
+type Invoice = { id: string; organizationId: string; status: string; currency: string; totalPaise: number; schoolOSQuoteId: string | null; paidAt: Date | null };
 type Quote = { id: string; organizationId: string | null; status: string; totalPaise: number; items: unknown; pricingSnapshot: unknown };
 type Payment = { status: string; invoiceId: string; amountPaise: number; currency: string; providerPaymentId: string | null };
 
@@ -16,8 +16,7 @@ export function paidQuoteAddonGrantItems(invoice: Invoice, quote: Quote | null, 
   if (invoice.status !== "PAID" || invoice.currency !== "INR" || !invoice.schoolOSQuoteId || !invoice.paidAt ||
     !quote || quote.id !== invoice.schoolOSQuoteId || quote.organizationId !== invoice.organizationId ||
     quote.status !== "PAID" || quote.totalPaise !== invoice.totalPaise ||
-    !payment || payment.status !== "CAPTURED" || payment.invoiceId !== invoice.schoolOSQuoteId && payment.invoiceId !== "") {
-    // Payment linkage to the actual invoice ID is checked in the service query.
+    !payment || payment.status !== "CAPTURED" || payment.invoiceId !== invoice.id) {
     throw new Error("SCHOOLOS_PAID_QUOTE_EVIDENCE_REQUIRED");
   }
   if (!payment.providerPaymentId || payment.amountPaise !== invoice.totalPaise || payment.currency !== "INR")
