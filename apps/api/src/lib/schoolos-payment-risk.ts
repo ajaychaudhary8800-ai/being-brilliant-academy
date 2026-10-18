@@ -42,6 +42,15 @@ export async function recordSchoolOSPaymentRisk(input: SchoolOSRiskEvent, origin
     select: {invoice: {select:{id:true,schoolOSQuoteId:true,providerOrderId:true}}},
   });
   const possible=captured?.invoice;
+  if (!possible && e.orderId) {
+    // A known paid SaaS order with a forged or unmapped payment must not
+    // be acknowledged as an unrelated event.
+    const matchingOrder=await systemPrisma.saaSInvoice.findUnique({
+      where:{providerOrderId:e.orderId},select:{id:true,schoolOSQuoteId:true},
+    });
+    if (matchingOrder?.schoolOSQuoteId)
+      throw new AppError(409,"SCHOOLOS_RISK_CAPTURE_NOT_VERIFIED","Payment does not match original captured SaaS invoice");
+  }
   if (!possible || !possible.schoolOSQuoteId) return false;
   if (e.orderId!==null && possible.providerOrderId!==e.orderId)
     throw new AppError(409,"SCHOOLOS_RISK_ORDER_MISMATCH","Signed payment order does not match captured SaaS invoice");
