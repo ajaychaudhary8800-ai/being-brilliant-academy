@@ -1,7 +1,9 @@
+import crypto from "node:crypto";
 import { Prisma, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { AppError } from "../lib/http.js";
+import { decryptCommercialDocument } from "../lib/commercial-document-crypto.js";
 import { systemPrisma } from "../lib/prisma.js";
 import { reconcileSchoolOSPricing, schoolOSExternalQuoteReady } from "../lib/schoolos-pricing-reconciliation.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -66,6 +68,9 @@ router.post("/platform/schoolos/contracts/quotes/:quoteId/bind", async (req: Aut
       || !document.verifiedById || document.uploadedById === document.verifiedById
       || document.documentType !== "SIGNED_ORDER_FORM")
       throw new AppError(422, "SCHOOLOS_SIGNED_ORDER_NOT_VERIFIED", "An independently verified, unarchived signed Order Form is required");
+    const decrypted = decryptCommercialDocument(document.encryptedFileData);
+    if (crypto.createHash("sha256").update(decrypted).digest("hex") !== document.contentSha256)
+      throw new AppError(409, "SCHOOLOS_ORDER_FILE_TAMPERED", "Signed order form evidence failed cryptographic integrity validation");
     if (document.documentReference !== quote.quoteNo || document.organizationId && document.organizationId !== quote.organizationId
       || document.lead.wonOrganizationId !== quote.organizationId)
       throw new AppError(422, "SCHOOLOS_ORDER_CLIENT_MISMATCH", "Signed Order Form reference or customer organization does not match the approved quote");
