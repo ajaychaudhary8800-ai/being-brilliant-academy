@@ -27,6 +27,7 @@ const menuGroups: MenuGroup[] = [
     { name: "SaaS Billing", href: "/admin/saas-billing", icon: CreditCard, platformOnly: true },
     { name: "SchoolOS Feature Licensing", href: "/admin/schoolos-features", icon: ShieldCheck, platformOnly: true },
     { name: "SchoolOS Quotations", href: "/admin/schoolos-quotations", icon: FileText, platformOnly: true },
+    { name: "SchoolOS Quotations", href: "/admin/schoolos-quotations", icon: FileText, platformOnly: true },
     { name: "SaaS Sales", href: "/admin/saas-sales", icon: BriefcaseBusiness, platformOnly: true },
     { name: "Commercial Vault", href: "/admin/commercial-documents", icon: FileArchive, platformOnly: true },
     { name: "Sales Documents", href: "/admin/legal-sales", icon: FileCheck2, platformOnly: true },
