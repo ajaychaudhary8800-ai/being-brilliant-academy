@@ -335,7 +335,7 @@ app.use("/api/v1", onlyPaths(["/platform/schoolos"], schoolOSFeatures));
 app.use("/api/v1", onlyPaths(["/platform/schoolos/quotes"], schoolOSQuotations));
 app.use("/api/v1", onlyPaths(["/platform/schoolos/pricing"], schoolOSPricing));
 app.use("/api/v1", onlyPaths(["/platform/schoolos/contracts"], schoolOSContracts));
-app.use("/api/v1", onlyPaths(["/organization/subscription/contracted-checkout"], schoolOSContractCheckout));
+app.use("/api/v1", onlyPaths(["/organization/subscription/contracted-checkout", "/organization/subscription/contracted-quotes"], schoolOSContractCheckout));
 app.use("/api/v1", institutionPayments);
 app.use("/api/v1", onlyPaths(["/analytics"], analytics));
 app.use("/api/v1", onlyPaths(["/automations"], automation));
