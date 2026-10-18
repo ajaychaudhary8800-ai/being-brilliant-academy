@@ -52,7 +52,7 @@ async function commercialPolicySnapshot(organizationId: string) {
     organization.subscriptionEndsAt && organization.subscriptionEndsAt.getTime() > now.getTime()
     ? await systemPrisma.schoolOSAddonLicense.findMany({
         where: { organizationId, periodStart: { lte: now }, periodEnd: { gt: now },
-          invoice: { status: "PAID", organizationId } },
+          invoice: { status: "PAID", organizationId, schoolOSPaymentRiskHold: { is: null } } },
         select: { category: true, code: true, units: true },
       })
     : [];
