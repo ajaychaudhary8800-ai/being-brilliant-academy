@@ -2,8 +2,10 @@
 export const schoolOSFeatures = [
   { key: "lms", name: "Learning Management", group: "Academics" },
   { key: "crm", name: "Admissions CRM", group: "Admissions" },
-  { key: "examinations", name: "Examinations & AI Examiner", group: "Academics" },
+  { key: "examinations", name: "Examinations & Tests", group: "Academics" },
+  { key: "ai_examiner", name: "Ranpal AI Examiner", group: "Academics", parent: "examinations" },
   { key: "communication", name: "Communication", group: "Operations" },
+  { key: "workflow_automation", name: "Workflow Automation", group: "Operations", parent: "communication" },
   { key: "hr_payroll", name: "HR & Payroll", group: "Operations" },
   { key: "finance", name: "Finance & Accounting", group: "Finance" },
   { key: "library", name: "Library", group: "Operations" },
@@ -28,6 +30,10 @@ export type SchoolOSFeatureOverrides = Partial<Record<SchoolOSFeature, SchoolOSF
 
 const knownFeatures = new Set<string>(schoolOSFeatures.map(item => item.key));
 export const isSchoolOSFeature = (value: string): value is SchoolOSFeature => knownFeatures.has(value);
+export function schoolOSParentFeature(feature: string): SchoolOSFeature | null {
+  const definition = schoolOSFeatures.find(item => item.key === feature);
+  return definition && "parent" in definition ? definition.parent : null;
+}
 
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -70,14 +76,32 @@ export function schoolOSFeatureAccess(
   overrides: SchoolOSFeatureOverrides,
   feature: string,
   now = new Date(),
-): { enabled: boolean; source: "OVERRIDE" | "PLAN" | "LEGACY" } {
+): { enabled: boolean; source: "OVERRIDE" | "PLAN" | "LEGACY" | "PARENT" | "INHERITED" } {
+  const parent = schoolOSParentFeature(feature);
+  if (parent) {
+    const parentDecision = schoolOSFeatureAccess(planEntitlements, enforcementEnabled, overrides, parent, now);
+    if (!parentDecision.enabled) return { enabled: false, source: "PARENT" };
+  }
   const override = activeSchoolOSOverride(overrides, feature, now);
   if (override) return { enabled: override.enabled, source: "OVERRIDE" };
   if (!enforcementEnabled) return { enabled: true, source: "LEGACY" };
-  return {
-    enabled: planEntitlements["*"] === true || planEntitlements[feature] === true,
-    source: "PLAN",
-  };
+  if (planEntitlements["*"] === true || planEntitlements[feature] === true)
+    return { enabled: true, source: "PLAN" };
+  if (planEntitlements[feature] === false) return { enabled: false, source: "PLAN" };
+  // Previously bundled sub-modules inherit their licensed parent until an explicit plan entitlement is introduced.
+  if (parent) return { enabled: true, source: "INHERITED" };
+  return { enabled: false, source: "PLAN" };
+}
+
+export function schoolOSResolvedFeatures(
+  entitlements: Record<string, boolean>,
+  enforce: boolean,
+  overrides: SchoolOSFeatureOverrides,
+  now = new Date(),
+) {
+  return Object.fromEntries(schoolOSFeatures.map(({ key }) =>
+    [key, schoolOSFeatureAccess(entitlements, enforce, overrides, key, now).enabled],
+  )) as Record<SchoolOSFeature, boolean>;
 }
 
 export function schoolOSEffectiveOverrideLists(overrides: SchoolOSFeatureOverrides, now = new Date()) {

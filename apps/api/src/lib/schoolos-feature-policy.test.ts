@@ -51,3 +51,22 @@ test("plan eligibility still applies without client overrides", () => {
   assert.equal(schoolOSFeatureAccess({ crm: false }, true, {}, "crm", now).enabled, false);
   assert.equal(schoolOSFeatureAccess({}, false, {}, "crm", now).source, "LEGACY");
 });
+
+
+test("AI Examiner inherits examinations license without disrupting V4 tenants", () => {
+  assert.equal(schoolOSFeatureAccess({ examinations: true }, true, {}, "ai_examiner", now).enabled, true);
+  assert.equal(schoolOSFeatureAccess({ examinations: false }, true, {}, "ai_examiner", now).enabled, false);
+  assert.equal(schoolOSFeatureAccess({ examinations: true, ai_examiner: false }, true, {}, "ai_examiner", now).enabled, false);
+});
+
+test("parent module denial blocks child even when explicit child grant exists", () => {
+  const overrides = readSchoolOSFeatureOverrides({ examinations: override(false), ai_examiner: override(true) });
+  const result = schoolOSFeatureAccess({ "*": true }, true, overrides, "ai_examiner", now);
+  assert.deepEqual(result, { enabled: false, source: "PARENT" });
+});
+
+test("workflow automation is independently switchable from communication", () => {
+  const overrides = readSchoolOSFeatureOverrides({ workflow_automation: override(false) });
+  assert.equal(schoolOSFeatureAccess({ communication: true }, true, overrides, "communication", now).enabled, true);
+  assert.equal(schoolOSFeatureAccess({ communication: true }, true, overrides, "workflow_automation", now).enabled, false);
+});

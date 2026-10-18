@@ -1,7 +1,7 @@
 import { OrganizationSubscriptionStatus, Prisma, Role, SaaSPaymentStatus } from "@prisma/client";
 import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
-import { readSchoolOSFeatureOverrides, schoolOSFeatureAccess, schoolOSEffectiveOverrideLists } from "./schoolos-feature-policy.js";
+import { readSchoolOSFeatureOverrides, schoolOSFeatureAccess, schoolOSEffectiveOverrideLists, schoolOSResolvedFeatures } from "./schoolos-feature-policy.js";
 
 type JsonRecord = Record<string, unknown>;
 type CapturedPayment = { id: string; order_id: string; amount: number; currency: string };
@@ -72,6 +72,7 @@ export async function commercialEntitlementSnapshot(organizationId: string) {
     planCode: policy.plan?.code ?? policy.organization.subscriptionPlan,
     entitlements: policy.plan?.entitlements ?? {},
     ...schoolOSEffectiveOverrideLists(policy.featureOverrides),
+    effectiveFeatures: schoolOSResolvedFeatures(policy.plan?.entitlements ?? {}, policy.enforcementEnabled, policy.featureOverrides),
   };
 }
 
