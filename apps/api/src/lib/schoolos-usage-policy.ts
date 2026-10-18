@@ -35,9 +35,9 @@ export function paidQuoteAddonGrantItems(invoice: Invoice, quote: Quote | null, 
     if (item.category !== "AI_USAGE" && item.category !== "VIDEO_USAGE") continue;
     const code = String(item.code ?? "");
     const valid = schoolOSUsageMetrics.find(metric => metric.key === code && metric.quoteCategory === item.category);
-    if (!valid || used.has(code) || !Number.isSafeInteger(item.quantity) ||
-      Number(item.quantity) <= 0 || Number(item.quantity) > 100_000 ||
-      !Number.isSafeInteger(item.unitPricePaise) || Number(item.unitPricePaise) <= 0) {
+    if (!valid || used.has(code) || typeof item.quantity !== "number" || !Number.isSafeInteger(item.quantity) ||
+      item.quantity <= 0 || item.quantity > 100_000 ||
+      typeof item.unitPricePaise !== "number" || !Number.isSafeInteger(item.unitPricePaise) || item.unitPricePaise <= 0) {
       throw new Error("SCHOOLOS_QUOTE_USAGE_ITEM_UNSUPPORTED");
     }
     used.add(code);
