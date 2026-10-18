@@ -37,6 +37,7 @@ router.post("/organization/subscription/contracted-checkout", async (req: AuthRe
   await assertCommercialPlanFitsUsage(organizationId, capacityPlan.limits);
 
   const invoice = await systemPrisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"schoolos-organization-checkout:" + organizationId}))`;
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"schoolos-quote-checkout:" + quoteId}))`;
     const quote = await tx.schoolOSQuotation.findUnique({
       where: { id: quoteId }, include: { contractDocument: { include: { lead: { select: { wonOrganizationId: true } } } } },
@@ -52,16 +53,25 @@ router.post("/organization/subscription/contracted-checkout", async (req: AuthRe
       throw new AppError(409, "SCHOOLOS_CUSTOMER_NOT_ACTIVE", "Customer organization is not active");
     if (existing?.organizationId !== undefined && existing.organizationId !== organizationId)
       throw new AppError(409, "SCHOOLOS_INVOICE_TENANT_MISMATCH", "Existing invoice belongs to a different tenant");
+    if (existing?.providerOrderId && quote.status !== "PAYMENT_PENDING")
+      throw new AppError(409, "SCHOOLOS_QUOTE_STATE_CONFLICT", "Payment order state is incomplete; manual reconciliation required");
     const amount = validateSchoolOSBaseQuoteCheckout(
       quote, plan, quote.contractDocument, organizationId, new Date(), Boolean(existing?.providerOrderId),
     );
+    if (!existing) {
+      const otherUnpaid = await tx.saaSInvoice.findFirst({
+        where: { organizationId, schoolOSQuoteId: { not: null }, status: SaaSInvoiceStatus.OPEN },
+        select: { id: true, invoiceNo: true },
+      });
+      if (otherUnpaid) throw new AppError(409, "SCHOOLOS_TENANT_CHECKOUT_PENDING", "Another signed quote has an open payment invoice; reconcile it before a new quote checkout");
+    }
     if (existing) {
       if (existing.status === SaaSInvoiceStatus.PAID)
         throw new AppError(409, "SCHOOLOS_QUOTE_ALREADY_PAID", "This contracted quotation is already paid");
       if (existing.status !== SaaSInvoiceStatus.OPEN || !existing.providerOrderId)
         throw new AppError(409, "SCHOOLOS_CHECKOUT_RECONCILIATION_REQUIRED", "A prior order attempt requires manual reconciliation before retry");
       if (existing.planId !== plan!.id || existing.totalPaise !== amount.totalPaise || existing.currency !== "INR"
-        || existing.periodEnd.getTime() <= Date.now())
+        || !existing.dueAt || existing.dueAt.getTime() <= Date.now())
         throw new AppError(409, "SCHOOLOS_INVOICE_CHANGED", "Linked invoice has expired or changed");
       return existing;
     }
