@@ -56,9 +56,9 @@ export default function SchoolOSUsagePage() {
         <ul className="mt-2 list-disc pl-5">{report.riskHolds.map(hold =>
           <li key={hold.invoiceId}>Invoice {hold.invoiceId}: {hold.latestEventType} ({new Date(hold.openedAt).toLocaleDateString("en-IN")})</li>
         )}</ul>
-      </div>
+      </div>}
       <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-        Foundation-only: automatic add-on invoicing and live AI/video worker metering are not activated. A zero balance here does not establish actual usage.
+        Provider usage metering is not yet connected to live AI Examiner or video workers. A zero balance here does not establish actual provider usage.
       </p>
       <div className="overflow-x-auto rounded-xl border">
         <h2 className="p-4 font-bold">Purchased credit periods</h2>
