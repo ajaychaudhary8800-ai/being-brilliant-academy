@@ -22,7 +22,6 @@ test("PostgreSQL rejects duplicate quote invoices and cross-tenant invoice spoof
   const b = `schoolos-quote-b-${unique}`;
   const planCode = `SOQA_${unique.replace(/-/g, "").toUpperCase()}`;
   let invoiceId: string | undefined;
-  let quoteId: string | undefined;
   try {
     const plan = await systemPrisma.saaSPlan.create({
       data: { code: planCode, name: "SchoolOS Test Plan", currency: "INR",
@@ -46,7 +45,6 @@ test("PostgreSQL rejects duplicate quote invoices and cross-tenant invoice spoof
         taxPaise: 898200, totalPaise: 5888200, createdBy: "integration", updatedBy: "integration",
       },
     });
-    quoteId = quote.id;
     const invoice = await systemPrisma.saaSInvoice.create({
       data: {
         organizationId: a, subscriptionId: sa.id, planId: plan.id, schoolOSQuoteId: quote.id,
