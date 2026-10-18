@@ -21,7 +21,7 @@ const addYear = (start: Date) => {
 };
 
 router.get("/organization/subscription/contracted-quotes", async (req: AuthRequest, res) => {
-  if (req.auth?.role !== Role.SUPER_ADMIN || req.auth.organizationId === "org_default")
+  if (req.auth?.role !== Role.SUPER_ADMIN || req.auth.homeOrganizationId !== req.auth.organizationId || req.auth.organizationId === "org_default")
     throw new AppError(403, "TENANT_BILLING_ADMIN_REQUIRED", "Tenant administrator required");
   const quotes = await systemPrisma.schoolOSQuotation.findMany({
     where: { organizationId: req.auth.organizationId, status: { in: ["CONTRACTED", "PAYMENT_PENDING", "PAID"] } },
@@ -34,7 +34,7 @@ router.get("/organization/subscription/contracted-quotes", async (req: AuthReque
 });
 
 router.post("/organization/subscription/contracted-checkout", async (req: AuthRequest, res) => {
-  if (req.auth?.role !== Role.SUPER_ADMIN || req.auth.organizationId === "org_default")
+  if (req.auth?.role !== Role.SUPER_ADMIN || req.auth.homeOrganizationId !== req.auth.organizationId || req.auth.organizationId === "org_default")
     throw new AppError(403, "TENANT_BILLING_ADMIN_REQUIRED", "Customer tenant administrator required");
   if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET)
     throw new AppError(503, "PAYMENT_UNAVAILABLE", "Razorpay checkout has not been configured");
