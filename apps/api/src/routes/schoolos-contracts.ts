@@ -53,8 +53,10 @@ router.post("/platform/schoolos/contracts/quotes/:quoteId/bind", async (req: Aut
     const snapshot = quote.pricingSnapshot && typeof quote.pricingSnapshot === "object" && !Array.isArray(quote.pricingSnapshot)
       ? quote.pricingSnapshot as Record<string, any> : {};
     const rate = snapshot.rateCardSnapshot;
-    if (!rate || rate.planId !== plan?.id || rate.annualPricePaise !== undefined
-      || rate.basePricePaise !== plan.annualPricePaise || rate.taxRateBps !== plan.taxRateBps)
+    if (!rate || rate.planId !== plan?.id || rate.planCode !== quote.planCode
+      || rate.billingCycle !== "ANNUAL" || rate.currency !== plan.currency
+      || rate.basePricePaise !== plan.annualPricePaise || rate.taxRateBps !== plan.taxRateBps
+      || !snapshot.pricing || snapshot.pricing.totalPaise !== quote.totalPaise)
       throw new AppError(409, "SCHOOLOS_QUOTE_PRICE_CHANGED", "Plan pricing changed since quote preparation; create a new approved quote");
 
     const organization = await tx.organization.findUnique({ where: { id: quote.organizationId }, select: { deletedAt: true, isActive: true } });
