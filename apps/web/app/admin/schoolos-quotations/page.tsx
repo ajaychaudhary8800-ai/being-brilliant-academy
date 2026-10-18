@@ -6,6 +6,7 @@ import { errorMessage, getAccessToken } from "../../../components/auth-provider"
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 type Plan = { code: string; name: string; isActive: boolean };
+type AddonRate = { id: string; category: QuoteLine["category"]; code: string; label: string; revision: number; status: string; unitPricePaise: number; taxRateBps: number; effectiveFrom: string; effectiveUntil: string | null };
 type Tenant = { id: string; name: string; slug: string };
 type OrderEvidence = { id: string; documentType: string; documentReference: string; verificationStatus: string; linkedOrganizationId: string | null; signedAt: string | null; archivedAt: string | null };
 type QuoteLine = { category: "MODULE" | "CAPACITY" | "AI_USAGE" | "VIDEO_USAGE" | "IMPLEMENTATION" | "CUSTOM_WORK"; code: string; label: string; quantity: number; unitPricePaise: number };
@@ -25,6 +26,8 @@ const newLine = (): QuoteLine => ({ category: "MODULE", code: "lms", label: "LMS
 
 export default function SchoolOSQuotationsPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [addonRates, setAddonRates] = useState<AddonRate[]>([]);
+  const [chosenRate, setChosenRate] = useState("");
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [evidence, setEvidence] = useState<OrderEvidence[]>([]);
@@ -46,7 +49,13 @@ export default function SchoolOSQuotationsPage() {
   const [notice, setNotice] = useState("");
 
   async function load() {
-    const [allPlans, allQuotes, allTenants, allDocuments] = await Promise.all([api("/platform/saas/plans"), api("/platform/schoolos/quotes"), api("/platform/organizations?limit=100"), api("/platform/commercial-documents")]);
+    const [allPlans, allQuotes, allTenants, allDocuments, approvedRates] = await Promise.all([
+      api("/platform/saas/plans"), api("/platform/schoolos/quotes"),
+      api("/platform/organizations?limit=100"), api("/platform/commercial-documents"),
+      api("/platform/schoolos/addon-rates"),
+    ]);
+    setAddonRates(approvedRates.filter((rate: AddonRate) => rate.status === "APPROVED"));
+
     setTenants((allTenants as Tenant[]).filter(tenant => tenant.id !== "org_default"));
     setEvidence(allDocuments as OrderEvidence[]);
     setPlans(allPlans.filter((plan: Plan) => plan.isActive));
@@ -119,7 +128,17 @@ export default function SchoolOSQuotationsPage() {
       <label className="text-sm font-semibold">Discount (basis points; 500 = 5%)<input type="number" min={0} max={5000} value={discountBps} onChange={e => setDiscountBps(Math.max(0, Math.min(5000, Number(e.target.value) || 0)))} className="mt-1 block w-full rounded-lg border p-2 dark:bg-slate-900" /></label>
     </div>
     <div className="mt-5 overflow-x-auto rounded-xl border">
-      <div className="flex items-center justify-between border-b p-4"><h2 className="font-bold">Custom line items</h2><button className="rounded-lg border px-3 py-2 text-sm" onClick={() => setItems(list => [...list, newLine()])}>Add item</button></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4"><h2 className="font-bold">Approved catalogue line items</h2><div className="flex flex-wrap gap-2">
+      <select aria-label="Approved add-on rate" value={chosenRate} onChange={e => setChosenRate(e.target.value)} className="rounded-lg border p-2 text-sm dark:bg-slate-900">
+        <option value="">Select approved SKU</option>{addonRates.filter(rate => new Date(rate.effectiveFrom).getTime() <= Date.now()
+          && (!rate.effectiveUntil || new Date(rate.effectiveUntil).getTime() > Date.now() + validity * 86_400_000)
+          && !items.some(item => item.code === rate.code && item.category === rate.category))
+          .map(rate => <option key={rate.id} value={rate.id}>{rate.category}:{rate.code} v{rate.revision} — {rupees(rate.unitPricePaise)}</option>)}
+      </select>
+      <button className="rounded-lg border px-3 py-2 text-sm" disabled={!chosenRate}
+        onClick={() => { const rate = addonRates.find(r => r.id === chosenRate); if (!rate) return;
+          setItems(list => [...list, { category: rate.category, code: rate.code, label: rate.label,
+            quantity: 1, unitPricePaise: rate.unitPricePaise }]); setChosenRate(""); }}>Add approved SKU</button></div></div>
       {items.map((item, index) => <div key={index} className="grid min-w-[740px] grid-cols-[140px_130px_1fr_70px_120px_70px] gap-2 border-b p-3 text-sm">
         <select aria-label="Item category" value={item.category} onChange={e => editLine(index, { category: e.target.value as QuoteLine["category"] })} className="rounded border p-2 dark:bg-slate-900">{(["MODULE","CAPACITY","AI_USAGE","VIDEO_USAGE","IMPLEMENTATION","CUSTOM_WORK"] as const).map(value => <option key={value}>{value}</option>)}</select>
         <input aria-label="Item code" value={item.code} onChange={e => editLine(index, { code: e.target.value })} className="rounded border p-2 dark:bg-slate-900" />
@@ -163,6 +182,7 @@ export default function SchoolOSQuotationsPage() {
         <button disabled={busy || !bindingQuoteId || !bindingDocumentId} onClick={() => void bindOrderEvidence()} className="rounded-lg bg-brand-700 px-4 py-2 font-semibold text-white disabled:opacity-50">Bind verified contract</button>
       </div>
     </section>
+    <p className="mt-4 text-xs text-slate-500">Add-on unit prices and labels must match the independently approved catalogue version. Custom-work line items cannot be quoted until their commercial approval workflow is implemented.</p>
     <p className="mt-4 text-sm text-amber-700">*Approval requires a different platform administrator than the creator or latest editor. Plan prices need commercial reconciliation before issuing quotations. Add-on prices are manual internal estimates, not approved feature catalogue prices.</p>
   </ProtectedAdminWorkspace>;
 }

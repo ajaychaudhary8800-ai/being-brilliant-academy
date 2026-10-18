@@ -8621,3 +8621,27 @@ model SchoolOSUsageEvent {
   @@index([balanceId, kind])
   @@index([sourceInvoiceId])
 }
+
+model SchoolOSAddonRate {
+  id             String   @id @default(cuid())
+  category       String
+  code           String
+  revision       Int
+  label          String
+  description    String?  @db.Text
+  unitPricePaise Int
+  currency       String   @default("INR")
+  taxRateBps     Int
+  status         String   @default("DRAFT")
+  effectiveFrom  DateTime
+  effectiveUntil DateTime?
+  createdBy      String
+  approvedBy     String?
+  approvedAt     DateTime?
+  approvalReference String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([category, code, revision])
+  @@index([status, category, code, effectiveFrom])
+}
