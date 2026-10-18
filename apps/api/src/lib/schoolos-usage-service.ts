@@ -46,7 +46,7 @@ export async function grantSchoolOSPaidQuoteCredits(invoiceId: string) {
     const alreadyCredited: string[] = [];
     for (const grant of grants) {
       // Tenant+metric lock serializes any debit, grant, or overlapping credit period.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"schoolos-usage:" + invoice.organizationId + ":" + grant.metric}))`;
+      await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-usage:" + invoice.organizationId + ":" + grant.metric}))`;
       const requestKey = `paid-invoice:${invoice.id}:${grant.metric}`;
       const existing = await tx.schoolOSUsageEvent.findUnique({
         where: { organizationId_metric_requestKey: { organizationId: invoice.organizationId, metric: grant.metric, requestKey } },
@@ -100,7 +100,7 @@ export async function consumeSchoolOSUsage(
     throw new AppError(403, "SCHOOLOS_USAGE_TENANT_REQUIRED", "Metered credits require a customer tenant");
 
   return systemPrisma.$transaction(async tx => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"schoolos-usage:" + organizationId + ":" + value.metric}))`;
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-usage:" + organizationId + ":" + value.metric}))`;
     const prior = await tx.schoolOSUsageEvent.findUnique({
       where: { organizationId_metric_requestKey: { organizationId, metric: value.metric, requestKey } },
     });
