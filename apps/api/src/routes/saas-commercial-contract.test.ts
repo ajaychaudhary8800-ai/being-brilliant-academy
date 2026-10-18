@@ -120,7 +120,7 @@ test("tenant checkout is idempotent and platform subscription changes are audite
 
 test("verified Razorpay webhook delegates SaaS orders before learner invoice reconciliation", async () => {
   const payments = await readFile(new URL("payments.ts", import.meta.url), "utf8");
-  assert.match(payments, /captureSaaSRazorpayPayment\(payment, event\)/);
+  assert.match(payments, /captureSaaSRazorpayPayment\(\{\.\.\.payment, order_id: orderId\}, event\)/);
   const captureIndex = payments.indexOf("captureSaaSRazorpayPayment(payment, event)");
   const learnerInvoiceIndex = payments.indexOf("tx.invoice.findUnique");
   assert.ok(captureIndex >= 0 && learnerInvoiceIndex > captureIndex);
