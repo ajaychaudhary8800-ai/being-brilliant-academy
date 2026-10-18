@@ -49,7 +49,7 @@ async function commercialPolicySnapshot(organizationId: string) {
   // Add-ons are immutable payment-derived licenses, not writable tenant settings.
   // Subscription cancellation/expiry and invoice reversals immediately revoke them.
   const paidAddons = organization.subscriptionStatus === OrganizationSubscriptionStatus.ACTIVE &&
-    organization.subscriptionEndsAt && organization.subscriptionEndsAt > now
+    organization.subscriptionEndsAt && organization.subscriptionEndsAt.getTime() > now.getTime()
     ? await systemPrisma.schoolOSAddonLicense.findMany({
         where: { organizationId, periodStart: { lte: now }, periodEnd: { gt: now },
           invoice: { status: "PAID", organizationId } },
