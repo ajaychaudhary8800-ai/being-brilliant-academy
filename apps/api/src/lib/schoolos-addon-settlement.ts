@@ -9,16 +9,31 @@ export async function applySchoolOSPaidAddonSettlement(
   input: {organizationId: string; invoiceId: string; quoteId: string; periodStart: Date; periodEnd: Date;
     totalPaise: number; lines: SchoolOSApprovedAddonLine[]},
 ) {
-  const [invoice, quote] = await Promise.all([
-    tx.saaSInvoice.findUnique({where:{id:input.invoiceId},select:{organizationId:true,status:true,schoolOSQuoteId:true,totalPaise:true,metadata:true}}),
-    tx.schoolOSQuotation.findUnique({where:{id:input.quoteId},select:{organizationId:true,status:true,totalPaise:true}}),
+  const [invoice, quote, payment] = await Promise.all([
+    tx.saaSInvoice.findUnique({where:{id:input.invoiceId},select:{organizationId:true,status:true,schoolOSQuoteId:true,totalPaise:true,metadata:true,providerOrderId:true}}),
+    tx.schoolOSQuotation.findUnique({where:{id:input.quoteId},select:{organizationId:true,status:true,totalPaise:true,items:true}}),
+    tx.saaSPayment.findFirst({where:{invoiceId:input.invoiceId,organizationId:input.organizationId,status:"CAPTURED",
+      amountPaise:input.totalPaise,currency:"INR",providerPaymentId:{not:null}}}),
   ]);
   if (!invoice || invoice.status!=="PAID" || invoice.organizationId!==input.organizationId ||
     invoice.schoolOSQuoteId!==input.quoteId || invoice.totalPaise!==input.totalPaise ||
-    !quote || quote.organizationId!==input.organizationId || quote.status!=="PAID" || quote.totalPaise!==input.totalPaise)
+    !quote || quote.organizationId!==input.organizationId || quote.status!=="PAID" || quote.totalPaise!==input.totalPaise
+    || !payment || !invoice.providerOrderId)
     throw new AppError(409,"SCHOOLOS_ADDON_ACTIVATION_NOT_PAID","Verified paid matching invoice and quotation required");
   const meta=invoice.metadata && typeof invoice.metadata==="object" && !Array.isArray(invoice.metadata)
     ? invoice.metadata as Record<string,unknown> : {};
+  // Re-read source quotation line values before any grant. Invoice metadata alone
+  // is not sufficient evidence of customer-authorised quantity and unit price.
+  if (!Array.isArray(quote.items) || quote.items.length!==input.lines.length ||
+      input.lines.some((line,index)=>{
+        const raw=quote.items as unknown[];
+        const item=raw[index] && typeof raw[index]==="object" && !Array.isArray(raw[index])
+          ? raw[index] as Record<string,unknown> : {};
+        return item.category!==line.category || item.code!==line.code ||
+          item.label!==line.label || item.quantity!==line.quantity ||
+          item.unitPricePaise!==line.unitPricePaise;
+      }))
+    throw new AppError(409,"SCHOOLOS_ADDON_SIGNED_LINES_CHANGED","Signed quote line details have changed");
   const stored=meta.addonLines;
   if (meta.basis!=="SIGNED_ANNUAL_BASE_PLUS_ADDONS" || !Array.isArray(stored) ||
     JSON.stringify(stored)!==JSON.stringify(input.lines))
