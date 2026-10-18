@@ -20,6 +20,19 @@ const addYear = (start: Date) => {
   return end;
 };
 
+router.get("/organization/subscription/contracted-quotes", async (req: AuthRequest, res) => {
+  if (req.auth?.role !== Role.SUPER_ADMIN || req.auth.organizationId === "org_default")
+    throw new AppError(403, "TENANT_BILLING_ADMIN_REQUIRED", "Tenant administrator required");
+  const quotes = await systemPrisma.schoolOSQuotation.findMany({
+    where: { organizationId: req.auth.organizationId, status: { in: ["CONTRACTED", "PAYMENT_PENDING", "PAID"] } },
+    orderBy: { createdAt: "desc" }, take: 25,
+    select: { id: true, quoteNo: true, status: true, planCode: true, billingCycle: true,
+      totalPaise: true, validUntil: true,
+      checkoutInvoice: { select: { id: true, status: true, providerOrderId: true, dueAt: true } } },
+  });
+  res.json({ data: quotes });
+});
+
 router.post("/organization/subscription/contracted-checkout", async (req: AuthRequest, res) => {
   if (req.auth?.role !== Role.SUPER_ADMIN || req.auth.organizationId === "org_default")
     throw new AppError(403, "TENANT_BILLING_ADMIN_REQUIRED", "Customer tenant administrator required");
