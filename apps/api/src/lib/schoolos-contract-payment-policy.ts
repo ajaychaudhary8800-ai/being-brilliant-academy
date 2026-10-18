@@ -37,7 +37,7 @@ export function validateSchoolOSBaseQuoteCheckout(
     || !document.signedAt || !document.verifiedAt || !document.verifiedById
     || document.uploadedById === document.verifiedById
     || document.lead.wonOrganizationId !== organizationId
-    || document.organizationId !== organizationId)
+    || (document.organizationId !== null && document.organizationId !== organizationId))
     throw new AppError(409, "SCHOOLOS_CONTRACT_EVIDENCE_INVALID", "Verified matching signed order evidence is required");
 
   // Add-ons, discount, pilots and custom enterprise prices require a separate licensed metering and
