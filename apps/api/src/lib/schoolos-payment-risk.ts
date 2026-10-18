@@ -77,6 +77,11 @@ export async function recordSchoolOSPaymentRisk(input: SchoolOSRiskEvent, origin
       eventKey:e.eventKey,providerEntityId:e.entityId,providerPaymentId:e.providerPaymentId,
       amountPaise:e.amountPaise,currency:"INR",
     }});
+    // Serialize the transition into a risk hold with service-level AI/video debits.
+    // A debit fully finishes before the hold, or observes the committed hold.
+    for (const metric of ["ai_credits", "video_minutes"] as const) {
+      await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-usage:"+invoice.organizationId+":"+metric}))`;
+    }
     await tx.schoolOSPaymentRiskHold.upsert({
       where:{invoiceId:invoice.id},
       create:{
