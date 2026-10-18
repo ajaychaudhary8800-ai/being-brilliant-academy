@@ -98,7 +98,10 @@ test("final commercial pricing sets sustainable prices, capacity and tax configu
 test("commercial entitlement enforcement is opt-in for existing tenants", async () => {
   const policy = await readFile(new URL("../lib/saas-commercial.ts", import.meta.url), "utf8");
   assert.match(policy, /commercialSettings\.enforce === true/);
-  assert.match(policy, /if \(!policy\.enforcementEnabled\) return policy/);
+  // V4 tenants stay unrestricted unless the platform explicitly disables a module.
+  const featurePolicy = await readFile(new URL("../lib/schoolos-feature-policy.ts", import.meta.url), "utf8");
+  assert.ok(featurePolicy.includes('if (!enforcementEnabled) return { enabled: true, source: "LEGACY" }'));
+  assert.ok(featurePolicy.includes('if (override) return { enabled: override.enabled, source: "OVERRIDE" }'));
   assert.match(policy, /assertCommercialPlanFitsUsage/);
   assert.match(policy, /PLAN_FEATURE_REQUIRED/);
   assert.match(policy, /PLAN_LIMIT_REACHED/);

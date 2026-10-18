@@ -1,6 +1,7 @@
 import { OrganizationSubscriptionStatus, Prisma, Role, SaaSPaymentStatus } from "@prisma/client";
 import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
+import { readSchoolOSFeatureOverrides, schoolOSFeatureAccess, schoolOSEffectiveOverrideLists } from "./schoolos-feature-policy.js";
 
 type JsonRecord = Record<string, unknown>;
 type CapturedPayment = { id: string; order_id: string; amount: number; currency: string };
@@ -42,6 +43,7 @@ async function commercialPolicySnapshot(organizationId: string) {
   const enforcementEnabled = commercialSettings.enforce === true;
   const entitlements = booleanMap(plan?.entitlements);
   const limits = limitMap(plan?.limits);
+  const featureOverrides = readSchoolOSFeatureOverrides(commercialSettings.featureOverrides);
 
   return {
     organization: organizationRecord,
@@ -59,6 +61,7 @@ async function commercialPolicySnapshot(organizationId: string) {
       limits,
     } : null,
     enforcementEnabled,
+    featureOverrides,
   };
 }
 
@@ -68,6 +71,7 @@ export async function commercialEntitlementSnapshot(organizationId: string) {
     enforcementEnabled: policy.enforcementEnabled,
     planCode: policy.plan?.code ?? policy.organization.subscriptionPlan,
     entitlements: policy.plan?.entitlements ?? {},
+    ...schoolOSEffectiveOverrideLists(policy.featureOverrides),
   };
 }
 
@@ -83,14 +87,14 @@ export async function commercialAccessSnapshot(organizationId: string) {
 
 export async function commercialFeatureEnabled(organizationId: string, feature: string) {
   const policy = await commercialPolicySnapshot(organizationId);
-  return !policy.enforcementEnabled || policy.plan?.entitlements["*"] === true || policy.plan?.entitlements[feature] === true;
+  return schoolOSFeatureAccess(policy.plan?.entitlements ?? {}, policy.enforcementEnabled, policy.featureOverrides, feature).enabled;
 }
 
 export async function assertFeatureEntitled(organizationId: string, feature: string) {
   const policy = await commercialPolicySnapshot(organizationId);
-  if (!policy.enforcementEnabled) return policy;
-  if (policy.plan?.entitlements["*"] === true || policy.plan?.entitlements[feature] === true) return policy;
-  throw new AppError(403, "PLAN_FEATURE_REQUIRED", `Your subscription plan does not include ${feature}`);
+  const decision = schoolOSFeatureAccess(policy.plan?.entitlements ?? {}, policy.enforcementEnabled, policy.featureOverrides, feature);
+  if (decision.enabled) return policy;
+  throw new AppError(403, "PLAN_FEATURE_REQUIRED", `Your subscription plan does not include ${feature} or platform access has been disabled`);
 }
 
 export async function assertCommercialPlanFitsUsage(organizationId: string, limitsValue: unknown) {

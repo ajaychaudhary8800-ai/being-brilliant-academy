@@ -25,6 +25,7 @@ const menuGroups: MenuGroup[] = [
     { name: "Organizations", href: "/admin/organizations", icon: School, platformOnly: true },
     { name: "SaaS Plans", href: "/admin/saas-plans", icon: CreditCard, platformOnly: true },
     { name: "SaaS Billing", href: "/admin/saas-billing", icon: CreditCard, platformOnly: true },
+    { name: "SchoolOS Feature Licensing", href: "/admin/schoolos-features", icon: ShieldCheck, platformOnly: true },
     { name: "SaaS Sales", href: "/admin/saas-sales", icon: BriefcaseBusiness, platformOnly: true },
     { name: "Commercial Vault", href: "/admin/commercial-documents", icon: FileArchive, platformOnly: true },
     { name: "Sales Documents", href: "/admin/legal-sales", icon: FileCheck2, platformOnly: true },
@@ -99,7 +100,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth();
   const { brand } = useTenantBranding();
   const terms = useGroupTerminology();
-  const [commercialEntitlements, setCommercialEntitlements] = useState<{ enforcementEnabled: boolean; entitlements: Record<string, boolean> } | null>(null);
+  const [commercialEntitlements, setCommercialEntitlements] = useState<{ enforcementEnabled: boolean; entitlements: Record<string, boolean>; deniedFeatures?: string[]; enabledFeatures?: string[] } | null>(null);
   const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
   useEffect(() => {
     const token = getAccessToken();
@@ -122,7 +123,8 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
     ...group,
     entries: group.entries.filter((entry) => {
       if (user?.billingRecovery) return entry.href === "/admin/subscription";
-      if (entry.feature && commercialEntitlements?.enforcementEnabled && commercialEntitlements.entitlements["*"] !== true && commercialEntitlements.entitlements[entry.feature] !== true) return false;
+      if (entry.feature && commercialEntitlements?.deniedFeatures?.includes(entry.feature)) return false;
+      if (entry.feature && commercialEntitlements?.enforcementEnabled && commercialEntitlements.entitlements["*"] !== true && commercialEntitlements.entitlements[entry.feature] !== true && !commercialEntitlements.enabledFeatures?.includes(entry.feature)) return false;
       if (user?.role === "ACCOUNTANT") return accountantRoutes.has(entry.href);
       if (entry.platformOnly) return user?.role === "SUPER_ADMIN" && user.organizationId === "org_default";
       if (entry.tenantOnly) return user?.role === "SUPER_ADMIN" && user.organizationId !== "org_default";
