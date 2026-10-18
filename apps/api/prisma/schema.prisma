@@ -1111,6 +1111,7 @@ model Organization {
   studentAcademicTransitions StudentAcademicTransition[]
   saasSubscription       SaaSSubscription?
   saasInvoices           SaaSInvoice[]
+  schoolOSQuotations     SchoolOSQuotation[]
   saasPayments           SaaSPayment[]
   institutionPaymentGateway InstitutionPaymentGateway?
   institutionPaymentOrders  InstitutionPaymentOrder[]
@@ -8522,4 +8523,48 @@ model MeetingAuditLog {
 
   @@index([organizationId, meetingId, createdAt])
   @@index([organizationId, actorUserId, createdAt])
+}
+
+model SchoolOSQuotation {
+  id              String    @id @default(cuid())
+  quoteNo         String    @unique
+  organizationId  String?
+  clientName      String
+  clientEmail     String?
+  planCode        String
+  billingCycle    SaaSBillingCycle
+  status          String    @default("DRAFT")
+  version         Int       @default(1)
+  validUntil      DateTime
+  items           Json      @default("[]")
+  pricingSnapshot Json
+  subtotalPaise   Int
+  discountBps     Int       @default(0)
+  discountPaise   Int       @default(0)
+  taxRateBps      Int
+  taxPaise        Int
+  totalPaise      Int
+  createdBy       String
+  updatedBy       String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  revisions       SchoolOSQuotationRevision[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([status, createdAt])
+}
+
+model SchoolOSQuotationRevision {
+  id        String   @id @default(cuid())
+  quoteId   String
+  version   Int
+  action    String
+  actorId   String
+  snapshot  Json
+  createdAt DateTime @default(now())
+  quote     SchoolOSQuotation @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+
+  @@unique([quoteId, version])
+  @@index([quoteId, createdAt])
 }
