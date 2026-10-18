@@ -34,7 +34,7 @@ type Invoice = {
 };
 
 type MeteredUsageBalance = { metric: string; periodStart: string; periodEnd: string; grantedUnits: number; consumedUnits: number; remainingUnits: number };
-type MeteredUsage = { balances: MeteredUsageBalance[]; meteringConnected: boolean; activationStatus: string };
+type MeteredUsage = { balances: MeteredUsageBalance[]; meteringConnected: boolean; activationStatus: string; financeReviewRequired: boolean; riskHolds: { invoiceId: string; latestEventType: string; openedAt: string }[] };
 
 type SignedQuote = {
   id: string; quoteNo: string; status: string; planCode: string; billingCycle: string;
@@ -333,9 +333,13 @@ export default function Page() {
             </button>}</td>
         </tr>)}</tbody>
       </table></div>
-      <p className="border-t p-4 text-xs text-slate-500">Custom add-ons and discounts are not payable through this automated base-plan checkout. Contact the platform for a manually approved payment arrangement.</p>
+      <p className="border-t p-4 text-xs text-slate-500">Approved, signed and fully priced module, capacity, AI-credit and video-minute add-ons can be purchased with an eligible annual quotation. Custom work, discounts and unreconciled prices remain blocked.</p>
     </section>}
 
+    {meteredUsage?.financeReviewRequired && <div role="alert" className="mt-6 rounded-xl border border-amber-400 bg-amber-50 p-4 text-sm text-amber-950">
+      <p className="font-bold">Payment reconciliation required</p>
+      <p>Refund or payment dispute evidence was received. Purchased add-on entitlements and AI/video consumption may be suspended until platform finance verification. Contact support with the relevant subscription invoice.</p>
+    </div>}
     {meteredUsage && <section className="card mt-6 overflow-hidden">
       <div className="border-b p-5"><h2 className="text-xl font-bold">AI & Video Usage Credits</h2>
         <p className="mt-1 text-sm text-slate-500">Prepaid usage ledger. This preview is not yet connected to AI Examiner or live-class streaming, and does not reflect total provider usage.</p>
