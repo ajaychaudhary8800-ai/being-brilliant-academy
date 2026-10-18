@@ -31,7 +31,16 @@ test("PostgreSQL metering prevents concurrent overspend and replays idempotently
       data: { organizationId, metric: "ai_credits", periodStart: start, periodEnd: end,
         grantedUnits: 10, consumedUnits: 0 },
     });
-    const race = await Promise.allSettled([
+    const balanceBefore = await systemPrisma.schoolOSUsageBalance.findFirstOrThrow({ where: { organizationId, metric: "ai_credits" } });
+    await assert.rejects(() => systemPrisma.schoolOSUsageEvent.create({
+      data: { organizationId: "org_default", balanceId: balanceBefore.id, metric: "ai_credits",
+        kind: "CONSUME", units: 1, requestKey: `foreign-tenant:${crypto.randomUUID()}` },
+    }), "PostgreSQL must reject a usage debit belonging to another tenant");
+    await assert.rejects(() => systemPrisma.schoolOSUsageEvent.create({
+      data: { organizationId, balanceId: balanceBefore.id, metric: "video_minutes",
+        kind: "CONSUME", units: 1, requestKey: `cross-metric:${crypto.randomUUID()}` },
+    }), "PostgreSQL must reject a debit whose meter disagrees with the balance");
+        const race = await Promise.allSettled([
       consumeSchoolOSUsage(organizationId, "ai_credits", 7, "exam-attempt:1", null, now),
       consumeSchoolOSUsage(organizationId, "ai_credits", 7, "exam-attempt:2", null, now),
     ]);
