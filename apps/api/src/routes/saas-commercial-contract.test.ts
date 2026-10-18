@@ -100,8 +100,8 @@ test("commercial entitlement enforcement is opt-in for existing tenants", async 
   assert.match(policy, /commercialSettings\.enforce === true/);
   // V4 tenants stay unrestricted unless the platform explicitly disables a module.
   const featurePolicy = await readFile(new URL("../lib/schoolos-feature-policy.ts", import.meta.url), "utf8");
-  assert.match(featurePolicy, /if \\(!enforcementEnabled\\) return \\{ enabled: true, source: "LEGACY" \\}/);
-  assert.match(featurePolicy, /if \\(override\\) return \\{ enabled: override.enabled, source: "OVERRIDE" \\}/);
+  assert.ok(featurePolicy.includes('if (!enforcementEnabled) return { enabled: true, source: "LEGACY" }'));
+  assert.ok(featurePolicy.includes('if (override) return { enabled: override.enabled, source: "OVERRIDE" }'));
   assert.match(policy, /assertCommercialPlanFitsUsage/);
   assert.match(policy, /PLAN_FEATURE_REQUIRED/);
   assert.match(policy, /PLAN_LIMIT_REACHED/);
