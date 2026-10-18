@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
-import { OrganizationSubscriptionStatus, SaaSBillingCycle, SaaSInvoiceStatus, SaaSPaymentStatus } from "@prisma/client";
+import { OrganizationSubscriptionStatus, SaaSBillingCycle, SaaSInvoiceStatus, SaaSPaymentStatus, Role } from "@prisma/client";
 import { systemPrisma } from "../lib/prisma.js";
 import { commercialEntitlementSnapshot } from "../lib/saas-commercial.js";
 import { recordSchoolOSPaymentRisk } from "../lib/schoolos-payment-risk.js";
@@ -27,6 +27,7 @@ test("won dispute requires maker-checker release, signed new risk reopens and st
   const paymentId=`pay_${x}`,orderId=`order_${x}`,disputeId=`disp_${x}`,laterId=`disp_L${x}`;
   const from=new Date("2026-10-18T00:00:00Z"),until=new Date("2027-10-18T00:00:00Z");
   let quoteId: string | undefined,invoiceId: string | undefined;
+  let financeMaker="",financeChecker="";
   const eventKeys=[
     `payment.dispute.created:${disputeId}`,`payment.dispute.won:${disputeId}`,
     `payment.dispute.created:${laterId}`,`payment.dispute.won:${laterId}`,
@@ -42,6 +43,17 @@ test("won dispute requires maker-checker release, signed new risk reopens and st
       subscriptionPlan:planCode,subscriptionStatus:OrganizationSubscriptionStatus.ACTIVE,
       subscriptionEndsAt:until,settings:{commercialEntitlements:{enforce:true}},
     }});
+    const makerUser=await systemPrisma.user.create({data:{
+      organizationId:"org_default",name:"Finance Maker QA",
+      email:`risk-maker-${x.toLowerCase()}@example.test`,
+      role:Role.SUPER_ADMIN,passwordHash:"integration-test",emailVerifiedAt:new Date(),
+    }});
+    const checkerUser=await systemPrisma.user.create({data:{
+      organizationId:"org_default",name:"Finance Checker QA",
+      email:`risk-checker-${x.toLowerCase()}@example.test`,
+      role:Role.SUPER_ADMIN,passwordHash:"integration-test",emailVerifiedAt:new Date(),
+    }});
+    financeMaker=makerUser.id;financeChecker=checkerUser.id;
     const sub=await systemPrisma.saaSSubscription.create({data:{
       organizationId:orgId,planId:plan.id,status:OrganizationSubscriptionStatus.ACTIVE,
       billingCycle:SaaSBillingCycle.ANNUAL,currentPeriodStart:from,currentPeriodEnd:until,
@@ -73,26 +85,26 @@ test("won dispute requires maker-checker release, signed new risk reopens and st
       orderId:null,originalAmountPaise:590000,amountPaise:10000,currency:"INR"};
     assert.equal(await recordSchoolOSPaymentRisk(created,{event:created.type}),true);
     assert.equal((await commercialEntitlementSnapshot(orgId)).entitlements.lms,false);
-    await assert.rejects(()=>proposeSchoolOSRiskRelease(invoice.id,"finance-maker",
+    await assert.rejects(()=>proposeSchoolOSRiskRelease(invoice.id,financeMaker,
       "FINANCE-SIGNED-DISPUTE-OUTCOME-REF","All payment dispute documentation has been verified"),
       /DISPUTE_NOT_INDEPENDENTLY_WON/);
     await recordSchoolOSPaymentRisk({...created,type:"payment.dispute.won"},{event:"payment.dispute.won"});
-    let review=await proposeSchoolOSRiskRelease(invoice.id,"finance-maker",
+    let review=await proposeSchoolOSRiskRelease(invoice.id,financeMaker,
       "FINANCE-SIGNED-DISPUTE-OUTCOME-REF","All source dispute outcomes have been independently confirmed");
     assert.equal(review.status,"PENDING");
-    await assert.rejects(()=>decideSchoolOSRiskRelease(review.id,"finance-maker","APPROVE",
+    await assert.rejects(()=>decideSchoolOSRiskRelease(review.id,financeMaker,"APPROVE",
       "I confirm the provider has won and funds remain captured"),/cannot approve or reject own/);
 
     // A late signed provider event invalidates an old review even when it otherwise looks clear.
     const next={...created,entityId:laterId,type:"payment.dispute.created" as const};
     await recordSchoolOSPaymentRisk(next,{event:next.type});
-    await assert.rejects(()=>decideSchoolOSRiskRelease(review.id,"finance-checker","APPROVE",
+    await assert.rejects(()=>decideSchoolOSRiskRelease(review.id,financeChecker,"APPROVE",
       "Independent finance review confirms original signed dispute"),
       /New provider evidence changed/);
     await recordSchoolOSPaymentRisk({...next,type:"payment.dispute.won"},{event:"payment.dispute.won"});
-    review=await proposeSchoolOSRiskRelease(invoice.id,"finance-maker",
+    review=await proposeSchoolOSRiskRelease(invoice.id,financeMaker,
       "FINANCE-FINAL-INDEPENDENT-SIGNOFF","Both disputed amounts were confirmed won by the payment provider");
-    const approved=await decideSchoolOSRiskRelease(review.id,"finance-checker","APPROVE",
+    const approved=await decideSchoolOSRiskRelease(review.id,financeChecker,"APPROVE",
       "Independently reviewed both provider outcomes and original captured payment");
     assert.equal(approved.status,"APPROVED");
     assert.equal((await systemPrisma.schoolOSPaymentRiskHold.findUniqueOrThrow({
@@ -122,6 +134,7 @@ test("won dispute requires maker-checker release, signed new risk reopens and st
       await tx.organization.deleteMany({where:{id:orgId}});
       await tx.$executeRawUnsafe('ALTER TABLE "AcademicSession" ENABLE TRIGGER "AcademicSession_exactly_one_current"');
     });
+    await systemPrisma.user.deleteMany({where:{id:{in:[financeMaker,financeChecker].filter(Boolean)}}});
     await systemPrisma.saaSPlan.deleteMany({where:{code:planCode}});
   }
 });
