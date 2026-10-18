@@ -8,6 +8,7 @@ import { AppError } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
 import { assertCommercialPlanFitsUsage } from "../lib/saas-commercial.js";
 import { validateSchoolOSBaseQuoteCheckout } from "../lib/schoolos-contract-payment-policy.js";
+import { validateSchoolOSAddonCheckout } from "../lib/schoolos-addon-checkout-policy.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -68,9 +69,23 @@ router.post("/organization/subscription/contracted-checkout", async (req: AuthRe
       throw new AppError(409, "SCHOOLOS_INVOICE_TENANT_MISMATCH", "Existing invoice belongs to a different tenant");
     if (existing?.providerOrderId && quote.status !== "PAYMENT_PENDING")
       throw new AppError(409, "SCHOOLOS_QUOTE_STATE_CONFLICT", "Payment order state is incomplete; manual reconciliation required");
-    const amount = validateSchoolOSBaseQuoteCheckout(
+    const hasAddons = Array.isArray(quote.items) && quote.items.length > 0;
+    const rateIds = hasAddons
+      ? (quote.pricingSnapshot && typeof quote.pricingSnapshot === "object" && !Array.isArray(quote.pricingSnapshot)
+        ? (quote.pricingSnapshot as Record<string, unknown>).addonRateSnapshot : null)
+      : null;
+    const approvedRateIds = Array.isArray(rateIds)
+      ? rateIds.map(raw => raw && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>).rateId : null).filter((v): v is string => typeof v === "string")
+      : [];
+    const approvedRates = hasAddons ? await tx.schoolOSAddonRate.findMany({ where: { id: { in: approvedRateIds } } }) : [];
+    const addon = hasAddons
+      ? validateSchoolOSAddonCheckout(quote, plan, quote.contractDocument, organizationId,
+          approvedRates, new Date(), Boolean(existing?.providerOrderId)) : null;
+    const amount = addon ?? validateSchoolOSBaseQuoteCheckout(
       quote, plan, quote.contractDocument, organizationId, new Date(), Boolean(existing?.providerOrderId),
     );
+    const invoiceBasis = addon ? "SIGNED_ANNUAL_BASE_PLUS_ADDONS" : "SIGNED_ANNUAL_BASE_PLAN";
     if (!existing) {
       const otherUnpaid = await tx.saaSInvoice.findFirst({
         where: { organizationId, schoolOSQuoteId: { not: null }, status: SaaSInvoiceStatus.OPEN },
@@ -84,6 +99,8 @@ router.post("/organization/subscription/contracted-checkout", async (req: AuthRe
       if (existing.status !== SaaSInvoiceStatus.OPEN || !existing.providerOrderId)
         throw new AppError(409, "SCHOOLOS_CHECKOUT_RECONCILIATION_REQUIRED", "A prior order attempt requires manual reconciliation before retry");
       if (existing.planId !== plan!.id || existing.totalPaise !== amount.totalPaise || existing.currency !== "INR"
+        || (existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
+          ? (existing.metadata as Record<string, unknown>).basis : null) !== invoiceBasis
         || !existing.dueAt || existing.dueAt.getTime() <= Date.now())
         throw new AppError(409, "SCHOOLOS_INVOICE_CHANGED", "Linked invoice has expired or changed");
       return existing;
@@ -108,11 +125,12 @@ router.post("/organization/subscription/contracted-checkout", async (req: AuthRe
       data: {
         organizationId, subscriptionId: subscription.id, planId: plan!.id,
         schoolOSQuoteId: quoteId, invoiceNo, checkoutKey: `schoolos:${quoteId}`,
-        amountPaise: amount.baseAmountPaise, taxPaise: amount.taxPaise, totalPaise: amount.totalPaise,
+        amountPaise: amount.baseAmountPaise + (addon?.addonsAmountPaise ?? 0), taxPaise: amount.taxPaise, totalPaise: amount.totalPaise,
         currency: "INR", status: SaaSInvoiceStatus.OPEN,
         periodStart, periodEnd, dueAt: new Date(periodStart.getTime() + 24 * 60 * 60 * 1000),
         provider: "RAZORPAY",
-        metadata: { quoteId, quoteNo: quote.quoteNo, basis: "SIGNED_ANNUAL_BASE_PLAN", billingCycle: "ANNUAL" } as Prisma.InputJsonValue,
+        metadata: { quoteId, quoteNo: quote.quoteNo, basis: invoiceBasis, billingCycle: "ANNUAL",
+          addonLines: addon?.lines ?? [] } as Prisma.InputJsonValue,
       },
     });
   });

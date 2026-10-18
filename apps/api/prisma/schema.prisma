@@ -1072,6 +1072,7 @@ model Organization {
   updatedAt              DateTime                       @updatedAt
   users                  User[]
   schoolOSUsageBalances SchoolOSUsageBalance[]
+  schoolOSAddonLicenses SchoolOSAddonLicense[]
   schoolOSUsageEvents SchoolOSUsageEvent[]
   branches               Branch[]
   communicationCirculars Circular[]
@@ -1193,6 +1194,7 @@ model SaaSInvoice {
   plan            SaaSPlan          @relation(fields: [planId], references: [id], onDelete: Restrict)
   payments        SaaSPayment[]
   schoolOSUsageEvents SchoolOSUsageEvent[]
+  schoolOSAddonLicenses SchoolOSAddonLicense[]
 
   @@index([organizationId, status, createdAt])
   @@index([subscriptionId, periodEnd])
@@ -8644,4 +8646,22 @@ model SchoolOSAddonRate {
 
   @@unique([category, code, revision])
   @@index([status, category, code, effectiveFrom])
+}
+
+model SchoolOSAddonLicense {
+  id             String   @id @default(cuid())
+  organizationId String
+  invoiceId      String
+  quoteId        String
+  category       String
+  code           String
+  units          Int
+  periodStart    DateTime
+  periodEnd      DateTime
+  createdAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice        SaaSInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceId, category, code])
+  @@index([organizationId, category, code, periodEnd])
 }
