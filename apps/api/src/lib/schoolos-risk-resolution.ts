@@ -57,7 +57,7 @@ export async function proposeSchoolOSRiskRelease(
    await tx.auditLog.create({data:{organizationId:hold.organizationId,actorId:proposedBy,
      action:"SCHOOLOS_RISK_RELEASE_PROPOSED",entity:"SchoolOSPaymentRiskReview",entityId:review.id,
      metadata:{invoiceId,riskRevision:hold.revision,evidenceReference,rationale,
-       eligibility:evaluation.reason}},
+       eligibility:evaluation.reason},
    }});
    return review;
  });
