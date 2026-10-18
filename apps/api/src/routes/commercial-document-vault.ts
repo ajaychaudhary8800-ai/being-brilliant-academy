@@ -206,6 +206,9 @@ router.post("/platform/commercial-documents/:id/archive", async (req: AuthReques
   });
   if (!existing) throw new AppError(404, "COMMERCIAL_DOCUMENT_NOT_FOUND", "Commercial document not found");
   if (existing.archivedAt) return res.status(204).end();
+  if (await systemPrisma.schoolOSQuotation.count({ where: { contractDocumentId: existing.id } })) {
+    throw new AppError(409, "COMMERCIAL_DOCUMENT_LINKED", "This signed order form is bound to a quotation and cannot be archived");
+  }
   await systemPrisma.saaSCommercialDocument.update({
     where: { id: existing.id },
     data: { archivedAt: new Date(), archivedById: req.auth!.userId },

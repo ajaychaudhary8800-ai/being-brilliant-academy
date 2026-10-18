@@ -8081,6 +8081,8 @@ model SaaSCommercialDocument {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
+  contractedQuotes SchoolOSQuotation[]
+
   lead SaaSSalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@index([leadId, documentType, createdAt])
@@ -8544,6 +8546,10 @@ model SchoolOSQuotation {
   taxRateBps      Int
   taxPaise        Int
   totalPaise      Int
+  contractDocumentId String?  @unique
+  contractedAt      DateTime?
+  contractedBy      String?
+  contractDocument  SaaSCommercialDocument? @relation(fields: [contractDocumentId], references: [id], onDelete: Restrict)
   createdBy       String
   updatedBy       String
   createdAt       DateTime  @default(now())
