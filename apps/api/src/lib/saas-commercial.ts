@@ -45,6 +45,28 @@ async function commercialPolicySnapshot(organizationId: string) {
   const enforcementEnabled = commercialSettings.enforce === true;
   const entitlements = booleanMap(plan?.entitlements);
   const limits = limitMap(plan?.limits);
+  const now = new Date();
+  // Add-ons are immutable payment-derived licenses, not writable tenant settings.
+  // Subscription cancellation/expiry and invoice reversals immediately revoke them.
+  const paidAddons = organization.subscriptionStatus === OrganizationSubscriptionStatus.ACTIVE &&
+    organization.subscriptionEndsAt && organization.subscriptionEndsAt > now
+    ? await systemPrisma.schoolOSAddonLicense.findMany({
+        where: { organizationId, periodStart: { lte: now }, periodEnd: { gt: now },
+          invoice: { status: "PAID", organizationId } },
+        select: { category: true, code: true, units: true },
+      })
+    : [];
+  for (const license of paidAddons) {
+    if (license.category === "MODULE") entitlements[license.code] = true;
+    if (license.category === "CAPACITY" && ["students","users","branches"].includes(license.code)) {
+      const base = limits[license.code];
+      if (base !== null && base !== undefined) {
+        const increased = base + license.units;
+        if (!Number.isSafeInteger(increased)) throw new AppError(409, "SCHOOLOS_LIMIT_OVERFLOW", "Purchased capacity exceeds safe limit");
+        limits[license.code] = increased;
+      }
+    }
+  }
   const featureOverrides = readSchoolOSFeatureOverrides(commercialSettings.featureOverrides);
 
   return {
@@ -63,6 +85,7 @@ async function commercialPolicySnapshot(organizationId: string) {
       limits,
     } : null,
     enforcementEnabled,
+    paidAddons,
     featureOverrides,
   };
 }
