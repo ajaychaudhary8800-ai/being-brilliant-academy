@@ -68,8 +68,8 @@ export function validateSchoolOSAddonCheckout(
        || rate.effectiveFrom.getTime() > quote.createdAt.getTime()
        || (rate.effectiveUntil && rate.effectiveUntil.getTime() < quote.validUntil.getTime()))
      deny("SCHOOLOS_ADDON_RATE_MISMATCH","Quoted price differs from independently approved SKU");
-   return { category:category as SchoolOSQuoteItem["category"],code:String(code),label:line.label,
-     quantity:line.quantity,unitPricePaise:line.unitPricePaise,rateId:rate!.id,rateRevision:rate!.revision };
+   return { category:category as SchoolOSQuoteItem["category"],code:String(code),label:line.label as string,
+     quantity:line.quantity as number,unitPricePaise:line.unitPricePaise as number,rateId:rate!.id,rateRevision:rate!.revision };
  });
  let calculated: ReturnType<typeof calculateSchoolOSQuote>;
  try { calculated=calculateSchoolOSQuote({basePricePaise:validatedPlan.annualPricePaise,items:lines,discountBps:0,taxRateBps:validatedPlan.taxRateBps}); }
