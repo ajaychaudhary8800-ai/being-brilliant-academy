@@ -87,6 +87,7 @@ import teacherPhotos from "./routes/teacher-photos.js";
 import imageUploads from "./routes/image-uploads.js";
 import publicBranding from "./routes/public-branding.js";
 import saasCommercial from "./routes/saas-commercial.js";
+import schoolOSFeatures from "./routes/schoolos-features.js";
 import saasSales from "./routes/saas-sales.js";
 import legalSalesDocuments from "./routes/legal-sales-documents.js";
 import commercialDocumentVault from "./routes/commercial-document-vault.js";
@@ -326,6 +327,7 @@ app.use("/api/v1", onlyPaths(["/finance/payments", "/finance/payment-offsets"], 
 
 app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations));
 app.use("/api/v1", onlyPaths(["/platform/saas", "/organization/entitlements", "/organization/subscription"], saasCommercial));
+app.use("/api/v1", onlyPaths(["/platform/schoolos"], schoolOSFeatures));
 app.use("/api/v1", institutionPayments);
 app.use("/api/v1", onlyPaths(["/analytics"], analytics));
 app.use("/api/v1", onlyPaths(["/automations"], automation));
