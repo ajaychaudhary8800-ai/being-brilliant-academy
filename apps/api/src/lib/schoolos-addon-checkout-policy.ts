@@ -34,14 +34,16 @@ export function validateSchoolOSAddonCheckout(
      || !quote.items.length || quote.items.length > 60)
    deny("SCHOOLOS_ADDON_UNSUPPORTED_LINES", "Only undiscounted catalogue add-ons are payable");
 
+ const validatedPlan = plan!;
+ const quoteItems = quote.items as unknown[];
  const snapshot=rec(quote.pricingSnapshot), card=rec(snapshot.rateCardSnapshot), priced=rec(snapshot.pricing);
- if (card.planId !== plan.id || card.planCode !== plan.code || card.basePricePaise !== plan.annualPricePaise
-     || card.billingCycle !== "ANNUAL" || card.currency !== "INR" || card.taxRateBps !== plan.taxRateBps)
+ if (card.planId !== validatedPlan.id || card.planCode !== validatedPlan.code || card.basePricePaise !== validatedPlan.annualPricePaise
+     || card.billingCycle !== "ANNUAL" || card.currency !== "INR" || card.taxRateBps !== validatedPlan.taxRateBps)
    deny("SCHOOLOS_ADDON_BASE_SNAPSHOT_MISMATCH","Base price changed since signed quote");
- if (!Array.isArray(snapshot.addonRateSnapshot) || snapshot.addonRateSnapshot.length !== quote.items.length)
+ if (!Array.isArray(snapshot.addonRateSnapshot) || snapshot.addonRateSnapshot.length !== quoteItems.length)
    deny("SCHOOLOS_ADDON_RATE_SNAPSHOT_MISSING","Approved rate snapshots required");
  const seen = new Set<string>();
- const lines: SchoolOSApprovedAddonLine[] = quote.items.map((raw,index)=>{
+ const lines: SchoolOSApprovedAddonLine[] = quoteItems.map((raw,index)=>{
    const line=rec(raw),snap=rec((snapshot.addonRateSnapshot as unknown[])[index]);
    const category=line.category,code=line.code,key=`${category}:${code}`;
    if (!(category === "MODULE" && moduleCodes.has(String(code))
@@ -57,7 +59,7 @@ export function validateSchoolOSAddonCheckout(
    const rate = rates.find(r=>r.id === snap.rateId);
    if (!rate || rate.status !== "APPROVED" || !rate.approvedAt || !rate.approvedBy
        || rate.approvedBy === rate.createdBy || rate.category !== category || rate.code !== code
-       || rate.label !== line.label || rate.currency !== "INR" || rate.taxRateBps !== plan.taxRateBps
+       || rate.label !== line.label || rate.currency !== "INR" || rate.taxRateBps !== validatedPlan.taxRateBps
        || rate.unitPricePaise !== line.unitPricePaise || snap.revision !== rate.revision
        || snap.category !== category || snap.code !== code || snap.unitPricePaise !== line.unitPricePaise
        || snap.currency !== "INR" || snap.taxRateBps !== rate.taxRateBps
@@ -67,10 +69,10 @@ export function validateSchoolOSAddonCheckout(
        || (rate.effectiveUntil && rate.effectiveUntil.getTime() < quote.validUntil.getTime()))
      deny("SCHOOLOS_ADDON_RATE_MISMATCH","Quoted price differs from independently approved SKU");
    return { category:category as SchoolOSQuoteItem["category"],code:String(code),label:line.label,
-     quantity:line.quantity,unitPricePaise:line.unitPricePaise,rateId:rate.id,rateRevision:rate.revision };
+     quantity:line.quantity,unitPricePaise:line.unitPricePaise,rateId:rate!.id,rateRevision:rate!.revision };
  });
  let calculated: ReturnType<typeof calculateSchoolOSQuote>;
- try { calculated=calculateSchoolOSQuote({basePricePaise:plan.annualPricePaise,items:lines,discountBps:0,taxRateBps:plan.taxRateBps}); }
+ try { calculated=calculateSchoolOSQuote({basePricePaise:validatedPlan.annualPricePaise,items:lines,discountBps:0,taxRateBps:validatedPlan.taxRateBps}); }
  catch { return deny("SCHOOLOS_ADDON_AMOUNT_INVALID","Quote arithmetic invalid"); }
  if (quote.totalPaise !== calculated.totalPaise || quote.subtotalPaise !== calculated.subtotalPaise
     || quote.taxPaise !== calculated.taxPaise || priced.totalPaise !== calculated.totalPaise
