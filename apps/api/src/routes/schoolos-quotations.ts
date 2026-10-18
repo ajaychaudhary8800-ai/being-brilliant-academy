@@ -38,6 +38,7 @@ const draftInput = z.object({
 async function buildDraft(input: z.infer<typeof draftInput>) {
   const plan = await systemPrisma.saaSPlan.findUnique({ where: { code: input.planCode } });
   if (!plan || !plan.isActive) throw new AppError(404, "SAAS_PLAN_NOT_FOUND", "Active SaaS plan not found");
+  if (plan.currency !== "INR") throw new AppError(422, "QUOTE_CURRENCY_UNSUPPORTED", "This internal quotation builder only supports INR.");
   if (input.organizationId) {
     const organization = await systemPrisma.organization.findUnique({
       where: { id: input.organizationId }, select: { deletedAt: true },
