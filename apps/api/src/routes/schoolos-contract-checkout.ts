@@ -90,10 +90,12 @@ router.post("/organization/subscription/contracted-checkout", async (req: AuthRe
     }
 
     const currentPlan = await tx.saaSPlan.findUnique({ where: { code: organization.subscriptionPlan } });
+    if (!currentPlan)
+      throw new AppError(409, "SCHOOLOS_EXISTING_PLAN_MISSING", "Cannot prepare an upgrade while the tenant's existing plan is unresolved");
     const subscription = await tx.saaSSubscription.upsert({
       where: { organizationId },
       create: {
-        organizationId, planId: currentPlan?.id ?? plan!.id,
+        organizationId, planId: currentPlan.id,
         status: organization.subscriptionStatus || OrganizationSubscriptionStatus.TRIAL,
         billingCycle: SaaSBillingCycle.ANNUAL,
       },
