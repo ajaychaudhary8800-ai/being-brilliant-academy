@@ -94,6 +94,7 @@ import schoolOSContracts from "./routes/schoolos-contracts.js";
 import schoolOSContractCheckout from "./routes/schoolos-contract-checkout.js";
 import schoolOSUsage from "./routes/schoolos-usage.js";
 import schoolOSAddonRates from "./routes/schoolos-addon-rates.js";
+import schoolOSPaymentRiskReview from "./routes/schoolos-payment-risk-review.js";
 import saasSales from "./routes/saas-sales.js";
 import legalSalesDocuments from "./routes/legal-sales-documents.js";
 import commercialDocumentVault from "./routes/commercial-document-vault.js";
@@ -340,6 +341,7 @@ app.use("/api/v1", onlyPaths(["/platform/schoolos/contracts"], schoolOSContracts
 app.use("/api/v1", onlyPaths(["/organization/subscription/contracted-checkout", "/organization/subscription/contracted-quotes"], schoolOSContractCheckout));
 app.use("/api/v1", onlyPaths(["/organization/subscription/usage-credits", "/platform/schoolos/usage"], schoolOSUsage));
 app.use("/api/v1", onlyPaths(["/platform/schoolos/addon-rates"], schoolOSAddonRates));
+app.use("/api/v1", onlyPaths(["/platform/schoolos/payment-risk"], schoolOSPaymentRiskReview));
 app.use("/api/v1", institutionPayments);
 app.use("/api/v1", onlyPaths(["/analytics"], analytics));
 app.use("/api/v1", onlyPaths(["/automations"], automation));

@@ -30,6 +30,7 @@ const menuGroups: MenuGroup[] = [
     { name: "SchoolOS Pricing Review", href: "/admin/schoolos-pricing", icon: CreditCard, platformOnly: true },
     { name: "SchoolOS Metered Usage", href: "/admin/schoolos-usage", icon: BarChart3, platformOnly: true },
     { name: "SchoolOS Add-on Pricing", href: "/admin/schoolos-addon-pricing", icon: CreditCard, platformOnly: true },
+    { name: "SchoolOS Payment Risk", href: "/admin/schoolos-risk", icon: ShieldCheck, platformOnly: true },
     { name: "SaaS Sales", href: "/admin/saas-sales", icon: BriefcaseBusiness, platformOnly: true },
     { name: "Commercial Vault", href: "/admin/commercial-documents", icon: FileArchive, platformOnly: true },
     { name: "Sales Documents", href: "/admin/legal-sales", icon: FileCheck2, platformOnly: true },

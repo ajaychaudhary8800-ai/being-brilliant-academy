@@ -43,7 +43,7 @@ test("only a verified capture can activate quoted plan, and webhook remains sign
   assert.match(policy, /action: "VERIFIED_PAYMENT_CAPTURED"/);
   assert.match(policy, /SCHOOLOS_CONTRACT_PAYMENT_CAPTURED/);
   assert.match(payments, /razorpay-signature/);
-  assert.match(payments, /captureSaaSRazorpayPayment\(payment, event\)/);
+  assert.match(payments, /captureSaaSRazorpayPayment\(\{\.\.\.payment, order_id: orderId\}, event\)/);
   assert.match(vault, /Contracted signed evidence cannot be reverified/);
   assert.match(vault, /This signed order form is bound to a quotation and cannot be archived/);
 });

@@ -94,7 +94,7 @@ test("processed partial refund suspends paid modules and AI credits with durable
     await recordSchoolOSPaymentRisk(dispute,{event:"payment.dispute.created"});
     assert.equal(await systemPrisma.schoolOSPaymentAdjustment.count({where:{invoiceId:invoice.id}}),2);
     await assert.rejects(()=>recordSchoolOSPaymentRisk({...event,providerPaymentId:"pay_WRONG"},
-      {event:"refund.processed"}),/captured payment found/);
+      {event:"refund.processed"}),/(captured payment found|original captured SaaS invoice)/);
     const hold=await systemPrisma.schoolOSPaymentRiskHold.findUniqueOrThrow({where:{invoiceId:invoice.id}});
     assert.equal(hold.latestEventType,"payment.dispute.created");
     // Base subscription remains intact pending independent finance reconciliation.
