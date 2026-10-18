@@ -143,7 +143,7 @@ export async function consumeSchoolOSUsage(
 export async function schoolOSUsageReport(organizationId: string) {
   if (!organizationId || organizationId === "org_default")
     throw new AppError(403, "SCHOOLOS_USAGE_TENANT_REQUIRED", "Customer tenant required");
-  const [balances, events] = await Promise.all([
+  const [balances, events, riskHolds] = await Promise.all([
     systemPrisma.schoolOSUsageBalance.findMany({
       where: { organizationId }, orderBy: [{ periodEnd: "desc" }, { metric: "asc" }], take: 40,
       select: { id: true, metric: true, periodStart: true, periodEnd: true, grantedUnits: true, consumedUnits: true },
@@ -152,10 +152,16 @@ export async function schoolOSUsageReport(organizationId: string) {
       where: { organizationId }, orderBy: { createdAt: "desc" }, take: 50,
       select: { metric: true, kind: true, units: true, createdAt: true },
     }),
+    systemPrisma.schoolOSPaymentRiskHold.findMany({
+      where: { organizationId, status: "ACTIVE" }, take: 20, orderBy: { openedAt: "desc" },
+      select: { invoiceId: true, firstEventType: true, latestEventType: true, openedAt: true },
+    }),
   ]);
   return {
     balances: balances.map(b => ({ ...b, remainingUnits: b.grantedUnits - b.consumedUnits })),
     events,
+    financeReviewRequired: riskHolds.length > 0,
+    riskHolds,
     activationStatus: "FOUNDATION_ONLY",
     meteringConnected: false,
   };
