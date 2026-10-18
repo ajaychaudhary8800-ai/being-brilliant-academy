@@ -6,9 +6,11 @@ import { errorMessage, getAccessToken } from "../../../components/auth-provider"
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 type Plan = { code: string; name: string; isActive: boolean };
+type Tenant = { id: string; name: string; slug: string };
+type OrderEvidence = { id: string; documentType: string; documentReference: string; verificationStatus: string; linkedOrganizationId: string | null; signedAt: string | null; archivedAt: string | null };
 type QuoteLine = { category: "MODULE" | "CAPACITY" | "AI_USAGE" | "VIDEO_USAGE" | "IMPLEMENTATION" | "CUSTOM_WORK"; code: string; label: string; quantity: number; unitPricePaise: number };
 type Breakdown = { basePaise: number; addonsPaise: number; subtotalPaise: number; discountPaise: number; taxPaise: number; totalPaise: number };
-type Quote = { id: string; quoteNo: string; clientName: string; planCode: string; status: string; totalPaise: number; version: number };
+type Quote = { id: string; quoteNo: string; clientName: string; organizationId: string | null; planCode: string; status: string; totalPaise: number; version: number };
 async function api(path: string, init?: RequestInit) {
   const response = await fetch(`${API}${path}`, {
     ...init, headers: { "Content-Type": "application/json", Authorization: `Bearer ${getAccessToken() ?? ""}`, ...init?.headers },
@@ -24,6 +26,12 @@ const newLine = (): QuoteLine => ({ category: "MODULE", code: "lms", label: "LMS
 export default function SchoolOSQuotationsPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [evidence, setEvidence] = useState<OrderEvidence[]>([]);
+  const [organizationId, setOrganizationId] = useState("");
+  const [bindingQuoteId, setBindingQuoteId] = useState("");
+  const [bindingDocumentId, setBindingDocumentId] = useState("");
+  const [contractReviewNotes, setContractReviewNotes] = useState("Verified matching signed order value, scope and authorised signatory.");
   const [clientName, setClientName] = useState("");
   const [clientEmail, setClientEmail] = useState("");
   const [planCode, setPlanCode] = useState("");
@@ -38,14 +46,16 @@ export default function SchoolOSQuotationsPage() {
   const [notice, setNotice] = useState("");
 
   async function load() {
-    const [allPlans, allQuotes] = await Promise.all([api("/platform/saas/plans"), api("/platform/schoolos/quotes")]);
+    const [allPlans, allQuotes, allTenants, allDocuments] = await Promise.all([api("/platform/saas/plans"), api("/platform/schoolos/quotes"), api("/platform/organizations?limit=100"), api("/platform/commercial-documents")]);
+    setTenants((allTenants as Tenant[]).filter(tenant => tenant.id !== "org_default"));
+    setEvidence(allDocuments as OrderEvidence[]);
     setPlans(allPlans.filter((plan: Plan) => plan.isActive));
     setQuotes(allQuotes);
     setPlanCode(old => old || allPlans.find((plan: Plan) => plan.isActive)?.code || "");
   }
   useEffect(() => { void load().catch(cause => setError(errorMessage(cause))); }, []);
   const body = () => ({
-    clientName, clientEmail: clientEmail.trim() || null, planCode, billingCycle: cycle,
+    clientName, clientEmail: clientEmail.trim() || null, organizationId: organizationId || null, planCode, billingCycle: cycle,
     validUntil: futureDate(validity), items, discountBps,
   });
   async function submit(save: boolean) {
@@ -76,13 +86,31 @@ export default function SchoolOSQuotationsPage() {
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
-    function editLine(index: number, patch: Partial<QuoteLine>) {
+    async function bindOrderEvidence() {
+    const quote = quotes.find(item => item.id === bindingQuoteId);
+    if (!quote || !bindingDocumentId) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await api(`/platform/schoolos/contracts/quotes/${quote.id}/bind`, {
+        method: "POST", body: JSON.stringify({
+          expectedVersion: quote.version, documentId: bindingDocumentId, confirmedQuoteNo: quote.quoteNo,
+          confirmedTotalPaise: quote.totalPaise, approvalNotes: contractReviewNotes.trim(),
+        }),
+      });
+      setNotice(`Verified Order Form bound to ${quote.quoteNo}. This does not collect payment or enable any modules.`);
+      setBindingQuoteId(""); setBindingDocumentId("");
+      await load();
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setBusy(false); }
+  }
+  function editLine(index: number, patch: Partial<QuoteLine>) {
     setItems(previous => previous.map((item, i) => i === index ? { ...item, ...patch } : item));
   }
   return <ProtectedAdminWorkspace roles={["SUPER_ADMIN"]} title="SchoolOS Custom Quotations" description="Platform-only draft calculations. No quotations are sent or paid features activated.">
     {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {notice && <p className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p>}
     <div className="mt-5 grid gap-4 rounded-xl border p-5 md:grid-cols-2">
+      <label className="text-sm font-semibold md:col-span-2">Customer tenant (required before contract binding)<select value={organizationId} onChange={e => setOrganizationId(e.target.value)} className="mt-1 block w-full rounded-lg border p-2 dark:bg-slate-900"><option value="">Prospective customer — internal draft only</option>{tenants.map(tenant => <option key={tenant.id} value={tenant.id}>{tenant.name} ({tenant.slug})</option>)}</select></label>
       <label className="text-sm font-semibold">Client name<input value={clientName} onChange={e => setClientName(e.target.value)} className="mt-1 block w-full rounded-lg border p-2 dark:bg-slate-900" /></label>
       <label className="text-sm font-semibold">Client email<input type="email" value={clientEmail} onChange={e => setClientEmail(e.target.value)} className="mt-1 block w-full rounded-lg border p-2 dark:bg-slate-900" /></label>
       <label className="text-sm font-semibold">Plan<select value={planCode} onChange={e => setPlanCode(e.target.value)} className="mt-1 block w-full rounded-lg border p-2 dark:bg-slate-900">{plans.map(plan => <option key={plan.code} value={plan.code}>{plan.name}</option>)}</select></label>
@@ -116,6 +144,25 @@ export default function SchoolOSQuotationsPage() {
         <tbody>{quotes.map(quote => <tr key={quote.id} className="border-t"><td className="p-3">{quote.quoteNo}</td><td className="p-3">{quote.clientName}</td><td className="p-3">{quote.planCode}</td><td className="p-3">{quote.version}</td><td className="p-3">{rupees(quote.totalPaise)}</td><td className="p-3">{quote.status}</td><td className="p-3">{(quote.status === "DRAFT" || quote.status === "REJECTED" || quote.status === "PENDING_APPROVAL") && <button disabled={busy} className="rounded border px-2 py-1 disabled:opacity-40" onClick={() => void decide(quote, quote.status === "DRAFT" ? "SUBMIT_FOR_REVIEW" : quote.status === "REJECTED" ? "RETURN_TO_DRAFT" : "APPROVE")}>{quote.status === "DRAFT" ? "Submit" : quote.status === "REJECTED" ? "Return to draft" : "Approve*"}</button>}{quote.status === "PENDING_APPROVAL" && <button disabled={busy} className="ml-2 rounded border px-2 py-1 disabled:opacity-40" onClick={() => void decide(quote, "REJECT")}>Reject</button>}</td></tr>)}</tbody>
       </table>
     </div>
+    <section className="mt-6 rounded-xl border p-5">
+      <h2 className="text-lg font-bold">Bind independently verified signed Order Form</h2>
+      <p className="mt-1 text-sm text-slate-500">Upload and verify the PDF in Commercial Vault before binding. This operation is evidence-only and cannot activate paid services.</p>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <label className="text-sm font-semibold">Internally approved quotation<select value={bindingQuoteId} onChange={event => { setBindingQuoteId(event.target.value); setBindingDocumentId(""); }} className="mt-1 block w-full rounded-lg border p-2 dark:bg-slate-900">
+          <option value="">Select approved quotation</option>
+          {quotes.filter(quote => quote.status === "INTERNALLY_APPROVED" && quote.organizationId).map(quote => <option key={quote.id} value={quote.id}>{quote.quoteNo} — {quote.clientName} — {rupees(quote.totalPaise)}</option>)}
+        </select></label>
+        <label className="text-sm font-semibold">Verified signed Order Form<select value={bindingDocumentId} onChange={event => setBindingDocumentId(event.target.value)} className="mt-1 block w-full rounded-lg border p-2 dark:bg-slate-900">
+          <option value="">Select matching verified document</option>
+          {evidence.filter(doc => {
+            const quote = quotes.find(item => item.id === bindingQuoteId);
+            return quote && doc.documentType === "SIGNED_ORDER_FORM" && doc.verificationStatus === "VERIFIED" && Boolean(doc.signedAt) && !doc.archivedAt && doc.documentReference === quote.quoteNo && doc.linkedOrganizationId === quote.organizationId;
+          }).map(doc => <option key={doc.id} value={doc.id}>{doc.documentReference} — {doc.id.slice(0, 10)}</option>)}
+        </select></label>
+        <label className="text-sm font-semibold md:col-span-2">Contract verification notes<input value={contractReviewNotes} minLength={20} maxLength={1500} onChange={event => setContractReviewNotes(event.target.value)} className="mt-1 block w-full rounded-lg border p-2 dark:bg-slate-900" /></label>
+        <button disabled={busy || !bindingQuoteId || !bindingDocumentId} onClick={() => void bindOrderEvidence()} className="rounded-lg bg-brand-700 px-4 py-2 font-semibold text-white disabled:opacity-50">Bind verified contract</button>
+      </div>
+    </section>
     <p className="mt-4 text-sm text-amber-700">*Approval requires a different platform administrator than the creator or latest editor. Plan prices need commercial reconciliation before issuing quotations. Add-on prices are manual internal estimates, not approved feature catalogue prices.</p>
   </ProtectedAdminWorkspace>;
 }
