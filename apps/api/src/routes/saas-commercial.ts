@@ -236,6 +236,12 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
   if (commercialEntitlements.enforce === true) await assertCommercialPlanFitsUsage(organizationId, plan.limits);
 
   const subscription = await systemPrisma.$transaction(async tx => {
+    // Coordinate subscription edits with platform feature grants and tenant settings writes.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"schoolos-features:" + organizationId}))`;
+    const latestOrganization = await tx.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { settings: true } });
+    const latestSettings = record(latestOrganization.settings);
+    const currentEntitlements = { ...record(latestSettings.commercialEntitlements), ...(data.enforcementEnabled === undefined ? {} : { enforce: data.enforcementEnabled }) };
+    if (currentEntitlements.enforce === true) await assertCommercialPlanFitsUsage(organizationId, plan.limits);
     const saved = await tx.saaSSubscription.upsert({
       where: { organizationId },
       create: {
@@ -263,7 +269,7 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
         subscriptionPlan: plan.code,
         subscriptionStatus: data.status,
         subscriptionEndsAt: data.currentPeriodEnd ?? null,
-        settings: { ...settings, commercialEntitlements } as Prisma.InputJsonValue,
+        settings: { ...latestSettings, commercialEntitlements: currentEntitlements } as Prisma.InputJsonValue,
       },
     });
     await tx.auditLog.create({
@@ -277,7 +283,7 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
           planCode: plan.code,
           status: data.status,
           billingCycle: data.billingCycle,
-          enforcementEnabled: commercialEntitlements.enforce === true,
+          enforcementEnabled: currentEntitlements.enforce === true,
         },
       },
     });
