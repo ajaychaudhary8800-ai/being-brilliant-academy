@@ -1075,6 +1075,7 @@ model Organization {
   schoolOSAddonLicenses SchoolOSAddonLicense[]
   schoolOSPaymentRiskHolds SchoolOSPaymentRiskHold[]
   schoolOSPaymentAdjustments SchoolOSPaymentAdjustment[]
+  schoolOSPaymentRiskReviews SchoolOSPaymentRiskReview[]
   schoolOSUsageEvents SchoolOSUsageEvent[]
   branches               Branch[]
   communicationCirculars Circular[]
@@ -1199,6 +1200,7 @@ model SaaSInvoice {
   schoolOSAddonLicenses SchoolOSAddonLicense[]
   schoolOSPaymentRiskHold SchoolOSPaymentRiskHold?
   schoolOSPaymentAdjustments SchoolOSPaymentAdjustment[]
+  schoolOSPaymentRiskReviews SchoolOSPaymentRiskReview[]
 
   @@index([organizationId, status, createdAt])
   @@index([subscriptionId, periodEnd])
@@ -8679,6 +8681,10 @@ model SchoolOSPaymentRiskHold {
   latestEventType  String
   firstEventKey    String
   latestEventKey   String
+  revision         Int      @default(1)
+  resolvedAt       DateTime?
+  resolvedBy       String?
+  resolutionReference String?
   openedAt         DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -8704,4 +8710,25 @@ model SchoolOSPaymentAdjustment {
 
   @@unique([eventType, providerEntityId])
   @@index([organizationId, createdAt])
+}
+
+model SchoolOSPaymentRiskReview {
+  id                String   @id @default(cuid())
+  invoiceId         String
+  organizationId    String
+  riskRevision      Int
+  status            String   @default("PENDING")
+  evidenceReference String
+  rationale         String   @db.Text
+  proposedBy        String
+  proposedAt        DateTime @default(now())
+  reviewedBy        String?
+  reviewedAt        DateTime?
+  reviewComment     String?  @db.Text
+
+  invoice      SaaSInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceId, riskRevision])
+  @@index([organizationId, status])
 }
