@@ -17,10 +17,15 @@ async function state(tx: Prisma.TransactionClient, invoiceId: string) {
     tx.schoolOSPaymentAdjustment.findMany({where:{invoiceId},orderBy:{createdAt:"asc"}}),
     tx.saaSInvoice.findUnique({where:{id:invoiceId},select:{
       organizationId:true,status:true,currency:true,schoolOSQuoteId:true,
+      providerOrderId:true,payments:{select:{status:true,amountPaise:true,currency:true,providerPaymentId:true}},
     }}),
   ]);
   if (!hold || hold.status!=="ACTIVE" || !invoice || invoice.status!=="PAID" ||
-      invoice.organizationId!==hold.organizationId || invoice.currency!=="INR" || !invoice.schoolOSQuoteId)
+      invoice.organizationId!==hold.organizationId || invoice.currency!=="INR" || !invoice.schoolOSQuoteId ||
+      !invoice.providerOrderId ||
+      invoice.payments.some(payment=>payment.status==="REFUNDED") ||
+      !invoice.payments.some(payment=>payment.status==="CAPTURED" && payment.providerPaymentId &&
+        payment.currency==="INR"))
     throw new AppError(409,"SCHOOLOS_RISK_HOLD_NOT_ELIGIBLE","Active payment-risk hold for a paid SchoolOS invoice required");
   const evaluation=schoolOSDisputeReleasePolicy(adjustments);
   if (!evaluation.allowed)
