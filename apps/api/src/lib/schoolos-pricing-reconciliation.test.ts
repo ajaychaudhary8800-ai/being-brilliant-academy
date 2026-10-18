@@ -13,7 +13,7 @@ test("approved rate reference records tier prices in paise without mutating SaaS
 test("detects existing September price drift before external issue", () => {
   const g = reconcileSchoolOSPricing("GROWTH", { code: "GROWTH", annualPricePaise: 8999000, taxRateBps: 1800, currency: "INR", isActive: true });
   assert.equal(g.status, "RECONCILIATION_REQUIRED");
-  assert.ok(g.issues.some(message => message.includes("-990000")));
+  assert.ok(g.issues.some(message => message.includes("-991000")));
 });
 
 test("aligned, custom and inactive pricing are not silently conflated", () => {
