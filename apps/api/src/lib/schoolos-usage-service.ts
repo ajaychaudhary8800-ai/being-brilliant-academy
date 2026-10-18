@@ -101,6 +101,14 @@ export async function consumeSchoolOSUsage(
 
   return systemPrisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-usage:" + organizationId + ":" + value.metric}))`;
+    // A processed partial refund or new dispute suspends consumption for this tenant
+    // until audited finance resolution; never debit credits under an active hold.
+    const financialHold = await tx.schoolOSPaymentRiskHold.findFirst({
+      where: { organizationId, status: "ACTIVE" }, select: { invoiceId: true },
+    });
+    if (financialHold)
+      throw new AppError(409, "SCHOOLOS_USAGE_PAYMENT_RISK_HOLD",
+        "Prepaid AI/video usage is suspended pending financial review");
     const prior = await tx.schoolOSUsageEvent.findUnique({
       where: { organizationId_metric_requestKey: { organizationId, metric: value.metric, requestKey } },
     });
@@ -135,7 +143,7 @@ export async function consumeSchoolOSUsage(
 export async function schoolOSUsageReport(organizationId: string) {
   if (!organizationId || organizationId === "org_default")
     throw new AppError(403, "SCHOOLOS_USAGE_TENANT_REQUIRED", "Customer tenant required");
-  const [balances, events] = await Promise.all([
+  const [balances, events, riskHolds] = await Promise.all([
     systemPrisma.schoolOSUsageBalance.findMany({
       where: { organizationId }, orderBy: [{ periodEnd: "desc" }, { metric: "asc" }], take: 40,
       select: { id: true, metric: true, periodStart: true, periodEnd: true, grantedUnits: true, consumedUnits: true },
@@ -144,10 +152,16 @@ export async function schoolOSUsageReport(organizationId: string) {
       where: { organizationId }, orderBy: { createdAt: "desc" }, take: 50,
       select: { metric: true, kind: true, units: true, createdAt: true },
     }),
+    systemPrisma.schoolOSPaymentRiskHold.findMany({
+      where: { organizationId, status: "ACTIVE" }, take: 20, orderBy: { openedAt: "desc" },
+      select: { invoiceId: true, firstEventType: true, latestEventType: true, openedAt: true },
+    }),
   ]);
   return {
     balances: balances.map(b => ({ ...b, remainingUnits: b.grantedUnits - b.consumedUnits })),
     events,
+    financeReviewRequired: riskHolds.length > 0,
+    riskHolds,
     activationStatus: "FOUNDATION_ONLY",
     meteringConnected: false,
   };

@@ -26,7 +26,7 @@ test("paid module feature and capacity grants do not create a writable trial ove
  const s=await readFile(new URL("../lib/saas-commercial.ts",import.meta.url),"utf8");
  assert.match(s,/schoolOSAddonLicense\.findMany\(/);
  assert.match(s,/periodEnd: \{ gt: now \}/);
- assert.match(s,/invoice: \{ status: "PAID", organizationId \}/);
+ assert.match(s,/invoice: \{ status: "PAID", organizationId, schoolOSPaymentRiskHold: \{ is: null \} \}/);
  assert.match(s,/license\.category === "MODULE"/);
  assert.match(s,/license\.category === "CAPACITY"/);
  const sql=await readFile(new URL("../../prisma/migrations/20261019010000_schoolos_paid_addon_license/migration.sql",import.meta.url),"utf8");

@@ -8,7 +8,7 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 type Client = { id: string; name: string; slug: string };
 type Balance = { id: string; metric: string; periodStart: string; periodEnd: string; grantedUnits: number; consumedUnits: number; remainingUnits: number };
 type Activity = { metric: string; kind: string; units: number; createdAt: string };
-type Report = { balances: Balance[]; events: Activity[]; meteringConnected: boolean; activationStatus: string };
+type Report = { balances: Balance[]; events: Activity[]; meteringConnected: boolean; activationStatus: string; financeReviewRequired: boolean; riskHolds: { invoiceId: string; firstEventType: string; latestEventType: string; openedAt: string }[] };
 
 async function get(path: string) {
   const res = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` } });
@@ -50,8 +50,15 @@ export default function SchoolOSUsagePage() {
       </select>
     </label>
     {report && <div className="mt-5 space-y-5">
+      {report.financeReviewRequired && <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-950">
+        <p className="font-bold">Finance review required — customer add-ons temporarily suspended</p>
+        <p>Captured refund or dispute evidence has been recorded. Existing debits and credits are preserved for reconciliation.</p>
+        <ul className="mt-2 list-disc pl-5">{report.riskHolds.map(hold =>
+          <li key={hold.invoiceId}>Invoice {hold.invoiceId}: {hold.latestEventType} ({new Date(hold.openedAt).toLocaleDateString("en-IN")})</li>
+        )}</ul>
+      </div>}
       <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-        Foundation-only: automatic add-on invoicing and live AI/video worker metering are not activated. A zero balance here does not establish actual usage.
+        Provider usage metering is not yet connected to live AI Examiner or video workers. A zero balance here does not establish actual provider usage.
       </p>
       <div className="overflow-x-auto rounded-xl border">
         <h2 className="p-4 font-bold">Purchased credit periods</h2>
