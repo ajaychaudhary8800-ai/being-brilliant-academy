@@ -65,3 +65,50 @@ CREATE TRIGGER "SchoolOSPaymentRiskHold_tenant_guard"
 CREATE TRIGGER "SchoolOSPaymentAdjustment_tenant_guard"
   BEFORE INSERT OR UPDATE ON "SchoolOSPaymentAdjustment"
   FOR EACH ROW EXECUTE FUNCTION schoolos_payment_risk_tenant_guard_fn();
+
+-- Close direct-SQL minting gaps: a PAID invoice with an active hold is no
+-- longer valid new license or prepaid credit-grant evidence.
+CREATE OR REPLACE FUNCTION schoolos_license_paid_guard_fn()
+RETURNS TRIGGER AS $$
+DECLARE original_tenant TEXT;
+DECLARE original_status TEXT;
+DECLARE original_quote TEXT;
+BEGIN
+  SELECT "organizationId", "status"::TEXT, "schoolOSQuoteId"
+    INTO original_tenant, original_status, original_quote
+    FROM "SaaSInvoice" WHERE "id" = NEW."invoiceId";
+  IF original_tenant IS NULL OR original_tenant <> NEW."organizationId"
+    OR original_status <> 'PAID' OR original_quote IS NULL
+    OR original_quote <> NEW."quoteId"
+    OR EXISTS (SELECT 1 FROM "SchoolOSPaymentRiskHold" WHERE "invoiceId"=NEW."invoiceId" AND "status"='ACTIVE') THEN
+    RAISE EXCEPTION 'SCHOOLOS_LICENSE_PAID_INVOICE_NOT_CLEAR' USING ERRCODE='23514';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION schoolos_usage_event_tenant_guard_fn()
+RETURNS TRIGGER AS $$
+DECLARE balance_tenant TEXT;
+DECLARE balance_metric TEXT;
+DECLARE invoice_tenant TEXT;
+DECLARE invoice_status TEXT;
+BEGIN
+  SELECT "organizationId", "metric" INTO balance_tenant, balance_metric
+    FROM "SchoolOSUsageBalance" WHERE "id"=NEW."balanceId";
+  IF balance_tenant IS NULL OR balance_tenant <> NEW."organizationId"
+    OR balance_metric <> NEW."metric" THEN
+    RAISE EXCEPTION 'SCHOOLOS_USAGE_TENANT_OR_METRIC_MISMATCH' USING ERRCODE='23514';
+  END IF;
+  IF NEW."kind"='GRANT' THEN
+    SELECT "organizationId", "status"::TEXT INTO invoice_tenant, invoice_status
+      FROM "SaaSInvoice" WHERE "id"=NEW."sourceInvoiceId";
+    IF invoice_tenant IS NULL OR invoice_tenant <> NEW."organizationId"
+      OR invoice_status <> 'PAID'
+      OR EXISTS (SELECT 1 FROM "SchoolOSPaymentRiskHold" WHERE "invoiceId"=NEW."sourceInvoiceId" AND "status"='ACTIVE') THEN
+      RAISE EXCEPTION 'SCHOOLOS_USAGE_UNPAID_FOREIGN_OR_HELD_INVOICE' USING ERRCODE='23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
