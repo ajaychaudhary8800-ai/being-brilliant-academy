@@ -170,4 +170,62 @@ router.patch("/platform/schoolos/quotes/:id", async (req: AuthRequest, res) => {
   res.json({ data: saved });
 });
 
+
+const approvalInput = z.object({
+  expectedVersion: z.number().int().min(1),
+  decision: z.enum(["SUBMIT_FOR_REVIEW", "APPROVE", "REJECT", "RETURN_TO_DRAFT"]),
+  rationale: z.string().trim().min(12).max(1000),
+}).strict();
+
+/**
+ * Internal approval is independent of billing or activation.
+ * A quote remains an internal estimate until commercial prices are reconciled
+ * and external issuance is separately implemented and authorised.
+ */
+router.post("/platform/schoolos/quotes/:id/decision", async (req: AuthRequest, res) => {
+  requirePlatformAdmin(req);
+  const id = String(req.params.id);
+  const input = approvalInput.parse(req.body);
+  const transitions: Record<string, { expected: string; next: string }> = {
+    SUBMIT_FOR_REVIEW: { expected: "DRAFT", next: "PENDING_APPROVAL" },
+    APPROVE: { expected: "PENDING_APPROVAL", next: "INTERNALLY_APPROVED" },
+    REJECT: { expected: "PENDING_APPROVAL", next: "REJECTED" },
+    RETURN_TO_DRAFT: { expected: "REJECTED", next: "DRAFT" },
+  };
+  const transition = transitions[input.decision];
+  const result = await systemPrisma.$transaction(async tx => {
+    const current = await tx.schoolOSQuotation.findUnique({ where: { id } });
+    if (!current) throw new AppError(404, "SCHOOLOS_QUOTE_NOT_FOUND", "Quotation not found");
+    if (current.version !== input.expectedVersion || current.status !== transition.expected) {
+      throw new AppError(409, "SCHOOLOS_QUOTE_STATE_CONFLICT", "Quotation state or version changed");
+    }
+    if (new Date(current.validUntil).getTime() <= Date.now()) {
+      throw new AppError(409, "SCHOOLOS_QUOTE_EXPIRED", "Expired quotations cannot be approved or reviewed");
+    }
+    if (input.decision === "APPROVE" && current.createdBy === req.auth!.userId) {
+      throw new AppError(403, "SCHOOLOS_QUOTE_SEPARATION_OF_DUTIES", "A different platform administrator must approve this quotation");
+    }
+    if (input.decision === "APPROVE" && current.updatedBy === req.auth!.userId) {
+      throw new AppError(403, "SCHOOLOS_QUOTE_SEPARATION_OF_DUTIES", "The last person to edit this quotation cannot approve it");
+    }
+    const changed = await tx.schoolOSQuotation.updateMany({
+      where: { id, version: input.expectedVersion, status: transition.expected },
+      data: { status: transition.next, version: { increment: 1 }, updatedBy: req.auth!.userId },
+    });
+    if (changed.count !== 1) throw new AppError(409, "SCHOOLOS_QUOTE_STATE_CONFLICT", "Concurrent quotation change");
+    const quote = await tx.schoolOSQuotation.findUniqueOrThrow({ where: { id } });
+    await tx.schoolOSQuotationRevision.create({
+      data: { quoteId: id, version: quote.version, action: input.decision, actorId: req.auth!.userId,
+        snapshot: { status: quote.status, rationale: input.rationale, quoteNo: quote.quoteNo, pricingSnapshot: quote.pricingSnapshot } as Prisma.InputJsonValue },
+    });
+    await tx.auditLog.create({
+      data: { organizationId: "org_default", actorId: req.auth!.userId, action: "SCHOOLOS_QUOTE_" + input.decision,
+        entity: "SchoolOSQuotation", entityId: quote.id,
+        metadata: { version: quote.version, status: quote.status, rationale: input.rationale } },
+    });
+    return quote;
+  });
+  res.json({ data: { ...result, externalIssueAllowed: false, subscriptionActivated: false } });
+});
+
 export default router;
