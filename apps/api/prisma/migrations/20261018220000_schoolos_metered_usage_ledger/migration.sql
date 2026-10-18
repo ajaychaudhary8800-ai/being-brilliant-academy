@@ -53,3 +53,32 @@ ALTER TABLE "SchoolOSUsageEvent" ADD CONSTRAINT "SchoolOSUsageEvent_balanceId_fk
   FOREIGN KEY ("balanceId") REFERENCES "SchoolOSUsageBalance"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "SchoolOSUsageEvent" ADD CONSTRAINT "SchoolOSUsageEvent_sourceInvoiceId_fkey"
   FOREIGN KEY ("sourceInvoiceId") REFERENCES "SaaSInvoice"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- Reject tenant/metric misassociation even if an ORM bypasses application checks.
+CREATE OR REPLACE FUNCTION schoolos_usage_event_tenant_guard_fn()
+RETURNS TRIGGER AS $$
+DECLARE balance_tenant TEXT;
+DECLARE balance_metric TEXT;
+DECLARE invoice_tenant TEXT;
+DECLARE invoice_status TEXT;
+BEGIN
+  SELECT "organizationId", "metric" INTO balance_tenant, balance_metric
+    FROM "SchoolOSUsageBalance" WHERE "id" = NEW."balanceId";
+  IF balance_tenant IS NULL OR balance_tenant <> NEW."organizationId"
+    OR balance_metric <> NEW."metric" THEN
+    RAISE EXCEPTION 'SCHOOLOS_USAGE_TENANT_OR_METRIC_MISMATCH' USING ERRCODE = '23514';
+  END IF;
+  IF NEW."kind" = 'GRANT' THEN
+    SELECT "organizationId", "status"::TEXT INTO invoice_tenant, invoice_status
+      FROM "SaaSInvoice" WHERE "id" = NEW."sourceInvoiceId";
+    IF invoice_tenant IS NULL OR invoice_tenant <> NEW."organizationId" OR invoice_status <> 'PAID' THEN
+      RAISE EXCEPTION 'SCHOOLOS_USAGE_UNPAID_OR_FOREIGN_INVOICE' USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "SchoolOSUsageEvent_tenant_guard"
+BEFORE INSERT OR UPDATE ON "SchoolOSUsageEvent"
+FOR EACH ROW EXECUTE FUNCTION schoolos_usage_event_tenant_guard_fn();
