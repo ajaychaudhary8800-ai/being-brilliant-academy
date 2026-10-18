@@ -1071,6 +1071,8 @@ model Organization {
   createdAt              DateTime                       @default(now())
   updatedAt              DateTime                       @updatedAt
   users                  User[]
+  schoolOSUsageBalances SchoolOSUsageBalance[]
+  schoolOSUsageEvents SchoolOSUsageEvent[]
   branches               Branch[]
   communicationCirculars Circular[]
   communicationCalendarEvents CalendarEvent[]
@@ -1190,6 +1192,7 @@ model SaaSInvoice {
   subscription    SaaSSubscription  @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
   plan            SaaSPlan          @relation(fields: [planId], references: [id], onDelete: Restrict)
   payments        SaaSPayment[]
+  schoolOSUsageEvents SchoolOSUsageEvent[]
 
   @@index([organizationId, status, createdAt])
   @@index([subscriptionId, periodEnd])
@@ -8576,4 +8579,45 @@ model SchoolOSQuotationRevision {
 
   @@unique([quoteId, version])
   @@index([quoteId, createdAt])
+}
+
+
+model SchoolOSUsageBalance {
+  id             String   @id @default(cuid())
+  organizationId String
+  metric         String
+  periodStart    DateTime
+  periodEnd      DateTime
+  grantedUnits   Int      @default(0)
+  consumedUnits  Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  events SchoolOSUsageEvent[]
+
+  @@unique([organizationId, metric, periodStart])
+  @@index([organizationId, metric, periodEnd])
+}
+
+model SchoolOSUsageEvent {
+  id              String   @id @default(cuid())
+  organizationId  String
+  balanceId       String
+  metric          String
+  kind            String
+  units           Int
+  requestKey      String
+  sourceInvoiceId String?
+  actorId         String?
+  createdAt       DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  balance SchoolOSUsageBalance @relation(fields: [balanceId], references: [id], onDelete: Restrict)
+  sourceInvoice SaaSInvoice? @relation(fields: [sourceInvoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, metric, requestKey])
+  @@index([organizationId, createdAt])
+  @@index([balanceId, kind])
+  @@index([sourceInvoiceId])
 }
