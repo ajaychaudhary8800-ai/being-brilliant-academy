@@ -42,6 +42,7 @@ router.post("/platform/schoolos/contracts/quotes/:quoteId/bind", async (req: Aut
       throw new AppError(422, "SCHOOLOS_CONTRACT_TOTAL_MISMATCH", "The confirmed order reference and signed amount must match this quotation");
 
     const plan = await tx.saaSPlan.findUnique({ where: { code: quote.planCode } });
+    if (!plan) throw new AppError(404, "SAAS_PLAN_NOT_FOUND", "Quoted plan no longer exists");
     const pricing = reconcileSchoolOSPricing(quote.planCode, plan);
     const readiness = schoolOSExternalQuoteReady({
       quoteStatus: quote.status, validUntil: quote.validUntil, clientOrganizationId: quote.organizationId,
