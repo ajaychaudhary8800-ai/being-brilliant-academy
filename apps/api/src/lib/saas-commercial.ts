@@ -147,6 +147,30 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
         throw new AppError(422, "PAYMENT_MISMATCH", "Captured SaaS payment does not match the subscription invoice");
       }
 
+      let quotedSettings: Prisma.InputJsonValue | undefined;
+      if (invoice.schoolOSQuoteId) {
+        const quote = await tx.schoolOSQuotation.findUnique({ where: { id: invoice.schoolOSQuoteId } });
+        if (!quote || quote.organizationId !== invoice.organizationId || quote.status !== "PAYMENT_PENDING"
+          || quote.planCode !== invoice.plan.code || quote.totalPaise !== invoice.totalPaise
+          || quote.billingCycle !== "ANNUAL" || quote.contractDocumentId === null) {
+          throw new AppError(409, "SCHOOLOS_QUOTE_SETTLEMENT_CONFLICT", "Quoted invoice or contracted subscription does not match the captured payment");
+        }
+        const signed = await tx.saaSCommercialDocument.findUnique({
+          where: { id: quote.contractDocumentId }, select: { verificationStatus: true, archivedAt: true, documentReference: true },
+        });
+        if (!signed || signed.archivedAt || signed.verificationStatus !== "VERIFIED"
+          || signed.documentReference !== quote.quoteNo) {
+          throw new AppError(409, "SCHOOLOS_CONTRACT_SETTLEMENT_BLOCKED", "Signed contract is no longer verified; payment requires finance reconciliation");
+        }
+        // Lock tenant settings against concurrent platform licensing edits.
+        await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-features:" + invoice.organizationId}))`;
+        const org = await tx.organization.findUnique({ where: { id: invoice.organizationId }, select: { settings: true } });
+        if (!org) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Customer tenant not found");
+        const settings = record(org.settings);
+        const commercial = record(settings.commercialEntitlements);
+        quotedSettings = { ...settings, commercialEntitlements: { ...commercial, enforce: true } } as Prisma.InputJsonValue;
+      }
+
       const priorEvent = await tx.saaSWebhookEvent.findUnique({
         where: { provider_eventKey: { provider: "RAZORPAY", eventKey } },
       });
@@ -206,8 +230,28 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
           trialEndsAt: null,
           subscriptionEndsAt: invoice.periodEnd,
           isActive: true,
+          ...(quotedSettings === undefined ? {} : { settings: quotedSettings }),
         },
       });
+      if (invoice.schoolOSQuoteId) {
+        const paid = await tx.schoolOSQuotation.updateMany({
+          where: { id: invoice.schoolOSQuoteId, organizationId: invoice.organizationId, status: "PAYMENT_PENDING" },
+          data: { status: "PAID", version: { increment: 1 } },
+        });
+        if (paid.count !== 1) throw new AppError(409, "SCHOOLOS_QUOTE_SETTLEMENT_CONFLICT", "Unable to atomically record the paid quotation");
+        const settledQuote = await tx.schoolOSQuotation.findUniqueOrThrow({ where: { id: invoice.schoolOSQuoteId } });
+        await tx.schoolOSQuotationRevision.create({
+          data: { quoteId: settledQuote.id, version: settledQuote.version, action: "VERIFIED_PAYMENT_CAPTURED",
+            actorId: "RAZORPAY_WEBHOOK", snapshot: { invoiceId: invoice.id, providerOrderId: payment.order_id,
+              providerPaymentId: payment.id, paidAmountPaise: payment.amount, currency: payment.currency,
+              activatedPlanCode: invoice.plan.code, periodEnd: invoice.periodEnd.toISOString() } as Prisma.InputJsonValue },
+        });
+        await tx.auditLog.create({
+          data: { organizationId: invoice.organizationId, action: "SCHOOLOS_CONTRACT_PAYMENT_CAPTURED",
+            entity: "SchoolOSQuotation", entityId: settledQuote.id,
+            metadata: { invoiceId: invoice.id, paymentId: payment.id, totalPaise: payment.amount, planCode: invoice.plan.code } },
+        });
+      }
       await tx.auditLog.create({
         data: {
           organizationId: invoice.organizationId,
@@ -248,7 +292,7 @@ async function queueSaaSBillingNotice(input: {
 }) {
   return systemPrisma.$transaction(async tx => {
     const lockKey = `saas-billing-notice:${input.organizationId}:${input.sourceEntityId}`;
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${lockKey}))`;
     const existing = await tx.notification.findFirst({
       where: {
         organizationId: input.organizationId,

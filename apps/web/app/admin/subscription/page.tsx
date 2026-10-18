@@ -33,6 +33,12 @@ type Invoice = {
   providerOrderId: string | null;
 };
 
+type SignedQuote = {
+  id: string; quoteNo: string; status: string; planCode: string; billingCycle: string;
+  totalPaise: number; validUntil: string;
+  checkoutInvoice: { id: string; status: string; providerOrderId: string | null; dueAt: string | null } | null;
+};
+
 type Snapshot = {
   organization: {
     subscriptionPlan: string;
@@ -97,6 +103,7 @@ function loadRazorpay() {
 export default function Page() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [signedQuotes, setSignedQuotes] = useState<SignedQuote[]>([]);
   const [selectedPlan, setSelectedPlan] = useState("");
   const [cycle, setCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
   const [error, setError] = useState("");
@@ -107,10 +114,12 @@ export default function Page() {
 
   const load = useCallback(async () => {
     try {
-      const [billing, activePlans] = await Promise.all([
+      const [billing, activePlans, approvedQuotes] = await Promise.all([
         api("/organization/subscription"),
         api("/organization/subscription/plans"),
+        api("/organization/subscription/contracted-quotes"),
       ]);
+      setSignedQuotes(approvedQuotes);
       setSnapshot(billing);
       setPlans(activePlans);
       setSelectedPlan((current) => current || billing.plan?.code || activePlans[0]?.code || "");
@@ -159,6 +168,28 @@ export default function Page() {
     } finally {
       setPaying(false);
     }
+  }
+
+  async function checkoutSignedQuote(quote: SignedQuote) {
+    setPaying(true); setError(""); setNotice("");
+    try {
+      await loadRazorpay();
+      const result = await api("/organization/subscription/contracted-checkout", {
+        method: "POST", body: JSON.stringify({ quoteId: quote.id }),
+      });
+      if (!window.Razorpay) throw new Error("Razorpay checkout is unavailable");
+      new window.Razorpay({
+        key: result.keyId, amount: result.order.amount, currency: result.order.currency,
+        order_id: result.order.id, name: quote.planCode,
+        description: `Signed SchoolOS order ${quote.quoteNo}`,
+        handler: () => {
+          setNotice("Payment submitted. The signed plan activates only after the verified payment webhook.");
+          window.setTimeout(() => void load(), 1500);
+        },
+        theme: { color: "#1d4ed8" },
+      }).open();
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setPaying(false); }
   }
 
   async function setCancellation(cancelAtPeriodEnd: boolean) {
@@ -277,6 +308,27 @@ export default function Page() {
         </button>
       </div>}
     </section>
+
+    {signedQuotes.length > 0 && <section className="card mt-6 overflow-hidden">
+      <div className="border-b p-5">
+        <h2 className="text-xl font-bold">Your signed SchoolOS quotations</h2>
+        <p className="mt-1 text-sm text-slate-500">These base-plan contracts are billed separately from optional add-ons. Client checkout cannot change the signed price.</p>
+      </div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm">
+        <thead><tr><th className="p-3">Signed order</th><th className="p-3">Annual plan</th><th className="p-3">Total incl. tax</th><th className="p-3">Status</th><th className="p-3">Payment</th></tr></thead>
+        <tbody>{signedQuotes.map(quote => <tr key={quote.id} className="border-t">
+          <td className="p-3">{quote.quoteNo}</td><td className="p-3">{quote.planCode}</td>
+          <td className="p-3">{money(quote.totalPaise)}</td><td className="p-3">{quote.status}</td>
+          <td className="p-3">{quote.status === "PAID" ? "Captured and recorded" :
+            <button onClick={() => void checkoutSignedQuote(quote)} disabled={paying || (quote.status === "CONTRACTED" && new Date(quote.validUntil).getTime() <= Date.now()) ||
+              (quote.checkoutInvoice?.status === "OPEN" && !quote.checkoutInvoice.providerOrderId)}
+              className="rounded-lg bg-brand-700 px-3 py-2 font-semibold text-white disabled:opacity-50">
+              {paying ? "Preparing…" : quote.checkoutInvoice?.providerOrderId ? "Resume payment" : "Pay signed order"}
+            </button>}</td>
+        </tr>)}</tbody>
+      </table></div>
+      <p className="border-t p-4 text-xs text-slate-500">Custom add-ons and discounts are not payable through this automated base-plan checkout. Contact the platform for a manually approved payment arrangement.</p>
+    </section>}
 
     <section className="card mt-6 overflow-hidden">
       <div className="border-b p-5"><h2 className="text-xl font-bold">Invoices</h2><p className="mt-1 text-sm text-slate-500">Subscription invoices and payment status.</p></div>

@@ -60,7 +60,7 @@ router.patch("/platform/schoolos/organizations/:organizationId/features/:feature
 
   const updated = await systemPrisma.$transaction(async tx => {
     // Serialize edits to the tenant's JSON settings to prevent lost feature changes.
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"schoolos-features:" + organizationId}))`;
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-features:" + organizationId}))`;
     const organization = await tx.organization.findUnique({
       where: { id: organizationId },
       select: { id: true, deletedAt: true, settings: true, subscriptionPlan: true, saasSubscription: { include: { plan: true } } },

@@ -1181,6 +1181,8 @@ model SaaSInvoice {
   provider        String?
   providerOrderId String?           @unique
   checkoutKey     String?           @unique
+  schoolOSQuoteId String?           @unique
+  schoolOSQuote   SchoolOSQuotation? @relation(fields: [schoolOSQuoteId], references: [id], onDelete: Restrict)
   metadata        Json?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -8550,6 +8552,7 @@ model SchoolOSQuotation {
   contractedAt      DateTime?
   contractedBy      String?
   contractDocument  SaaSCommercialDocument? @relation(fields: [contractDocumentId], references: [id], onDelete: Restrict)
+  checkoutInvoice   SaaSInvoice?
   createdBy       String
   updatedBy       String
   createdAt       DateTime  @default(now())
