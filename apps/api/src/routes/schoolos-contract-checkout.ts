@@ -50,8 +50,8 @@ router.post("/organization/subscription/contracted-checkout", async (req: AuthRe
   await assertCommercialPlanFitsUsage(organizationId, capacityPlan.limits);
 
   const invoice = await systemPrisma.$transaction(async tx => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"schoolos-organization-checkout:" + organizationId}))`;
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"schoolos-quote-checkout:" + quoteId}))`;
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-organization-checkout:" + organizationId}))`;
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-quote-checkout:" + quoteId}))`;
     const quote = await tx.schoolOSQuotation.findUnique({
       where: { id: quoteId }, include: { contractDocument: { include: { lead: { select: { wonOrganizationId: true } } } } },
     });
@@ -132,7 +132,7 @@ router.post("/organization/subscription/contracted-checkout", async (req: AuthRe
     notes: { organizationId, invoiceId: invoice.id, quoteId },
   });
   await systemPrisma.$transaction(async tx => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"schoolos-quote-checkout:" + quoteId}))`;
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-quote-checkout:" + quoteId}))`;
     const saved = await tx.saaSInvoice.updateMany({
       where: { id: invoice.id, organizationId, status: SaaSInvoiceStatus.OPEN, providerOrderId: null },
       data: { providerOrderId: order.id },
