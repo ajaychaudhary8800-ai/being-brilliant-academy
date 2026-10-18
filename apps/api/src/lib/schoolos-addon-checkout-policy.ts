@@ -18,7 +18,7 @@ export function validateSchoolOSAddonCheckout(
  const deny = (code: string, message: string): never => { throw new AppError(409, code, message); };
  if (quote.organizationId !== organizationId) deny("SCHOOLOS_ADDON_TENANT_MISMATCH", "Quote belongs to another tenant");
  if (quote.status !== "CONTRACTED" && !(existingOrder && quote.status === "PAYMENT_PENDING")) deny("SCHOOLOS_ADDON_NOT_CONTRACTED", "Signed quote required");
- if (!existingOrder && quote.validUntil <= now) deny("SCHOOLOS_ADDON_QUOTE_EXPIRED", "Signed quote expired");
+ if (!existingOrder && quote.validUntil.getTime() <= now.getTime()) deny("SCHOOLOS_ADDON_QUOTE_EXPIRED", "Signed quote expired");
  if (!plan || !plan.isActive || plan.code !== quote.planCode || plan.currency !== "INR"
      || quote.billingCycle !== "ANNUAL" || reconcileSchoolOSPricing(plan.code,plan).status !== "ALIGNED")
    deny("SCHOOLOS_ADDON_BASE_PLAN_REVIEW_REQUIRED", "Base-plan commercial price not reconciled");
@@ -63,8 +63,8 @@ export function validateSchoolOSAddonCheckout(
        || snap.currency !== "INR" || snap.taxRateBps !== rate.taxRateBps
        || snap.effectiveFrom !== rate.effectiveFrom.toISOString()
        || snap.effectiveUntil !== (rate.effectiveUntil?.toISOString()??null)
-       || rate.effectiveFrom > quote.createdAt
-       || (rate.effectiveUntil && rate.effectiveUntil < quote.validUntil))
+       || rate.effectiveFrom.getTime() > quote.createdAt.getTime()
+       || (rate.effectiveUntil && rate.effectiveUntil.getTime() < quote.validUntil.getTime()))
      deny("SCHOOLOS_ADDON_RATE_MISMATCH","Quoted price differs from independently approved SKU");
    return { category:category as SchoolOSQuoteItem["category"],code:String(code),label:line.label,
      quantity:line.quantity,unitPricePaise:line.unitPricePaise,rateId:rate.id,rateRevision:rate.revision };
