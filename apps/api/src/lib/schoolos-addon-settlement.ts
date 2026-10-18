@@ -35,8 +35,17 @@ export async function applySchoolOSPaidAddonSettlement(
       }))
     throw new AppError(409,"SCHOOLOS_ADDON_SIGNED_LINES_CHANGED","Signed quote line details have changed");
   const stored=meta.addonLines;
-  if (meta.basis!=="SIGNED_ANNUAL_BASE_PLUS_ADDONS" || !Array.isArray(stored) ||
-    JSON.stringify(stored)!==JSON.stringify(input.lines))
+  const storedLineMatches = Array.isArray(stored) && stored.length===input.lines.length &&
+    input.lines.every((line,index)=>{
+      const raw=stored[index];
+      const entry=raw && typeof raw==="object" && !Array.isArray(raw)
+        ? raw as Record<string,unknown> : {};
+      return entry.category===line.category && entry.code===line.code &&
+        entry.label===line.label && entry.quantity===line.quantity &&
+        entry.unitPricePaise===line.unitPricePaise && entry.rateId===line.rateId &&
+        entry.rateRevision===line.rateRevision;
+    });
+  if (meta.basis!=="SIGNED_ANNUAL_BASE_PLUS_ADDONS" || !storedLineMatches)
     throw new AppError(409,"SCHOOLOS_ADDON_INVOICE_LINES_CHANGED","Captured invoice line details differ from approved quotation");
   const licensed=input.lines.filter(x=>x.category==="MODULE"||x.category==="CAPACITY");
   if (licensed.length) {
