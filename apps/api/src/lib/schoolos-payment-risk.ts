@@ -2,23 +2,23 @@ import { Prisma, SaaSPaymentStatus } from "@prisma/client";
 import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
 
-export type SchoolOSRiskEventType = "refund.processed" | "payment.dispute.created" | "payment.dispute.lost";
+export type SchoolOSRiskEventType = "refund.processed" | "payment.dispute.created" | "payment.dispute.lost" | "payment.dispute.won";
 export type SchoolOSRiskEvent = {
   type: SchoolOSRiskEventType;
   entityId: string;
   providerPaymentId: string;
-  orderId: string;
+  orderId: string | null;
   originalAmountPaise: number;
   amountPaise: number;
   currency: string;
 };
 
 export function validateSchoolOSRiskEvent(input: SchoolOSRiskEvent) {
-  if (!["refund.processed", "payment.dispute.created", "payment.dispute.lost"].includes(input.type))
+  if (!["refund.processed", "payment.dispute.created", "payment.dispute.lost", "payment.dispute.won"].includes(input.type))
     throw new AppError(422, "SCHOOLOS_RISK_EVENT_UNSUPPORTED", "Unsupported reversal event");
   if (!/^(rfnd_|disp_)[A-Za-z0-9]+$/.test(input.entityId)
     || !/^pay_[A-Za-z0-9]+$/.test(input.providerPaymentId)
-    || !/^order_[A-Za-z0-9]+$/.test(input.orderId))
+    || (input.orderId!==null && !/^order_[A-Za-z0-9]+$/.test(input.orderId)))
     throw new AppError(422, "SCHOOLOS_RISK_EVENT_ID_INVALID", "Provider refund or dispute evidence is invalid");
   if (input.type === "refund.processed" ? !input.entityId.startsWith("rfnd_") : !input.entityId.startsWith("disp_"))
     throw new AppError(422, "SCHOOLOS_RISK_EVENT_ENTITY_MISMATCH", "Provider entity does not match event type");
@@ -35,11 +35,16 @@ export function validateSchoolOSRiskEvent(input: SchoolOSRiskEvent) {
  */
 export async function recordSchoolOSPaymentRisk(input: SchoolOSRiskEvent, originalEvent: unknown): Promise<boolean> {
   const e=validateSchoolOSRiskEvent(input);
-  const possible=await systemPrisma.saaSInvoice.findUnique({
-    where: {providerOrderId:e.orderId}, select:{id:true,schoolOSQuoteId:true},
+  // Some signed dispute payloads have payment.order_id=null. Resolve from the
+  // independently captured provider payment record, never from a client-supplied tenant ID.
+  const captured=await systemPrisma.saaSPayment.findUnique({
+    where: {providerPaymentId:e.providerPaymentId},
+    select: {invoice: {select:{id:true,schoolOSQuoteId:true,providerOrderId:true}}},
   });
-  if (!possible) return false; // unrelated institution/tuition merchant event
-  if (!possible.schoolOSQuoteId) return false; // legacy SaaS billing: review separately
+  const possible=captured?.invoice;
+  if (!possible || !possible.schoolOSQuoteId) return false;
+  if (e.orderId!==null && possible.providerOrderId!==e.orderId)
+    throw new AppError(409,"SCHOOLOS_RISK_ORDER_MISMATCH","Signed payment order does not match captured SaaS invoice");
 
   await systemPrisma.$transaction(async tx=>{
     await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-risk:"+possible.id}))`;
@@ -48,7 +53,7 @@ export async function recordSchoolOSPaymentRisk(input: SchoolOSRiskEvent, origin
         totalPaise:true,currency:true},
     });
     if (!invoice || invoice.schoolOSQuoteId!==possible.schoolOSQuoteId || invoice.status!=="PAID" ||
-        invoice.providerOrderId!==e.orderId || invoice.totalPaise!==e.originalAmountPaise ||
+        (e.orderId!==null && invoice.providerOrderId!==e.orderId) || !invoice.providerOrderId || invoice.totalPaise!==e.originalAmountPaise ||
         invoice.currency!=="INR" || e.currency!=="INR")
       throw new AppError(409,"SCHOOLOS_RISK_INVOICE_MISMATCH","Risk event does not match a captured, paid quotation invoice");
     const payment=await tx.saaSPayment.findUnique({where:{providerPaymentId:e.providerPaymentId}});
@@ -72,6 +77,15 @@ export async function recordSchoolOSPaymentRisk(input: SchoolOSRiskEvent, origin
       if ((refunds._sum.amountPaise??0)+e.amountPaise>invoice.totalPaise)
         throw new AppError(409,"SCHOOLOS_REFUND_TOTAL_EXCEEDED","Processed refund aggregate exceeds original payment");
     }
+    // A win is evidence of a pre-existing dispute, not a new financial loss.
+    // Even a matching signed won event cannot release a hold by itself.
+    if (e.type==="payment.dispute.won") {
+      const raised=await tx.schoolOSPaymentAdjustment.findUnique({
+        where:{eventKey:`payment.dispute.created:${e.entityId}`},
+      });
+      if (!raised || raised.invoiceId!==invoice.id || raised.providerPaymentId!==e.providerPaymentId)
+        throw new AppError(409,"SCHOOLOS_RISK_DISPUTE_NOT_RAISED","Won notification has no recorded source dispute");
+    }
     await tx.schoolOSPaymentAdjustment.create({data:{
       invoiceId:invoice.id,organizationId:invoice.organizationId,eventType:e.type,
       eventKey:e.eventKey,providerEntityId:e.entityId,providerPaymentId:e.providerPaymentId,
@@ -85,10 +99,11 @@ export async function recordSchoolOSPaymentRisk(input: SchoolOSRiskEvent, origin
     await tx.schoolOSPaymentRiskHold.upsert({
       where:{invoiceId:invoice.id},
       create:{
-        invoiceId:invoice.id,organizationId:invoice.organizationId,status:"ACTIVE",
+        invoiceId:invoice.id,organizationId:invoice.organizationId,status:"ACTIVE",revision:1,
         firstEventType:e.type,latestEventType:e.type,firstEventKey:e.eventKey,latestEventKey:e.eventKey,
       },
-      update:{status:"ACTIVE",latestEventType:e.type,latestEventKey:e.eventKey},
+      update:{status:"ACTIVE",revision:{increment:1},latestEventType:e.type,latestEventKey:e.eventKey,
+        resolvedAt:null,resolvedBy:null,resolutionReference:null},
     });
     await tx.saaSWebhookEvent.upsert({
       where:{provider_eventKey:{provider:"RAZORPAY",eventKey:e.eventKey}},
