@@ -163,7 +163,7 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
           throw new AppError(409, "SCHOOLOS_CONTRACT_SETTLEMENT_BLOCKED", "Signed contract is no longer verified; payment requires finance reconciliation");
         }
         // Lock tenant settings against concurrent platform licensing edits.
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"schoolos-features:" + invoice.organizationId}))`;
+        await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-features:" + invoice.organizationId}))`;
         const org = await tx.organization.findUnique({ where: { id: invoice.organizationId }, select: { settings: true } });
         if (!org) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Customer tenant not found");
         const settings = record(org.settings);
@@ -292,7 +292,7 @@ async function queueSaaSBillingNotice(input: {
 }) {
   return systemPrisma.$transaction(async tx => {
     const lockKey = `saas-billing-notice:${input.organizationId}:${input.sourceEntityId}`;
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${lockKey}))`;
     const existing = await tx.notification.findFirst({
       where: {
         organizationId: input.organizationId,
