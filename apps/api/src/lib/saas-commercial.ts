@@ -2,6 +2,8 @@ import { OrganizationSubscriptionStatus, Prisma, Role, SaaSPaymentStatus } from 
 import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
 import { readSchoolOSFeatureOverrides, schoolOSFeatureAccess, schoolOSEffectiveOverrideLists } from "./schoolos-feature-policy.js";
+import { validateSchoolOSAddonCheckout, type SchoolOSApprovedAddonLine } from "./schoolos-addon-checkout-policy.js";
+import { applySchoolOSPaidAddonSettlement } from "./schoolos-addon-settlement.js";
 
 type JsonRecord = Record<string, unknown>;
 type CapturedPayment = { id: string; order_id: string; amount: number; currency: string };
@@ -148,8 +150,12 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
       }
 
       let quotedSettings: Prisma.InputJsonValue | undefined;
+      let settledAddonLines: SchoolOSApprovedAddonLine[] | null = null;
       if (invoice.schoolOSQuoteId) {
-        const quote = await tx.schoolOSQuotation.findUnique({ where: { id: invoice.schoolOSQuoteId } });
+        const quote = await tx.schoolOSQuotation.findUnique({
+          where: { id: invoice.schoolOSQuoteId },
+          include: { contractDocument: { include: { lead: { select: { wonOrganizationId: true } } } } },
+        });
         if (!quote || quote.organizationId !== invoice.organizationId || quote.status !== "PAYMENT_PENDING"
           || quote.planCode !== invoice.plan.code || quote.totalPaise !== invoice.totalPaise
           || quote.billingCycle !== "ANNUAL" || quote.contractDocumentId === null) {
@@ -161,6 +167,24 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
         if (!signed || signed.archivedAt || signed.verificationStatus !== "VERIFIED"
           || signed.documentReference !== quote.quoteNo) {
           throw new AppError(409, "SCHOOLOS_CONTRACT_SETTLEMENT_BLOCKED", "Signed contract is no longer verified; payment requires finance reconciliation");
+        }
+        const invoiceMeta = record(invoice.metadata);
+        const hasItems = Array.isArray(quote.items) && quote.items.length > 0;
+        if (hasItems) {
+          if (invoiceMeta.basis !== "SIGNED_ANNUAL_BASE_PLUS_ADDONS")
+            throw new AppError(409, "SCHOOLOS_ADDON_INVOICE_BASIS_MISMATCH", "Add-on payment invoice basis is missing");
+          const priceSnapshot = record(quote.pricingSnapshot);
+          const rateSnapshot = priceSnapshot.addonRateSnapshot;
+          const rateIds = Array.isArray(rateSnapshot) ? rateSnapshot.map(x=>record(x).rateId).filter((x):x is string=>typeof x==="string") : [];
+          const approvedRates = await tx.schoolOSAddonRate.findMany({where:{id:{in:rateIds}}});
+          const verified = validateSchoolOSAddonCheckout(quote, invoice.plan, quote.contractDocument,
+            invoice.organizationId, approvedRates, new Date(), true);
+          if (invoice.amountPaise !== verified.baseAmountPaise + verified.addonsAmountPaise
+             || invoice.taxPaise !== verified.taxPaise || invoice.totalPaise !== verified.totalPaise)
+            throw new AppError(409,"SCHOOLOS_ADDON_CAPTURE_AMOUNT_MISMATCH","Paid invoice differs from signed finance approved amount");
+          settledAddonLines = verified.lines;
+        } else if (invoiceMeta.basis === "SIGNED_ANNUAL_BASE_PLUS_ADDONS") {
+          throw new AppError(409,"SCHOOLOS_ADDON_EMPTY_INVOICE","Add-on invoice has no add-on lines");
         }
         // Lock tenant settings against concurrent platform licensing edits.
         await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-features:" + invoice.organizationId}))`;
@@ -250,6 +274,13 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
           data: { organizationId: invoice.organizationId, action: "SCHOOLOS_CONTRACT_PAYMENT_CAPTURED",
             entity: "SchoolOSQuotation", entityId: settledQuote.id,
             metadata: { invoiceId: invoice.id, paymentId: payment.id, totalPaise: payment.amount, planCode: invoice.plan.code } },
+        });
+      }
+      if (invoice.schoolOSQuoteId && settledAddonLines) {
+        await applySchoolOSPaidAddonSettlement(tx, {
+          organizationId: invoice.organizationId, invoiceId: invoice.id,
+          quoteId: invoice.schoolOSQuoteId, periodStart: invoice.periodStart, periodEnd: invoice.periodEnd,
+          totalPaise: invoice.totalPaise, lines: settledAddonLines,
         });
       }
       await tx.auditLog.create({
