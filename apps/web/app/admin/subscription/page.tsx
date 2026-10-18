@@ -33,6 +33,9 @@ type Invoice = {
   providerOrderId: string | null;
 };
 
+type MeteredUsageBalance = { metric: string; periodStart: string; periodEnd: string; grantedUnits: number; consumedUnits: number; remainingUnits: number };
+type MeteredUsage = { balances: MeteredUsageBalance[]; meteringConnected: boolean; activationStatus: string };
+
 type SignedQuote = {
   id: string; quoteNo: string; status: string; planCode: string; billingCycle: string;
   totalPaise: number; validUntil: string;
@@ -104,6 +107,7 @@ export default function Page() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [signedQuotes, setSignedQuotes] = useState<SignedQuote[]>([]);
+  const [meteredUsage, setMeteredUsage] = useState<MeteredUsage | null>(null);
   const [selectedPlan, setSelectedPlan] = useState("");
   const [cycle, setCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
   const [error, setError] = useState("");
@@ -114,12 +118,14 @@ export default function Page() {
 
   const load = useCallback(async () => {
     try {
-      const [billing, activePlans, approvedQuotes] = await Promise.all([
+      const [billing, activePlans, approvedQuotes, usage] = await Promise.all([
         api("/organization/subscription"),
         api("/organization/subscription/plans"),
         api("/organization/subscription/contracted-quotes"),
+        api("/organization/subscription/usage-credits").catch(() => null as MeteredUsage | null),
       ]);
       setSignedQuotes(approvedQuotes);
+      setMeteredUsage(usage);
       setSnapshot(billing);
       setPlans(activePlans);
       setSelectedPlan((current) => current || billing.plan?.code || activePlans[0]?.code || "");
@@ -328,6 +334,21 @@ export default function Page() {
         </tr>)}</tbody>
       </table></div>
       <p className="border-t p-4 text-xs text-slate-500">Custom add-ons and discounts are not payable through this automated base-plan checkout. Contact the platform for a manually approved payment arrangement.</p>
+    </section>}
+
+    {meteredUsage && <section className="card mt-6 overflow-hidden">
+      <div className="border-b p-5"><h2 className="text-xl font-bold">AI & Video Usage Credits</h2>
+        <p className="mt-1 text-sm text-slate-500">Prepaid usage ledger. This preview is not yet connected to AI Examiner or live-class streaming, and does not reflect total provider usage.</p>
+      </div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm">
+        <thead><tr><th className="p-3">Service</th><th className="p-3">Valid through</th><th className="p-3">Purchased</th><th className="p-3">Consumed</th><th className="p-3">Remaining</th></tr></thead>
+        <tbody>{meteredUsage.balances.map((balance, index) => <tr key={index} className="border-t">
+          <td className="p-3">{balance.metric.replaceAll("_", " ")}</td><td className="p-3">{new Date(balance.periodEnd).toLocaleDateString("en-IN")}</td>
+          <td className="p-3">{balance.grantedUnits}</td><td className="p-3">{balance.consumedUnits}</td>
+          <td className="p-3 font-semibold">{balance.remainingUnits}</td>
+        </tr>)}</tbody>
+      </table></div>
+      {!meteredUsage.balances.length && <p className="p-4 text-sm text-slate-500">No purchased metered add-on credits are currently recorded.</p>}
     </section>}
 
     <section className="card mt-6 overflow-hidden">
