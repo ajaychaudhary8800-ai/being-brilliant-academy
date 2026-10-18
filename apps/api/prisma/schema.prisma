@@ -1073,6 +1073,8 @@ model Organization {
   users                  User[]
   schoolOSUsageBalances SchoolOSUsageBalance[]
   schoolOSAddonLicenses SchoolOSAddonLicense[]
+  schoolOSPaymentRiskHolds SchoolOSPaymentRiskHold[]
+  schoolOSPaymentAdjustments SchoolOSPaymentAdjustment[]
   schoolOSUsageEvents SchoolOSUsageEvent[]
   branches               Branch[]
   communicationCirculars Circular[]
@@ -1195,6 +1197,8 @@ model SaaSInvoice {
   payments        SaaSPayment[]
   schoolOSUsageEvents SchoolOSUsageEvent[]
   schoolOSAddonLicenses SchoolOSAddonLicense[]
+  schoolOSPaymentRiskHold SchoolOSPaymentRiskHold?
+  schoolOSPaymentAdjustments SchoolOSPaymentAdjustment[]
 
   @@index([organizationId, status, createdAt])
   @@index([subscriptionId, periodEnd])
@@ -8664,4 +8668,40 @@ model SchoolOSAddonLicense {
 
   @@unique([invoiceId, category, code])
   @@index([organizationId, category, code, periodEnd])
+}
+
+model SchoolOSPaymentRiskHold {
+  id               String   @id @default(cuid())
+  invoiceId        String   @unique
+  organizationId   String
+  status           String   @default("ACTIVE")
+  firstEventType   String
+  latestEventType  String
+  firstEventKey    String
+  latestEventKey   String
+  openedAt         DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  invoice      SaaSInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status])
+}
+
+model SchoolOSPaymentAdjustment {
+  id                String   @id @default(cuid())
+  invoiceId         String
+  organizationId    String
+  eventType         String
+  eventKey          String   @unique
+  providerEntityId  String
+  providerPaymentId String
+  amountPaise       Int
+  currency          String
+  createdAt         DateTime @default(now())
+  invoice           SaaSInvoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([eventType, providerEntityId])
+  @@index([organizationId, createdAt])
 }
