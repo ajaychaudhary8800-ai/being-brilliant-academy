@@ -16,7 +16,7 @@ router.post("/razorpay/webhook", async (req, res) => { const signature = req.hea
   const proof = z.object({
     payload: z.object({
       payment: z.object({ entity: z.object({
-        id: z.string(), order_id: z.string(), amount: z.number().int().positive(), currency: z.string(),
+        id: z.string(), order_id: z.string().nullable(), amount: z.number().int().positive(), currency: z.string(),
       }) }),
       refund: z.object({ entity: z.object({
         id: z.string(), payment_id: z.string(), amount: z.number().int().positive(),
