@@ -54,7 +54,7 @@ export async function recordSchoolOSPaymentRisk(input: SchoolOSRiskEvent, origin
     const payment=await tx.saaSPayment.findUnique({where:{providerPaymentId:e.providerPaymentId}});
     if (!payment || payment.invoiceId!==invoice.id || payment.organizationId!==invoice.organizationId ||
         payment.amountPaise!==invoice.totalPaise || payment.currency!=="INR" ||
-        ![SaaSPaymentStatus.CAPTURED,SaaSPaymentStatus.REFUNDED].includes(payment.status))
+        (payment.status!==SaaSPaymentStatus.CAPTURED && payment.status!==SaaSPaymentStatus.REFUNDED))
       throw new AppError(409,"SCHOOLOS_RISK_CAPTURE_NOT_VERIFIED","No matching captured payment found");
 
     const existing=await tx.schoolOSPaymentAdjustment.findUnique({where:{eventKey:e.eventKey}});
