@@ -262,6 +262,11 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
         const archived = await request(`/timetables/${firstId}/status`, "PATCH",
           { status: "ARCHIVED" });
         assert.equal(archived.status, 200, JSON.stringify(archived.payload));
+        // The legacy exact-slot uniqueness key still includes archived rows.
+        // Return HTTP 409 instead of leaking a Prisma unique-constraint 500.
+        const archivedSlotDuplicate = await request("/timetables", "POST", branchBLesson);
+        assert.equal(archivedSlotDuplicate.status, 409, JSON.stringify(archivedSlotDuplicate.payload));
+        assert.equal(archivedSlotDuplicate.payload.error.code, "TIMETABLE_SLOT_EXISTS");
         const validEdit = await request(`/timetables/${secondId}`, "PATCH",
           { startTime: "15:00", endTime: "16:00" });
         assert.equal(validEdit.status, 200, JSON.stringify(validEdit.payload));
