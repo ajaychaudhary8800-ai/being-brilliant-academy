@@ -38,6 +38,10 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - name: Validate SchoolOS V5 release gate policy tests
+        run: pnpm v5:release:test
+      - name: Verify SchoolOS V5 release HOLD or evidence-backed READY status
+        run: pnpm v5:release:check
       - name: Validate Playwright suite discovery
         run: pnpm exec playwright test --list
       - run: pnpm --filter @bba/api prisma:generate
