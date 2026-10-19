@@ -33,8 +33,8 @@ export async function lmsActorForRequest(req: AuthRequest): Promise<LmsActor> {
     return { role, branchIds: branches.map(item => item.branchId) };
   }
   if (role === Role.TEACHER) {
-    const profile = await prisma.teacherProfile.findFirst({
-      where: { userId: req.auth!.userId, organizationId: req.auth!.organizationId },
+    const profile = await prisma.teacherProfile.findUnique({
+      where: { userId: req.auth!.userId },
       select: { id: true, branchId: true },
     });
     if (!profile) return { role, branchIds: [] };
