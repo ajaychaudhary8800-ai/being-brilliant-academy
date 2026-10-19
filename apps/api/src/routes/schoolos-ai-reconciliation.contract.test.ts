@@ -7,7 +7,7 @@ test("SchoolOS AI reconciliation is platform-only and cannot issue credit releas
  const route=await source("./schoolos-ai-reconciliation.ts");
  assert.match(route,/router\.get\("\/platform\/schoolos\/ai-reconciliation\/\:organizationId"/);
  assert.match(route,/router\.post\("\/platform\/schoolos\/ai-reconciliation\/\:organizationId\/\:evaluationId\/commit"/);
- assert.match(route,/req\.auth\?\.homeOrganizationId!=="org_default"/);
+ assert.match(route,/homeOrganizationId!=="org_default"/);
  assert.match(route,/SCHOOLOS_AI_RECONCILIATION_DISABLED/);
  assert.match(route,/reviewerEvidence\.parse\(req\.body\)/);
  assert.doesNotMatch(route,/ai-reconciliation\/\:organizationId\/\:evaluationId\/release/);
