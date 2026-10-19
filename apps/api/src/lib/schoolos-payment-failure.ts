@@ -51,9 +51,17 @@ export async function recordSchoolOSFailedPayment(evidence: SchoolOSFailedPaymen
     const previous=await tx.saaSWebhookEvent.findUnique({
       where:{provider_eventKey:{provider:"RAZORPAY",eventKey}},
     });
+    const prev=rec(previous?.payload);
+    // PostgreSQL jsonb normalizes key ordering: compare normalized fields,
+    // not serialized object bytes, to preserve genuine idempotent delivery.
     if (previous && (
       previous.eventType!=="payment.failed" ||
-      JSON.stringify(rec(previous.payload))!==JSON.stringify(safePayload)))
+      Object.keys(prev).length!==5 ||
+      prev.providerPaymentId!==safePayload.providerPaymentId ||
+      prev.orderId!==safePayload.orderId ||
+      prev.amountPaise!==safePayload.amountPaise ||
+      prev.currency!==safePayload.currency ||
+      prev.errorCode!==safePayload.errorCode))
       throw new AppError(409,"SCHOOLOS_PAYMENT_FAILURE_REPLAY_CONFLICT",
         "Provider event replay contains conflicting evidence");
     if (previous?.processedAt) return;
