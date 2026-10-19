@@ -56,6 +56,9 @@ const schema = z.object({
   // Extra, disabled by default, finance approval gate for settled video credit debits.
   SCHOOLOS_VIDEO_SETTLEMENT_ENABLED: z.string().default("false").transform(value=>value==="true"),
   SCHOOLOS_VIDEO_SETTLEMENT_TENANT_IDS: optionalString,
+  // Stage 7F3: never hold prepaid video allowance without separate explicit activation.
+  SCHOOLOS_VIDEO_ADMISSION_ENABLED: z.string().default("false").transform(value=>value==="true"),
+  SCHOOLOS_VIDEO_ADMISSION_TENANT_IDS: optionalString,
   LIVEKIT_RECORDING_PREFIX: z.string().default("live-class-recordings"),
   LIVEKIT_RECORDING_S3_REGION: optionalString,
   LIVEKIT_RECORDING_S3_BUCKET: optionalString,

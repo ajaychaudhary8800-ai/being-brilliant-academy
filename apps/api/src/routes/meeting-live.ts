@@ -20,6 +20,7 @@ import {
 } from "../lib/livekit.js";
 import { prisma } from "../lib/prisma.js";
 import { assertFeatureEntitled } from "../lib/saas-commercial.js";
+import { authorizeSchoolOSPrepaidVideoRoom } from "../lib/schoolos-video-admission.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
@@ -99,6 +100,9 @@ router.post("/meetings/native/:room/session", async (req: AuthRequest, res) => {
   const user = await prisma.user.findFirst({ where: { organizationId: org(req), id: actor(req), isActive: true }, select: { name: true } });
   if (!user) throw new AppError(404, "USER_NOT_FOUND", "User account not found");
 
+  // Only explicitly opted-in SchoolOS V5 tenants hold prepaid quota here.
+  // All existing V4 meeting behavior remains unchanged by default.
+  const videoAdmission = await authorizeSchoolOSPrepaidVideoRoom(org(req), meeting.id);
   const observer = participant.meetingRole === MeetingParticipantRole.OBSERVER;
   const sources = manager
     ? ["camera", "microphone", "screen_share", "screen_share_audio"]
@@ -112,7 +116,7 @@ router.post("/meetings/native/:room/session", async (req: AuthRequest, res) => {
     name: user.name,
     room,
     role: participant.meetingRole,
-    ttlSeconds: 4 * 60 * 60,
+    ttlSeconds: videoAdmission.tokenTtlSeconds,
     grant: {
       room,
       roomJoin: true,
@@ -132,6 +136,7 @@ router.post("/meetings/native/:room/session", async (req: AuthRequest, res) => {
       type: meeting.type, recordingStatus: meeting.recordings[0]?.status ?? null,
     },
     meetingRole: participant.meetingRole,
+    videoAdmission: { enforced: videoAdmission.enforced, heldMinutes: videoAdmission.heldMinutes },
     manager,
     locked: meeting.roomLocked,
     settings: {
@@ -153,6 +158,7 @@ router.post("/meetings/native/:room/join", async (req: AuthRequest, res) => {
   const { meeting, participant } = await meetingForRoom(req, room);
   const manager = managerRole(participant.meetingRole);
   assertJoinable(meeting, manager);
+  await authorizeSchoolOSPrepaidVideoRoom(org(req), meeting.id);
   if (meeting.status !== MeetingStatus.LIVE) {
     const policy = await assertFeatureEntitled(org(req), "meetings");
     const limit = policy.enforcementEnabled ? policy.plan?.limits["meeting.concurrentRooms"] : null;
