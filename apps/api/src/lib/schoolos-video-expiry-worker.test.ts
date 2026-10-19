@@ -21,7 +21,7 @@ test("provider-side closing cannot be inferred from browser attendance or settle
  assert.ok(candidates.includes('m."endsAt"<='));
  assert.ok(candidates.includes('ORDER BY m."endsAt" ASC,m."id" ASC'));
  assert.match(worker,/creditSettlement:"PENDING_SIGNED_PROVIDER_REVIEW"/);
- assert.ok(worker.indexOf('await livekitRoomService("DeleteRoom"')<worker.indexOf("await systemPrisma.$transaction("));
+ assert.ok(worker.indexOf('await requireSchoolOSPrepaidRoomDisconnect(')<worker.indexOf("await systemPrisma.$transaction("));
  assert.doesNotMatch(worker,/schoolOSUsageEvent\.create|schoolOSUsageBalance\.update|creditReleased/);
 });
 test("operational health reports opted-in video room budget enforcement only",async()=>{
