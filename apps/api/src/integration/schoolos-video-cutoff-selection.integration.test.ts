@@ -61,6 +61,11 @@ test("expired prepaid rooms are selected before LIMIT, excluding future, other-t
   assert.equal(rows[0]?.organizationId,eligible);
   assert.equal(rows[0]?.endsAt.toISOString(),"2026-10-19T11:40:00.000Z");
   assert.equal((await expiredSchoolOSVideoRoomCandidates(now,[foreign],1)).length,1);
+  // Safety cutoff must find BOTH prepaid tenant rooms even when their current
+  // admissions allowlists are disabled or have been rotated away.
+  const outstanding=await expiredSchoolOSVideoRoomCandidates(now,null,10);
+  assert.deepEqual(outstanding.map(item=>item.organizationId),[foreign,eligible]);
+  assert.equal((await expiredSchoolOSVideoRoomCandidates(now,null,1))[0]?.organizationId,foreign);
   assert.equal((await expiredSchoolOSVideoRoomCandidates(now,[],10)).length,0);
   assert.equal((await expiredSchoolOSVideoRoomCandidates(now,["org_default"],10)).length,0);
   await assert.rejects(()=>expiredSchoolOSVideoRoomCandidates(now,[eligible],0));
