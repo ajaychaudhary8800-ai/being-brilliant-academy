@@ -1,6 +1,7 @@
 import { Role, TeacherAllocationStatus } from "@prisma/client";
 import type { AuthRequest } from "../middleware/auth.js";
 import { AppError } from "./http.js";
+import { teacherLmsBranchScope } from "./coaching-academic-policy.js";
 import { prisma } from "./prisma.js";
 import { requireAllocatedSubject } from "./subject-resolution.js";
 import {
@@ -54,7 +55,7 @@ export async function lmsActorForRequest(req: AuthRequest): Promise<LmsActor> {
       distinct: ["branchId"],
     });
     return {
-      role, branchIds: [...new Set([profile.branchId, ...allocations.map(allocation => allocation.branchId)])],
+      role, branchIds: teacherLmsBranchScope(organization?.groupLabelType, profile.branchId, allocations.map(allocation => allocation.branchId)),
       teacherProfileId: profile.id,
     };
   }
