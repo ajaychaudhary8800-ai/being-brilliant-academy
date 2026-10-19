@@ -1710,6 +1710,9 @@ router.post("/learning/live-classes/native/:room/recording/start", managers, asy
   const actor = await learningActorForRequest(req);
   const room = z.string().min(10).max(120).parse(req.params.room);
   const { live } = await nativeClassForActor(actor, room);
+  // Never start a billable provider recording on an unmetered legacy room.
+  // Existing recording/stop remains available for safe cleanup on opt-in.
+  assertSchoolOSNativeLiveClassAdmissionAllowed(req.auth!.organizationId);
   if (!nativeRecordingConfigured()) throw new AppError(503, "LIVE_CLASS_RECORDING_NOT_CONFIGURED", "Recording requires LiveKit and S3-compatible storage credentials");
   const priorStatus = String(live.recordingStatus ?? "").toUpperCase();
   const terminalRecording = ["COMPLETE", "FAILED", "ABORTED"].some(status => priorStatus.includes(status));
