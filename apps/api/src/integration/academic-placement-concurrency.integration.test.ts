@@ -90,6 +90,45 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
     const uniqueFixtureMobile = () => `91${String(phoneBase + ++httpSequence).slice(-10).padStart(10, "1")}`;
     const studentBody = (suffix: string, overrides: Record<string, unknown> = {}) => ({ admissionNo: `HTTP-${suffix}-${key.slice(0, 8)}`, rollNo: `H-${suffix}`, name: `HTTP Student ${suffix}`, gender: Gender.OTHER, dateOfBirth: "2010-01-01", fatherName: "Parent One", motherName: "Parent Two", mobile: uniqueFixtureMobile(), parentMobile: "9999999999", email: `http-${suffix}-${key}@example.test`, password: "Student@123", address: "Integration address", branchId: branch.id, batchId: batch.id, academicSession: session.name, admissionDate: session.startsAt.toISOString().slice(0, 10), ...overrides });
 
+    await t.test("coaching mixed-class batch retains each student's class and rejects non-member classes", async () => {
+      const mixed = await systemPrisma.batch.create({ data: {
+        organizationId, name: "Classes 5, 6 and 7", code: `AP-${key}-MIXED`,
+        branchId: branch.id, courseId: course.id,
+        academicSession: session.name, academicSessionId: session.id,
+        startsAt: session.startsAt, capacity: 10, coachingGrades: [5, 6, 7],
+      } });
+      const enrolled: Array<{ id: string; userId: string; grade: number }> = [];
+      for (const grade of [5, 6, 7]) {
+        const response = await request("/students", "POST",
+          studentBody(`mixed${grade}`, { batchId: mixed.id, rollNo: `MIXED-${grade}`, coachingGrade: grade }));
+        assert.equal(response.status, 201, JSON.stringify(response.payload));
+        assert.equal(response.payload.data.coachingGrade, grade);
+        assert.equal(response.payload.data.className, `Class ${grade}`);
+        assert.equal(response.payload.data.batchId, mixed.id);
+        createdUserIds.push(response.payload.data.user.id);
+        enrolled.push({ id: response.payload.data.id, userId: response.payload.data.user.id, grade });
+      }
+      assert.equal(await systemPrisma.studentProfile.count({ where: { organizationId, batchId: mixed.id } }), 3);
+      const wrong = await request("/students", "POST",
+        studentBody("mixed8", { batchId: mixed.id, rollNo: "MIXED-8", coachingGrade: 8 }));
+      assert.equal(wrong.status, 422, JSON.stringify(wrong.payload));
+      assert.equal(wrong.payload.error.code, "COACHING_GRADE_NOT_ALLOWED");
+      const unspecified = await request("/students", "POST",
+        studentBody("mixedmissing", { batchId: mixed.id, rollNo: "MIXED-0" }));
+      assert.equal(unspecified.status, 422, JSON.stringify(unspecified.payload));
+      assert.equal(unspecified.payload.error.code, "COACHING_GRADE_REQUIRED");
+      const forbiddenCorrection = await request(`/students/${enrolled[0]!.id}`, "PATCH", { coachingGrade: 8 });
+      assert.equal(forbiddenCorrection.status, 422, JSON.stringify(forbiddenCorrection.payload));
+      const corrected = await request(`/students/${enrolled[0]!.id}`, "PATCH", { coachingGrade: 6 });
+      assert.equal(corrected.status, 200, JSON.stringify(corrected.payload));
+      assert.equal(corrected.payload.data.coachingGrade, 6);
+      assert.equal(corrected.payload.data.className, "Class 6");
+      const rest = await systemPrisma.studentProfile.findMany({
+        where: { organizationId, batchId: mixed.id }, select: { coachingGrade: true },
+      });
+      assert.deepEqual(rest.map(s => s.coachingGrade).sort(), [6, 6, 7]);
+    });
+
     await t.test("production student routes dual-write create/import/PATCH and preserve compatible reads", async () => {
       const admitted = await request("/students", "POST", studentBody("admit"));
       assert.equal(admitted.status, 201, JSON.stringify(admitted.payload));
