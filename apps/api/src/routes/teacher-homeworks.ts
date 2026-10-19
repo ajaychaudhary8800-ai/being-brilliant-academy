@@ -12,6 +12,7 @@ import {
   teacherHomeworkCreateStatus,
 } from "../lib/homework-policy.js";
 import { AppError } from "../lib/http.js";
+import { isCoaching } from "../lib/coaching-academic-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { allocatedSubjects, requireAllocatedSubject } from "../lib/subject-resolution.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -43,12 +44,17 @@ router.use(async (req: AuthRequest, _res, next) => {
   next();
 });
 
+async function coachingMode(req: AuthRequest) {
+  const organization = await prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { groupLabelType: true } });
+  return isCoaching(organization?.groupLabelType);
+}
+
 async function assertAllocatedContext(req: AuthRequest, teacher: Awaited<ReturnType<typeof teacherForRequest>>, context: z.infer<typeof contextInput>) {
   const batch = await prisma.batch.findFirst({
     where: { id: context.batchId, organizationId: req.auth!.organizationId },
     select: { branchId: true, courseId: true, academicSessionId: true },
   });
-  if (!batch || batch.branchId !== context.branchId || batch.courseId !== context.courseId || teacher.branchId !== context.branchId) {
+  if (!batch || batch.branchId !== context.branchId || batch.courseId !== context.courseId || !(teacher.branchId === context.branchId || await coachingMode(req))) {
     throw new AppError(422, "INVALID_TEACHER_HOMEWORK_CONTEXT", "Select a course and batch from your assigned academic scope");
   }
   await requireAllocatedSubject(currentTeacherHomeworkAllocationContext({
@@ -74,7 +80,7 @@ async function homeworkForTeacher(req: AuthRequest, homeworkId: string) {
     homeworkOrganizationId: homework.organizationId,
     homeworkTeacherId: homework.teacherId,
     authenticatedTeacherId: teacher.id,
-    branchAllowed: homework.branchId === teacher.branchId,
+    branchAllowed: homework.branchId === teacher.branchId || await coachingMode(req),
   });
   return { teacher, homework };
 }
@@ -92,7 +98,7 @@ async function submissionForTeacher(req: AuthRequest, submissionId: string) {
     homeworkOrganizationId: submission.homework.organizationId,
     homeworkTeacherId: submission.homework.teacherId,
     authenticatedTeacherId: teacher.id,
-    branchAllowed: submission.homework.branchId === teacher.branchId,
+    branchAllowed: submission.homework.branchId === teacher.branchId || await coachingMode(req),
   });
   return { teacher, submission };
 }

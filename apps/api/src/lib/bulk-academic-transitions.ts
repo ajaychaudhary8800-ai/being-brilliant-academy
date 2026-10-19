@@ -6,6 +6,7 @@ export const bulkTransitionItemSchema = z.object({
   type: z.enum(["PROMOTED", "RETAINED", "TRANSFERRED", "LEFT", "GRADUATED"]),
   effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   targetBatchId: z.string().cuid().optional(),
+  coachingGrade: z.number().int().min(1).max(12).optional(),
   rollNo: z.string().trim().toUpperCase().min(1).max(30).optional(),
   reason: z.string().trim().max(2000).nullable().optional(),
 });

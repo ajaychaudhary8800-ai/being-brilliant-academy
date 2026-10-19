@@ -47,7 +47,7 @@ export default function BulkAllocationDialog({ sessions, branches, close, saved 
     if (!branchId) { setCourses([]); setTeachers([]); return; }
     Promise.all([
       fetch(`${API}/admin/courses?limit=100&branchId=${branchId}`, { headers: headers() }).then(read),
-      fetch(`${API}/admin/teachers?limit=100&branchId=${branchId}&status=active`, { headers: headers() }).then(read),
+      fetch(`${API}/admin/teachers/assignable?branchId=${branchId}`, { headers: headers() }).then(read),
     ]).then(([courseData, teacherData]) => {
       setCourses((courseData.data ?? []).map((item: { id: string; title: string }) => ({ id: item.id, name: item.title })));
       setTeachers((teacherData.data ?? []).map((item: { id: string; employeeNo: string; user: { name: string } }) => ({ id: item.id, name: `${item.user.name} (${item.employeeNo})` })));
@@ -62,7 +62,7 @@ export default function BulkAllocationDialog({ sessions, branches, close, saved 
       const batchParams = new URLSearchParams({ limit: "100", branchId, courseId, academicSession: sessionName });
       const [batchData, subjectData] = await Promise.all([
         fetch(`${API}/admin/batches?${batchParams}`, { headers: headers() }).then(read),
-        fetch(`${API}/admin/allocation-subject-options?teacherId=${teacherId}&courseId=${courseId}`, { headers: headers() }).then(read),
+        fetch(`${API}/admin/allocation-subject-options?${new URLSearchParams({ teacherId, courseId, branchId })}`, { headers: headers() }).then(read),
       ]);
       setSelections(current => ({ ...current, [courseId]: {
         batchIds: [], subjectIds: [], loading: false,

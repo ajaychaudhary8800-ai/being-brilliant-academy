@@ -2729,6 +2729,7 @@ model Batch {
   days              String[]         @default([])
   classroom         String?
   teacherId         String?
+  coachingGrades    Int[]            @default([])
   feesPaise         Int              @default(0)
   status            BatchStatus      @default(ACTIVE)
   remarks           String?          @db.Text
@@ -2777,6 +2778,7 @@ model StudentProfile {
   fatherName           String
   motherName           String
   className            String
+  coachingGrade        Int?
   parentMobile         String
   address              String                       @db.Text
   branchId             String
