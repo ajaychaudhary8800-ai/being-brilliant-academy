@@ -129,6 +129,27 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
       assert.deepEqual(rest.map(s => s.coachingGrade).sort(), [6, 6, 7]);
     });
 
+    await t.test("coaching can assign a teacher from branch A to a group in branch B", async () => {
+      const user = await systemPrisma.user.create({ data: {
+        organizationId, email: `ap-cross-branch-${key}@example.test`,
+        passwordHash: "integration", name: "Cross Branch Teacher", role: Role.TEACHER, isActive: true,
+      } });
+      const teacher = await systemPrisma.teacherProfile.create({ data: {
+        organizationId, userId: user.id, employeeNo: `AP-X-${key}`, branchId: branch.id,
+      } });
+      try {
+        const result = await request(`/batches/${batchB.id}`, "PATCH", { teacherId: teacher.id });
+        assert.equal(result.status, 200, JSON.stringify(result.payload));
+        assert.equal(result.payload.data.teacher.id, teacher.id);
+        assert.equal(result.payload.data.branch.id, branchB.id);
+        assert.equal((await systemPrisma.batch.findUniqueOrThrow({ where: { id: batchB.id } })).teacherId, teacher.id);
+      } finally {
+        await systemPrisma.batch.update({ where: { id: batchB.id }, data: { teacherId: null } });
+        await systemPrisma.teacherProfile.delete({ where: { id: teacher.id } });
+        await systemPrisma.user.delete({ where: { id: user.id } });
+      }
+    });
+
     await t.test("production student routes dual-write create/import/PATCH and preserve compatible reads", async () => {
       const admitted = await request("/students", "POST", studentBody("admit"));
       assert.equal(admitted.status, 201, JSON.stringify(admitted.payload));
