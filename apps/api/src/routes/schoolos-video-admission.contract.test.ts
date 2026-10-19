@@ -10,9 +10,13 @@ test("new LiveKit meeting tokens and join paths are quota gated before provider 
  const join=route.slice(route.indexOf('router.post("/meetings/native/:room/join"'),
   route.indexOf('router.post("/meetings/native/:room/leave"'));
  assert.match(session,/authorizeSchoolOSPrepaidVideoRoom\(org\(req\), meeting\.id\)/);
+ assert.match(session,/assertSchoolOSVideoNoDisabledPrepaidJoin\(org\(req\), meeting\.id\)/);
+ assert.ok(session.indexOf("assertSchoolOSVideoNoDisabledPrepaidJoin")<session.indexOf("createLiveKitToken"));
  assert.ok(session.indexOf("authorizeSchoolOSPrepaidVideoRoom")<session.indexOf("createLiveKitToken"));
  assert.match(session,/ttlSeconds: videoAdmission\.tokenTtlSeconds/);
  assert.match(join,/authorizeSchoolOSPrepaidVideoRoom\(org\(req\), meeting\.id\)/);
+ assert.match(join,/assertSchoolOSVideoNoDisabledPrepaidJoin\(org\(req\), meeting\.id\)/);
+ assert.ok(join.indexOf("assertSchoolOSVideoNoDisabledPrepaidJoin")<join.indexOf("meetingAttendanceSession.findFirst"));
  assert.ok(join.indexOf("authorizeSchoolOSPrepaidVideoRoom")<join.indexOf("meetingAttendanceSession.findFirst"));
  assert.ok(join.indexOf("MEETING_CONCURRENT_ROOM_LIMIT")<join.indexOf("authorizeSchoolOSPrepaidVideoRoom"));
  assert.match(session,/schoolOSVideoAdmissionEnabled\(org\(req\)\)/);
@@ -29,6 +33,8 @@ test("prepaid room admission and settlement are both independently disabled by d
  assert.match(settlement,/SCHOOLOS_VIDEO_RESERVATION_MISSING/);
  assert.match(settlement,/SCHOOLOS_VIDEO_RESERVED_BUDGET_EXCEEDED/);
  assert.match(settlement,/unusedMinutesRestored:difference/);
+ assert.match(admission,/SCHOOLOS_VIDEO_PREPAID_ROOM_OPTED_OUT/);
+ assert.match(admission,/schoolOSVideoRoomHasPrepaidHistory/);
  assert.doesNotMatch(admission,/razorpay|charge\(/i);
 });
 test("database allows bounded room credit holds while retaining prior AI one-unit restrictions",async()=>{

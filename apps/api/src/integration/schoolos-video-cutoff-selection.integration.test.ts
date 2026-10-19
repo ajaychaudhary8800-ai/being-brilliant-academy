@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import test from "node:test";
 import { systemPrisma } from "../lib/prisma.js";
 import { expiredSchoolOSVideoRoomCandidates } from "../lib/schoolos-video-expired-candidates.js";
+import { schoolOSVideoRoomHasPrepaidHistory } from "../lib/schoolos-video-admission.js";
 
 function isolated(){
  let url:URL|null=null;
@@ -55,6 +56,11 @@ test("expired prepaid rooms are selected before LIMIT, excluding future, other-t
     requestKey:"video-meeting:"+meeting.id,units:70,actorId:"provider-host",
    }});
   }
+  assert.equal(await schoolOSVideoRoomHasPrepaidHistory(eligible,matched),true);
+  assert.equal(await schoolOSVideoRoomHasPrepaidHistory(foreign,matched),false,
+   "same meeting cannot borrow a prepaid hold from another tenant");
+  assert.equal(await schoolOSVideoRoomHasPrepaidHistory("org_default",matched),false);
+  assert.equal(await schoolOSVideoRoomHasPrepaidHistory(eligible,"not-a-real-meeting"),false);
   const rows=await expiredSchoolOSVideoRoomCandidates(now,[eligible],1);
   assert.equal(rows.length,1);
   assert.equal(rows[0]?.meetingId,matched);

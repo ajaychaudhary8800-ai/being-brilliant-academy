@@ -13,7 +13,9 @@ test("native metered meeting end performs confirmed provider disconnect before a
  const recordingWrite=route.indexOf('await prisma.meetingRecording.update(');
  const attendanceWrite=route.indexOf('await closeOpenAttendance(meeting.id)');
  const meetingWrite=route.indexOf('await prisma.meeting.update(');
- assert.ok(route.indexOf('const meteredRoom = schoolOSVideoAdmissionEnabled(org(req))')>=0);
+ assert.match(route,/schoolOSVideoAdmissionEnabled\(org\(req\)\) \|\|[\s\S]*?await schoolOSVideoRoomHasPrepaidHistory\(org\(req\),meeting\.id\)/);
+ assert.ok(route.indexOf("schoolOSVideoRoomHasPrepaidHistory")<requireProvider,
+  "previous prepaid reservation must still demand confirmed provider closure after opt-out");
  assert.ok(requireProvider>=0&&deleteRoom>requireProvider);
  assert.ok(requireProvider<recordingWrite,"do not claim recording completed if provider disconnect fails");
  assert.ok(requireProvider<attendanceWrite,"do not claim attendance ended if room remains");
