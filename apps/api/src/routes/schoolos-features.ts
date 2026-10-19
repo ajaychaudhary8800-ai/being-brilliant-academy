@@ -5,6 +5,7 @@ import { AppError } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
 import {
   isSchoolOSFeature,
+  schoolOSParentFeature,
   readSchoolOSFeatureOverrides,
   schoolOSFeatureAccess,
   schoolOSFeatures,
@@ -43,7 +44,7 @@ router.get("/platform/schoolos/organizations/:organizationId/features", async (r
   const overrides = readSchoolOSFeatureOverrides(commercial.featureOverrides);
   const entitlements = snapshot.plan?.entitlements ?? {};
   const data = schoolOSFeatures.map(feature => {
-    const includedInPlan = entitlements["*"] === true || entitlements[feature.key] === true;
+    const includedInPlan = schoolOSFeatureAccess(entitlements, true, {}, feature.key).enabled;
     const access = schoolOSFeatureAccess(entitlements, snapshot.enforcementEnabled, overrides, feature.key);
     return { ...feature, includedInPlan, enabled: access.enabled, source: access.source, override: overrides[feature.key] ?? null };
   });
@@ -60,7 +61,7 @@ router.patch("/platform/schoolos/organizations/:organizationId/features/:feature
 
   const updated = await systemPrisma.$transaction(async tx => {
     // Serialize edits to the tenant's JSON settings to prevent lost feature changes.
-    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-features:" + organizationId}))`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${"schoolos-features:" + organizationId}))`;
     const organization = await tx.organization.findUnique({
       where: { id: organizationId },
       select: { id: true, deletedAt: true, settings: true, subscriptionPlan: true, saasSubscription: { include: { plan: true } } },
@@ -70,7 +71,22 @@ router.patch("/platform/schoolos/organizations/:organizationId/features/:feature
     const plan = organization.saasSubscription?.plan
       ?? await tx.saaSPlan.findUnique({ where: { code: organization.subscriptionPlan } });
     const base = object(plan?.entitlements);
-    const includedInPlan = base["*"] === true || base[feature] === true;
+    const includedInPlan = schoolOSFeatureAccess(
+      base as Record<string, boolean>, true, {}, feature,
+    ).enabled;
+    const parent = schoolOSParentFeature(feature);
+    if (change.enabled === true && parent) {
+      const existingSettings = object(organization.settings);
+      const originalCommercial = object(existingSettings.commercialEntitlements);
+      const originalOverrides = readSchoolOSFeatureOverrides(originalCommercial.featureOverrides);
+      const parentAllowed = schoolOSFeatureAccess(
+        base as Record<string, boolean>,
+        originalCommercial.enforce === true,
+        originalOverrides,
+        parent,
+      ).enabled;
+      if (!parentAllowed) throw new AppError(409, "SCHOOLOS_PARENT_FEATURE_REQUIRED", "Enable the parent module before enabling this feature");
+    }
     if (change.enabled === true && !includedInPlan) {
       const expiry = change.expiresAt ? new Date(change.expiresAt).getTime() : NaN;
       const maximum = now.getTime() + 60 * 24 * 60 * 60 * 1000;
