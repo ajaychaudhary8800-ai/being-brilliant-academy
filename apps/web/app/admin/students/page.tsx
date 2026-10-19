@@ -72,7 +72,7 @@ function Content() {
   const { allDisplayedSelected, someDisplayedSelected } = selectionState(items, selectedStudents);
   useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = someDisplayedSelected; }, [someDisplayedSelected, allDisplayedSelected]);
 
-  const filteredBatches = batches.filter(current => (!form.branchId || current.branch.id === form.branchId) && current._count.students < current.capacity);
+  const filteredBatches = batches.filter(current => (!form.branchId || current.branch.id === form.branchId) && (current._count.students < current.capacity || (mode === "edit" && current.id === selected?.batch.id)));
   const chosenBatch = batches.find(value=>value.id===form.batchId);
   const allowedGrades = chosenBatch?.coachingGrades?.length ? chosenBatch.coachingGrades : Array.from({length:12},(_,i)=>i+1);
   const tableHeaders = ["Admission", "Roll", "Student", `Branch / ${terms.course}`, terms.singular, "Session", "Mobile", "Status", "Actions"];
