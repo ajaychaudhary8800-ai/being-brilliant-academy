@@ -387,7 +387,7 @@ export async function transitionStudentAcademicPlacement(client: PrismaClient, i
     if (hasDestination && !input.targetBatchId) throw new AppError(422, "INVALID_TRANSITION_TARGET", "A destination Batch is required for this transition");
     if (!hasDestination && input.targetBatchId) throw new AppError(422, "INVALID_TRANSITION_TARGET", "This transition cannot have a destination Batch");
 
-    const mode = await tx.organization.findUnique({ where: { id: input.organizationId }, select: { groupLabelType: true } });
+    const mode = await tx.organization?.findUnique?.({ where: { id: input.organizationId }, select: { groupLabelType: true } });
     let target: Awaited<ReturnType<typeof resolveAuthoritativeBatchTuple>> | null = null;
     if (input.targetBatchId) {
       try {
@@ -401,7 +401,7 @@ export async function transitionStudentAcademicPlacement(client: PrismaClient, i
         tx.branch.findFirst({ where: { organizationId: input.organizationId, id: target.branchId, isActive: true }, select: { id: true } }),
       ]);
       if (!batch || !branch) throw new AppError(422, "INVALID_TRANSITION_TARGET", "Destination Batch must belong to an active branch and session");
-      assertStudentCoachingGrade(mode?.groupLabelType, target.coachingGrades, input.coachingGrade ?? profile.coachingGrade, isCoaching(mode?.groupLabelType));
+      assertStudentCoachingGrade(mode?.groupLabelType, target.coachingGrades, input.coachingGrade ?? profile.coachingGrade, isCoaching(mode?.groupLabelType) && (target.coachingGrades?.length ?? 0) > 0);
       if (branchIds && !branchIds.includes(target.branchId)) throw new AppError(403, "ACADEMIC_TRANSITION_FORBIDDEN", "Destination branch access denied");
       if (input.type === "RETAINED" && (!source.courseId || source.courseId !== target.course!.id)) throw new AppError(422, "INVALID_TRANSITION_TARGET", "A retained student must remain in the same Course");
       if (target.id === source.batchId && target.academicSessionId === source.academicSessionId && target.branchId === source.branchId) throw new AppError(422, "INVALID_TRANSITION_TARGET", "Destination must be a new academic placement");
