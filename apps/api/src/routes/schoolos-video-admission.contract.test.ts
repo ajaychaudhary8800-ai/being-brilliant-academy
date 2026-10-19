@@ -14,6 +14,9 @@ test("new LiveKit meeting tokens and join paths are quota gated before provider 
  assert.match(session,/ttlSeconds: videoAdmission\.tokenTtlSeconds/);
  assert.match(join,/authorizeSchoolOSPrepaidVideoRoom\(org\(req\), meeting\.id\)/);
  assert.ok(join.indexOf("authorizeSchoolOSPrepaidVideoRoom")<join.indexOf("meetingAttendanceSession.findFirst"));
+ assert.ok(join.indexOf("MEETING_CONCURRENT_ROOM_LIMIT")<join.indexOf("authorizeSchoolOSPrepaidVideoRoom"));
+ assert.match(session,/schoolOSVideoAdmissionEnabled\(org\(req\)\)/);
+ assert.ok(session.indexOf("MEETING_CONCURRENT_ROOM_LIMIT")<session.indexOf("authorizeSchoolOSPrepaidVideoRoom"));
 });
 test("prepaid room admission and settlement are both independently disabled by default",async()=>{
  const config=await src("../config.ts"),admission=await src("../lib/schoolos-video-admission.ts");

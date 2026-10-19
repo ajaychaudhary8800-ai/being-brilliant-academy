@@ -21,6 +21,7 @@ import { executeActiveAutomations } from "./lib/automation-executor.js";
 import { processQueuedAIExaminerEvaluations } from "./lib/ai-examiner-worker.js";
 import { processAIExaminerCheckedCopyRetries } from "./lib/ai-examiner-checked-copy-retry-worker.js";
 import { processDueDeviceRetries } from "./lib/device-hub-retry-worker.js";
+import { closeExpiredSchoolOSPrepaidVideoRooms } from "./lib/schoolos-video-expiry-worker.js";
 import { onlyPaths } from "./lib/scoped-router.js";
 import auth from "./routes/auth.js";
 import courses from "./routes/courses.js";
@@ -230,13 +231,14 @@ async function dependencyChecks() {
   return checks;
 }
 
-const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation" | "aiExaminer" | "meetingReminders" | "deviceHub", WorkerHeartbeat> = {
+const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation" | "aiExaminer" | "meetingReminders" | "deviceHub" | "videoQuota", WorkerHeartbeat> = {
   notificationDelivery: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   saasLifecycle: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   workflowAutomation: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   aiExaminer: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   meetingReminders: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   deviceHub: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
+  videoQuota: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
 };
 
 function workerSnapshot(name: keyof typeof workerHeartbeats, maxAgeMs: number, now = new Date()) {
@@ -258,6 +260,7 @@ app.get("/health/operational", async (_req, res) => {
     aiExaminer: workerSnapshot("aiExaminer", Math.max(60_000, env.AI_EXAMINER_WORKER_INTERVAL_MS * 12)),
     meetingReminders: workerSnapshot("meetingReminders", 15 * 60_000),
     deviceHub: workerSnapshot("deviceHub", Math.max(60_000, env.DEVICE_HUB_WORKER_INTERVAL_MS * 6)),
+    ...(env.SCHOOLOS_VIDEO_ADMISSION_ENABLED ? { videoQuota: workerSnapshot("videoQuota", 2 * 60_000) } : {}),
   };
   const healthy = Object.values(checks).every(Boolean) && Object.values(workers).every(worker => worker.healthy);
   res.status(healthy ? 200 : 503).json({
@@ -476,6 +479,37 @@ void runMeetingReminderWorker();
 const meetingReminderWorker = setInterval(() => void runMeetingReminderWorker(), 5 * 60_000);
 meetingReminderWorker.unref();
 
+let schoolOSVideoWorkerRunning = false;
+const runSchoolOSVideoWorker = async () => {
+  if (schoolOSVideoWorkerRunning) return;
+  schoolOSVideoWorkerRunning = true;
+  if (!env.SCHOOLOS_VIDEO_ADMISSION_ENABLED) {
+    schoolOSVideoWorkerRunning = false;
+    return;
+  }
+  const finishMetric = startWorkerRun("schoolos_video_quota");
+  try {
+    const result = await closeExpiredSchoolOSPrepaidVideoRooms(new Date(), 50);
+    workerHeartbeats.videoQuota = { lastSuccessAt: new Date(),
+      lastFailureAt: result.failed ? new Date() : workerHeartbeats.videoQuota.lastFailureAt,
+      lastError: result.failed ? "PROVIDER_ROOM_DISCONNECT_FAILED" : null };
+    finishMetric(result.failed ? "failure" : "success");
+    if (result.closed || result.failed)
+      logger.info({closed:result.closed,failed:result.failed},
+        "SchoolOS prepaid video room budget enforcement");
+  } catch (error) {
+    workerHeartbeats.videoQuota = {
+      lastSuccessAt: workerHeartbeats.videoQuota.lastSuccessAt,
+      lastFailureAt: new Date(),
+      lastError: error instanceof Error ? error.message.slice(0, 500) : "Video quota worker failed" };
+    finishMetric("failure");
+    logger.error({err:error},"SchoolOS prepaid video quota worker failed");
+  } finally { schoolOSVideoWorkerRunning = false; }
+};
+void runSchoolOSVideoWorker();
+const schoolOSVideoWorker = setInterval(() => void runSchoolOSVideoWorker(), 30_000);
+schoolOSVideoWorker.unref();
+
 let analyticsReportWorkerRunning = false;
 const runAnalyticsReportWorker = async () => {
   if (analyticsReportWorkerRunning) return;
@@ -597,6 +631,7 @@ async function shutdown(signal: string) {
   clearInterval(aiExaminerWorker);
   clearInterval(deviceHubWorker);
   clearInterval(meetingReminderWorker);
+  clearInterval(schoolOSVideoWorker);
   server.close(async () => {
     await Promise.allSettled([systemPrisma.$disconnect(), redis?.quit() ?? Promise.resolve()]);
     process.exit(0);
