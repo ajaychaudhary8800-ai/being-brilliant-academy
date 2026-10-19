@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { env } from "../config.js";
 import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
@@ -31,32 +30,33 @@ export async function ingestSchoolOSLiveKitEvidence(raw:Buffer,authorization:str
   });
   if(!invited)throw new AppError(422,"SCHOOLOS_LIVEKIT_PARTICIPANT_INVALID","Participant not assigned to this institution meeting");
  }
- const same=async()=>{
-  const prior=await systemPrisma.schoolOSLiveKitEvent.findUnique({
+ return systemPrisma.$transaction(async tx=>{
+  // The matching settlement service holds this lock until its ledger commit.
+  // A late provider event cannot race with a finalized review.
+  await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-video:"+meeting.id}))`;
+  const prior=await tx.schoolOSLiveKitEvent.findUnique({
    where:{providerEventId:event.eventId},
-   select:{id:true,rawSha256:true,meetingId:true,eventType:true},
+   select:{rawSha256:true,meetingId:true,eventType:true},
   });
-  if(!prior)return null;
-  if(prior.rawSha256!==event.bodySha256 || prior.meetingId!==meeting.id ||
-   prior.eventType!==event.eventType)
-   throw new AppError(409,"SCHOOLOS_LIVEKIT_EVENT_REPLAY_CONFLICT","LiveKit event ID reused with different signed evidence");
-  return {status:"REPLAY" as const,eventId:event.eventId};
- };
- const prior=await same();
- if(prior)return prior;
- try {
-  await systemPrisma.schoolOSLiveKitEvent.create({data:{
+  if(prior){
+   if(prior.rawSha256!==event.bodySha256||prior.meetingId!==meeting.id||
+       prior.eventType!==event.eventType)
+    throw new AppError(409,"SCHOOLOS_LIVEKIT_EVENT_REPLAY_CONFLICT","Provider ID reused with different evidence");
+   return {status:"REPLAY" as const,eventId:event.eventId};
+  }
+  const review=await tx.schoolOSVideoUsageReview.findUnique({
+   where:{meetingId:meeting.id},select:{status:true},
+  });
+  if(review?.status==="SETTLED")
+   throw new AppError(409,"SCHOOLOS_VIDEO_SETTLED_EVIDENCE_FROZEN",
+    "Late provider evidence requires an independent financial adjustment review");
+  await tx.schoolOSLiveKitEvent.create({data:{
    providerEventId:event.eventId,organizationId:meeting.organizationId,meetingId:meeting.id,
    eventType:event.eventType,identity:event.identity,participantSid:event.participantSid,
    occurredAt:event.occurredAt,rawSha256:event.bodySha256,
   }});
- }catch(error) {
-  if(error instanceof Prisma.PrismaClientKnownRequestError && error.code==="P2002"){
-   const retry=await same();if(retry)return retry;
-  }
-  throw error;
- }
- return {status:"STORED" as const,eventId:event.eventId};
+  return {status:"STORED" as const,eventId:event.eventId};
+ });
 }
 
 /** Preview explicitly excludes self-declared join/leave attendance from billing evidence. */
