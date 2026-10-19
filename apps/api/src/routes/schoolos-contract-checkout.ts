@@ -10,6 +10,7 @@ import { assertCommercialPlanFitsUsage } from "../lib/saas-commercial.js";
 import { validateSchoolOSBaseQuoteCheckout } from "../lib/schoolos-contract-payment-policy.js";
 import { validateSchoolOSAddonCheckout } from "../lib/schoolos-addon-checkout-policy.js";
 import { assertSchoolOSNewTermDoesNotOverlap } from "../lib/schoolos-renewal-policy.js";
+import { assertSchoolOSRenewalSource, readSchoolOSRenewalContext } from "../lib/schoolos-renewal-quote-policy.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -121,6 +122,18 @@ router.post("/organization/subscription/contracted-checkout", async (req: AuthRe
     });
     const periodStart = new Date();
     const periodEnd = addYear(periodStart);
+    const renewal = readSchoolOSRenewalContext(quote.pricingSnapshot);
+    if (renewal) {
+      const [renewalSource, latestPaid] = await Promise.all([
+        tx.saaSInvoice.findUnique({where:{id:renewal.sourceInvoiceId},
+          select:{id:true,organizationId:true,status:true,schoolOSQuoteId:true,periodEnd:true,
+            schoolOSPaymentRiskHold:{select:{status:true}}}}),
+        tx.saaSInvoice.findFirst({where:{organizationId,status:SaaSInvoiceStatus.PAID},
+          orderBy:[{periodEnd:"desc"},{createdAt:"desc"}],select:{id:true}}),
+      ]);
+      assertSchoolOSRenewalSource(renewalSource, organizationId, latestPaid?.id ?? null,
+        renewal.sourcePeriodEnd, periodStart);
+    }
     // Reject overlapping paid SaaS terms. No implied mid-period upgrade, early
     // renewal, unused credit transfer, or duplicate annual charge is authorized.
     // The existing invoice's same-quote idempotency return occurs above.
