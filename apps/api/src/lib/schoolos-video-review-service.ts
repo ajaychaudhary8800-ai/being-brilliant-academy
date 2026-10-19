@@ -113,6 +113,9 @@ export async function decideSchoolOSVideoReview(
   if(!row)throw new AppError(404,"SCHOOLOS_VIDEO_REVIEW_NOT_FOUND","Review not found");
   if(row.status!=="PENDING")
    throw new AppError(409,"SCHOOLOS_VIDEO_REVIEW_FINAL","Video review already finalized");
+  if(row.proposedMinutes===0)
+   throw new AppError(409,"SCHOOLOS_VIDEO_ZERO_REVIEW_SEPARATE",
+    "Zero-minute holds require the independent signed-provider release decision endpoint");
   if(row.proposedBy===reviewedBy)
    throw new AppError(403,"SCHOOLOS_VIDEO_MAKER_CHECKER_REQUIRED","Proposal and approval must be performed by different administrators");
   const {meeting,proof}=await snapshot(tx,organizationId,row.meetingId);
