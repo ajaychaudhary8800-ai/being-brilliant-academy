@@ -35,6 +35,9 @@ type Invoice = {
 
 type MeteredUsageBalance = { metric: string; periodStart: string; periodEnd: string; grantedUnits: number; consumedUnits: number; remainingUnits: number };
 type MeteredUsage = { balances: MeteredUsageBalance[]; meteringConnected: boolean; activationStatus: string; financeReviewRequired: boolean; riskHolds: { invoiceId: string; latestEventType: string; openedAt: string }[] };
+type RenewalReadiness = { status: string; checkoutRecommendation: string; nextRenewalAt: string | null;
+  daysUntilRenewal: number | null; financeReviewRequired: boolean; expiredCreditsCarryOver: false;
+  credits: { metric: string; periodStart: string; periodEnd: string; ledgerRemainingUnits: number; usableNowUnits: number; expired: boolean }[]; };
 
 type SignedQuote = {
   id: string; quoteNo: string; status: string; planCode: string; billingCycle: string;
@@ -108,6 +111,7 @@ export default function Page() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [signedQuotes, setSignedQuotes] = useState<SignedQuote[]>([]);
   const [meteredUsage, setMeteredUsage] = useState<MeteredUsage | null>(null);
+  const [renewal, setRenewal] = useState<RenewalReadiness | null>(null);
   const [selectedPlan, setSelectedPlan] = useState("");
   const [cycle, setCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
   const [error, setError] = useState("");
@@ -118,14 +122,16 @@ export default function Page() {
 
   const load = useCallback(async () => {
     try {
-      const [billing, activePlans, approvedQuotes, usage] = await Promise.all([
+      const [billing, activePlans, approvedQuotes, usage, readiness] = await Promise.all([
         api("/organization/subscription"),
         api("/organization/subscription/plans"),
         api("/organization/subscription/contracted-quotes"),
         api("/organization/subscription/usage-credits").catch(() => null as MeteredUsage | null),
+        api("/organization/subscription/renewal-readiness").catch(() => null as RenewalReadiness | null),
       ]);
       setSignedQuotes(approvedQuotes);
       setMeteredUsage(usage);
+      setRenewal(readiness);
       setSnapshot(billing);
       setPlans(activePlans);
       setSelectedPlan((current) => current || billing.plan?.code || activePlans[0]?.code || "");
@@ -250,6 +256,16 @@ export default function Page() {
     {notice && <p className="mt-6 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p>}
     {error && <p role="alert" className="mt-6 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
+    {renewal && <section aria-label="Contract renewal readiness" className="mt-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+      <p className="font-bold">Paid contract renewal and purchased credit expiry</p>
+      <p className="mt-1">
+        {renewal.status === "PAID_TERM_ACTIVE" && renewal.nextRenewalAt
+          ? `Existing paid period runs through ${new Date(renewal.nextRenewalAt).toLocaleDateString("en-IN")}. A second overlapping annual signed quote is blocked to prevent duplicate billing.`
+          : "No current paid term is available. A new independently signed quotation and verified payment are required."}
+      </p>
+      <p className="mt-1">Unused AI/video credits expire at the end of their paid term and do not automatically roll over to another term.</p>
+      {renewal.financeReviewRequired && <p className="mt-2 font-semibold">Finance dispute hold: purchased credit consumption is suspended pending approved reconciliation.</p>}
+    </section>}
     <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       <Stat label="Status" value={snapshot?.organization.subscriptionStatus ?? "—"} icon={<CreditCard size={18}/>} />
       <Stat label="Plan" value={snapshot?.plan?.name ?? snapshot?.organization.subscriptionPlan ?? "—"} icon={<ReceiptText size={18}/>} />
@@ -318,7 +334,7 @@ export default function Page() {
     {signedQuotes.length > 0 && <section className="card mt-6 overflow-hidden">
       <div className="border-b p-5">
         <h2 className="text-xl font-bold">Your signed SchoolOS quotations</h2>
-        <p className="mt-1 text-sm text-slate-500">These base-plan contracts are billed separately from optional add-ons. Client checkout cannot change the signed price.</p>
+        <p className="mt-1 text-sm text-slate-500">Signed annual contracts may include independently approved add-ons. The signed total cannot be modified during checkout.</p>
       </div>
       <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm">
         <thead><tr><th className="p-3">Signed order</th><th className="p-3">Annual plan</th><th className="p-3">Total incl. tax</th><th className="p-3">Status</th><th className="p-3">Payment</th></tr></thead>
@@ -349,7 +365,8 @@ export default function Page() {
         <tbody>{meteredUsage.balances.map((balance, index) => <tr key={index} className="border-t">
           <td className="p-3">{balance.metric.replaceAll("_", " ")}</td><td className="p-3">{new Date(balance.periodEnd).toLocaleDateString("en-IN")}</td>
           <td className="p-3">{balance.grantedUnits}</td><td className="p-3">{balance.consumedUnits}</td>
-          <td className="p-3 font-semibold">{balance.remainingUnits}</td>
+          <td className="p-3 font-semibold">{renewal?.credits.find(c => c.metric === balance.metric && c.periodStart === balance.periodStart)?.usableNowUnits ?? balance.remainingUnits}
+          {renewal?.credits.find(c => c.metric === balance.metric && c.periodStart === balance.periodStart)?.expired && <span className="ml-2 text-xs text-red-700">(expired)</span>}</td>
         </tr>)}</tbody>
       </table></div>
       {!meteredUsage.balances.length && <p className="p-4 text-sm text-slate-500">No purchased metered add-on credits are currently recorded.</p>}
