@@ -5,7 +5,7 @@ import test from "node:test";
 import { verifySchoolOSLiveKitWebhook,calculateSchoolOSVideoRoomMinutes } from "./schoolos-livekit-evidence-policy.js";
 const key="qa-livekit-key",secret="qa-livekit-secret-long-enough-for-hmac";
 const body=Buffer.from(JSON.stringify({id:"provider-event-001",event:"participant_joined",
- createdAt:1792400000,room:{name:"meeting-livekit-12345"},participant:{identity:"host",sid:"PA-001"}}));
+ createdAt:1792300000,room:{name:"meeting-livekit-12345"},participant:{identity:"host",sid:"PA-001"}}));
 function signature(payload:Buffer,override?:Record<string,unknown>){
  return jwt.sign({iss:key,sha256:crypto.createHash("sha256").update(payload).digest("base64"),...override},
   secret,{algorithm:"HS256",expiresIn:"10m"});
@@ -27,7 +27,7 @@ test("non-metering provider event cannot be misinterpreted as billable room usag
  const payload=Buffer.from(JSON.stringify({...JSON.parse(body.toString()),event:"track_published"}));
  assert.equal(verifySchoolOSLiveKitWebhook(payload,signature(payload),key,secret),null);
 });
-const t=(s:number)=>new Date(1792400000*1000+s*1000);
+const t=(s:number)=>new Date(1792300000*1000+s*1000);
 const row=(eventType:string,identity:string|null,participantSid:string|null,seconds:number)=>
  ({eventType,identity,participantSid,occurredAt:t(seconds)});
 test("video preview uses overlapping connected room time, counts rooms not participants",()=>{
