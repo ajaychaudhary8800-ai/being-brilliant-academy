@@ -38,6 +38,7 @@ import {
 import { prisma } from "../lib/prisma.js";
 import { getObject } from "../lib/storage.js";
 import { createLiveKitToken, getLiveKitRecordingObject, livekitClientUrl, livekitConfigured, livekitEgress, livekitRecordingConfigured, livekitRecordingStorage, livekitRoomService } from "../lib/livekit.js";
+import { assertSchoolOSNativeLiveClassAdmissionAllowed } from "../lib/schoolos-video-admission.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
@@ -1588,6 +1589,8 @@ router.post("/learning/live-classes/:id/join", async (req: AuthRequest, res) => 
   const actor = await learningActorForRequest(req);
   const live = await prisma.liveClass.findFirst({ where: { id: String(req.params.id), ...learningLiveClassWhere(actor, { teacherOwned: actor.role === Role.TEACHER }), status: LearningStatus.PUBLISHED } });
   if (!live) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Live class is not available");
+  if (live.provider === LiveClassProvider.NATIVE)
+    assertSchoolOSNativeLiveClassAdmissionAllowed(req.auth!.organizationId);
   const attendance = await prisma.liveClassAttendance.upsert({ where: { liveClassId_userId: { liveClassId: live.id, userId: actor.userId } }, update: { joinedAt: new Date(), leftAt: null }, create: { organizationId: req.auth!.organizationId, liveClassId: live.id, userId: actor.userId } });
   res.json({ data: { attendance, provider: live.provider, meetingUrl: live.meetingUrl, meetingId: live.meetingId, meetingPassword: live.meetingPassword, whiteboardUrl: live.whiteboardUrl } });
 });
@@ -1618,6 +1621,9 @@ router.post("/learning/live-classes/native/:room/session", async (req: AuthReque
   const actor = await learningActorForRequest(req);
   const room = z.string().min(10).max(120).parse(req.params.room);
   const { live, manager } = await nativeClassForActor(actor, room);
+  // This legacy native class has no prepaid Meeting record or settlement proof.
+  // Redirect paid video tenants to the quota-gated native Meetings flow.
+  assertSchoolOSNativeLiveClassAdmissionAllowed(req.auth!.organizationId);
   if (!livekitConfigured()) throw new AppError(503, "LIVE_CLASS_NOT_CONFIGURED", "Native live classroom infrastructure is not configured");
   const lock = await prisma.liveClassInteraction.findFirst({ where: { liveClassId: live.id, type: "ROOM_LOCK" }, orderBy: { createdAt: "desc" } });
   const locked = Boolean((lock?.content as any)?.locked);
