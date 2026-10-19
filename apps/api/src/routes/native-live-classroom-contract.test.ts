@@ -70,4 +70,9 @@ test("paid-video tenants cannot bypass Meetings quota through native LMS tokens 
  assert.match(join,/live\.provider === LiveClassProvider\.NATIVE/);
  assert.match(join,/assertSchoolOSNativeLiveClassAdmissionAllowed\(req\.auth!\.organizationId\)/);
  assert.ok(join.indexOf("assertSchoolOSNativeLiveClassAdmissionAllowed")<join.indexOf("liveClassAttendance.upsert"));
+ const recording=source.slice(source.indexOf('router.post("/learning/live-classes/native/:room/recording/start"'),
+   source.indexOf('router.post("/learning/live-classes/native/:room/recording/stop"'));
+ assert.ok(recording.indexOf("assertSchoolOSNativeLiveClassAdmissionAllowed")<
+   recording.indexOf('livekitEgress("StartEgress"'),
+   "Unmetered paid-provider recording creation must fail before remote Egress");
 });
