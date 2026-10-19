@@ -34,3 +34,8 @@ export function assertStudentCoachingGrade(groupLabelType: string | null | undef
   }
   return grade;
 }
+
+/** LMS branch scope expands only for a coaching teacher's active, same-tenant allocations. */
+export function teacherLmsBranchScope(groupLabelType: string | null | undefined, homeBranchId: string, allocatedBranchIds: string[]) {
+  return isCoaching(groupLabelType) ? [...new Set([homeBranchId, ...allocatedBranchIds])] : [homeBranchId];
+}
