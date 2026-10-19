@@ -1,0 +1,132 @@
+name: SchoolOS V5 Isolated Staging Sandbox
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/schoolos-v5-sandbox-acceptance.yml"
+      - "scripts/check-schoolos-v5-sandbox*.mjs"
+      - "apps/api/**"
+      - "apps/web/**"
+      - "config/schoolos-v5-release-gates.json"
+
+permissions: { contents: read }
+concurrency:
+  group: "v5-acceptance-${{ github.event.pull_request.number }}"
+  cancel-in-progress: true
+
+jobs:
+  isolated-acceptance:
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || startsWith(github.head_ref, 'release-candidate/schoolos-v5-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_DB: bba_v5_sandbox_test, POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bba_v5_sandbox_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CI: "true"
+      NODE_ENV: test
+      RUN_POSTGRES_INTEGRATION: "1"
+      SCHOOLOS_RC_SHA: "${{ github.event.pull_request.head.sha }}"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/bba_v5_sandbox_test?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/bba_v5_sandbox_test?schema=public
+      REDIS_URL: redis://127.0.0.1:6379/0
+      WEB_URL: http://localhost:3000
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:4000/api/v1
+      INTERNAL_API_URL: http://127.0.0.1:4000/api/v1
+      INTERNAL_API_ORIGIN: http://127.0.0.1:4000
+      JWT_ACCESS_SECRET: disposable-ci-only-access-secret-long-enough-123
+      JWT_REFRESH_SECRET: disposable-ci-only-refresh-secret-long-enough-123
+      REDIS_REQUIRED: "true"
+      RAZORPAY_MODE: test
+      SCHOOLOS_VIDEO_ADMISSION_ENABLED: "false"
+      SCHOOLOS_VIDEO_SETTLEMENT_ENABLED: "false"
+      SCHOOLOS_VIDEO_WEBHOOK_ENABLED: "false"
+      SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED: "false"
+    steps:
+      - name: Pin exact PR commit (never use mutable merge head)
+        uses: actions/checkout@v4
+        with:
+          ref: "${{ github.event.pull_request.head.sha }}"
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - name: Prove disposable infrastructure and billing disabled
+        run: |
+          node --test scripts/check-schoolos-v5-sandbox.test.mjs
+          node scripts/check-schoolos-v5-sandbox.mjs
+          test "$(git rev-parse HEAD)" = "$SCHOOLOS_RC_SHA"
+      - run: pnpm install --frozen-lockfile
+      - name: Generate schema and apply 114 migrations on disposable PostgreSQL
+        run: |
+          pnpm --filter @bba/api prisma:generate
+          pnpm --filter @bba/api exec prisma migrate deploy
+          applied=$(PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d bba_v5_sandbox_test -Atqc 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')
+          test "$applied" = "114"
+      - name: Real authenticated HTTP coaching with PostgreSQL
+        run: pnpm --filter @bba/api exec tsx --test src/integration/academic-placement-concurrency.integration.test.ts
+      - name: Signed LiveKit simulation and provider disconnect negative QA
+        run: |
+          pnpm --filter @bba/api exec tsx --test \
+            src/integration/schoolos-livekit-signed-webhook-e2e.integration.test.ts \
+            src/integration/schoolos-video-cutoff-selection.integration.test.ts
+          pnpm --filter @bba/api exec tsx --test \
+            src/lib/schoolos-video-provider-end.test.ts \
+            src/lib/schoolos-video-admission.test.ts \
+            src/routes/schoolos-video-admission.contract.test.ts \
+            src/routes/schoolos-video-provider-end.contract.test.ts
+      - name: Verify commercial release gate remains HOLD
+        run: |
+          pnpm v5:release:check
+          node --input-type=module -e 'import fs from "node:fs"; const x=JSON.parse(fs.readFileSync("config/schoolos-v5-release-gates.json","utf8")); if(x.declaredStatus!=="HOLD"||x.gates.some(g=>g.status!=="PENDING")) process.exit(1); console.log("Ten independent release gates remain unsigned");'
+      - name: Build API and web production bundles on disposable runner
+        run: |
+          pnpm typecheck
+          pnpm build
+      - name: Start isolated API and Web; check readiness and HTTP
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @bba/api start >/tmp/v5-api.log 2>&1 &
+          api_pid=$!
+          pnpm --filter @bba/web exec next start --hostname 127.0.0.1 >/tmp/v5-web.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$api_pid" "$web_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:4000/health/ready >/tmp/v5-ready.json; then ready=1; break; fi
+            sleep 2
+          done
+          if [[ "$ready" != 1 ]]; then cat /tmp/v5-api.log; exit 1; fi
+          node --input-type=module -e 'import fs from "node:fs"; const x=JSON.parse(fs.readFileSync("/tmp/v5-ready.json","utf8"));if(x.status!=="ready"||x.checks.database!==true||x.checks.redis!==true)process.exit(1);'
+          online=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/ -o /tmp/v5-web.html; then online=1; break; fi
+            sleep 2
+          done
+          if [[ "$online" != 1 ]]; then cat /tmp/v5-web.log; exit 1; fi
+          curl -fsS http://127.0.0.1:4000/health/operational >/tmp/v5-operational.json
+      - name: Record machine QA provenance (not commercial signoff)
+        if: success()
+        run: |
+          mkdir -p artifacts/v5-sandbox
+          node --input-type=module -e 'import fs from "node:fs";fs.writeFileSync("artifacts/v5-sandbox/result.json",JSON.stringify({product:"Adhyay SchoolOS",version:"5.0",kind:"GITHUB_EPHEMERAL_NOT_EXTERNAL_STAGING",candidateSha:process.env.SCHOOLOS_RC_SHA,migrations:114,result:"AUTOMATED_SANDBOX_PASS_NOT_CUSTOMER_UAT",v4ProductionTouched:false,externalStagingDeployed:false,paidProviderCalls:false,commercialGateStatus:"HOLD",workflowRunId:process.env.GITHUB_RUN_ID},null,2)+"\n");'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "schoolos-v5-sandbox-${{ github.run_id }}"
+          path: artifacts/v5-sandbox/result.json
+          if-no-files-found: warn
+          retention-days: 30
