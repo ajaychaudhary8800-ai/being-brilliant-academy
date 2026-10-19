@@ -20,7 +20,7 @@ import {
 } from "../lib/livekit.js";
 import { prisma } from "../lib/prisma.js";
 import { assertFeatureEntitled } from "../lib/saas-commercial.js";
-import { authorizeSchoolOSPrepaidVideoRoom } from "../lib/schoolos-video-admission.js";
+import { authorizeSchoolOSPrepaidVideoRoom,schoolOSVideoAdmissionEnabled } from "../lib/schoolos-video-admission.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
@@ -100,6 +100,20 @@ router.post("/meetings/native/:room/session", async (req: AuthRequest, res) => {
   const user = await prisma.user.findFirst({ where: { organizationId: org(req), id: actor(req), isActive: true }, select: { name: true } });
   if (!user) throw new AppError(404, "USER_NOT_FOUND", "User account not found");
 
+  // Do not bypass concurrent-room commercial restrictions via direct token API.
+  if (schoolOSVideoAdmissionEnabled(org(req)) && meeting.status !== MeetingStatus.LIVE) {
+    const policy = await assertFeatureEntitled(org(req), "meetings");
+    const limit = policy.enforcementEnabled ? policy.plan?.limits["meeting.concurrentRooms"] : null;
+    if (typeof limit === "number") {
+      const liveRooms = await prisma.meeting.count({where:{
+        organizationId:org(req),status:{in:[MeetingStatus.OPEN_FOR_JOIN,MeetingStatus.LIVE]},
+        id:{not:meeting.id},
+      }});
+      if (liveRooms >= limit)
+        throw new AppError(409,"MEETING_CONCURRENT_ROOM_LIMIT",
+          `Your plan allows ${limit} concurrent meeting rooms`);
+    }
+  }
   // Only explicitly opted-in SchoolOS V5 tenants hold prepaid quota here.
   // All existing V4 meeting behavior remains unchanged by default.
   const videoAdmission = await authorizeSchoolOSPrepaidVideoRoom(org(req), meeting.id);
@@ -158,7 +172,6 @@ router.post("/meetings/native/:room/join", async (req: AuthRequest, res) => {
   const { meeting, participant } = await meetingForRoom(req, room);
   const manager = managerRole(participant.meetingRole);
   assertJoinable(meeting, manager);
-  await authorizeSchoolOSPrepaidVideoRoom(org(req), meeting.id);
   if (meeting.status !== MeetingStatus.LIVE) {
     const policy = await assertFeatureEntitled(org(req), "meetings");
     const limit = policy.enforcementEnabled ? policy.plan?.limits["meeting.concurrentRooms"] : null;
@@ -167,6 +180,7 @@ router.post("/meetings/native/:room/join", async (req: AuthRequest, res) => {
       if (liveRooms >= limit) throw new AppError(409, "MEETING_CONCURRENT_ROOM_LIMIT", `Your plan allows ${limit} concurrent meeting rooms`);
     }
   }
+  await authorizeSchoolOSPrepaidVideoRoom(org(req), meeting.id);
   const existing = await prisma.meetingAttendanceSession.findFirst({
     where: { organizationId: org(req), meetingId: meeting.id, participantId: participant.id, leftAt: null },
     orderBy: { joinedAt: "desc" },
