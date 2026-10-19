@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertBatchCoachingGrades, assertStudentCoachingGrade, teacherAssignable } from "./coaching-academic-policy.js";
+import { assertBatchCoachingGrades, assertStudentCoachingGrade, teacherAssignable, teacherLmsBranchScope } from "./coaching-academic-policy.js";
 
 test("one same-tenant teacher can teach multiple coaching branches", () => {
   const teacher = { organizationId: "tenant-a", branchId: "branch-1" };
@@ -17,4 +17,10 @@ test("mixed-grade coaching batch accepts Classes 5, 6 and 7 only", () => {
   assert.throws(() => assertBatchCoachingGrades("BATCH", [5, 5]));
   assert.throws(() => assertBatchCoachingGrades("SECTION", [5, 6]));
   assert.throws(() => assertStudentCoachingGrade("SECTION", [], 5));
+});
+
+test("LMS exposes allocated branches only in coaching mode, without duplicates", () => {
+  assert.deepEqual(teacherLmsBranchScope("BATCH", "branch-1", ["branch-2", "branch-1", "branch-3"]), ["branch-1", "branch-2", "branch-3"]);
+  assert.deepEqual(teacherLmsBranchScope("SECTION", "branch-1", ["branch-2"]), ["branch-1"]);
+  assert.deepEqual(teacherLmsBranchScope("GROUP", "branch-1", ["branch-2"]), ["branch-1"]);
 });
