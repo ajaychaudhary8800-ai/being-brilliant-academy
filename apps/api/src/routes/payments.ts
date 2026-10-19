@@ -36,7 +36,8 @@ router.post("/razorpay/webhook", async (req, res) => { const signature = req.hea
     type:event.event,entityId:child.id,providerPaymentId:child.payment_id,
     orderId:original.order_id,originalAmountPaise:original.amount,amountPaise:child.amount,
     currency:child.currency,
-  },event);
+  },{event:event.event,payment:original,
+    riskEntity:{id:child.id,payment_id:child.payment_id,amount:child.amount,currency:child.currency}});
   return res.status(200).send("ok");
 }
 if (event.event === "payment.failed") {
