@@ -93,6 +93,7 @@ test("signed SchoolOS payment failures are idempotent, paid-state safe and isola
         "payment.failed:"+paymentId,"payment.failed:pay_late"+token,
       ]},
     }});
+    await systemPrisma.auditLog.deleteMany({where:{organizationId:orgId}});
     await systemPrisma.saaSPayment.deleteMany({where:{organizationId:orgId}});
     await systemPrisma.saaSInvoice.deleteMany({where:{organizationId:orgId}});
     await systemPrisma.schoolOSQuotation.deleteMany({where:{organizationId:orgId}});
