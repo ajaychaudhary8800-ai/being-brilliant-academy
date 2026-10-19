@@ -7,7 +7,7 @@ test("renewal signed-origin enforcement survives quote creation, checkout and ca
  const settlement=await readFile(new URL("../lib/saas-commercial.ts",import.meta.url),"utf8");
  assert.match(quote,/renewalSourceInvoiceId: z\.string/);
  assert.match(quote,/assertSchoolOSRenewalSource\(source, input\.organizationId/);
- assert.match(quote,/renewal: renewal \?\? undefined/);
+ assert.match(quote,/renewal \? \{renewal\} : \{\}/);
  assert.match(checkout,/readSchoolOSRenewalContext\(quote\.pricingSnapshot\)/);
  assert.match(checkout,/assertSchoolOSRenewalSource\(renewalSource, organizationId/);
  assert.match(settlement,/readSchoolOSRenewalContext\(quote\.pricingSnapshot\)/);
