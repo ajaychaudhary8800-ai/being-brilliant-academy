@@ -20,7 +20,7 @@ export function assertBatchCoachingGrades(groupLabelType: string | null | undefi
 }
 
 /** An empty list preserves the unrestricted behavior of legacy coaching batches. */
-export function assertStudentCoachingGrade(groupLabelType: string | null | undefined, allowedGrades: number[], grade: number | null | undefined, required = true) {
+export function assertStudentCoachingGrade(groupLabelType: string | null | undefined, allowedGrades: number[] = [], grade: number | null | undefined, required = allowedGrades.length > 0) {
   if (!isCoaching(groupLabelType)) {
     if (grade != null) throw new AppError(422, "COACHING_MODE_REQUIRED", "Class level selection is available only in coaching mode");
     return null;
