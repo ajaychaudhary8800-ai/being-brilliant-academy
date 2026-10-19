@@ -216,7 +216,9 @@ router.post("/meetings/native/:room/end", async (req: AuthRequest, res) => {
   const meteredRoom = schoolOSVideoAdmissionEnabled(org(req));
   if (meteredRoom) {
     await requireSchoolOSPrepaidRoomDisconnect(
+      room,
       () => livekitRoomService("DeleteRoom", { room }, room),
+      () => livekitRoomService("ListRooms", { names: [room] }, room),
     );
   }
   const now = new Date();
