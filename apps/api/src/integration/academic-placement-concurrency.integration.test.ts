@@ -129,6 +129,18 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
         where: { organizationId, batchId: mixed.id }, select: { coachingGrade: true },
       });
       assert.deepEqual(rest.map(s => s.coachingGrade).sort(), [6, 6, 7]);
+
+      // Editing configured grades must not silently invalidate enrolled pupils.
+      const removeSix = await request(`/batches/${mixed.id}`, "PATCH", { coachingGrades: [5, 7] });
+      assert.equal(removeSix.status, 409, JSON.stringify(removeSix.payload));
+      assert.equal(removeSix.payload.error.code, "COACHING_GRADE_ENROLLMENTS");
+      const unchangedBatch = await systemPrisma.batch.findUniqueOrThrow({ where: { id: mixed.id } });
+      assert.deepEqual(unchangedBatch.coachingGrades, [5, 6, 7]);
+      const foreignRead = await request(`/batches/${mixed.id}`, "GET", undefined, otherAdmin, otherOrganizationId);
+      assert.ok([403, 404].includes(foreignRead.status), JSON.stringify(foreignRead.payload));
+      const foreignEdit = await request(`/batches/${mixed.id}`, "PATCH",
+        { coachingGrades: [8] }, otherAdmin, otherOrganizationId);
+      assert.ok([403, 404].includes(foreignEdit.status), JSON.stringify(foreignEdit.payload));
     });
 
     await t.test("coaching can assign a teacher from branch A to a group in branch B", async () => {
@@ -140,12 +152,29 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
         organizationId, userId: user.id, employeeNo: `AP-X-${key}`, branchId: branch.id,
       } });
       try {
+        // School sections must retain their historical home-branch restriction;
+        // this same teacher becomes cross-branch assignable only in coaching.
+        await systemPrisma.organization.update({
+          where: { id: organizationId }, data: { groupLabelType: "SECTION" },
+        });
+        const schoolDenied = await request(`/batches/${batchB.id}`, "PATCH", { teacherId: teacher.id });
+        assert.equal(schoolDenied.status, 422, JSON.stringify(schoolDenied.payload));
+        assert.equal(schoolDenied.payload.error.code, "INVALID_TEACHER");
+        const schoolLocal = await request(`/batches/${batch.id}`, "PATCH", { teacherId: teacher.id });
+        assert.equal(schoolLocal.status, 200, JSON.stringify(schoolLocal.payload));
+        await systemPrisma.batch.update({ where: { id: batch.id }, data: { teacherId: null } });
+        await systemPrisma.organization.update({
+          where: { id: organizationId }, data: { groupLabelType: "BATCH" },
+        });
         const result = await request(`/batches/${batchB.id}`, "PATCH", { teacherId: teacher.id });
         assert.equal(result.status, 200, JSON.stringify(result.payload));
         assert.equal(result.payload.data.teacher.id, teacher.id);
         assert.equal(result.payload.data.branch.id, branchB.id);
         assert.equal((await systemPrisma.batch.findUniqueOrThrow({ where: { id: batchB.id } })).teacherId, teacher.id);
       } finally {
+        await systemPrisma.organization.update({ where: { id: organizationId },
+          data: { groupLabelType: "BATCH" } });
+        await systemPrisma.batch.update({ where: { id: batch.id }, data: { teacherId: null } });
         await systemPrisma.batch.update({ where: { id: batchB.id }, data: { teacherId: null } });
         await systemPrisma.teacherProfile.delete({ where: { id: teacher.id } });
         await systemPrisma.user.delete({ where: { id: user.id } });
