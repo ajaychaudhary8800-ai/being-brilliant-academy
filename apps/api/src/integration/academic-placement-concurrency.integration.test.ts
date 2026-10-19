@@ -141,6 +141,15 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
       const foreignEdit = await request(`/batches/${mixed.id}`, "PATCH",
         { coachingGrades: [8] }, otherAdmin, otherOrganizationId);
       assert.ok([403, 404].includes(foreignEdit.status), JSON.stringify(foreignEdit.payload));
+
+      // Unrestricted coaching batches may have no individual grade; clearing
+      // the grade must also clear its stale "Class N" display label.
+      const unrestricted = await request(`/batches/${mixed.id}`, "PATCH", { coachingGrades: [] });
+      assert.equal(unrestricted.status, 200, JSON.stringify(unrestricted.payload));
+      const cleared = await request(`/students/${enrolled[0]!.id}`, "PATCH", { coachingGrade: null });
+      assert.equal(cleared.status, 200, JSON.stringify(cleared.payload));
+      assert.equal(cleared.payload.data.coachingGrade, null);
+      assert.equal(cleared.payload.data.className, course.title);
     });
 
     await t.test("coaching can assign a teacher from branch A to a group in branch B", async () => {
