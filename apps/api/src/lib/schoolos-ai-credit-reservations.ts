@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
 import { assertSchoolOSUsageRequest } from "./schoolos-usage-policy.js";
+import { schoolOSAIReconciliationDecision } from "./schoolos-ai-credit-reconciliation-policy.js";
 
 /** Proposed V5 policy: one credit per completed primary evaluation, subject to commercial approval. */
 export const SCHOOL_OS_AI_CREDIT_POLICY = "EXAMINER_EVALUATION_V1";
@@ -72,7 +73,10 @@ export async function reserveSchoolOSAIExaminerCredit(
 }
 
 /** Call only after provider-confirmed billable evaluation. Late risk holds block closure. */
-export async function commitSchoolOSAIExaminerCredit(organizationId:string,evaluationId:string) {
+export async function commitSchoolOSAIExaminerCredit(
+ organizationId:string,evaluationId:string,
+ review?:{actorId:string;evidenceReference:string;reviewComment:string},
+) {
  tenant(organizationId);const requestKey=key(evaluationId);
  return systemPrisma.$transaction(async tx=>{
   await lock(tx,organizationId);
@@ -84,15 +88,43 @@ export async function commitSchoolOSAIExaminerCredit(organizationId:string,evalu
   if(row.status==="COMMITTED")return {committed:false,reservationId:row.id};
   if(await risk(tx,organizationId))
    throw new AppError(409,"SCHOOLOS_AI_COMMIT_FINANCE_HOLD","Provider outcome requires finance reconciliation");
+  if(review) {
+   // Manual settlement is never justified by an arbitrary operator statement:
+   // the evaluation's own persisted result must independently prove success.
+   if(!review.actorId || review.actorId===row.actorId ||
+     review.evidenceReference.trim().length<12 || review.evidenceReference.length>250 ||
+     review.reviewComment.trim().length<20 || review.reviewComment.length>2000)
+    throw new AppError(422,"SCHOOLOS_AI_RECONCILIATION_REVIEW_INVALID",
+      "Independent platform reviewer and detailed evidence are required");
+   const evaluation=await tx.aIExaminerEvaluation.findFirst({
+    where:{id:evaluationId,organizationId},
+    select:{organizationId:true,status:true,completedAt:true,provider:true,model:true,errorCode:true,
+     _count:{select:{questions:true}}},
+   });
+   const decision=schoolOSAIReconciliationDecision(organizationId,evaluation?{
+    organizationId:evaluation.organizationId,status:evaluation.status,
+    completedAt:evaluation.completedAt,provider:evaluation.provider,model:evaluation.model,
+    errorCode:evaluation.errorCode,questionCount:evaluation._count.questions,
+   }:null,false);
+   if(!decision.commitEligible)
+    throw new AppError(409,"SCHOOLOS_AI_RECONCILIATION_EVIDENCE_MISSING",
+      "Only verified persisted AI evaluation results permit manual credit settlement");
+  }
   await tx.schoolOSUsageEvent.create({data:{
    organizationId,balanceId:row.balanceId,metric,kind:"CONSUME",units:row.units,
    requestKey,actorId:row.actorId,
   }});
   await tx.schoolOSUsageReservation.update({where:{id:row.id},
    data:{status:"COMMITTED",committedAt:new Date()}});
-  await tx.auditLog.create({data:{organizationId,actorId:row.actorId,
-   action:"SCHOOLOS_AI_CREDIT_COMMITTED",entity:"SchoolOSUsageReservation",
-   entityId:row.id,metadata:{evaluationId,policy:SCHOOL_OS_AI_CREDIT_POLICY}}});
+  await tx.auditLog.create({data:{organizationId,actorId:review?.actorId??row.actorId,
+   action:review?"SCHOOLOS_AI_CREDIT_RECONCILED":"SCHOOLOS_AI_CREDIT_COMMITTED",
+   entity:"SchoolOSUsageReservation",entityId:row.id,
+   metadata:{evaluationId,policy:SCHOOL_OS_AI_CREDIT_POLICY,
+     ...(review?{evidenceReference:review.evidenceReference.trim(),
+       reviewComment:review.reviewComment.trim(),reviewerId:review.actorId,
+       originalRequesterId:row.actorId}:{}),
+   },
+  }});
   return {committed:true,reservationId:row.id};
  },{isolationLevel:Prisma.TransactionIsolationLevel.ReadCommitted});
 }
