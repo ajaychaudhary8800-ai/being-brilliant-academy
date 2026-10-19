@@ -60,12 +60,16 @@ test("provider-signed, tenant-bound, reordered LiveKit events reach immutable re
     id,slug:id,name:"LiveKit Signed Evidence E2E",email:id+"@example.test",
    }});
   }
+  const maker=await systemPrisma.user.create({data:{
+   organizationId:a,email:"signed-maker-"+tag+"@example.test",
+   passwordHash:"synthetic-disabled",name:"Synthetic Finance Maker",role:"SUPER_ADMIN",
+  }});
   const createMeeting=async(organizationId:string,roomName:string)=>{
    const meeting=await systemPrisma.meeting.create({data:{
     organizationId,title:"LiveKit Signed Provider Test",
     startsAt:new Date((now-220)*1000),endsAt:new Date((now+10)*1000),
     timezone:"Asia/Kolkata",hostUserId:"qa-livekit-host",
-    createdById:"qa-livekit-maker",livekitRoomName:roomName,status:"ENDED",
+    createdById:maker.id,livekitRoomName:roomName,status:"ENDED",
    }});
    return meeting.id;
   };
@@ -76,7 +80,7 @@ test("provider-signed, tenant-bound, reordered LiveKit events reach immutable re
     organizationId:a,meetingId:meetingA,userId:person,
     participantKind:"EMPLOYEE",
     meetingRole:person==="qa-livekit-host"?"HOST":"PARTICIPANT",
-    addedById:"qa-livekit-maker",
+    addedById:maker.id,
    }});
   }
   env.SCHOOLOS_VIDEO_WEBHOOK_ENABLED=true;
@@ -136,7 +140,7 @@ test("provider-signed, tenant-bound, reordered LiveKit events reach immutable re
   assert.equal(await systemPrisma.schoolOSUsageEvent.count({where:{organizationId:a}}),0);
 
   const proposal=await proposeSchoolOSVideoReview(
-   a,meetingA,"qa-livekit-maker","signed-livekit-provider-session-"+tag,
+   a,meetingA,maker.id,"signed-livekit-provider-session-"+tag,
    "Signed LiveKit session was validated by synthetic finance QA",
   );
   assert.equal(proposal.status,"PENDING");
@@ -170,6 +174,7 @@ test("provider-signed, tenant-bound, reordered LiveKit events reach immutable re
   });
   if(meetingA)await systemPrisma.meeting.deleteMany({where:{id:meetingA,organizationId:a}});
   if(meetingB)await systemPrisma.meeting.deleteMany({where:{id:meetingB,organizationId:b}});
+  await systemPrisma.user.deleteMany({where:{organizationId:{in:[a,b]}}});
   await systemPrisma.$transaction(async tx=>{
    await tx.$executeRawUnsafe('ALTER TABLE "AcademicSession" DISABLE TRIGGER "AcademicSession_exactly_one_current"');
    await tx.academicSession.deleteMany({where:{organizationId:{in:[a,b]}}});
