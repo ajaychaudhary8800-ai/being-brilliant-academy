@@ -19,7 +19,7 @@ import { AIExaminerScoringError } from "./ai-examiner-deterministic.js";
 import { parseAIExaminerExamProfile } from "./ai-examiner-exam-profile.js";
 import { ensureAIExaminerCheckedCopyDraft } from "./ai-examiner-checked-copy-draft.js";
 import { reserveSchoolOSAIExaminerCredit, commitSchoolOSAIExaminerCredit } from "./schoolos-ai-credit-reservations.js";
-import { isSchoolOSAIExaminerMeteringEnabled } from "./schoolos-ai-examiner-metering-policy.js";
+import { isSchoolOSAIExaminerMeteringEnabled, schoolOSAIExaminerSettlementDecision } from "./schoolos-ai-examiner-metering-policy.js";
 import { decideAIExaminerSecondPass } from "./ai-examiner-second-pass.js";
 import { collectTrustedAIExaminerOmrAnswers } from "./ai-examiner-scan-ingestion.js";
 import {
