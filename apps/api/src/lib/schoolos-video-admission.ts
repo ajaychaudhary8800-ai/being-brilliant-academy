@@ -54,6 +54,15 @@ export async function authorizeSchoolOSPrepaidVideoRoom(
   if(!["SCHEDULED","OPEN_FOR_JOIN","LIVE"].includes(meeting.status))
    throw new AppError(409,"SCHOOLOS_VIDEO_MEETING_INACTIVE","Meeting is not joinable");
   const window=schoolOSVideoReservationWindow(meeting,now);
+  const organization=await tx.organization.findUnique({where:{id:organizationId},
+   select:{isActive:true,deletedAt:true,subscriptionStatus:true,subscriptionEndsAt:true}});
+  if(!organization||!organization.isActive||organization.deletedAt||
+      organization.subscriptionStatus!=="ACTIVE"||!organization.subscriptionEndsAt||
+      organization.subscriptionEndsAt<=now)
+   throw new AppError(403,"SCHOOLOS_VIDEO_SUBSCRIPTION_INACTIVE","An active paid subscription is required");
+  const financialHold=await tx.schoolOSPaymentRiskHold.findFirst({where:{organizationId,status:"ACTIVE"},
+   select:{id:true}});
+  if(financialHold)throw new AppError(409,"SCHOOLOS_VIDEO_FINANCE_HOLD","Financial risk blocks new video sessions");
   const previous=await tx.schoolOSUsageReservation.findUnique({
    where:{organizationId_metric_requestKey:{organizationId,metric,requestKey}},
   });
@@ -65,15 +74,6 @@ export async function authorizeSchoolOSPrepaidVideoRoom(
    return {enforced:true,admitted:true,reservedNow:false,reservationId:previous.id,
     heldMinutes:previous.units,tokenTtlSeconds:window.tokenTtlSeconds};
   }
-  const organization=await tx.organization.findUnique({where:{id:organizationId},
-   select:{isActive:true,deletedAt:true,subscriptionStatus:true,subscriptionEndsAt:true}});
-  if(!organization||!organization.isActive||organization.deletedAt||
-      organization.subscriptionStatus!=="ACTIVE"||!organization.subscriptionEndsAt||
-      organization.subscriptionEndsAt<=now)
-   throw new AppError(403,"SCHOOLOS_VIDEO_SUBSCRIPTION_INACTIVE","An active paid subscription is required");
-  const financialHold=await tx.schoolOSPaymentRiskHold.findFirst({where:{organizationId,status:"ACTIVE"},
-   select:{id:true}});
-  if(financialHold)throw new AppError(409,"SCHOOLOS_VIDEO_FINANCE_HOLD","Financial risk blocks new video sessions");
   const buckets=await tx.schoolOSUsageBalance.findMany({where:{
    organizationId,metric,periodStart:{lte:window.preauthorizedFrom},
    periodEnd:{gte:window.preauthorizedUntil},
