@@ -136,7 +136,7 @@ test("provider-signed, tenant-bound, reordered LiveKit events reach immutable re
   const unknown=raw("unknown","not-a-mapped-room-"+tag,"room_finished",-40);
   await expectCode(()=>ingestSchoolOSLiveKitEvidence(unknown,signed(unknown)),
    "SCHOOLOS_LIVEKIT_ROOM_AMBIGUOUS");
-  await assert.rejects(()=>schoolOSVideoEvidencePreview(b,meetingA));
+  await assert.rejects(()=>schoolOSVideoEvidencePreview(b,meetingA!));
   assert.equal(await systemPrisma.schoolOSUsageEvent.count({where:{organizationId:a}}),0);
 
   const proposal=await proposeSchoolOSVideoReview(
