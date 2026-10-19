@@ -38,6 +38,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - name: Validate SchoolOS V5 promotion lock and legacy staging veto
+        run: node --test scripts/check-schoolos-v5-promotion.test.mjs
       - name: Validate SchoolOS V5 release gate policy tests
         run: pnpm v5:release:test
       - name: Verify SchoolOS V5 release HOLD or evidence-backed READY status
