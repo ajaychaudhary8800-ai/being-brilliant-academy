@@ -28,6 +28,10 @@ test("production gate precedes any registry push, V5 is forbidden in shared stag
  const prod=await readFile(new URL("../.github/workflows/deploy.yml",import.meta.url),"utf8");
  const stage=await readFile(new URL("../.github/workflows/staging.yml",import.meta.url),"utf8");
  assert.match(prod,/node scripts\/check-schoolos-v5-promotion\.mjs --target=production/);
+ assert.match(prod,/GITHUB_REF.*refs\/tags\/v5\.\*/);
+ assert.match(prod,/\|\| \[ -f config\/schoolos-v5-release-gates\.json \]/);
+ // Both conditions occur before image publication; a v5 tag lacking the
+ // release manifest still invokes the veto script and fails closed.
  assert.ok(prod.indexOf("Enforce SchoolOS V5 production release approval")<
    prod.indexOf("docker\/build-push-action@v6"));
  assert.match(stage,/Refuse V5 candidate in legacy shared staging/);
