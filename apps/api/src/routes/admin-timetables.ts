@@ -19,6 +19,24 @@ async function lockTimetableBranch(tx: Prisma.TransactionClient, branchId: strin
   await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtext(${"erp-timetable:" + branchId}))`;
 }
 
+/** A cross-branch teacher may be scheduled by two branch admins concurrently.
+ * A fresh serializable snapshot converts retriable P2034 races into actual
+ * conflict validation rather than exposing an intermittent 500 error.
+ */
+async function retryTimetableTransaction<T>(write: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try { return await write(); }
+    catch (error) {
+      const code = error && typeof error === "object" && "code" in error
+        ? (error as { code?: string }).code : undefined;
+      if (code !== "P2034") throw error;
+      if (attempt === 3) throw new AppError(409, "TIMETABLE_CONCURRENT_UPDATE",
+        "The timetable changed concurrently; reload and retry");
+    }
+  }
+  throw new AppError(409, "TIMETABLE_CONCURRENT_UPDATE", "The timetable changed concurrently");
+}
+
 async function checkWeek(
   req: AuthRequest,
   entries: TimetableEntry[],
@@ -400,11 +418,11 @@ router.post("/timetables/weekly", async (req: AuthRequest, res) => {
 
 router.get("/timetables/:id",async(req:AuthRequest,res)=>{const x=await prisma.timetable.findUnique({where:{id:String(req.params.id)},select});if(!x)throw new AppError(404,"TIMETABLE_NOT_FOUND","Timetable entry not found");await access(req,x.branch.id);res.json({data:shape(x)})});
 const timetableAudit=(req:AuthRequest,action:string,entityId:string,metadata?:object)=>prisma.auditLog.create({data:{organizationId:req.auth!.organizationId,actorId:req.auth!.userId,action,entity:"Timetable",entityId,metadata}});
-router.post("/timetables",async(req:AuthRequest,res)=>{const d=input.parse(req.body);await access(req,d.branchId);const created=await prisma.$transaction(async tx=>{await lockTimetableBranch(tx,d.branchId);const t=await validate(d,undefined,tx);const{startTime,endTime,...rest}=d;return tx.timetable.create({data:{...rest,...t,organizationId:req.auth!.organizationId},select})},{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000});await timetableAudit(req,"CREATE",created.id,{teacherId:d.teacherId,batchId:d.batchId,subjectId:d.subjectId});res.status(201).json({data:shape(created)})});
+router.post("/timetables",async(req:AuthRequest,res)=>{const d=input.parse(req.body);await access(req,d.branchId);const created=await retryTimetableTransaction(()=>prisma.$transaction(async tx=>{await lockTimetableBranch(tx,d.branchId);const t=await validate(d,undefined,tx);const{startTime,endTime,...rest}=d;return tx.timetable.create({data:{...rest,...t,organizationId:req.auth!.organizationId},select})},{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000}));await timetableAudit(req,"CREATE",created.id,{teacherId:d.teacherId,batchId:d.batchId,subjectId:d.subjectId});res.status(201).json({data:shape(created)})});
 router.patch("/timetables/:id",async(req:AuthRequest,res)=>{
   const id=String(req.params.id);
   const p=input.partial().parse(req.body);
-  const updated=await prisma.$transaction(async tx=>{
+  const updated=await retryTimetableTransaction(()=>prisma.$transaction(async tx=>{
     const old=await tx.timetable.findUnique({where:{id},select:{
       id:true,branchId:true,courseId:true,batchId:true,subjectId:true,teacherId:true,
       classroomId:true,day:true,startMinute:true,endMinute:true,periodNumber:true,
@@ -430,13 +448,13 @@ router.patch("/timetables/:id",async(req:AuthRequest,res)=>{
     const {startTime,endTime,...rest}=d;
     return tx.timetable.update({where:{id:old.id},
       data:{...rest,...t,organizationId:req.auth!.organizationId},select});
-  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000});
+  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000}));
   await timetableAudit(req,"UPDATE",updated.id,{teacherId:updated.teacher.id,batchId:updated.batch.id,subjectId:updated.subject.id});
   res.json({data:shape(updated)});
 });
 router.patch("/timetables/:id/status",async(req:AuthRequest,res)=>{
   const {status}=z.object({status:z.nativeEnum(TimetableStatus)}).parse(req.body);
-  const updated=await prisma.$transaction(async tx=>{
+  const updated=await retryTimetableTransaction(()=>prisma.$transaction(async tx=>{
     const old=await tx.timetable.findUnique({where:{id:String(req.params.id)},select:{
       id:true,branchId:true,courseId:true,batchId:true,subjectId:true,teacherId:true,
       classroomId:true,day:true,startMinute:true,endMinute:true,periodNumber:true,
@@ -458,7 +476,7 @@ router.patch("/timetables/:id/status",async(req:AuthRequest,res)=>{
     }
     return tx.timetable.update({where:{id:old.id},
       data:{status,organizationId:req.auth!.organizationId},select});
-  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000});
+  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000}));
   await timetableAudit(req,"STATUS_CHANGED",updated.id,{status});
   res.json({data:shape(updated)});
 });
