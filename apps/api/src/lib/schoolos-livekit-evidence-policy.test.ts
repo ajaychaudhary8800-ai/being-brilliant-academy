@@ -61,3 +61,17 @@ test("unpaired, duplicate, provider-incomplete and missing room-finished evidenc
   assert.equal(r.minutes,null);
  }
 });
+
+test("signed room_finished is room-scoped even when LiveKit supplies incidental participant metadata",()=>{
+ const payload=Buffer.from(JSON.stringify({
+  ...JSON.parse(body.toString()),
+  id:"provider-room-finished-01",
+  event:"room_finished",
+  participant:{identity:"incidental-host",sid:"PA-ignorable"},
+ }));
+ const e=verifySchoolOSLiveKitWebhook(payload,signature(payload),key,secret);
+ assert.equal(e?.eventType,"room_finished");
+ assert.equal(e?.identity,null);
+ assert.equal(e?.participantSid,null);
+ assert.match(e?.bodySha256??"",/^[0-9a-f]{64}$/);
+});
