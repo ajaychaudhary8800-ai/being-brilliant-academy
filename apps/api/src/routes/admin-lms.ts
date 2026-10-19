@@ -68,7 +68,7 @@ function bytes(value: z.infer<typeof file>, max: number, types: string[]) {
   return data;
 }
 
-async function relations(data: z.infer<typeof input>, current: LmsActor) {
+async function relations(data: z.infer<typeof input>, current: LmsActor, organizationId: string) {
   const [batch, courseSubject, teacher, module, homework, test] = await Promise.all([
     prisma.batch.findUnique({ where: { id: data.batchId }, select: { organizationId: true, branchId: true, courseId: true, academicSessionId: true } }),
     prisma.courseSubject.findUnique({ where: { courseId_subjectId: { courseId: data.courseId, subjectId: data.subjectId } }, select: { isActive: true } }),
@@ -77,10 +77,10 @@ async function relations(data: z.infer<typeof input>, current: LmsActor) {
     data.homeworkId ? prisma.homework.findUnique({ where: { id: data.homeworkId }, select: { batchId: true, subjectId: true } }) : null,
     data.testId ? prisma.test.findUnique({ where: { id: data.testId }, select: { courseId: true, batches: { select: { batchId: true } } } }) : null,
   ]);
-  if (!batch || batch.branchId !== data.branchId || batch.courseId !== data.courseId) throw new AppError(422, "INVALID_BATCH_RELATION", "Batch must match Branch and Course");
+  if (!batch || (batch.organizationId && batch.organizationId !== organizationId) || batch.branchId !== data.branchId || batch.courseId !== data.courseId) throw new AppError(422, "INVALID_BATCH_RELATION", "Batch must match Branch and Course");
   if (!courseSubject?.isActive) throw new AppError(422, "INVALID_SUBJECT_RELATION", "Subject must belong to Course");
-  const org = await prisma.organization.findUnique({ where: { id: batch.organizationId }, select: { groupLabelType: true } });
-  if (!teacher || !teacherAssignable(org?.groupLabelType, teacher, data.branchId, batch.organizationId)) throw new AppError(422, "INVALID_TEACHER_RELATION", "Teacher must belong to the institution and an eligible branch");
+  const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { groupLabelType: true } });
+  if (!teacher || !teacherAssignable(org?.groupLabelType, { organizationId: teacher.organizationId ?? organizationId, branchId: teacher.branchId }, data.branchId, organizationId)) throw new AppError(422, "INVALID_TEACHER_RELATION", "Teacher must belong to the institution and an eligible branch");
   if (!module || module.courseId !== data.courseId) throw new AppError(422, "INVALID_MODULE_RELATION", "Module must belong to Course");
   if (data.homeworkId && (!homework || homework.batchId !== data.batchId || homework.subjectId !== data.subjectId)) throw new AppError(422, "INVALID_HOMEWORK_LINK", "Homework must match Batch and Subject");
   if (data.testId && (!test || test.courseId !== data.courseId || !test.batches.some(item => item.batchId === data.batchId))) throw new AppError(422, "INVALID_QUIZ_LINK", "Quiz must match Course and Batch");
@@ -196,7 +196,7 @@ admin.get("/lms/lessons/:id", async (req: AuthRequest, res) => {
 
 admin.post("/lms/lessons", async (req: AuthRequest, res) => {
   const parsed = input.parse(req.body), data = { ...parsed, status: lmsLessonCreateStatus(parsed.status) }, current = await lmsActorForRequest(req);
-  assertLmsManagementAccess(current, data); await relations(data, current);
+  assertLmsManagementAccess(current, data); await relations(data, current, req.auth!.organizationId);
   const { video, attachments = [], ...rest } = data, videoData = video ? bytes(video, 25 * 1048576, ["video/mp4", "video/webm"]) : null;
   try {
     const lesson = await prisma.lesson.create({ data: { ...rest, type: video || data.videoUrl ? "VIDEO" : "NOTES", content: data.notes, ...(videoData ? { videoName: video!.name, videoMime: video!.mimeType, videoSize: videoData.length, videoData } : {}), attachments: { create: attachments.map(attachment => { const data = bytes(attachment, 5 * 1048576, ["application/pdf", "image/jpeg", "image/png", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]); return { name: attachment.name, mimeType: attachment.mimeType, size: data.length, data }; }) } }, select });
