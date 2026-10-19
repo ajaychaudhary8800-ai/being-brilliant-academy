@@ -6,7 +6,7 @@ import { errorMessage, getAccessToken } from "../../../components/auth-provider"
 
 type Client = { id: string; name: string; slug: string };
 type Feature = {
-  key: string; name: string; group: string; includedInPlan: boolean; enabled: boolean;
+  key: string; name: string; group: string; parent?: string; includedInPlan: boolean; enabled: boolean;
   source: string; override: { enabled: boolean; reason: string; expiresAt: string | null } | null;
 };
 type Details = { name: string; planCode: string; enforcementEnabled: boolean; features: Feature[] };
@@ -96,7 +96,7 @@ export default function SchoolOSFeatureLicensingPage() {
       <table className="w-full min-w-[720px] text-left text-sm">
         <thead><tr className="border-b"><th className="p-3">Module</th><th className="p-3">Base plan</th><th className="p-3">Effective access</th><th className="p-3">Override expiry</th><th className="p-3">Platform action</th></tr></thead>
         <tbody>{details.features.map(feature => <tr key={feature.key} className="border-b">
-          <td className="p-3"><strong>{feature.name}</strong><span className="block text-xs text-slate-500">{feature.group}</span></td>
+          <td className="p-3"><strong>{feature.name}</strong><span className="block text-xs text-slate-500">{feature.group}{feature.parent ? ` · Requires ${feature.parent}` : ""}</span></td>
           <td className="p-3">{feature.includedInPlan ? "Included" : "Not purchased"}</td>
           <td className="p-3">{feature.enabled ? "Enabled" : "Disabled"} <span className="text-xs text-slate-500">({feature.source.toLowerCase()})</span></td>
           <td className="p-3">{feature.override?.expiresAt ? new Date(feature.override.expiresAt).toLocaleDateString("en-IN") : "—"}</td>
