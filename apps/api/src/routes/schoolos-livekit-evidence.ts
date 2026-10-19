@@ -5,6 +5,7 @@ import { AppError } from "../lib/http.js";
 import { ingestSchoolOSLiveKitEvidence,schoolOSVideoEvidencePreview } from "../lib/schoolos-livekit-evidence-service.js";
 import { requireAuth,type AuthRequest } from "../middleware/auth.js";
 import { proposeSchoolOSVideoReview,decideSchoolOSVideoReview,listSchoolOSVideoReviews } from "../lib/schoolos-video-review-service.js";
+import { proposeSchoolOSZeroVideoRelease,decideSchoolOSZeroVideoRelease } from "../lib/schoolos-video-zero-release-service.js";
 const router=Router();
 /** No tenant or browser may submit unsigned attendance as provider evidence. */
 router.post("/platform/schoolos/livekit/webhook",async(req,res)=>{
@@ -50,4 +51,27 @@ router.post("/platform/schoolos/video-reviews/:organizationId/:reviewId/decision
   String(req.params.reviewId),req.auth!.userId,fields.decision,fields.reviewComment);
  res.json({data:result,meta:{manualApproval:true,automaticPaymentCapture:false}});
 });
+
+/** Zero-usage holds have a separate signed-evidence and 72-hour proof route.
+ * Both calls require an independent platform finance administrator. */
+router.post("/platform/schoolos/video-zero-release/:organizationId/:meetingId",requireAuth,
+ async(req:AuthRequest,res)=>{
+  platformFinance(req);
+  const fields=proposalFields.parse(req.body);
+  const result=await proposeSchoolOSZeroVideoRelease(
+    String(req.params.organizationId),String(req.params.meetingId),req.auth!.userId,
+    fields.evidenceReference,fields.rationale,
+  );
+  res.status(201).json({data:result,meta:{providerOutcomeRequired:true,automaticRelease:false}});
+ });
+router.post("/platform/schoolos/video-zero-release/:organizationId/:reviewId/decision",requireAuth,
+ async(req:AuthRequest,res)=>{
+  platformFinance(req);
+  const fields=decisionFields.parse(req.body);
+  const result=await decideSchoolOSZeroVideoRelease(
+    String(req.params.organizationId),String(req.params.reviewId),req.auth!.userId,
+    fields.decision,fields.reviewComment,
+  );
+  res.json({data:result,meta:{independentProviderCheck:true,automaticRelease:false}});
+ });
 export default router;
