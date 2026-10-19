@@ -180,6 +180,7 @@ router.post("/students/academic-transitions/bulk", async (req: AuthRequest, res)
       type: item.type,
       effectiveDate: parseDateOnly(item.effectiveDate),
       targetBatchId: item.targetBatchId,
+      coachingGrade: item.coachingGrade,
       rollNo: item.rollNo,
       reason: item.reason,
       createdById: req.auth!.userId,
