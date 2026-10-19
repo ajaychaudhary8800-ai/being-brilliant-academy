@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { examinationCodeConflict, isExaminationCodeConflict } from "../lib/examination-uniqueness.js";
 import { AppError } from "../lib/http.js";
+import { teacherAssignable, isCoaching } from "../lib/coaching-academic-policy.js";
 import { requireRequestedBranch } from "../lib/branch-policy.js";
 import { assertExaminationHistoricalFieldsEditable, assertExaminationPublicationReady, assertExaminationStatusTransition, assertSingleConditionalMutation, changesCoreExaminationField, examinationGradeForPercentage } from "../lib/examination-policy.js";
 import { prisma } from "../lib/prisma.js";
@@ -101,7 +102,7 @@ async function validate(data: z.infer<typeof input>, organizationId: string, exc
   const [batch, subject, teacher, duplicateCode] = await Promise.all([
     prisma.batch.findUnique({ where: { id: data.batchId }, select: { branchId: true, courseId: true, academicSession: true, academicSessionId: true } }),
     prisma.courseSubject.findUnique({ where: { courseId_subjectId: { courseId: data.courseId, subjectId: data.subjectId } }, select: { isActive: true } }),
-    prisma.teacherProfile.findUnique({ where: { id: data.teacherId }, select: { branchId: true } }),
+    prisma.teacherProfile.findUnique({ where: { id: data.teacherId }, select: { branchId: true, organizationId: true } }),
     prisma.examination.findFirst({
       where: {
         organizationId,
@@ -113,7 +114,8 @@ async function validate(data: z.infer<typeof input>, organizationId: string, exc
   ]);
   if (!batch || batch.branchId !== data.branchId || batch.courseId !== data.courseId || batch.academicSession !== data.academicSession) throw new AppError(422, "INVALID_BATCH_RELATION", "Batch must match Branch, Course and Academic Session");
   if (!subject?.isActive) throw new AppError(422, "INVALID_SUBJECT_RELATION", "Subject must belong to Course");
-  if (!teacher || teacher.branchId !== data.branchId) throw new AppError(422, "INVALID_TEACHER_RELATION", "Teacher must belong to Branch");
+  const organization = await prisma.organization.findUnique({ where: { id: organizationId }, select: { groupLabelType: true } });
+  if (!teacher || !teacherAssignable(organization?.groupLabelType, teacher, data.branchId, organizationId)) throw new AppError(422, "INVALID_TEACHER_RELATION", "Teacher must be eligible for the exam branch");
   if (duplicateCode) throw examinationCodeConflict();
   const examDate = new Date(data.examDate); examDate.setUTCHours(0, 0, 0, 0);
   const conflict = await prisma.examination.findFirst({ where: { examDate, status: { not: ExaminationStatus.ARCHIVED }, startMinute: { lt: endMinute }, endMinute: { gt: startMinute }, OR: [{ batchId: data.batchId }, { teacherId: data.teacherId }], ...(exclude ? { id: { not: exclude } } : {}) }, select: { batchId: true, teacherId: true } });
@@ -179,10 +181,12 @@ async function refreshGeneratedResultMetadata(
 
 router.get("/examinations/options", async (req: AuthRequest, res) => {
   const ids = await scope(req);
+  const organization = await prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { groupLabelType: true } });
+  const coaching = isCoaching(organization?.groupLabelType);
   const [branches, batches, teachers, students] = await Promise.all([
     prisma.branch.findMany({ where: { isActive: true, ...(ids ? { id: { in: ids } } : {}) }, select: { id: true, branchName: true, branchCode: true } }),
     prisma.batch.findMany({ where: { status: "ACTIVE", branch: { isActive: true }, ...(ids ? { branchId: { in: ids } } : {}) }, select: { id: true, name: true, code: true, branchId: true, courseId: true, academicSession: true, course: { select: { title: true } } } }),
-    prisma.teacherProfile.findMany({ where: { user: { isActive: true }, ...(ids ? { branchId: { in: ids } } : {}) }, select: { id: true, branchId: true, user: { select: { name: true } } } }),
+    prisma.teacherProfile.findMany({ where: { organizationId: req.auth!.organizationId, user: { isActive: true }, ...(!coaching && ids ? { branchId: { in: ids } } : {}) }, select: { id: true, branchId: true, user: { select: { name: true } } } }),
     prisma.studentProfile.findMany({ where: ids ? { branchId: { in: ids } } : {}, select: { id: true, batchId: true, admissionNo: true, rollNo: true, user: { select: { name: true } } } }),
   ]);
   res.json({ data: { branches: branches.map(value => ({ ...value, name: value.branchName, code: value.branchCode })), batches, teachers, subjects: [], students } });

@@ -3,6 +3,7 @@ import { Gender, Prisma, Role, StudentAcademicEnrollmentSource, StudentAcademicE
 import bcrypt from "bcryptjs";
 import { Router } from "express";
 import { z } from "zod";
+import { assertStudentCoachingGrade, isCoaching } from "../lib/coaching-academic-policy.js";
 import { academicEnrollmentInclude, academicPlacementConflict, assertAcademicProjectionConsistent, changeActiveEnrollmentRollNo, closeActiveAcademicEnrollment, createActiveAcademicEnrollment, getActiveAcademicEnrollment, normalizeAcademicRollNumber, resolveAuthoritativeBatchTuple, runSerializableAcademicPlacement, synchronizeStudentAcademicProjection, transitionStudentAcademicPlacement, type AcademicPlacementDb } from "../lib/academic-placement.js";
 import { processBulkAcademicTransitions } from "../lib/bulk-academic-transitions.js";
 import { AppError } from "../lib/http.js";
@@ -24,6 +25,7 @@ const studentPhotoReference = z.union([
 ]);
 const input = z.object({
   admissionNo: z.string().trim().toUpperCase().min(3).max(40),
+  coachingGrade: z.number().int().min(1).max(12).nullable().optional(),
   rollNo: z.string().trim().toUpperCase().min(1).max(30),
   name: z.string().trim().min(2).max(100),
   gender: z.nativeEnum(Gender),
@@ -49,7 +51,7 @@ const input = z.object({
 
 const studentSelect = {
   id: true, admissionNo: true, rollNo: true, gender: true, dateOfBirth: true, fatherName: true, motherName: true, branchId: true, batchId: true,
-  className: true, parentMobile: true, address: true, academicSession: true, academicSessionId: true, admissionDate: true,
+  className: true, coachingGrade: true, parentMobile: true, address: true, academicSession: true, academicSessionId: true, admissionDate: true,
   bloodGroup: true, category: true, aadhaarNo: true, status: true, remarks: true, createdAt: true, updatedAt: true,
   user: { select: { id: true, name: true, email: true, phone: true, avatarUrl: true, isActive: true } },
   branch: { select: { id: true, branchName: true, branchCode: true } },
@@ -110,11 +112,13 @@ async function createStudent(req: AuthRequest, data: z.infer<typeof input> & { p
     return await serializablePlacement(req, async (tx, branchIds) => {
       const batch = await resolveAuthoritativeBatchTuple(tx, { organizationId: req.auth!.organizationId, batchId: data.batchId, assertedBranchId: data.branchId, assertedAcademicSession: data.academicSession, requireCourse: true });
       assertBranchAccess(branchIds, batch.branchId);
+      const mode = await tx.organization.findUnique({where:{id:req.auth!.organizationId},select:{groupLabelType:true}});
+      const grade = assertStudentCoachingGrade(mode?.groupLabelType,batch.coachingGrades,data.coachingGrade);
       await assertCapacity(tx, batch);
       const rollNo = normalizeAcademicRollNumber(data.rollNo);
       const user = await tx.user.create({ data: { organizationId: req.auth!.organizationId, name: data.name, email: data.email, phone: data.mobile, avatarUrl: data.photoUrl ?? null, passwordHash, role: Role.STUDENT, isActive: data.status === StudentStatus.ACTIVE } });
       const profile = await tx.studentProfile.create({
-        data: { organizationId: req.auth!.organizationId, userId: user.id, admissionNo: data.admissionNo, rollNo, gender: data.gender, dateOfBirth: data.dateOfBirth, fatherName: data.fatherName, motherName: data.motherName, className: batch.course!.title, parentMobile: data.parentMobile, address: data.address, branchId: batch.branchId, batchId: batch.id, academicSessionId: batch.academicSessionId, academicSession: batch.session.name, admissionDate: data.admissionDate, bloodGroup: data.bloodGroup ?? null, category: data.category ?? null, aadhaarNo: data.aadhaarNo ?? null, status: data.status, remarks: data.remarks ?? null },
+        data: { organizationId: req.auth!.organizationId, userId: user.id, admissionNo: data.admissionNo, rollNo, gender: data.gender, dateOfBirth: data.dateOfBirth, fatherName: data.fatherName, motherName: data.motherName, className: grade ? `Class ${grade}` : batch.course!.title, coachingGrade: grade, parentMobile: data.parentMobile, address: data.address, branchId: batch.branchId, batchId: batch.id, academicSessionId: batch.academicSessionId, academicSession: batch.session.name, admissionDate: data.admissionDate, bloodGroup: data.bloodGroup ?? null, category: data.category ?? null, aadhaarNo: data.aadhaarNo ?? null, status: data.status, remarks: data.remarks ?? null },
         select: studentSelect,
       });
       const enrollment = await createActiveAcademicEnrollment(tx, { organizationId: req.auth!.organizationId, studentId: profile.id, branchId: batch.branchId, batchId: batch.id, courseId: batch.course!.id, academicSessionId: batch.academicSessionId, rollNo, source, effectiveFrom: data.admissionDate, createdById: req.auth!.userId });
@@ -166,7 +170,7 @@ router.get("/students/:id/academic-history", async (req: AuthRequest, res) => {
   res.json({ data: history, meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
 });
 
-const transitionInput = z.object({ type: z.enum(["PROMOTED", "RETAINED", "TRANSFERRED", "LEFT", "GRADUATED"]), effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), targetBatchId: z.string().cuid().optional(), rollNo: z.string().trim().toUpperCase().min(1).max(30).optional(), reason: z.string().trim().max(2000).nullable().optional() });
+const transitionInput = z.object({ type: z.enum(["PROMOTED", "RETAINED", "TRANSFERRED", "LEFT", "GRADUATED"]), effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), targetBatchId: z.string().cuid().optional(), coachingGrade:z.number().int().min(1).max(12).optional(), rollNo: z.string().trim().toUpperCase().min(1).max(30).optional(), reason: z.string().trim().max(2000).nullable().optional() });
 
 router.post("/students/academic-transitions/bulk", async (req: AuthRequest, res) => {
   const outcome = await processBulkAcademicTransitions(req.body, async item => {
@@ -176,6 +180,7 @@ router.post("/students/academic-transitions/bulk", async (req: AuthRequest, res)
       type: item.type,
       effectiveDate: parseDateOnly(item.effectiveDate),
       targetBatchId: item.targetBatchId,
+      coachingGrade: item.coachingGrade,
       rollNo: item.rollNo,
       reason: item.reason,
       createdById: req.auth!.userId,
@@ -188,7 +193,7 @@ router.post("/students/academic-transitions/bulk", async (req: AuthRequest, res)
 
 router.post("/students/:id/academic-transitions", async (req: AuthRequest, res) => {
   const data = transitionInput.parse(req.body);
-  const result = await transitionStudentAcademicPlacement(prisma, { organizationId: req.auth!.organizationId, studentId: String(req.params.id), type: data.type, effectiveDate: parseDateOnly(data.effectiveDate), targetBatchId: data.targetBatchId, rollNo: data.rollNo, reason: data.reason, createdById: req.auth!.userId, authorizeBranchIds: tx => assignedBranches(req, tx) });
+  const result = await transitionStudentAcademicPlacement(prisma, { organizationId: req.auth!.organizationId, studentId: String(req.params.id), type: data.type, effectiveDate: parseDateOnly(data.effectiveDate), targetBatchId: data.targetBatchId, coachingGrade: data.coachingGrade, rollNo: data.rollNo, reason: data.reason, createdById: req.auth!.userId, authorizeBranchIds: tx => assignedBranches(req, tx) });
   res.status(201).json({ data: result.transition });
 });
 
@@ -233,10 +238,21 @@ router.patch("/students/:id", async (req: AuthRequest, res) => {
   let replacedPhoto: string | null = null;
   try {
     const result = await serializablePlacement(req, async (tx, branchIds) => {
-      const old = await tx.studentProfile.findFirst({ where: { organizationId: req.auth!.organizationId, id: studentId }, select: { id: true, userId: true, branchId: true, batchId: true, academicSessionId: true, rollNo: true, user: { select: { avatarUrl: true } } } });
+      const old = await tx.studentProfile.findFirst({ where: { organizationId: req.auth!.organizationId, id: studentId }, select: { id: true, userId: true, branchId: true, batchId: true, academicSessionId: true, rollNo: true, coachingGrade: true, user: { select: { avatarUrl: true } } } });
       if (!old) throw new AppError(404, "STUDENT_NOT_FOUND", "Student not found");
       assertBranchAccess(branchIds, old.branchId);
       replacedPhoto = old.user.avatarUrl;
+      const mode = await tx.organization.findUnique({where:{id:req.auth!.organizationId},select:{groupLabelType:true}});
+      const coaching = isCoaching(mode?.groupLabelType);
+      const effectiveGrade = data.coachingGrade === undefined ? old.coachingGrade : data.coachingGrade;
+      if (!coaching && data.coachingGrade != null) throw new AppError(422,"COACHING_MODE_REQUIRED","Class level selection is available only in coaching mode");
+      let coachingClassLabel: string | undefined;
+      if (coaching && data.coachingGrade !== undefined) {
+        const currentBatch = await tx.batch.findFirst({where:{id:data.batchId ?? old.batchId,organizationId:req.auth!.organizationId},select:{coachingGrades:true,course:{select:{title:true}}}});
+        if (!currentBatch) throw new AppError(422,"INVALID_BATCH","Batch not found");
+        assertStudentCoachingGrade(mode?.groupLabelType,currentBatch.coachingGrades,effectiveGrade);
+        coachingClassLabel = effectiveGrade ? `Class ${effectiveGrade}` : currentBatch.course?.title ?? "Coaching";
+      }
       const { name, email, mobile, photoUrl, password: _password, branchId: _branchId, batchId: _batchId, academicSession: _academicSession, rollNo: _rollNo, ...profileFields } = data;
       await tx.user.update({ where: { id: old.userId }, data: { ...(name ? { name } : {}), ...(email ? { email } : {}), ...(mobile !== undefined ? { phone: mobile } : {}), ...(photoUrl !== undefined ? { avatarUrl: photoUrl } : {}), ...(passwordHash ? { passwordHash } : {}), ...(data.status ? { isActive: data.status === StudentStatus.ACTIVE } : {}) } });
       const placementRequested = data.batchId !== undefined || data.branchId !== undefined || data.academicSession !== undefined || data.rollNo !== undefined;
@@ -247,6 +263,7 @@ router.patch("/students/:id", async (req: AuthRequest, res) => {
         assertAcademicProjectionConsistent(old, active);
         const target = await resolveAuthoritativeBatchTuple(tx, { organizationId: req.auth!.organizationId, batchId: data.batchId ?? old.batchId, assertedBranchId: data.branchId, assertedAcademicSession: data.academicSession, requireCourse: true });
         assertBranchAccess(branchIds, target.branchId);
+        if (coaching) assertStudentCoachingGrade(mode?.groupLabelType,target.coachingGrades,effectiveGrade);
         const rollNo = normalizeAcademicRollNumber(data.rollNo ?? active.rollNo);
         if (target.id !== active.batchId) {
           await assertCapacity(tx, target, old.id);
@@ -255,11 +272,11 @@ router.patch("/students/:id", async (req: AuthRequest, res) => {
           currentEnrollment = await createActiveAcademicEnrollment(tx, { organizationId: req.auth!.organizationId, studentId: old.id, branchId: target.branchId, batchId: target.id, courseId: target.course!.id, academicSessionId: target.academicSessionId, rollNo, source: StudentAcademicEnrollmentSource.ADMIN_CHANGE, effectiveFrom: changeDate, createdById: req.auth!.userId });
         } else if (rollNo !== normalizeAcademicRollNumber(active.rollNo)) currentEnrollment = await changeActiveEnrollmentRollNo(tx, active, rollNo);
         else currentEnrollment = active;
-        const projection = await synchronizeStudentAcademicProjection(tx, { organizationId: req.auth!.organizationId, studentId: old.id, branchId: target.branchId, batchId: target.id, academicSessionId: target.academicSessionId, academicSession: target.session.name, courseTitle: target.course!.title, rollNo });
+        const projection = await synchronizeStudentAcademicProjection(tx, { organizationId: req.auth!.organizationId, studentId: old.id, branchId: target.branchId, batchId: target.id, academicSessionId: target.academicSessionId, academicSession: target.session.name, courseTitle: target.course!.title, coachingGrade: coaching ? effectiveGrade : null, rollNo });
         assertAcademicProjectionConsistent(projection, currentEnrollment);
         await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "STUDENT_ACADEMIC_PLACEMENT_UPDATED", entity: "StudentAcademicEnrollment", entityId: currentEnrollment.id, metadata: { studentId: old.id, sourceBranchId: old.branchId, targetBranchId: target.branchId, sourceBatchId: active.batchId, targetBatchId: target.id, academicSessionId: target.academicSessionId } } });
       }
-      if (Object.keys(profileFields).length) await tx.studentProfile.update({ where: { id: old.id }, data: profileFields });
+      if (Object.keys(profileFields).length) await tx.studentProfile.update({ where: { id: old.id }, data: { ...profileFields, ...(coachingClassLabel !== undefined ? { className: coachingClassLabel } : {}) } });
       const updated = await tx.studentProfile.findFirst({ where: { id: old.id }, select: studentSelect });
       if (!updated) throw new AppError(404, "STUDENT_NOT_FOUND", "Student not found");
       return { ...updated, ...(placementRequested ? { currentEnrollment } : {}) };

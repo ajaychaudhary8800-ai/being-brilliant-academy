@@ -37,3 +37,34 @@ test("admin timetable page offers both one-off and weekly scheduling", () => {
   assert.match(weekly, /getAccessToken/);
   assert.match(weekly, /configured teaching period/i);
 });
+
+test("timetable tenant boundaries protect the options, read, export, and single-write paths", () => {
+  assert.match(route, /async function access\(req:AuthRequest,id:string,db:Prisma\.TransactionClient\|typeof prisma=prisma\)/);
+  assert.match(route, /db\.branch\.findFirst\(\{where:\{id,organizationId:req\.auth!\.organizationId\}/);
+  assert.match(route, /INSTITUTION_BRANCH_FORBIDDEN/);
+  const options = route.split('router.get("/timetables/options",')[1]?.split('router.get("/timetables/dashboard",')[0];
+  assert.ok(options);
+  assert.match(options, /where=\{organizationId:req\.auth!\.organizationId,isActive:true/);
+  assert.match(options, /prisma\.batch\.findMany\(\{where:\{organizationId:req\.auth!\.organizationId/);
+  assert.match(options, /prisma\.classroom\.findMany\(\{where:\{isActive:true,branch:\{organizationId:req\.auth!\.organizationId\}/);
+  assert.match(route, /prisma\.timetable\.findMany\(\{where:\{branch:\{organizationId:req\.auth!\.organizationId\}/);
+  assert.match(route, /const where=\{branch:\{organizationId:req\.auth!\.organizationId\}/);
+  assert.match(route, /return tx\.timetable\.create\(\{data:\{\.\.\.rest,\.\.\.t,organizationId:req\.auth!\.organizationId\}/);
+});
+
+test("single period edits and archived reactivation are serializable and recheck conflicts", () => {
+  const edit = route.split('router.patch("/timetables/:id",')[1]?.split('router.patch("/timetables/:id/status",')[0];
+  assert.ok(edit);
+  assert.match(edit, /await access\(req,old\.branchId,tx\)/);
+  assert.match(edit, /if\(p\.branchId\)await access\(req,p\.branchId,tx\)/);
+  assert.match(edit, /const branches=\[\.\.\.new Set\(\[old\.branchId,p\.branchId\?\?old\.branchId\]\)\]\.sort\(\)/);
+  assert.match(edit, /await lockTimetableBranch\(tx,branchId\)/);
+  assert.match(edit, /await validate\(d,old\.id,tx\)/);
+  assert.match(edit, /TransactionIsolationLevel\.Serializable/);
+  const status = route.split('router.patch("/timetables/:id/status",')[1]?.split('router.delete("/timetables/:id",')[0];
+  assert.ok(status);
+  assert.match(status, /await lockTimetableBranch\(tx,old\.branchId\)/);
+  assert.match(status, /old\.status===TimetableStatus\.ARCHIVED && status!==TimetableStatus\.ARCHIVED/);
+  assert.match(status, /\},old\.id,tx\)/);
+  assert.match(status, /TransactionIsolationLevel\.Serializable/);
+});

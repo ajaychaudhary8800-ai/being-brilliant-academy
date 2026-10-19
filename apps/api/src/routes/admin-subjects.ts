@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { ensureEducationCatalogs } from "../lib/education-catalogs.js";
 import { AppError } from "../lib/http.js";
+import { teacherAssignable } from "../lib/coaching-academic-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { buildSubjectMergePlan, countSubjectDependencies, describeSubjectDependencies, usedSubjectDependencies } from "../lib/subject-dependencies.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -58,10 +59,23 @@ router.get("/subjects/options", async (req: AuthRequest, res) => {
 });
 
 router.get("/allocation-subject-options", async (req: AuthRequest, res) => {
-  const query = z.object({ teacherId: id, courseId: id }).parse(req.query);
-  const [teacher, course] = await Promise.all([prisma.teacherProfile.findUnique({ where: { id: query.teacherId }, select: { branchId: true } }), prisma.course.findUnique({ where: { id: query.courseId }, select: { branchId: true } })]);
-  if (!teacher || !course || course.branchId && course.branchId !== teacher.branchId) throw new AppError(422, "INVALID_ALLOCATION_CONTEXT", "Teacher and course must be available in the same branch");
-  if (req.auth!.role === Role.BRANCH_ADMIN && !await prisma.branchUser.findFirst({ where: { userId: req.auth!.userId, branchId: teacher.branchId }, select: { branchId: true } })) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
+  const query = z.object({ teacherId: id, courseId: id, branchId: id.optional() }).parse(req.query);
+  const [teacher, course, organization] = await Promise.all([
+    prisma.teacherProfile.findUnique({ where: { id: query.teacherId }, select: { organizationId: true, branchId: true } }),
+    prisma.course.findUnique({ where: { id: query.courseId }, select: { organizationId: true, branchId: true } }),
+    prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { groupLabelType: true } }),
+  ]);
+  const targetBranchId = query.branchId ?? course?.branchId ?? teacher?.branchId;
+  if (!teacher || !course || !targetBranchId || course.organizationId !== req.auth!.organizationId ||
+      (course.branchId && course.branchId !== targetBranchId) ||
+      !teacherAssignable(organization?.groupLabelType, teacher, targetBranchId, req.auth!.organizationId)) {
+    throw new AppError(422, "INVALID_ALLOCATION_CONTEXT", "Teacher and course must be eligible for the selected branch");
+  }
+  const branch = await prisma.branch.findFirst({ where: { id: targetBranchId, organizationId: req.auth!.organizationId }, select: { id: true } });
+  if (!branch) throw new AppError(422, "INVALID_ALLOCATION_CONTEXT", "Select an institution branch");
+  if (req.auth!.role === Role.BRANCH_ADMIN && !await prisma.branchUser.findFirst({
+    where: { userId: req.auth!.userId, branchId: targetBranchId, organizationId: req.auth!.organizationId }, select: { branchId: true },
+  })) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
   const [teacherSubjects, courseSubjects] = await Promise.all([
     prisma.teacherSubject.findMany({ where: { teacherId: query.teacherId }, select: { subjectId: true } }),
     prisma.courseSubject.findMany({

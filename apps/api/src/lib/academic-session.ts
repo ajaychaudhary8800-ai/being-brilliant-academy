@@ -1,9 +1,9 @@
 import { AppError } from "./http.js";
 import { prisma } from "./prisma.js";
 
-export async function resolveAcademicSession(name: string) {
+export async function resolveAcademicSession(name: string, organizationId?: string) {
   const session = await prisma.academicSession.findFirst({
-    where: { name: { equals: name.trim(), mode: "insensitive" } },
+    where: { name: { equals: name.trim(), mode: "insensitive" }, ...(organizationId ? { organizationId } : {}) },
     select: { id: true, name: true, isArchived: true },
   });
   if (!session) throw new AppError(422, "INVALID_ACADEMIC_SESSION", "Select a valid academic session");
