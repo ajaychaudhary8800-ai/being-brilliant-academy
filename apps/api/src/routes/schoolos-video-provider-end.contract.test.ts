@@ -18,7 +18,7 @@ test("native metered meeting end performs confirmed provider disconnect before a
  assert.ok(requireProvider<recordingWrite,"do not claim recording completed if provider disconnect fails");
  assert.ok(requireProvider<attendanceWrite,"do not claim attendance ended if room remains");
  assert.ok(requireProvider<meetingWrite,"do not close meeting while provider remains active");
- assert.ok(route.includes('if (!meteredRoom) await livekitRoomService("DeleteRoom", { room }, room).catch(() => null);'),
+ assert.ok(route.includes('if (!meteredRoom) await requireSchoolOSPrepaidRoomDisconnect(, { room }, room).catch(() => null);'),
   "unmetered V4 semantics remain best-effort and isolated");
 });
 test("expired prepaid room worker can retry a failed host-initiated provider disconnect",async()=>{
@@ -28,8 +28,8 @@ test("expired prepaid room worker can retry a failed host-initiated provider dis
   readFile(new URL("../lib/schoolos-video-expired-candidates.ts",import.meta.url),"utf8"),
  ]);
  assert.match(route,/SCHOOLOS_VIDEO_PROVIDER_END_UNCONFIRMED|requireSchoolOSPrepaidRoomDisconnect/);
- assert.match(worker,/await livekitRoomService\("DeleteRoom"/);
- assert.ok(worker.indexOf('await livekitRoomService("DeleteRoom"')<worker.indexOf("await systemPrisma.$transaction("));
+ assert.match(worker,/requireSchoolOSPrepaidRoomDisconnect\(/);
+ assert.ok(worker.indexOf('await requireSchoolOSPrepaidRoomDisconnect(')<worker.indexOf("await systemPrisma.$transaction("));
  assert.match(candidates,/m\."status" IN \('SCHEDULED','OPEN_FOR_JOIN','LIVE'\)/);
  assert.match(candidates,/r\."status"='RESERVED'/);
 });
