@@ -60,6 +60,27 @@ test("signed meeting minutes require independent manual review and cannot charge
     occurredAt:new Date(Date.UTC(2026,9,19,7,0,sec)),
     rawSha256:crypto.createHash("sha256").update(token+sec).digest("hex"),
    }});
+  // 7F3: the same credit ledger must accept a bounded prepaid VIDEO hold,
+  // preserve its tenant identity and reject modifications to the reserved unit.
+  const balance=await systemPrisma.schoolOSUsageBalance.create({data:{
+   organizationId:orgId,metric:"video_minutes",periodStart:new Date("2026-10-01T00:00:00Z"),
+   periodEnd:new Date("2026-11-01T00:00:00Z"),grantedUnits:80,consumedUnits:70,
+  }});
+  const reservation=await systemPrisma.schoolOSUsageReservation.create({data:{
+   organizationId:orgId,metric:"video_minutes",balanceId:balance.id,
+   requestKey:"video-meeting:"+meeting.id,units:70,status:"RESERVED",actorId:"qa-provider-host",
+  }});
+  await assert.rejects(()=>systemPrisma.schoolOSUsageReservation.create({data:{
+   organizationId:"org_default",metric:"video_minutes",balanceId:balance.id,
+   requestKey:"video-meeting:foreign-"+token,units:70,status:"RESERVED",
+  }}),"A tenant cannot reserve another institution's credits");
+  await assert.rejects(()=>systemPrisma.schoolOSUsageReservation.update({
+   where:{id:reservation.id},data:{units:72},
+  }),"Reserved minute budgets cannot be increased after admission");
+  await assert.rejects(()=>systemPrisma.schoolOSUsageReservation.create({data:{
+   organizationId:orgId,metric:"video_minutes",balanceId:balance.id,
+   requestKey:"video-meeting:"+meeting.id,units:70,status:"RESERVED",
+  }}),"Meeting-specific video budget is unique");
   const prepared=await proposeSchoolOSVideoReview(orgId,meeting.id,maker.id,
    "provider-session-proof-"+token,"Provider events checked against signed attendance window");
   assert.equal(prepared.status,"PENDING");
@@ -84,6 +105,9 @@ test("signed meeting minutes require independent manual review and cannot charge
   assert.equal(await systemPrisma.schoolOSUsageEvent.count({where:{organizationId:orgId}}),0);
  }finally{
   await systemPrisma.auditLog.deleteMany({where:{organizationId:orgId}});
+  await systemPrisma.schoolOSUsageReservation.deleteMany({where:{organizationId:orgId}});
+  await systemPrisma.schoolOSUsageBalance.deleteMany({where:{organizationId:orgId}});
+
   await systemPrisma.$transaction(async tx=>{
    await tx.$executeRawUnsafe('ALTER TABLE "SchoolOSVideoUsageReview" DISABLE TRIGGER "SchoolOSVideoUsageReview_guard"');
    await tx.schoolOSVideoUsageReview.deleteMany({where:{organizationId:orgId}});
