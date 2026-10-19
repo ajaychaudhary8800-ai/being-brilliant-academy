@@ -1,7 +1,7 @@
 import { OrganizationSubscriptionStatus, Prisma, Role, SaaSPaymentStatus } from "@prisma/client";
 import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
-import { readSchoolOSFeatureOverrides, schoolOSFeatureAccess, schoolOSEffectiveOverrideLists } from "./schoolos-feature-policy.js";
+import { readSchoolOSFeatureOverrides, schoolOSFeatureAccess, schoolOSEffectiveOverrideLists, schoolOSResolvedFeatures } from "./schoolos-feature-policy.js";
 import { validateSchoolOSAddonCheckout, type SchoolOSApprovedAddonLine } from "./schoolos-addon-checkout-policy.js";
 import { applySchoolOSPaidAddonSettlement } from "./schoolos-addon-settlement.js";
 import { assertSchoolOSRenewalSource, readSchoolOSRenewalContext } from "./schoolos-renewal-quote-policy.js";
@@ -101,6 +101,7 @@ export async function commercialEntitlementSnapshot(organizationId: string) {
     planCode: policy.plan?.code ?? policy.organization.subscriptionPlan,
     entitlements: policy.plan?.entitlements ?? {},
     ...schoolOSEffectiveOverrideLists(policy.featureOverrides),
+    effectiveFeatures: schoolOSResolvedFeatures(policy.plan?.entitlements ?? {}, policy.enforcementEnabled, policy.featureOverrides),
   };
 }
 
