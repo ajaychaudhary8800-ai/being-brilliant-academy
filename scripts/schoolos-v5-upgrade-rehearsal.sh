@@ -62,12 +62,13 @@ VALUES ('qa-v4-school-branch','qa-v5-upgrade-test-org','QA-SCHOOL',
         'Legacy School Branch',CURRENT_TIMESTAMP);
 INSERT INTO "AcademicSession" ("id","organizationId","name","startsAt","endsAt","updatedAt")
 VALUES ('qa-v4-school-session','qa-v5-upgrade-test-org','2026-27',
-        DATE '2026-04-01',DATE '2027-03-31',CURRENT_TIMESTAMP);
+        DATE '2026-04-01',DATE '2027-03-31',CURRENT_TIMESTAMP)
+ON CONFLICT ("organizationId","name") DO NOTHING;
 INSERT INTO "Batch" ("id","organizationId","name","code","branchId",
                      "academicSession","academicSessionId","startsAt","updatedAt")
 VALUES ('qa-v4-school-batch','qa-v5-upgrade-test-org','Legacy Grade Seven',
         'QA-V4-SCHOOL-BATCH','qa-v4-school-branch',
-        '2026-27','qa-v4-school-session',TIMESTAMP '2026-04-01 08:00:00',CURRENT_TIMESTAMP);
+        '2026-27',(SELECT "id" FROM "AcademicSession" WHERE "organizationId"='qa-v5-upgrade-test-org' AND "name"='2026-27'),TIMESTAMP '2026-04-01 08:00:00',CURRENT_TIMESTAMP);
 INSERT INTO "User" ("id","organizationId","email","passwordHash","name","role","updatedAt")
 VALUES ('qa-v4-school-student-user','qa-v5-upgrade-test-org',
         'qa-v4-school-student@example.test','disabled-synthetic-test-hash',
@@ -80,7 +81,7 @@ VALUES ('qa-v4-school-student','qa-v5-upgrade-test-org','qa-v4-school-student-us
         'QA-V4-ADM-007','007','MALE',DATE '2013-03-01','Synthetic Father',
         'Synthetic Mother','Class 7','0000000000','Synthetic test address',
         'qa-v4-school-branch','qa-v4-school-batch','2026-27',
-        'qa-v4-school-session',DATE '2026-04-01',CURRENT_TIMESTAMP);
+        (SELECT "id" FROM "AcademicSession" WHERE "organizationId"='qa-v5-upgrade-test-org' AND "name"='2026-27'),DATE '2026-04-01',CURRENT_TIMESTAMP);
 SQL
 count_before="$(psql -d "$source_db" -Atqc \
  'SELECT count(*) FROM "Organization" WHERE id = '\''qa-v5-upgrade-test-org'\''')"
