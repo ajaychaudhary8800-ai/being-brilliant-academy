@@ -94,6 +94,7 @@ import schoolOSContracts from "./routes/schoolos-contracts.js";
 import schoolOSContractCheckout from "./routes/schoolos-contract-checkout.js";
 import schoolOSUsage from "./routes/schoolos-usage.js";
 import schoolOSAIReconciliation from "./routes/schoolos-ai-reconciliation.js";
+import schoolOSLiveKitEvidence from "./routes/schoolos-livekit-evidence.js";
 import schoolOSAddonRates from "./routes/schoolos-addon-rates.js";
 import schoolOSPaymentRiskReview from "./routes/schoolos-payment-risk-review.js";
 import schoolOSRenewals from "./routes/schoolos-renewals.js";
@@ -195,6 +196,7 @@ app.use(
 );
 app.use("/api/v1/payments/razorpay/webhook", express.raw({ type: "application/json" }));
 app.use("/api/v1/institution-payments/razorpay/webhook/:gatewayId", express.raw({ type: "application/json" }));
+app.use("/api/v1/platform/schoolos/livekit/webhook",express.raw({type:"application/webhook+json",limit:"64kb"}));
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
@@ -343,6 +345,7 @@ app.use("/api/v1", onlyPaths(["/platform/schoolos/contracts"], schoolOSContracts
 app.use("/api/v1", onlyPaths(["/organization/subscription/contracted-checkout", "/organization/subscription/contracted-quotes"], schoolOSContractCheckout));
 app.use("/api/v1", onlyPaths(["/organization/subscription/usage-credits", "/platform/schoolos/usage"], schoolOSUsage));
 app.use("/api/v1", onlyPaths(["/platform/schoolos/ai-reconciliation"], schoolOSAIReconciliation));
+app.use("/api/v1",onlyPaths(["/platform/schoolos/livekit/webhook","/platform/schoolos/video-evidence"],schoolOSLiveKitEvidence));
 app.use("/api/v1", onlyPaths(["/platform/schoolos/addon-rates"], schoolOSAddonRates));
 app.use("/api/v1", onlyPaths(["/platform/schoolos/payment-risk"], schoolOSPaymentRiskReview));
 app.use("/api/v1", onlyPaths(["/organization/subscription/renewal-readiness", "/platform/schoolos/renewals"], schoolOSRenewals));
