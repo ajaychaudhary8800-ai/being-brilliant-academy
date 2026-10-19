@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "6e3cbc9e9227601e38adfd420d53491a7c9d9575",
+  "releaseCandidateSha": null,
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,7 +10,7 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Resolve the staged Draft PR dependency chain and conflicting parallel PRs, review combined diffs, and pin one immutable release-candidate SHA."
+      "nextAction": "RC3 code and integration tests are in the Draft V5 dependency chain; review all parent PRs, stage the consolidated build, and pin the immutable release candidate before collecting independent acceptance evidence."
     },
     {
       "id": "release_candidate_ci",
@@ -24,7 +24,7 @@
       "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Verify off-host backup checksums, restore frozen V4 data to isolated staging, apply every V5 migration, validate tenant and financial counts, and rehearse rollback."
+      "nextAction": "Synthetic V4-to-V5 114-migration and restored school/coaching fixture rehearsal is not staging acceptance; execute off-site backup, isolated staging upgrade and disaster restore with redacted institution data."
     },
     {
       "id": "subscription_payment_qa",
