@@ -399,7 +399,7 @@ router.post("/timetables/weekly", async (req: AuthRequest, res) => {
 });
 
 router.get("/timetables/:id",async(req:AuthRequest,res)=>{const x=await prisma.timetable.findUnique({where:{id:String(req.params.id)},select});if(!x)throw new AppError(404,"TIMETABLE_NOT_FOUND","Timetable entry not found");await access(req,x.branch.id);res.json({data:shape(x)})});
-const timetableAudit=(req:AuthRequest,action:string,entityId:string,metadata?:object)=>prisma.auditLog.create({data:{actorId:req.auth!.userId,action,entity:"Timetable",entityId,metadata}});
+const timetableAudit=(req:AuthRequest,action:string,entityId:string,metadata?:object)=>prisma.auditLog.create({data:{organizationId:req.auth!.organizationId,actorId:req.auth!.userId,action,entity:"Timetable",entityId,metadata}});
 router.post("/timetables",async(req:AuthRequest,res)=>{const d=input.parse(req.body);await access(req,d.branchId);const created=await prisma.$transaction(async tx=>{await lockTimetableBranch(tx,d.branchId);const t=await validate(d,undefined,tx);const{startTime,endTime,...rest}=d;return tx.timetable.create({data:{...rest,...t,organizationId:req.auth!.organizationId},select})},{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000});await timetableAudit(req,"CREATE",created.id,{teacherId:d.teacherId,batchId:d.batchId,subjectId:d.subjectId});res.status(201).json({data:shape(created)})});
 router.patch("/timetables/:id",async(req:AuthRequest,res)=>{
   const id=String(req.params.id);
