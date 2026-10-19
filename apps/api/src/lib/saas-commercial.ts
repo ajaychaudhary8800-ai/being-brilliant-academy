@@ -178,6 +178,18 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
       let quotedSettings: Prisma.InputJsonValue | undefined;
       let settledAddonLines: SchoolOSApprovedAddonLine[] | null = null;
       if (invoice.schoolOSQuoteId) {
+        // Captured payments against a term already covered by a different PAID
+        // invoice go to finance reconciliation, never overwrite the live plan.
+        await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-renewal-settlement:"+invoice.organizationId}))`;
+        const alreadyPaid = await tx.saaSInvoice.findFirst({
+          where: { organizationId: invoice.organizationId, status: "PAID",
+            id: { not: invoice.id },
+            periodStart: { lt: invoice.periodEnd }, periodEnd: { gt: invoice.periodStart } },
+          select: { id: true },
+        });
+        if (alreadyPaid)
+          throw new AppError(409,"SCHOOLOS_RENEWAL_CAPTURE_OVERLAP",
+            "Captured payment overlaps an earlier paid term and requires finance reconciliation");
         const quote = await tx.schoolOSQuotation.findUnique({
           where: { id: invoice.schoolOSQuoteId },
           include: { contractDocument: { include: { lead: { select: { wonOrganizationId: true } } } } },

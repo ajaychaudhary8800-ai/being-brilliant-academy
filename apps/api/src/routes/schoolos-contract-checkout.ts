@@ -9,6 +9,7 @@ import { systemPrisma } from "../lib/prisma.js";
 import { assertCommercialPlanFitsUsage } from "../lib/saas-commercial.js";
 import { validateSchoolOSBaseQuoteCheckout } from "../lib/schoolos-contract-payment-policy.js";
 import { validateSchoolOSAddonCheckout } from "../lib/schoolos-addon-checkout-policy.js";
+import { assertSchoolOSNewTermDoesNotOverlap } from "../lib/schoolos-renewal-policy.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -120,6 +121,15 @@ router.post("/organization/subscription/contracted-checkout", async (req: AuthRe
     });
     const periodStart = new Date();
     const periodEnd = addYear(periodStart);
+    // Reject overlapping paid SaaS terms. No implied mid-period upgrade, early
+    // renewal, unused credit transfer, or duplicate annual charge is authorized.
+    // The existing invoice's same-quote idempotency return occurs above.
+    const paidTerms = await tx.saaSInvoice.findMany({
+      where: { organizationId, status: SaaSInvoiceStatus.PAID,
+        periodStart: { lt: periodEnd }, periodEnd: { gt: periodStart } },
+      select: { id: true, periodStart: true, periodEnd: true, status: true, schoolOSQuoteId: true },
+    });
+    assertSchoolOSNewTermDoesNotOverlap(paidTerms,periodStart,periodEnd);
     const invoiceNo = `SOI-${Date.now()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     return tx.saaSInvoice.create({
       data: {
