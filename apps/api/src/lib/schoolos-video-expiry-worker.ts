@@ -5,6 +5,7 @@ import { livekitConfigured, livekitRoomService } from "./livekit.js";
 import { logger } from "./logger.js";
 import { schoolOSVideoAdmissionEnabled } from "./schoolos-video-admission.js";
 import { expiredSchoolOSVideoRoomCandidates } from "./schoolos-video-expired-candidates.js";
+import { requireSchoolOSPrepaidRoomDisconnect } from "./schoolos-video-provider-end.js";
 
 const joinStatuses=[MeetingStatus.SCHEDULED,MeetingStatus.OPEN_FOR_JOIN,MeetingStatus.LIVE];
 /**
@@ -33,7 +34,11 @@ export async function closeExpiredSchoolOSPrepaidVideoRooms(now=new Date(),limit
   }
   try{
    // Network work outside DB transaction; no long-held open transaction.
-   await livekitRoomService("DeleteRoom",{room:meeting.roomName},meeting.roomName);
+   await requireSchoolOSPrepaidRoomDisconnect(
+    meeting.roomName,
+    () => livekitRoomService("DeleteRoom",{room:meeting.roomName},meeting.roomName),
+    () => livekitRoomService("ListRooms",{names:[meeting.roomName]},meeting.roomName),
+   );
    await systemPrisma.$transaction(async tx=>{
     const changed=await tx.meeting.updateMany({
      where:{id:meetingId,organizationId:organizationId,status:{in:joinStatuses},endsAt:{lte:now}},
