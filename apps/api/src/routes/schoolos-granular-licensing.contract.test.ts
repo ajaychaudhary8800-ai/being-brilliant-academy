@@ -7,6 +7,7 @@ test("SchoolOS split licensing enforces both server routes and platform parent f
  const automation=await readFile(new URL("automation.ts",import.meta.url),"utf8");
  const sidebar=await readFile(new URL("../../../web/components/sidebar.tsx",import.meta.url),"utf8");
  const commercial=await readFile(new URL("../lib/saas-commercial.ts",import.meta.url),"utf8");
+ const worker=await readFile(new URL("../lib/ai-examiner-worker.ts",import.meta.url),"utf8");
  const route=await readFile(new URL("schoolos-features.ts",import.meta.url),"utf8");
  assert.match(examiner,/requireCommercialFeature\("examinations"\), requireCommercialFeature\("ai_examiner"\)/);
  assert.match(automation,/requireCommercialFeature\("communication"\)/);
@@ -15,6 +16,12 @@ test("SchoolOS split licensing enforces both server routes and platform parent f
  assert.match(sidebar,/Workflow Automation.*feature: "workflow_automation"/);
  assert.match(sidebar,/effectiveFeatures\?\.\[entry.feature\]/);
  assert.match(commercial,/schoolOSResolvedFeatures/);
+ assert.ok(worker.includes('await assertFeatureEntitled(evaluation.organizationId, "ai_examiner")'));
+ assert.ok(worker.indexOf('await assertFeatureEntitled(evaluation.organizationId, "ai_examiner")')<
+   worker.indexOf('reserveSchoolOSAIExaminerCredit('));
+ assert.ok(worker.indexOf('await assertFeatureEntitled(evaluation.organizationId, "ai_examiner")')<
+   worker.indexOf('evaluateWithAIProvider({'));
+
  assert.match(route,/SCHOOLOS_PARENT_FEATURE_REQUIRED/);
  assert.match(route,/schoolOSParentFeature\(feature\)/);
 });
