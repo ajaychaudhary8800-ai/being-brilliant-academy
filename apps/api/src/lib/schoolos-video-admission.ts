@@ -9,6 +9,25 @@ export const SCHOOL_OS_VIDEO_ROOM_POLICY="VIDEO_ROOM_MINUTES_V1";
 export const SCHOOL_OS_VIDEO_MAX_PREAUTHORIZED_MINUTES=240;
 const metric="video_minutes" as const;
 export const schoolOSVideoReservationKey=(meetingId:string)=>"video-meeting:"+meetingId;
+/** Persistent room-level financial history outlives runtime feature allowlists.
+ * Never downgrade a previously prepaid session to best-effort unmetered mode.
+ * This lookup is tenant-bound and has no charge/settlement side effects.
+ */
+export async function schoolOSVideoRoomHasPrepaidHistory(organizationId:string,meetingId:string) {
+ if(!organizationId || organizationId==="org_default" || !meetingId) return false;
+ const prior=await systemPrisma.schoolOSUsageReservation.findUnique({
+  where:{organizationId_metric_requestKey:{
+   organizationId,metric,requestKey:schoolOSVideoReservationKey(meetingId),
+  }},select:{id:true},
+ });
+ return Boolean(prior);
+}
+export async function assertSchoolOSVideoNoDisabledPrepaidJoin(organizationId:string,meetingId:string) {
+ if(schoolOSVideoAdmissionEnabled(organizationId))return;
+ if(await schoolOSVideoRoomHasPrepaidHistory(organizationId,meetingId))
+  throw new AppError(409,"SCHOOLOS_VIDEO_PREPAID_ROOM_OPTED_OUT",
+   "A previously prepaid meeting cannot issue additional room access while metering is disabled");
+}
 export function schoolOSVideoAdmissionEnabled(organizationId:string){
  return Boolean(organizationId && organizationId!=="org_default" &&
   env.SCHOOLOS_VIDEO_ADMISSION_ENABLED &&

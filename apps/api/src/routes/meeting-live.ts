@@ -20,7 +20,7 @@ import {
 } from "../lib/livekit.js";
 import { prisma } from "../lib/prisma.js";
 import { assertFeatureEntitled } from "../lib/saas-commercial.js";
-import { authorizeSchoolOSPrepaidVideoRoom,schoolOSVideoAdmissionEnabled } from "../lib/schoolos-video-admission.js";
+import { authorizeSchoolOSPrepaidVideoRoom,schoolOSVideoAdmissionEnabled,schoolOSVideoRoomHasPrepaidHistory,assertSchoolOSVideoNoDisabledPrepaidJoin } from "../lib/schoolos-video-admission.js";
 import { requireSchoolOSPrepaidRoomDisconnect } from "../lib/schoolos-video-provider-end.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
@@ -117,6 +117,7 @@ router.post("/meetings/native/:room/session", async (req: AuthRequest, res) => {
   }
   // Only explicitly opted-in SchoolOS V5 tenants hold prepaid quota here.
   // All existing V4 meeting behavior remains unchanged by default.
+  await assertSchoolOSVideoNoDisabledPrepaidJoin(org(req), meeting.id);
   const videoAdmission = await authorizeSchoolOSPrepaidVideoRoom(org(req), meeting.id);
   const observer = participant.meetingRole === MeetingParticipantRole.OBSERVER;
   const sources = manager
@@ -181,6 +182,7 @@ router.post("/meetings/native/:room/join", async (req: AuthRequest, res) => {
       if (liveRooms >= limit) throw new AppError(409, "MEETING_CONCURRENT_ROOM_LIMIT", `Your plan allows ${limit} concurrent meeting rooms`);
     }
   }
+  await assertSchoolOSVideoNoDisabledPrepaidJoin(org(req), meeting.id);
   await authorizeSchoolOSPrepaidVideoRoom(org(req), meeting.id);
   const existing = await prisma.meetingAttendanceSession.findFirst({
     where: { organizationId: org(req), meetingId: meeting.id, participantId: participant.id, leftAt: null },
@@ -213,7 +215,8 @@ router.post("/meetings/native/:room/end", async (req: AuthRequest, res) => {
   assertActiveMeeting(meeting);
   // For prepaid rooms, confirm provider-side termination before mutating
   // recording, attendance or meeting status. Failures remain retryable.
-  const meteredRoom = schoolOSVideoAdmissionEnabled(org(req));
+  const meteredRoom = schoolOSVideoAdmissionEnabled(org(req)) ||
+    await schoolOSVideoRoomHasPrepaidHistory(org(req),meeting.id);
   if (meteredRoom) {
     await requireSchoolOSPrepaidRoomDisconnect(
       room,
