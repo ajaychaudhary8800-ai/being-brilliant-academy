@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { activeTeacherLmsAllocations, assertLmsRequestContentAccess, lmsActorForRequest, requireTeacherLmsAllocation, type TeacherLmsAllocation } from "../lib/lms-access.js";
 import { AppError } from "../lib/http.js";
+import { teacherAssignable } from "../lib/coaching-academic-policy.js";
 import { assertLmsLessonEditable, assertLmsLessonStructuralEditAllowed, assertLmsLessonTransition, assertLmsManagementAccess, assertLmsModuleManagementAccess, lmsLessonBranchFilter, lmsLessonCreateStatus, lmsModuleCourseWhere, nextLmsProgress, type LmsActor } from "../lib/lms-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { ensureCourseCompletionCertificate } from "../lib/lms-course-completion-certificate.js";
@@ -69,16 +70,17 @@ function bytes(value: z.infer<typeof file>, max: number, types: string[]) {
 
 async function relations(data: z.infer<typeof input>, current: LmsActor) {
   const [batch, courseSubject, teacher, module, homework, test] = await Promise.all([
-    prisma.batch.findUnique({ where: { id: data.batchId }, select: { branchId: true, courseId: true, academicSessionId: true } }),
+    prisma.batch.findUnique({ where: { id: data.batchId }, select: { organizationId: true, branchId: true, courseId: true, academicSessionId: true } }),
     prisma.courseSubject.findUnique({ where: { courseId_subjectId: { courseId: data.courseId, subjectId: data.subjectId } }, select: { isActive: true } }),
-    prisma.teacherProfile.findUnique({ where: { id: data.teacherId }, select: { branchId: true } }),
+    prisma.teacherProfile.findUnique({ where: { id: data.teacherId }, select: { organizationId: true, branchId: true } }),
     prisma.module.findUnique({ where: { id: data.moduleId }, select: { courseId: true } }),
     data.homeworkId ? prisma.homework.findUnique({ where: { id: data.homeworkId }, select: { batchId: true, subjectId: true } }) : null,
     data.testId ? prisma.test.findUnique({ where: { id: data.testId }, select: { courseId: true, batches: { select: { batchId: true } } } }) : null,
   ]);
   if (!batch || batch.branchId !== data.branchId || batch.courseId !== data.courseId) throw new AppError(422, "INVALID_BATCH_RELATION", "Batch must match Branch and Course");
   if (!courseSubject?.isActive) throw new AppError(422, "INVALID_SUBJECT_RELATION", "Subject must belong to Course");
-  if (!teacher || teacher.branchId !== data.branchId) throw new AppError(422, "INVALID_TEACHER_RELATION", "Teacher must belong to Branch");
+  const org = await prisma.organization.findUnique({ where: { id: batch.organizationId }, select: { groupLabelType: true } });
+  if (!teacher || !teacherAssignable(org?.groupLabelType, teacher, data.branchId, batch.organizationId)) throw new AppError(422, "INVALID_TEACHER_RELATION", "Teacher must belong to the institution and an eligible branch");
   if (!module || module.courseId !== data.courseId) throw new AppError(422, "INVALID_MODULE_RELATION", "Module must belong to Course");
   if (data.homeworkId && (!homework || homework.batchId !== data.batchId || homework.subjectId !== data.subjectId)) throw new AppError(422, "INVALID_HOMEWORK_LINK", "Homework must match Batch and Subject");
   if (data.testId && (!test || test.courseId !== data.courseId || !test.batches.some(item => item.batchId === data.batchId))) throw new AppError(422, "INVALID_QUIZ_LINK", "Quiz must match Course and Batch");
