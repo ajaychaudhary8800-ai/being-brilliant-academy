@@ -10,6 +10,7 @@ export type StoredVideoEvent = {
 };
 export function schoolOSVideoEvidenceSnapshot(
  events:StoredVideoEvent[],hostIdentity:string,meetingStatus:MeetingStatus,
+ allowZero=false,
 ) {
  if(!new Set<MeetingStatus>([MeetingStatus.ENDED,MeetingStatus.CLOSED,MeetingStatus.MINUTES_PENDING,
    MeetingStatus.MINUTES_PUBLISHED]).has(meetingStatus))
@@ -22,8 +23,19 @@ export function schoolOSVideoEvidenceSnapshot(
   throw new AppError(409,"SCHOOLOS_VIDEO_PROOF_REPLAY","Provider event IDs must be unique");
  const preview=calculateSchoolOSVideoRoomMinutes(sorted,hostIdentity);
  if(preview.status!=="PREVIEW_ONLY" || preview.minutes===null || preview.seconds===null ||
-   preview.minutes<1 || preview.minutes>100000)
+   (preview.minutes===0 && !allowZero) || preview.minutes>100000)
   throw new AppError(409,"SCHOOLOS_VIDEO_USAGE_UNVERIFIED","Provider session is not sufficiently verified for billable review");
+ if(preview.minutes===0) {
+  // Conservative proof set: exactly one host-only provider join, its matching
+  // departure and a signed terminal room event; no unknown reconnects.
+  if(!allowZero || sorted.length!==3 ||
+    sorted[0]!.eventType!=="participant_joined" || sorted[0]!.identity!==hostIdentity ||
+    sorted[1]!.eventType!=="participant_left" || sorted[1]!.identity!==hostIdentity ||
+    sorted[0]!.participantSid!==sorted[1]!.participantSid ||
+    sorted[2]!.eventType!=="room_finished")
+   throw new AppError(409,"SCHOOLOS_VIDEO_ZERO_USE_PROOF_INCOMPLETE",
+    "Only a fully closed single-host provider session can request zero-usage release");
+ }
  const firstEventAt=sorted[0]!.occurredAt,lastEventAt=sorted[sorted.length-1]!.occurredAt;
  if(lastEventAt.getTime()<=firstEventAt.getTime())
   throw new AppError(409,"SCHOOLOS_VIDEO_EVENT_WINDOW_INVALID","Provider session window must be positive");
