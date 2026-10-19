@@ -17,6 +17,7 @@ import { requireCommercialFeature } from "../middleware/commercial-entitlement.j
 const router = Router();
 router.use(requireAuth);
 router.use(requireCommercialFeature("communication"));
+router.use(requireCommercialFeature("workflow_automation"));
 
 const adminRoles: Role[] = [Role.SUPER_ADMIN, Role.BRANCH_ADMIN];
 const id = z.string().cuid();
