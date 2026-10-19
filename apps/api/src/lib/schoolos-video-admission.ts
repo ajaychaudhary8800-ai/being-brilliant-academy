@@ -37,6 +37,16 @@ export function schoolOSVideoAdmissionEnabled(organizationId:string){
   env.SCHOOLOS_VIDEO_WEBHOOK_ENABLED &&
   isSchoolOSVideoEvidenceEnabled(organizationId,env.SCHOOLOS_VIDEO_EVIDENCE_TENANT_IDS));
 }
+/**
+ * Legacy native LMS LiveClass lacks Meeting-backed prepaid reservations.
+ * Deny issuance of unmetered LiveKit credentials for paid-video tenants.
+ * Ordinary V4 and non-opted-in tenants retain original native classes.
+ */
+export function assertSchoolOSNativeLiveClassAdmissionAllowed(organizationId:string){
+ if(schoolOSVideoAdmissionEnabled(organizationId))
+  throw new AppError(409,"SCHOOLOS_VIDEO_NATIVE_CLASS_UNMETERED",
+   "Paid video minutes require a quota-managed Meeting, not legacy unmetered native LMS classes");
+}
 export function schoolOSVideoReservationWindow(meeting:{
  startsAt:Date;endsAt:Date;
 },now:Date){
