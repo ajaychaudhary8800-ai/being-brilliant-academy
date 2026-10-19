@@ -304,7 +304,7 @@ router.post("/timetables/class-day/copy/preview",async(req:AuthRequest,res)=>{
 });
 router.post("/timetables/class-day/copy",async(req:AuthRequest,res)=>{
   const inputCopy=copyDayInput.parse(req.body);
-  const saved=await prisma.$transaction(async tx=>{
+  const saved=await retryTimetableTransaction(()=>prisma.$transaction(async tx=>{
     await lockTimetableBranch(tx,inputCopy.branchId);
     const plan=await planSchoolDayCopy(req,inputCopy,tx);
     if(plan.conflicts.length) throw new AppError(409,"COPY_DAY_CONFLICT",
@@ -330,7 +330,7 @@ router.post("/timetables/class-day/copy",async(req:AuthRequest,res)=>{
       }
     }
     return created;
-  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000});
+  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000}));
   res.status(201).json({data:saved,meta:{created:saved.length}});
 });
 
@@ -343,7 +343,7 @@ router.post("/timetables/class-day", async (req: AuthRequest, res) => {
   const { entries } = classDayInput.parse(req.body);
   const ordered = validateClassDayEntries(entries);
   await access(req, ordered[0].branchId);
-  const saved = await prisma.$transaction(async tx => {
+  const saved = await retryTimetableTransaction(()=>prisma.$transaction(async tx => {
     await lockTimetableBranch(tx, ordered[0].branchId);
     const plan = await checkClassDay(req, ordered, tx);
     if (plan.conflicts.length) {
@@ -370,7 +370,7 @@ router.post("/timetables/class-day", async (req: AuthRequest, res) => {
     }
     return created;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    maxWait: 10000, timeout: 30000 });
+    maxWait: 10000, timeout: 30000 }));
   res.status(201).json({ data: saved, meta: { created: saved.length } });
 });
 
@@ -384,7 +384,7 @@ router.post("/timetables/weekly", async (req: AuthRequest, res) => {
   const { entries } = weekInput.parse(req.body);
   validateWeeklyTimetableEntries(entries);
   await access(req, entries[0].branchId);
-  const created = await prisma.$transaction(async tx => {
+  const created = await retryTimetableTransaction(()=>prisma.$transaction(async tx => {
     await lockTimetableBranch(tx, entries[0].branchId);
     const plan = await checkWeek(req, entries, tx);
     if (plan.conflicts.length) {
@@ -412,7 +412,7 @@ router.post("/timetables/weekly", async (req: AuthRequest, res) => {
       results.push(shape(saved));
     }
     return results;
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10000, timeout: 30000 });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10000, timeout: 30000 }));
   res.status(201).json({ data: created, meta: { created: created.length } });
 });
 
