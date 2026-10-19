@@ -21,6 +21,7 @@ import {
 import { prisma } from "../lib/prisma.js";
 import { assertFeatureEntitled } from "../lib/saas-commercial.js";
 import { authorizeSchoolOSPrepaidVideoRoom,schoolOSVideoAdmissionEnabled } from "../lib/schoolos-video-admission.js";
+import { requireSchoolOSPrepaidRoomDisconnect } from "../lib/schoolos-video-provider-end.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
@@ -210,6 +211,16 @@ router.post("/meetings/native/:room/end", async (req: AuthRequest, res) => {
   const { meeting, participant } = await meetingForRoom(req, room);
   if (!managerRole(participant.meetingRole)) throw new AppError(403, "MEETING_MODERATION_FORBIDDEN", "Host or co-host permission is required");
   assertActiveMeeting(meeting);
+  // For prepaid rooms, confirm provider-side termination before mutating
+  // recording, attendance or meeting status. Failures remain retryable.
+  const meteredRoom = schoolOSVideoAdmissionEnabled(org(req));
+  if (meteredRoom) {
+    await requireSchoolOSPrepaidRoomDisconnect(
+      room,
+      () => livekitRoomService("DeleteRoom", { room }, room),
+      () => livekitRoomService("ListRooms", { names: [room] }, room),
+    );
+  }
   const now = new Date();
   const activeRecordings = meeting.recordings.filter(r => (r.status === MeetingRecordingStatus.STARTING || r.status === MeetingRecordingStatus.RECORDING) && r.providerRecordingId);
   for (const recording of activeRecordings) {
@@ -223,7 +234,8 @@ router.post("/meetings/native/:room/end", async (req: AuthRequest, res) => {
       },
     });
   }
-  await livekitRoomService("DeleteRoom", { room }, room).catch(() => null);
+  // Unmetered V4 rooms retain the legacy best-effort provider deletion.
+  if (!meteredRoom) await livekitRoomService("DeleteRoom", { room }, room).catch(() => null);
   await closeOpenAttendance(meeting.id);
   const row = await prisma.meeting.update({ where: { id: meeting.id }, data: { status: MeetingStatus.ENDED, endedAt: now, roomLocked: true } });
   await meetingAudit(req, meeting.id, "END", { stoppedRecordings: activeRecordings.length });
