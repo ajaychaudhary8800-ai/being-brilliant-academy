@@ -216,7 +216,7 @@ admin.patch("/lms/lessons/:id", async (req: AuthRequest, res) => {
     || (patch.subjectId !== undefined && patch.subjectId !== old.subjectId)
     || (patch.teacherId !== undefined && patch.teacherId !== old.teacherId)
     || (patch.durationSeconds !== undefined && patch.durationSeconds !== old.durationSeconds);
-  assertLmsLessonStructuralEditAllowed(old._count.progress > 0, structuralChanged); await relations(data, current);
+  assertLmsLessonStructuralEditAllowed(old._count.progress > 0, structuralChanged); await relations(data, current, req.auth!.organizationId);
   const { video, attachments, ...rest } = patch, videoData = video ? bytes(video, 25 * 1048576, ["video/mp4", "video/webm"]) : null;
   try {
     const lesson = await prisma.lesson.update({ where: { id: old.id }, data: { ...rest, ...(videoData ? { videoName: video!.name, videoMime: video!.mimeType, videoSize: videoData.length, videoData } : {}), ...(attachments ? { attachments: { create: attachments.map(attachment => { const data = bytes(attachment, 5 * 1048576, ["application/pdf", "image/jpeg", "image/png", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]); return { name: attachment.name, mimeType: attachment.mimeType, size: data.length, data }; }) } } : {}) }, select });
