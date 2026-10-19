@@ -4,6 +4,7 @@ import { z } from "zod";
 import { expandAllocationSelections } from "../lib/allocation-expansion.js";
 import { applyAllocationPeriods } from "../lib/allocation-periods.js";
 import { AppError } from "../lib/http.js";
+import { teacherAssignable } from "../lib/coaching-academic-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 
@@ -77,7 +78,7 @@ async function validateRelations(req: AuthRequest, data: z.infer<typeof input>, 
     prisma.academicSession.findUnique({ where: { id: data.academicSessionId }, select: { id: true, isArchived: true } }),
     prisma.course.findUnique({ where: { id: data.courseId }, select: { id: true, branchId: true } }),
     prisma.batch.findUnique({ where: { id: data.batchId }, select: { id: true, branchId: true, courseId: true, academicSessionId: true } }),
-    prisma.teacherProfile.findUnique({ where: { id: data.teacherId }, select: { id: true, branchId: true, user: { select: { isActive: true } } } }),
+    prisma.teacherProfile.findUnique({ where: { id: data.teacherId }, select: { id: true, organizationId: true, branchId: true, user: { select: { isActive: true } } } }),
     prisma.subject.findUnique({ where: { id: data.subjectId }, select: { id: true, name: true, status: true, legacyReviewStatus: true } }),
     prisma.teacherSubject.findUnique({ where: { teacherId_subjectId: { teacherId: data.teacherId, subjectId: data.subjectId } }, select: { subjectId: true } }),
     prisma.courseSubject.findUnique({ where: { courseId_subjectId: { courseId: data.courseId, subjectId: data.subjectId } }, select: { isActive: true } }),
@@ -86,7 +87,8 @@ async function validateRelations(req: AuthRequest, data: z.infer<typeof input>, 
   if (!session) throw new AppError(422, "INVALID_ACADEMIC_SESSION", "Select a valid academic session");
   if (!course || course.branchId && course.branchId !== data.branchId) throw new AppError(422, "INVALID_COURSE", "Select a course available to the selected branch");
   if (!batch || batch.branchId !== data.branchId || batch.courseId !== data.courseId || batch.academicSessionId !== data.academicSessionId) throw new AppError(422, "INVALID_BATCH", "The academic group must match the selected branch, course and academic session");
-  if (!teacher || teacher.branchId !== data.branchId) throw new AppError(422, "INVALID_TEACHER", "Teacher must belong to the selected branch");
+  const org = await prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { groupLabelType: true } });
+  if (!teacher || !teacherAssignable(org?.groupLabelType, teacher, data.branchId, req.auth!.organizationId)) throw new AppError(422, "INVALID_TEACHER", "Teacher must be eligible for the selected branch");
   if (!subject || !teacherSubject || !courseSubject?.isActive || subject.status !== SubjectStatus.ACTIVE) throw new AppError(422, "INVALID_SUBJECT", "Subject must be active and mapped to both the teacher and course");
   if (subject.legacyReviewStatus !== SubjectLegacyReviewStatus.CONFIRMED) {
     const existing = existingId ? await prisma.teacherAllocation.findFirst({ where: { id: existingId, subjectId: data.subjectId }, select: { id: true } }) : null;
@@ -129,7 +131,7 @@ async function expandAllocations(req: AuthRequest, data: BulkInput) {
   const [branch, session, teacher, courses, batches, subjects, teacherSubjects, courseSubjects] = await Promise.all([
     prisma.branch.findUnique({ where: { id: data.branchId }, select: { id: true, isActive: true } }),
     prisma.academicSession.findUnique({ where: { id: data.academicSessionId }, select: { id: true, isArchived: true } }),
-    prisma.teacherProfile.findUnique({ where: { id: data.teacherId }, select: { id: true, branchId: true, user: { select: { isActive: true, name: true } } } }),
+    prisma.teacherProfile.findUnique({ where: { id: data.teacherId }, select: { id: true, organizationId: true, branchId: true, user: { select: { isActive: true, name: true } } } }),
     prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true, branchId: true } }),
     prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, name: true, branchId: true, courseId: true, academicSessionId: true } }),
     prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, name: true, status: true, legacyReviewStatus: true } }),
