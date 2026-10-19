@@ -49,13 +49,13 @@ echo "V4 completed migration count: $baseline_migrations"
 
 # Minimal synthetic customer and staff identity, never copied from production.
 psql -d "$source_db" -v ON_ERROR_STOP=1 <<'SQL'
-INSERT INTO "Organization" ("id","slug","name","email")
+INSERT INTO "Organization" ("id","slug","name","email","updatedAt")
 VALUES ('qa-v5-upgrade-test-org','qa-v5-upgrade-test',
-        'Synthetic V4-to-V5 Upgrade Institution','synthetic-v5-upgrade@example.test');
-INSERT INTO "User" ("id","organizationId","email","passwordHash","name","role")
+        'Synthetic V4-to-V5 Upgrade Institution','synthetic-v5-upgrade@example.test',CURRENT_TIMESTAMP);
+INSERT INTO "User" ("id","organizationId","email","passwordHash","name","role","updatedAt")
 VALUES ('qa-v5-upgrade-test-user','qa-v5-upgrade-test-org',
         'qa-v5-upgrade-user@example.test','disabled-synthetic-test-hash',
-        'Synthetic Upgrade Administrator','SUPER_ADMIN');
+        'Synthetic Upgrade Administrator','SUPER_ADMIN',CURRENT_TIMESTAMP);
 SQL
 count_before="$(psql -d "$source_db" -Atqc \
  'SELECT count(*) FROM "Organization" WHERE id = '\''qa-v5-upgrade-test-org'\''')"
