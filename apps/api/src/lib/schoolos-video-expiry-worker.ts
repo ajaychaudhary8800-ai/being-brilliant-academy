@@ -1,4 +1,5 @@
 import { MeetingStatus } from "@prisma/client";
+import { env } from "../config.js";
 import { systemPrisma } from "./prisma.js";
 import { livekitConfigured, livekitRoomService } from "./livekit.js";
 import { logger } from "./logger.js";
@@ -12,6 +13,8 @@ const joinStatuses=[MeetingStatus.SCHEDULED,MeetingStatus.OPEN_FOR_JOIN,MeetingS
  */
 export async function closeExpiredSchoolOSPrepaidVideoRooms(now=new Date(),limit=50){
  if(!Number.isInteger(limit)||limit<1||limit>100)throw new Error("Invalid video-room reconciliation limit");
+ if(!env.SCHOOLOS_VIDEO_ADMISSION_ENABLED || !env.SCHOOLOS_VIDEO_ADMISSION_TENANT_IDS)
+  return {processed:0,closed:0,failed:0,results:[]};
  // Never issue LiveKit API requests when the feature is unconfigured.
  const candidates=await systemPrisma.schoolOSUsageReservation.findMany({
   where:{metric:"video_minutes",status:"RESERVED",requestKey:{startsWith:"video-meeting:"}},
