@@ -6,6 +6,7 @@ import {
   StudentStatus,
 } from "@prisma/client";
 import { AppError } from "./http.js";
+import { assertStudentCoachingGrade, isCoaching } from "./coaching-academic-policy.js";
 
 export type AcademicPlacementDb = Prisma.TransactionClient | PrismaClient;
 
@@ -68,6 +69,7 @@ export async function resolveAuthoritativeBatchTuple(
       courseId: true,
       academicSessionId: true,
       capacity: true,
+      coachingGrades: true,
       branch: { select: { id: true, branchName: true, branchCode: true } },
       course: { select: { id: true, title: true, courseCode: true } },
       session: { select: { id: true, name: true, startsAt: true, endsAt: true, isArchived: true } },
@@ -286,6 +288,7 @@ export function synchronizeStudentAcademicProjection(
     academicSessionId: string;
     academicSession: string;
     courseTitle: string;
+    coachingGrade?: number | null;
     rollNo: string;
   },
 ) {
@@ -296,7 +299,7 @@ export function synchronizeStudentAcademicProjection(
       batchId: input.batchId,
       academicSessionId: input.academicSessionId,
       academicSession: input.academicSession,
-      className: input.courseTitle,
+      className: input.coachingGrade ? `Class ${input.coachingGrade}` : input.courseTitle,
       rollNo: normalizeAcademicRollNumber(input.rollNo),
     },
   });
@@ -346,6 +349,7 @@ export type StudentAcademicTransitionInput = {
   type: "PROMOTED" | "RETAINED" | "TRANSFERRED" | "LEFT" | "GRADUATED";
   effectiveDate: Date;
   targetBatchId?: string;
+  coachingGrade?: number;
   rollNo?: string;
   reason?: string | null;
   createdById: string;
@@ -359,7 +363,7 @@ export async function transitionStudentAcademicPlacement(client: PrismaClient, i
   return runSerializableAcademicPlacement(client, input.authorizeBranchIds ?? (async () => input.authorizedBranchIds ?? null), async (tx, branchIds) => {
     const profile = await tx.studentProfile.findFirst({
       where: { organizationId: input.organizationId, id: input.studentId },
-      select: { id: true, status: true, branchId: true, batchId: true, academicSessionId: true, rollNo: true },
+      select: { id: true, status: true, branchId: true, batchId: true, academicSessionId: true, rollNo: true, coachingGrade: true },
     });
     if (!profile) throw new AppError(404, "STUDENT_NOT_FOUND", "Student not found");
     let source;
@@ -383,6 +387,7 @@ export async function transitionStudentAcademicPlacement(client: PrismaClient, i
     if (hasDestination && !input.targetBatchId) throw new AppError(422, "INVALID_TRANSITION_TARGET", "A destination Batch is required for this transition");
     if (!hasDestination && input.targetBatchId) throw new AppError(422, "INVALID_TRANSITION_TARGET", "This transition cannot have a destination Batch");
 
+    const mode = await tx.organization.findUnique({ where: { id: input.organizationId }, select: { groupLabelType: true } });
     let target: Awaited<ReturnType<typeof resolveAuthoritativeBatchTuple>> | null = null;
     if (input.targetBatchId) {
       try {
@@ -396,6 +401,7 @@ export async function transitionStudentAcademicPlacement(client: PrismaClient, i
         tx.branch.findFirst({ where: { organizationId: input.organizationId, id: target.branchId, isActive: true }, select: { id: true } }),
       ]);
       if (!batch || !branch) throw new AppError(422, "INVALID_TRANSITION_TARGET", "Destination Batch must belong to an active branch and session");
+      assertStudentCoachingGrade(mode?.groupLabelType, target.coachingGrades, input.coachingGrade ?? profile.coachingGrade, isCoaching(mode?.groupLabelType));
       if (branchIds && !branchIds.includes(target.branchId)) throw new AppError(403, "ACADEMIC_TRANSITION_FORBIDDEN", "Destination branch access denied");
       if (input.type === "RETAINED" && (!source.courseId || source.courseId !== target.course!.id)) throw new AppError(422, "INVALID_TRANSITION_TARGET", "A retained student must remain in the same Course");
       if (target.id === source.batchId && target.academicSessionId === source.academicSessionId && target.branchId === source.branchId) throw new AppError(422, "INVALID_TRANSITION_TARGET", "Destination must be a new academic placement");
@@ -407,7 +413,7 @@ export async function transitionStudentAcademicPlacement(client: PrismaClient, i
     const closed = await tx.studentAcademicEnrollment.updateMany({ where: { organizationId: input.organizationId, id: source.id, status: StudentAcademicEnrollmentStatus.ACTIVE }, data: { status: StudentAcademicEnrollmentStatus.CLOSED, effectiveTo: input.effectiveDate } });
     if (closed.count !== 1) throw new AppError(409, "ACADEMIC_TRANSITION_CONFLICT", "The student's academic placement changed; reload and retry");
     const destination = target ? await createActiveAcademicEnrollment(tx, { organizationId: input.organizationId, studentId: input.studentId, branchId: target.branchId, batchId: target.id, courseId: target.course!.id, academicSessionId: target.academicSessionId, rollNo: rollNo!, source: input.type === "PROMOTED" ? StudentAcademicEnrollmentSource.PROMOTION : input.type === "RETAINED" ? StudentAcademicEnrollmentSource.RETENTION : StudentAcademicEnrollmentSource.TRANSFER, effectiveFrom: input.effectiveDate, createdById: input.createdById }) : null;
-    if (destination) await tx.studentProfile.update({ where: { organizationId_id: { organizationId: input.organizationId, id: input.studentId } }, data: { branchId: destination.branchId, batchId: destination.batchId, academicSessionId: destination.academicSessionId, academicSession: target!.session.name, className: target!.course!.title, rollNo: destination.rollNo, status: StudentStatus.ACTIVE } });
+    if (destination) await tx.studentProfile.update({ where: { organizationId_id: { organizationId: input.organizationId, id: input.studentId } }, data: { branchId: destination.branchId, batchId: destination.batchId, academicSessionId: destination.academicSessionId, academicSession: target!.session.name, coachingGrade: isCoaching(mode?.groupLabelType) ? (input.coachingGrade ?? profile.coachingGrade) : null, className: isCoaching(mode?.groupLabelType) && (input.coachingGrade ?? profile.coachingGrade) ? `Class ${input.coachingGrade ?? profile.coachingGrade}` : target!.course!.title, rollNo: destination.rollNo, status: StudentStatus.ACTIVE } });
     else await tx.studentProfile.update({ where: { organizationId_id: { organizationId: input.organizationId, id: input.studentId } }, data: { status: StudentStatus.INACTIVE } });
     const transition = await tx.studentAcademicTransition.create({ data: { organizationId: input.organizationId, studentId: input.studentId, type: input.type, fromEnrollmentId: source.id, toEnrollmentId: destination?.id ?? null, effectiveDate: input.effectiveDate, reason: input.reason ?? null, createdById: input.createdById } });
     await tx.auditLog.create({ data: { organizationId: input.organizationId, actorId: input.createdById, action: `STUDENT_ACADEMIC_${input.type}`, entity: "StudentAcademicTransition", entityId: transition.id, metadata: { studentId: input.studentId, fromEnrollmentId: source.id, toEnrollmentId: destination?.id ?? null } } });
