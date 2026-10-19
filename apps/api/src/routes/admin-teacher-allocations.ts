@@ -140,7 +140,8 @@ async function expandAllocations(req: AuthRequest, data: BulkInput) {
   ]);
   if (!branch) throw new AppError(422, "INVALID_BRANCH", "Select a valid branch");
   if (!session) throw new AppError(422, "INVALID_ACADEMIC_SESSION", "Select a valid academic session");
-  if (!teacher || teacher.branchId !== data.branchId) throw new AppError(422, "INVALID_TEACHER", "Teacher must belong to the selected branch");
+  const org = await prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { groupLabelType: true } });
+  if (!teacher || !teacherAssignable(org?.groupLabelType, teacher, data.branchId, req.auth!.organizationId)) throw new AppError(422, "INVALID_TEACHER", "Teacher must be eligible for the selected branch");
   if (data.status === TeacherAllocationStatus.ACTIVE && (!branch.isActive || session.isArchived || !teacher.user.isActive)) throw new AppError(409, "INACTIVE_RELATION", "Active allocations require an active branch, session and teacher");
   if (courses.length !== courseIds.length || courses.some(course => course.branchId && course.branchId !== data.branchId)) throw new AppError(422, "INVALID_COURSE", "Every course must be available to the selected branch");
   if (subjects.length !== subjectIds.length || subjects.some(subject => subject.status !== SubjectStatus.ACTIVE || subject.legacyReviewStatus !== SubjectLegacyReviewStatus.CONFIRMED)) throw new AppError(422, "INVALID_SUBJECT", "Every subject must be active, confirmed and belong to this organization");
