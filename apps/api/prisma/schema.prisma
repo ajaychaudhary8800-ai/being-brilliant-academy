@@ -1077,6 +1077,7 @@ model Organization {
   schoolOSPaymentAdjustments SchoolOSPaymentAdjustment[]
   schoolOSPaymentRiskReviews SchoolOSPaymentRiskReview[]
   schoolOSUsageEvents SchoolOSUsageEvent[]
+  schoolOSUsageReservations SchoolOSUsageReservation[]
   branches               Branch[]
   communicationCirculars Circular[]
   communicationCalendarEvents CalendarEvent[]
@@ -8603,6 +8604,7 @@ model SchoolOSUsageBalance {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   events SchoolOSUsageEvent[]
+  reservations SchoolOSUsageReservation[]
 
   @@unique([organizationId, metric, periodStart])
   @@index([organizationId, metric, periodEnd])
@@ -8628,6 +8630,29 @@ model SchoolOSUsageEvent {
   @@index([organizationId, createdAt])
   @@index([balanceId, kind])
   @@index([sourceInvoiceId])
+}
+
+model SchoolOSUsageReservation {
+  id             String   @id @default(cuid())
+  organizationId String
+  balanceId      String
+  metric         String
+  requestKey     String
+  units          Int
+  status         String   @default("RESERVED")
+  actorId        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  committedAt    DateTime?
+  releasedAt     DateTime?
+  releaseReason  String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  balance SchoolOSUsageBalance @relation(fields: [balanceId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, metric, requestKey])
+  @@index([organizationId, status, createdAt])
+  @@index([balanceId, status])
 }
 
 model SchoolOSAddonRate {
