@@ -62,7 +62,7 @@ export default function BulkAllocationDialog({ sessions, branches, close, saved 
       const batchParams = new URLSearchParams({ limit: "100", branchId, courseId, academicSession: sessionName });
       const [batchData, subjectData] = await Promise.all([
         fetch(`${API}/admin/batches?${batchParams}`, { headers: headers() }).then(read),
-        fetch(`${API}/admin/allocation-subject-options?teacherId=${teacherId}&courseId=${courseId}`, { headers: headers() }).then(read),
+        fetch(`${API}/admin/allocation-subject-options?${new URLSearchParams({ teacherId, courseId, branchId })}`, { headers: headers() }).then(read),
       ]);
       setSelections(current => ({ ...current, [courseId]: {
         batchIds: [], subjectIds: [], loading: false,
