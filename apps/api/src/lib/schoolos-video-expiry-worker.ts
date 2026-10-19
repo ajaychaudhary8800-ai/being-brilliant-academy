@@ -1,9 +1,7 @@
 import { MeetingStatus } from "@prisma/client";
-import { env } from "../config.js";
 import { systemPrisma } from "./prisma.js";
 import { livekitConfigured, livekitRoomService } from "./livekit.js";
 import { logger } from "./logger.js";
-import { schoolOSVideoAdmissionEnabled } from "./schoolos-video-admission.js";
 import { expiredSchoolOSVideoRoomCandidates } from "./schoolos-video-expired-candidates.js";
 import { requireSchoolOSPrepaidRoomDisconnect } from "./schoolos-video-provider-end.js";
 
@@ -12,18 +10,15 @@ const joinStatuses=[MeetingStatus.SCHEDULED,MeetingStatus.OPEN_FOR_JOIN,MeetingS
  * Best-effort provider-side scheduled room disconnect. Runs every 30 seconds;
  * LiveKit provider success is required before meeting is locally marked ended.
  * Does not release a prepaid hold or settle billable usage.
+ * Admission opt-out MUST NOT stop enforcement of previously held room minutes.
  */
 export async function closeExpiredSchoolOSPrepaidVideoRooms(now=new Date(),limit=50){
  if(!Number.isInteger(limit)||limit<1||limit>100)throw new Error("Invalid video-room reconciliation limit");
- if(!env.SCHOOLOS_VIDEO_ADMISSION_ENABLED || !env.SCHOOLOS_VIDEO_ADMISSION_TENANT_IDS)
-  return {processed:0,closed:0,failed:0,results:[]};
- // Scope candidate selection to eligible institutions and *expired* meetings
- // before applying LIMIT. Old future or unauthorized reservations cannot
- // indefinitely starve provider disconnections for billable rooms.
- const tenants=[...new Set(env.SCHOOLOS_VIDEO_ADMISSION_TENANT_IDS.split(",")
-   .map(x=>x.trim()).filter(schoolOSVideoAdmissionEnabled))];
- if(!tenants.length)return {processed:0,closed:0,failed:0,results:[]};
- const candidates=await expiredSchoolOSVideoRoomCandidates(now,tenants,limit);
+ // Query only rooms backed by existing prepaid reservations, independent of
+ // CURRENT feature flags/allowlists. Disabling further admissions is not
+ // permission to leave previously admitted provider rooms running past budget.
+ // The SQL filters expired rooms before LIMIT, so future holds cannot starve it.
+ const candidates=await expiredSchoolOSVideoRoomCandidates(now,null,limit);
  const results:Array<{meetingId:string;organizationId:string;closed:boolean;error?:string}>=[];
  for(const meeting of candidates) {
   const meetingId=meeting.meetingId;

@@ -231,6 +231,7 @@ async function dependencyChecks() {
   return checks;
 }
 
+let schoolOSVideoResidualWorkObserved = false;
 const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation" | "aiExaminer" | "meetingReminders" | "deviceHub" | "videoQuota", WorkerHeartbeat> = {
   notificationDelivery: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   saasLifecycle: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
@@ -260,7 +261,7 @@ app.get("/health/operational", async (_req, res) => {
     aiExaminer: workerSnapshot("aiExaminer", Math.max(60_000, env.AI_EXAMINER_WORKER_INTERVAL_MS * 12)),
     meetingReminders: workerSnapshot("meetingReminders", 15 * 60_000),
     deviceHub: workerSnapshot("deviceHub", Math.max(60_000, env.DEVICE_HUB_WORKER_INTERVAL_MS * 6)),
-    ...(env.SCHOOLOS_VIDEO_ADMISSION_ENABLED ? { videoQuota: workerSnapshot("videoQuota", 2 * 60_000) } : {}),
+    ...(env.SCHOOLOS_VIDEO_ADMISSION_ENABLED || schoolOSVideoResidualWorkObserved ? { videoQuota: workerSnapshot("videoQuota", 2 * 60_000) } : {}),
   };
   const healthy = Object.values(checks).every(Boolean) && Object.values(workers).every(worker => worker.healthy);
   res.status(healthy ? 200 : 503).json({
@@ -483,13 +484,12 @@ let schoolOSVideoWorkerRunning = false;
 const runSchoolOSVideoWorker = async () => {
   if (schoolOSVideoWorkerRunning) return;
   schoolOSVideoWorkerRunning = true;
-  if (!env.SCHOOLOS_VIDEO_ADMISSION_ENABLED) {
-    schoolOSVideoWorkerRunning = false;
-    return;
-  }
+  // Outstanding paid holds remain enforceable even after new admissions are disabled.
   const finishMetric = startWorkerRun("schoolos_video_quota");
   try {
     const result = await closeExpiredSchoolOSPrepaidVideoRooms(new Date(), 50);
+    // Surface provider failures in operational health while disabled rooms remain outstanding.
+    schoolOSVideoResidualWorkObserved = result.processed > 0;
     workerHeartbeats.videoQuota = { lastSuccessAt: new Date(),
       lastFailureAt: result.failed ? new Date() : workerHeartbeats.videoQuota.lastFailureAt,
       lastError: result.failed ? "PROVIDER_ROOM_DISCONNECT_FAILED" : null };
