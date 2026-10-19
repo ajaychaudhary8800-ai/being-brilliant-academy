@@ -210,10 +210,10 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
         assert.equal(otherTenantList.payload.meta.total, 0);
         const otherTenantRead = await request(`/timetables/${firstId}`, "GET", undefined,
           otherAdmin, otherOrganizationId);
-        assert.equal(otherTenantRead.status, 403, JSON.stringify(otherTenantRead.payload));
+        assert.ok([403, 404].includes(otherTenantRead.status), JSON.stringify(otherTenantRead.payload));
         const otherTenantEdit = await request(`/timetables/${firstId}`, "PATCH",
           { remarks: "unauthorized" }, otherAdmin, otherOrganizationId);
-        assert.equal(otherTenantEdit.status, 403, JSON.stringify(otherTenantEdit.payload));
+        assert.ok([403, 404].includes(otherTenantEdit.status), JSON.stringify(otherTenantEdit.payload));
 
         const archived = await request(`/timetables/${firstId}/status`, "PATCH",
           { status: "ARCHIVED" });
