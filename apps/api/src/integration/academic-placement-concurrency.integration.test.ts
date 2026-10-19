@@ -15,6 +15,7 @@ import adminBatches from "../routes/admin-batches.js";
 import adminEnquiries from "../routes/admin-enquiries.js";
 import adminStudents from "../routes/admin-students.js";
 import adminTimetables from "../routes/admin-timetables.js";
+import adminTeacherAllocations from "../routes/admin-teacher-allocations.js";
 
 const enabled = process.env.RUN_POSTGRES_INTEGRATION === "1";
 const barrier = (parties: number) => { let arrived = 0; let release!: () => void; const ready = new Promise<void>(resolve => { release = resolve; }); return () => { if (++arrived === parties) release(); return ready; }; };
@@ -76,6 +77,7 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
     application.use("/api/v1/admin", adminStudents);
     application.use("/api/v1/admin", adminBatches);
     application.use("/api/v1/admin", adminTimetables);
+    application.use("/api/v1/admin", adminTeacherAllocations);
     application.use("/api/v1/admin", adminEnquiries);
     application.use(errorHandler);
     server = application.listen(0, "127.0.0.1");
@@ -160,6 +162,7 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
       const teacher = await systemPrisma.teacherProfile.create({ data: {
         organizationId, userId: user.id, employeeNo: `AP-X-${key}`, branchId: branch.id,
       } });
+      let allocatedSubjectId: string | null = null;
       try {
         // School sections must retain their historical home-branch restriction;
         // this same teacher becomes cross-branch assignable only in coaching.
@@ -180,7 +183,67 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
         assert.equal(result.payload.data.teacher.id, teacher.id);
         assert.equal(result.payload.data.branch.id, branchB.id);
         assert.equal((await systemPrisma.batch.findUniqueOrThrow({ where: { id: batchB.id } })).teacherId, teacher.id);
+
+        // Exercise actual subject-allocation routes, not only batch class-teacher selection.
+        const allocationSubject = await systemPrisma.subject.create({ data: {
+          organizationId, name: "Cross-branch allocation", code: `AP-AL-${key}`,
+        } });
+        allocatedSubjectId = allocationSubject.id;
+        await systemPrisma.teacherSubject.create({ data: {
+          organizationId, teacherId: teacher.id, subjectId: allocationSubject.id,
+        } });
+        await systemPrisma.courseSubject.create({ data: {
+          organizationId, courseId: courseB.id, subjectId: allocationSubject.id,
+        } });
+        const allocationBody = {
+          academicSessionId: session.id, branchId: branchB.id, courseId: courseB.id,
+          batchId: batchB.id, teacherId: teacher.id, subjectId: allocationSubject.id,
+          weeklyPeriods: 3, effectiveFrom: session.startsAt.toISOString().slice(0, 10),
+          status: "ACTIVE",
+        };
+        const forbidden = await request("/teacher-allocations", "POST", allocationBody, branchAdmin);
+        assert.equal(forbidden.status, 403, JSON.stringify(forbidden.payload));
+        const created = await request("/teacher-allocations", "POST", allocationBody, branchAdminB);
+        assert.equal(created.status, 201, JSON.stringify(created.payload));
+        assert.equal(created.payload.data.organizationId, organizationId);
+        assert.equal(created.payload.data.teacherId, teacher.id);
+        assert.equal(created.payload.data.branchId, branchB.id);
+
+        const crossTenantRead = await request(
+          `/teacher-allocations/${created.payload.data.id}`, "GET", undefined,
+          otherAdmin, otherOrganizationId,
+        );
+        assert.ok([403, 404].includes(crossTenantRead.status), JSON.stringify(crossTenantRead.payload));
+        const crossTenantList = await request(
+          `/teacher-allocations?teacherId=${teacher.id}`, "GET", undefined,
+          otherAdmin, otherOrganizationId,
+        );
+        assert.equal(crossTenantList.status, 200, JSON.stringify(crossTenantList.payload));
+        assert.equal(crossTenantList.payload.meta.total, 0);
+
+        const activeAudit = await systemPrisma.auditLog.findFirst({ where: {
+          organizationId, entity: "TeacherAllocation",
+          entityId: created.payload.data.id, action: "CREATE",
+        } });
+        assert.ok(activeAudit, "Teacher allocation audit must belong to the authorized institution");
+        const deactivated = await request(
+          `/teacher-allocations/${created.payload.data.id}/deactivate`, "PATCH", {}, branchAdminB,
+        );
+        assert.equal(deactivated.status, 200, JSON.stringify(deactivated.payload));
+        const deleted = await request(
+          `/teacher-allocations/${created.payload.data.id}`, "DELETE", undefined, branchAdminB,
+        );
+        assert.equal(deleted.status, 204, JSON.stringify(deleted.payload));
+        assert.equal(await systemPrisma.teacherAllocation.count({
+          where: { organizationId, teacherId: teacher.id },
+        }), 0);
       } finally {
+        await systemPrisma.teacherAllocation.deleteMany({ where: { organizationId, teacherId: teacher.id } });
+        await systemPrisma.teacherSubject.deleteMany({ where: { organizationId, teacherId: teacher.id } });
+        if (allocatedSubjectId) {
+          await systemPrisma.courseSubject.deleteMany({ where: { organizationId, subjectId: allocatedSubjectId } });
+          await systemPrisma.subject.delete({ where: { id: allocatedSubjectId } });
+        }
         await systemPrisma.organization.update({ where: { id: organizationId },
           data: { groupLabelType: "BATCH" } });
         await systemPrisma.batch.update({ where: { id: batch.id }, data: { teacherId: null } });
