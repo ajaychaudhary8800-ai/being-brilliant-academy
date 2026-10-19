@@ -246,10 +246,12 @@ router.patch("/students/:id", async (req: AuthRequest, res) => {
       const coaching = isCoaching(mode?.groupLabelType);
       const effectiveGrade = data.coachingGrade === undefined ? old.coachingGrade : data.coachingGrade;
       if (!coaching && data.coachingGrade != null) throw new AppError(422,"COACHING_MODE_REQUIRED","Class level selection is available only in coaching mode");
+      let coachingClassLabel: string | undefined;
       if (coaching && data.coachingGrade !== undefined) {
-        const currentBatch = await tx.batch.findFirst({where:{id:data.batchId ?? old.batchId,organizationId:req.auth!.organizationId},select:{coachingGrades:true}});
+        const currentBatch = await tx.batch.findFirst({where:{id:data.batchId ?? old.batchId,organizationId:req.auth!.organizationId},select:{coachingGrades:true,course:{select:{title:true}}}});
         if (!currentBatch) throw new AppError(422,"INVALID_BATCH","Batch not found");
         assertStudentCoachingGrade(mode?.groupLabelType,currentBatch.coachingGrades,effectiveGrade);
+        coachingClassLabel = effectiveGrade ? `Class ${effectiveGrade}` : currentBatch.course?.title ?? "Coaching";
       }
       const { name, email, mobile, photoUrl, password: _password, branchId: _branchId, batchId: _batchId, academicSession: _academicSession, rollNo: _rollNo, ...profileFields } = data;
       await tx.user.update({ where: { id: old.userId }, data: { ...(name ? { name } : {}), ...(email ? { email } : {}), ...(mobile !== undefined ? { phone: mobile } : {}), ...(photoUrl !== undefined ? { avatarUrl: photoUrl } : {}), ...(passwordHash ? { passwordHash } : {}), ...(data.status ? { isActive: data.status === StudentStatus.ACTIVE } : {}) } });
@@ -274,7 +276,7 @@ router.patch("/students/:id", async (req: AuthRequest, res) => {
         assertAcademicProjectionConsistent(projection, currentEnrollment);
         await tx.auditLog.create({ data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "STUDENT_ACADEMIC_PLACEMENT_UPDATED", entity: "StudentAcademicEnrollment", entityId: currentEnrollment.id, metadata: { studentId: old.id, sourceBranchId: old.branchId, targetBranchId: target.branchId, sourceBatchId: active.batchId, targetBatchId: target.id, academicSessionId: target.academicSessionId } } });
       }
-      if (Object.keys(profileFields).length) await tx.studentProfile.update({ where: { id: old.id }, data: { ...profileFields, ...(coaching && data.coachingGrade !== undefined && effectiveGrade ? { className: `Class ${effectiveGrade}` } : {}) } });
+      if (Object.keys(profileFields).length) await tx.studentProfile.update({ where: { id: old.id }, data: { ...profileFields, ...(coachingClassLabel !== undefined ? { className: coachingClassLabel } : {}) } });
       const updated = await tx.studentProfile.findFirst({ where: { id: old.id }, select: studentSelect });
       if (!updated) throw new AppError(404, "STUDENT_NOT_FOUND", "Student not found");
       return { ...updated, ...(placementRequested ? { currentEnrollment } : {}) };
