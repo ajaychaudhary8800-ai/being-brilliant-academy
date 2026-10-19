@@ -53,8 +53,8 @@ export async function reserveSchoolOSAIExaminerCredit(
   const bucket=buckets[0]!;
   const grant=await tx.schoolOSUsageEvent.findFirst({where:{
    organizationId,balanceId:bucket.id,metric,kind:"GRANT",
-   sourceInvoice:{is:{organizationId,status:"PAID",
-    OR:[{schoolOSPaymentRiskHold:{is:null}},{schoolOSPaymentRiskHold:{is:{status:"RESOLVED"}}}]}},
+   sourceInvoice:{is:{organizationId,status:"PAID",schoolOSQuoteId:{not:null},
+    payments:{some:{status:"CAPTURED"}},OR:[{schoolOSPaymentRiskHold:{is:null}},{schoolOSPaymentRiskHold:{is:{status:"RESOLVED"}}}]}},
   },select:{id:true}});
   if(!grant)throw new AppError(409,"SCHOOLOS_AI_PAID_GRANT_MISSING","Verified paid AI credit grant required");
   const available=await tx.schoolOSUsageBalance.updateMany({where:{
