@@ -25,6 +25,9 @@ export function schoolOSVideoEvidenceSnapshot(
  if(preview.status!=="PREVIEW_ONLY" || preview.minutes===null || preview.seconds===null ||
    (preview.minutes===0 && !allowZero) || preview.minutes>100000)
   throw new AppError(409,"SCHOOLOS_VIDEO_USAGE_UNVERIFIED","Provider session is not sufficiently verified for billable review");
+ if(allowZero && preview.minutes!==0)
+  throw new AppError(409,"SCHOOLOS_VIDEO_HAS_BILLABLE_USAGE",
+   "Provider-confirmed billable overlap must use normal video usage settlement");
  if(preview.minutes===0) {
   // Conservative proof set: exactly one host-only provider join, its matching
   // departure and a signed terminal room event; no unknown reconnects.
