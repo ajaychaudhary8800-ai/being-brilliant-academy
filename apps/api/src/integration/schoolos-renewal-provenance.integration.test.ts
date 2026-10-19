@@ -90,7 +90,14 @@ test("renewal provenance uses real PAID invoices, strict tenant ownership, newes
     await systemPrisma.saaSInvoice.deleteMany({where:{organizationId}});
     await systemPrisma.schoolOSQuotation.deleteMany({where:{id:{in:quoteIds}}});
     await systemPrisma.saaSSubscription.deleteMany({where:{organizationId}});
-    await systemPrisma.organization.deleteMany({where:{id:organizationId}});
+    // Organization creation provisioned an academic session. The invariant trigger
+    // requires the same isolated-test transactional cleanup used by existing suites.
+    await systemPrisma.$transaction(async tx => {
+      await tx.$executeRawUnsafe('ALTER TABLE "AcademicSession" DISABLE TRIGGER "AcademicSession_exactly_one_current"');
+      await tx.academicSession.deleteMany({where:{organizationId}});
+      await tx.organization.deleteMany({where:{id:organizationId}});
+      await tx.$executeRawUnsafe('ALTER TABLE "AcademicSession" ENABLE TRIGGER "AcademicSession_exactly_one_current"');
+    });
     await systemPrisma.saaSPlan.deleteMany({where:{code:planCode}});
   }
 });
