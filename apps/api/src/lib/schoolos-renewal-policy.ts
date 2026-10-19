@@ -45,7 +45,7 @@ export function schoolOSRenewalReadiness(
     credits:credits.map(credit=>{
       const remaining=credit.grantedUnits-credit.consumedUnits;
       const usable=credit.periodStart<=now && credit.periodEnd>now &&
-        Boolean(current && credit.periodEnd<=current.periodEnd) && !canceled;
+        Boolean(current && credit.periodEnd<=current.periodEnd);
       return {
         metric:credit.metric,periodStart:credit.periodStart,periodEnd:credit.periodEnd,
         purchasedUnits:credit.grantedUnits,consumedUnits:credit.consumedUnits,
