@@ -4,6 +4,7 @@ import test from "node:test";
 import { OrganizationSubscriptionStatus, SaaSBillingCycle, SaaSInvoiceStatus, SaaSPaymentStatus } from "@prisma/client";
 import { systemPrisma } from "../lib/prisma.js";
 import { schoolOSUsageReport } from "../lib/schoolos-usage-service.js";
+import { schoolOSAIReconciliationQueue } from "../lib/schoolos-ai-credit-reconciliation.js";
 import { reserveSchoolOSAIExaminerCredit, commitSchoolOSAIExaminerCredit, releaseSchoolOSAIExaminerCredit } from "../lib/schoolos-ai-credit-reservations.js";
 
 function isolatedDB() {
@@ -95,6 +96,22 @@ test("paid AI reservations enforce tenant source, exactly-once billing and concl
   const winner=race[0]?.status==="fulfilled"?"evaluation-B":"evaluation-C";
   assert.equal((await systemPrisma.schoolOSUsageBalance.findUniqueOrThrow({
    where:{id:balance.id}})).consumedUnits,2);
+
+  // No authoritative persisted evaluation exists, so even a platform reviewer
+  // cannot convert a merely RESERVED credit into an invoiced debit.
+  const queue=await schoolOSAIReconciliationQueue(orgId);
+  assert.equal(queue.total,2);
+  assert.equal(queue.items.every(item=>item.commitEligible===false),true);
+  assert.equal(queue.items.every(item=>item.automaticReleaseAllowed===false),true);
+  await assert.rejects(()=>commitSchoolOSAIExaminerCredit(orgId,winner,{
+   actorId:"platform-reviewer",
+   evidenceReference:"external-provider-reference-example",
+   reviewComment:"Independent validation requested but durable result missing",
+  }),/persisted AI evaluation results/);
+  assert.equal((await systemPrisma.schoolOSUsageBalance.findUniqueOrThrow({
+   where:{id:balance.id}})).consumedUnits,2);
+  assert.equal(await systemPrisma.schoolOSUsageEvent.count({
+   where:{organizationId:orgId,kind:"CONSUME"}}),0);
 
   const committed=await commitSchoolOSAIExaminerCredit(orgId,winner);
   assert.equal(committed.committed,true);
