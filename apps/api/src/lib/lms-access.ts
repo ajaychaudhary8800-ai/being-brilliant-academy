@@ -32,8 +32,31 @@ export async function lmsActorForRequest(req: AuthRequest): Promise<LmsActor> {
     return { role, branchIds: branches.map(item => item.branchId) };
   }
   if (role === Role.TEACHER) {
-    const profile = await prisma.teacherProfile.findUnique({ where: { userId: req.auth!.userId }, select: { id: true, branchId: true } });
-    return { role, branchIds: profile ? [profile.branchId] : [], teacherProfileId: profile?.id };
+    const profile = await prisma.teacherProfile.findFirst({
+      where: { userId: req.auth!.userId, organizationId: req.auth!.organizationId },
+      select: { id: true, branchId: true },
+    });
+    if (!profile) return { role, branchIds: [] };
+    const organization = await prisma.organization.findUnique({
+      where: { id: req.auth!.organizationId }, select: { groupLabelType: true },
+    });
+    if (organization?.groupLabelType !== "BATCH") {
+      return { role, branchIds: [profile.branchId], teacherProfileId: profile.id };
+    }
+    // Coaching: only active, current allocations expand LMS branch scope.
+    // Exact teacher+batch+subject ownership is still checked on each content request.
+    const now = new Date();
+    const allocations = await prisma.teacherAllocation.findMany({
+      where: { organizationId: req.auth!.organizationId, teacherId: profile.id,
+        status: TeacherAllocationStatus.ACTIVE, effectiveFrom: { lte: now },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }] },
+      select: { branchId: true },
+      distinct: ["branchId"],
+    });
+    return {
+      role, branchIds: [...new Set([profile.branchId, ...allocations.map(allocation => allocation.branchId)])],
+      teacherProfileId: profile.id,
+    };
   }
   if (role === Role.STUDENT) {
     const profile = await prisma.studentProfile.findUnique({ where: { userId: req.auth!.userId }, select: { batchId: true, status: true } });
