@@ -11,10 +11,15 @@ test("video room stop worker stays entirely inactive without explicit financial 
 test("provider-side closing cannot be inferred from browser attendance or settle credits",async()=>{
  const worker=await source("./schoolos-video-expiry-worker.ts");
  assert.match(worker,/livekitRoomService\("DeleteRoom"/);
- assert.match(worker,/systemPrisma\.schoolOSUsageReservation\.findMany/);
+ assert.ok(worker.includes("expiredSchoolOSVideoRoomCandidates(now,tenants,limit)"));
  assert.match(worker,/SCHOOLOS_VIDEO_ADMISSION_ENABLED/);
- assert.match(worker,/if\(!schoolOSVideoAdmissionEnabled\(row\.organizationId\)\)continue/);
- assert.match(worker,/endsAt:\{lte:now\}/);
+ const provider=await source("./livekit.ts");
+ assert.ok(provider.includes('method === "DeleteRoom" ? { roomCreate: true } : {}'));
+ assert.ok(provider.includes("signal: AbortSignal.timeout(10_000)"));
+ assert.ok(worker.includes(".filter(schoolOSVideoAdmissionEnabled)"));
+ const candidates=await source("./schoolos-video-expired-candidates.ts");
+ assert.ok(candidates.includes('m."endsAt"<='));
+ assert.ok(candidates.includes('ORDER BY m."endsAt" ASC,m."id" ASC'));
  assert.match(worker,/creditSettlement:"PENDING_SIGNED_PROVIDER_REVIEW"/);
  assert.ok(worker.indexOf('await livekitRoomService("DeleteRoom"')<worker.indexOf("await systemPrisma.$transaction("));
  assert.doesNotMatch(worker,/schoolOSUsageEvent\.create|schoolOSUsageBalance\.update|creditReleased/);
