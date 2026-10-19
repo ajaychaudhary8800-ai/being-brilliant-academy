@@ -434,6 +434,33 @@ router.patch("/timetables/:id",async(req:AuthRequest,res)=>{
   await timetableAudit(req,"UPDATE",updated.id,{teacherId:updated.teacher.id,batchId:updated.batch.id,subjectId:updated.subject.id});
   res.json({data:shape(updated)});
 });
-router.patch("/timetables/:id/status",async(req:AuthRequest,res)=>{const{status}=z.object({status:z.nativeEnum(TimetableStatus)}).parse(req.body),old=await prisma.timetable.findUnique({where:{id:String(req.params.id)},select:{id:true,branchId:true}});if(!old)throw new AppError(404,"TIMETABLE_NOT_FOUND","Timetable entry not found");await access(req,old.branchId);const updated=await prisma.timetable.update({where:{id:old.id},data:{status},select});await timetableAudit(req,"STATUS_CHANGED",updated.id,{status});res.json({data:shape(updated)})});
+router.patch("/timetables/:id/status",async(req:AuthRequest,res)=>{
+  const {status}=z.object({status:z.nativeEnum(TimetableStatus)}).parse(req.body);
+  const updated=await prisma.$transaction(async tx=>{
+    const old=await tx.timetable.findUnique({where:{id:String(req.params.id)},select:{
+      id:true,branchId:true,courseId:true,batchId:true,subjectId:true,teacherId:true,
+      classroomId:true,day:true,startMinute:true,endMinute:true,periodNumber:true,
+      academicSession:true,remarks:true,status:true,
+    }});
+    if(!old)throw new AppError(404,"TIMETABLE_NOT_FOUND","Timetable entry not found");
+    await access(req,old.branchId,tx);
+    await lockTimetableBranch(tx,old.branchId);
+    if(old.status===TimetableStatus.ARCHIVED && status!==TimetableStatus.ARCHIVED){
+      // Restoring a previously archived lesson must not double-book a teacher,
+      // room or batch after other timetable entries have been created.
+      await validate({
+        branchId:old.branchId,courseId:old.courseId,batchId:old.batchId,
+        subjectId:old.subjectId,teacherId:old.teacherId,classroomId:old.classroomId,
+        day:old.day,startTime:clock(old.startMinute),endTime:clock(old.endMinute),
+        periodNumber:old.periodNumber,academicSession:old.academicSession,
+        remarks:old.remarks,status,
+      },old.id,tx);
+    }
+    return tx.timetable.update({where:{id:old.id},
+      data:{status,organizationId:req.auth!.organizationId},select});
+  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000});
+  await timetableAudit(req,"STATUS_CHANGED",updated.id,{status});
+  res.json({data:shape(updated)});
+});
 router.delete("/timetables/:id",async(req:AuthRequest,res)=>{const old=await prisma.timetable.findUnique({where:{id:String(req.params.id)},select:{id:true,branchId:true,status:true,_count:{select:{substitutions:true}}}});if(!old)throw new AppError(404,"TIMETABLE_NOT_FOUND","Timetable entry not found");await access(req,old.branchId);if(old.status!==TimetableStatus.ARCHIVED)throw new AppError(409,"ARCHIVE_BEFORE_DELETE","Archive the timetable entry before deleting it");if(old._count.substitutions)throw new AppError(409,"TIMETABLE_HAS_SUBSTITUTIONS","Timetable entries with substitution history cannot be deleted");await prisma.timetable.delete({where:{id:old.id}});await timetableAudit(req,"DELETE",old.id);res.status(204).send()});
 function esc(s:string){return s.replace(/[<>&'\"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;","'":"&apos;",'"':"&quot;"}[c]!))}function pdf(res:any,lines:string[]){const c=["WEEKLY TIMETABLE",...lines].slice(0,45).map((x,i)=>`BT /F1 ${i?8:16} Tf 25 ${810-i*17} Td (${x.replace(/[()\\]/g,"\\$&")}) Tj ET`).join("\n"),o=["<< /Type /Catalog /Pages 2 0 R >>","<< /Type /Pages /Kids [3 0 R] /Count 1 >>","<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",`<< /Length ${Buffer.byteLength(c)} >>\nstream\n${c}\nendstream`,"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];let p="%PDF-1.4\n",a=[0];o.forEach((x,i)=>{a.push(Buffer.byteLength(p));p+=`${i+1} 0 obj\n${x}\nendobj\n`});const r=Buffer.byteLength(p);p+=`xref\n0 6\n0000000000 65535 f \n${a.slice(1).map(x=>String(x).padStart(10,"0")+" 00000 n ").join("\n")}\ntrailer << /Size 6 /Root 1 0 R >>\nstartxref\n${r}\n%%EOF`;res.set({"Content-Type":"application/pdf","Content-Disposition":"attachment; filename=timetable.pdf"}).send(Buffer.from(p))}export default router;
