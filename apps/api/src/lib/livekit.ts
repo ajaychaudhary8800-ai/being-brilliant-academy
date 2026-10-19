@@ -158,6 +158,7 @@ export async function livekitRoomService(method: string, body: Record<string, un
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
   });
   const value = await response.json().catch(() => null);
   if (!response.ok) {
