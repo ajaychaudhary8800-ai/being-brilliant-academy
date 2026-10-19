@@ -25,10 +25,10 @@ test("unused prior term credits expire without changing immutable ledger",()=>{
  assert.equal(old.credits[0]?.expired,true);
  assert.equal(old.expiredCreditsCarryOver,false);
 });
-test("period-invalid checkout rejected; cancellation disables assumed renewed credit use",()=>{
+test("period-invalid checkout rejected; cancellation preserves current-term already purchased credits",()=>{
  assert.throws(()=>assertSchoolOSNewTermDoesNotOverlap([],now,now));
  const state=schoolOSRenewalReadiness([term],{subscriptionStatus:"ACTIVE",subscriptionEnd:term.periodEnd,cancelAtPeriodEnd:true},
  [{metric:"video_minutes",periodStart:term.periodStart,periodEnd:term.periodEnd,grantedUnits:55,consumedUnits:5}],now);
  assert.equal(state.checkoutRecommendation,"BLOCK_OVERLAPPING_CHECKOUT");
- assert.equal(state.credits[0]?.usableNowUnits,0);
+ assert.equal(state.credits[0]?.usableNowUnits,50);
 });
