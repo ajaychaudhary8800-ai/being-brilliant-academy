@@ -18,6 +18,8 @@ import {
 import { AIExaminerScoringError } from "./ai-examiner-deterministic.js";
 import { parseAIExaminerExamProfile } from "./ai-examiner-exam-profile.js";
 import { ensureAIExaminerCheckedCopyDraft } from "./ai-examiner-checked-copy-draft.js";
+import { reserveSchoolOSAIExaminerCredit, commitSchoolOSAIExaminerCredit } from "./schoolos-ai-credit-reservations.js";
+import { isSchoolOSAIExaminerMeteringEnabled, schoolOSAIExaminerSettlementDecision } from "./schoolos-ai-examiner-metering-policy.js";
 import { decideAIExaminerSecondPass } from "./ai-examiner-second-pass.js";
 import { collectTrustedAIExaminerOmrAnswers } from "./ai-examiner-scan-ingestion.js";
 import {
@@ -105,6 +107,12 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
   });
   if (!evaluation) return { processed: false, reason: "NOT_FOUND" as const };
 
+  // V4 and non-allowlisted tenants remain unchanged. Merely deploying this
+  // code never activates metered usage for any customer.
+  const meteringEnabled = isSchoolOSAIExaminerMeteringEnabled(
+    evaluation.organizationId, env.SCHOOLOS_AI_METERING_TENANT_IDS,
+  );
+  let aiCreditReserved = false;
   try {
     const exam = evaluation.answerSheet.examination;
     const paper = evaluation.answerSheet.questionPaper ?? exam.questionPaper;
@@ -115,6 +123,19 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
 
     const questions = resolveAIExaminerRubricQuestions(evaluation.rubric.rubric, evaluation.rubric.modelAnswer);
     const providerQuestions = aiExaminerProviderQuestions(questions);
+    if (meteringEnabled) {
+      const admission = await reserveSchoolOSAIExaminerCredit(
+        evaluation.organizationId, evaluation.id, evaluation.requestedById,
+      );
+      if (!admission.admitted) {
+        // Never repeat a provider call for an already reserved evaluation.
+        // An ambiguous prior attempt needs supervised reconciliation.
+        throw new AIExaminerProviderError("AI_EXAMINER_METER_REPLAY_BLOCKED",
+          "AI usage is already reserved or settled; review the previous evaluation attempt");
+      }
+      aiCreditReserved = true;
+    }
+    // Reservation must be durable before any primary provider invocation.
     const result = await evaluateWithAIProvider({
       examination: {
         name: exam.name,
@@ -414,6 +435,29 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
       return updated;
     });
 
+    // Final billing is independent of checked-copy rendering. A successful
+    // evaluation is already persisted: settlement failure must NEVER overwrite
+    // it or silently free the reserved unit. Keep it for finance reconciliation.
+    let aiMeteringStatus: "DISABLED" | "SETTLED" | "RECONCILIATION_REQUIRED" =
+      meteringEnabled ? "RECONCILIATION_REQUIRED" : "DISABLED";
+    if (schoolOSAIExaminerSettlementDecision({
+      metered: meteringEnabled, admitted: aiCreditReserved, persistedResult: true,
+    }) === "COMMIT") {
+      try {
+        await commitSchoolOSAIExaminerCredit(evaluation.organizationId, evaluation.id);
+        aiMeteringStatus = "SETTLED";
+      } catch (settlementError) {
+        logger.error({evaluationId:evaluation.id, organizationId:evaluation.organizationId,
+          err:settlementError}, "AI evaluation persisted but reserved billing requires reconciliation");
+        await systemPrisma.auditLog.create({data:{
+          organizationId:evaluation.organizationId,actorId:evaluation.requestedById,
+          action:"SCHOOLOS_AI_EVALUATION_SETTLEMENT_PENDING",
+          entity:"AIExaminerEvaluation",entityId:evaluation.id,
+          metadata:{policy:"EXAMINER_EVALUATION_V1",reason:"SETTLEMENT_EXCEPTION"},
+        }}).catch(()=>null);
+      }
+    }
+
     let checkedCopyAutoDraft: "CREATED" | "EXISTING" | "FAILED" = "FAILED";
     try {
       const ensured = await ensureAIExaminerCheckedCopyDraft({
@@ -439,8 +483,20 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
       logger.warn({ evaluationId: evaluation.id, err: checkedCopyError }, "AI checked-copy auto draft failed; teacher review remains available");
     }
 
-    return { processed: true, evaluation: persisted, checkedCopyAutoDraft };
+    return { processed: true, evaluation: persisted, checkedCopyAutoDraft, aiMeteringStatus };
   } catch (error) {
+    if (aiCreditReserved) {
+      // A provider may have accepted the request before timeout/error. Do not
+      // auto-refund or auto-retry it: leave reserved capacity for reconciliation.
+      logger.warn({evaluationId:evaluation.id, organizationId:evaluation.organizationId},
+        "AI evaluation did not persist; reserved credit requires verified provider outcome");
+      await systemPrisma.auditLog.create({data:{
+        organizationId:evaluation.organizationId,actorId:evaluation.requestedById,
+        action:"SCHOOLOS_AI_EVALUATION_RECONCILIATION_PENDING",
+        entity:"AIExaminerEvaluation",entityId:evaluation.id,
+        metadata:{policy:"EXAMINER_EVALUATION_V1",reason:"EVALUATION_NOT_PERSISTED"},
+      }}).catch(()=>null);
+    }
     const details = errorDetails(error);
     const failedAt = new Date();
     await systemPrisma.aIExaminerEvaluation.updateMany({

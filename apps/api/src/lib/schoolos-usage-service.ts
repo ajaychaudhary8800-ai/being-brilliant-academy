@@ -1,5 +1,7 @@
 import { Prisma, SaaSInvoiceStatus, SaaSPaymentStatus } from "@prisma/client";
 import { AppError } from "./http.js";
+import { env } from "../config.js";
+import { isSchoolOSAIExaminerMeteringEnabled } from "./schoolos-ai-examiner-metering-policy.js";
 import { systemPrisma } from "./prisma.js";
 import { assertSchoolOSUsageRequest, isSchoolOSUsageMetric, paidQuoteAddonGrantItems, type SchoolOSUsageMetric } from "./schoolos-usage-policy.js";
 
@@ -143,7 +145,7 @@ export async function consumeSchoolOSUsage(
 export async function schoolOSUsageReport(organizationId: string) {
   if (!organizationId || organizationId === "org_default")
     throw new AppError(403, "SCHOOLOS_USAGE_TENANT_REQUIRED", "Customer tenant required");
-  const [balances, events, riskHolds] = await Promise.all([
+  const [balances, events, riskHolds, reservations, reservationTotals] = await Promise.all([
     systemPrisma.schoolOSUsageBalance.findMany({
       where: { organizationId }, orderBy: [{ periodEnd: "desc" }, { metric: "asc" }], take: 40,
       select: { id: true, metric: true, periodStart: true, periodEnd: true, grantedUnits: true, consumedUnits: true },
@@ -156,13 +158,39 @@ export async function schoolOSUsageReport(organizationId: string) {
       where: { organizationId, status: "ACTIVE" }, take: 20, orderBy: { openedAt: "desc" },
       select: { invoiceId: true, firstEventType: true, latestEventType: true, openedAt: true },
     }),
+    systemPrisma.schoolOSUsageReservation.findMany({
+      where: { organizationId, status: "RESERVED" }, orderBy: { createdAt: "asc" }, take: 50,
+      select: { id: true, balanceId: true, metric: true, requestKey: true, units: true, createdAt: true },
+    }),
+    systemPrisma.schoolOSUsageReservation.groupBy({
+      by: ["balanceId", "status"], where: { organizationId },
+      _sum: { units: true }, _count: { _all: true },
+    }),
   ]);
+  const pendingByBalance = new Map(reservationTotals.filter(row => row.status === "RESERVED")
+    .map(row => [row.balanceId, { units: row._sum.units ?? 0, count: row._count._all }]));
+  const aiMeteringEnabled = isSchoolOSAIExaminerMeteringEnabled(
+    organizationId, env.SCHOOLOS_AI_METERING_TENANT_IDS,
+  );
   return {
-    balances: balances.map(b => ({ ...b, remainingUnits: b.grantedUnits - b.consumedUnits })),
+    balances: balances.map(b => ({
+      ...b,
+      remainingUnits: b.grantedUnits - b.consumedUnits,
+      pendingReservationUnits: pendingByBalance.get(b.id)?.units ?? 0,
+      pendingReservationCount: pendingByBalance.get(b.id)?.count ?? 0,
+    })),
     events,
+    pendingAIReservations: {
+      count: [...pendingByBalance.values()].reduce((total, entry) => total + entry.count, 0),
+      units: [...pendingByBalance.values()].reduce((total, entry) => total + entry.units, 0),
+      oldestFirst: reservations,
+      truncated: reservations.length === 50,
+    },
     financeReviewRequired: riskHolds.length > 0,
     riskHolds,
-    activationStatus: "FOUNDATION_ONLY",
-    meteringConnected: false,
+    activationStatus: aiMeteringEnabled ? "EXPLICIT_AI_WORKER_OPT_IN" : "FOUNDATION_ONLY",
+    aiExaminerWorkerMeteringEnabled: aiMeteringEnabled,
+    videoMeteringConnected: false,
+    meteringConnected: aiMeteringEnabled,
   };
 }

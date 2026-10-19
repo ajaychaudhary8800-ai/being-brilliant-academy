@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import test from "node:test";
 import { OrganizationSubscriptionStatus, SaaSBillingCycle, SaaSInvoiceStatus, SaaSPaymentStatus } from "@prisma/client";
 import { systemPrisma } from "../lib/prisma.js";
+import { schoolOSUsageReport } from "../lib/schoolos-usage-service.js";
 import { reserveSchoolOSAIExaminerCredit, commitSchoolOSAIExaminerCredit, releaseSchoolOSAIExaminerCredit } from "../lib/schoolos-ai-credit-reservations.js";
 
 function isolatedDB() {
@@ -76,6 +77,11 @@ test("paid AI reservations enforce tenant source, exactly-once billing and concl
 
   const a=await reserveSchoolOSAIExaminerCredit(orgId,"evaluation-A",null,now);
   assert.equal(a.admitted,true);
+  const report=await schoolOSUsageReport(orgId);
+  assert.equal(report.pendingAIReservations.count,1);
+  assert.equal(report.pendingAIReservations.units,1);
+  assert.equal(report.balances.find(row=>row.metric==="ai_credits")?.pendingReservationUnits,1);
+  assert.equal(report.balances.find(row=>row.metric==="ai_credits")?.remainingUnits,1);
   const replay=await reserveSchoolOSAIExaminerCredit(orgId,"evaluation-A",null,now);
   assert.equal(replay.admitted,false);
   assert.equal(replay.status,"RESERVED");
