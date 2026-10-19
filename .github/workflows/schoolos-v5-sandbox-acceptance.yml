@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - ".github/workflows/schoolos-v5-sandbox-acceptance.yml"
+      - ".github/workflows/deploy.yml"
+      - ".github/workflows/staging.yml"
+      - ".github/workflows/ci.yml"
+      - "scripts/check-schoolos-v5-promotion*.mjs"
       - "scripts/check-schoolos-v5-sandbox*.mjs"
       - "apps/api/**"
       - "apps/web/**"
@@ -66,6 +70,7 @@ jobs:
       - name: Prove disposable infrastructure and billing disabled
         run: |
           node --test scripts/check-schoolos-v5-sandbox.test.mjs
+          node --test scripts/check-schoolos-v5-promotion.test.mjs
           node scripts/check-schoolos-v5-sandbox.mjs
           test "$(git rev-parse HEAD)" = "$SCHOOLOS_RC_SHA"
       - run: pnpm install --frozen-lockfile
