@@ -1079,6 +1079,7 @@ model Organization {
   schoolOSUsageEvents SchoolOSUsageEvent[]
   schoolOSUsageReservations SchoolOSUsageReservation[]
   schoolOSLiveKitEvents SchoolOSLiveKitEvent[]
+  schoolOSVideoUsageReviews SchoolOSVideoUsageReview[]
   branches               Branch[]
   communicationCirculars Circular[]
   communicationCalendarEvents CalendarEvent[]
@@ -8277,6 +8278,7 @@ model Meeting {
   attachments    MeetingAttachment[]
   attendanceSessions MeetingAttendanceSession[]
   schoolOSLiveKitEvents SchoolOSLiveKitEvent[]
+  schoolOSVideoUsageReview SchoolOSVideoUsageReview?
   minutes        MeetingMinutes?
   decisions      MeetingDecision[]
   actionItems    MeetingActionItem[]
@@ -8673,6 +8675,31 @@ model SchoolOSLiveKitEvent {
   meeting      Meeting @relation(fields: [meetingId],references: [id],onDelete: Restrict)
   @@index([organizationId,meetingId,occurredAt])
   @@index([meetingId,eventType])
+}
+
+/** Two-person evidence-locked video-minute financial review; no automatic charges. */
+model SchoolOSVideoUsageReview {
+  id             String   @id @default(cuid())
+  organizationId String
+  meetingId      String   @unique
+  status         String   @default("PENDING")
+  evidenceSha256 String
+  eventCount     Int
+  proposedMinutes Int
+  firstEventAt   DateTime
+  lastEventAt    DateTime
+  proposedBy     String
+  evidenceReference String
+  rationale      String   @db.Text
+  proposedAt     DateTime @default(now())
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  reviewComment  String?  @db.Text
+
+  organization Organization @relation(fields: [organizationId],references:[id],onDelete:Restrict)
+  meeting      Meeting      @relation(fields: [meetingId],references:[id],onDelete:Restrict)
+
+  @@index([organizationId,status,proposedAt])
 }
 
 model SchoolOSAddonRate {
