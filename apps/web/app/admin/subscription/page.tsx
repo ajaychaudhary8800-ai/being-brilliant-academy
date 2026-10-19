@@ -37,6 +37,8 @@ type MeteredUsageBalance = { metric: string; periodStart: string; periodEnd: str
 type MeteredUsage = { balances: MeteredUsageBalance[]; meteringConnected: boolean; activationStatus: string; financeReviewRequired: boolean; riskHolds: { invoiceId: string; latestEventType: string; openedAt: string }[] };
 type RenewalReadiness = { status: string; checkoutRecommendation: string; nextRenewalAt: string | null;
   daysUntilRenewal: number | null; financeReviewRequired: boolean; expiredCreditsCarryOver: false;
+  paymentRecovery: {status:string; invoiceNo:string|null; failedAttempts:number;
+    retryExistingOrderAllowed:boolean; financeReconciliationRequired:boolean; gracePeriodDays:number};
   credits: { metric: string; periodStart: string; periodEnd: string; ledgerRemainingUnits: number; usableNowUnits: number; expired: boolean }[]; };
 
 type SignedQuote = {
@@ -265,6 +267,11 @@ export default function Page() {
       </p>
       <p className="mt-1">Unused AI/video credits expire at the end of their paid term and do not automatically roll over to another term.</p>
       {renewal.financeReviewRequired && <p className="mt-2 font-semibold">Finance dispute hold: purchased credit consumption is suspended pending approved reconciliation.</p>}
+      {renewal.paymentRecovery?.status === "RETRY_EXISTING_ORDER" &&
+        <p className="mt-2 font-semibold">The last payment attempt failed ({renewal.paymentRecovery.failedAttempts} recorded). Retry the same existing order from your signed quotation; no new invoice was created.</p>}
+      {renewal.paymentRecovery?.financeReconciliationRequired &&
+        <p className="mt-2 font-semibold text-amber-900">Payment reconciliation required. Contact the platform billing team before attempting a new order.</p>}
+      <p className="mt-1">Unpaid renewal grace period: disabled. No access extension or extra AI/video credits are granted by a failed payment.</p>
     </section>}
     <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       <Stat label="Status" value={snapshot?.organization.subscriptionStatus ?? "—"} icon={<CreditCard size={18}/>} />
