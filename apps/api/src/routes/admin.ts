@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { AppError } from "../lib/http.js";
+import { isCoaching } from "../lib/coaching-academic-policy.js";
 import { logger } from "../lib/logger.js";
 import { prisma } from "../lib/prisma.js";
 import { deleteObject } from "../lib/storage.js";
@@ -381,6 +382,17 @@ router.get("/teachers", async (req: AuthRequest, res) => {
   const orderBy = query.sortBy === "name" ? { user: { name: query.sortOrder } } : { [query.sortBy]: query.sortOrder };
   const [total, data] = await prisma.$transaction([prisma.teacherProfile.count({ where }), prisma.teacherProfile.findMany({ where, skip: (query.page - 1) * query.limit, take: query.limit, orderBy, select: teacherSelect })]);
   res.json({ data: data.map(teacherWithLegacyBranch), meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
+});
+router.get("/teachers/assignable", async (req: AuthRequest, res) => {
+  const { branchId } = z.object({ branchId: z.string().cuid() }).parse(req.query);
+  await requireValidTeacherBranch(req, branchId);
+  const org = await prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { groupLabelType: true } });
+  const data = await prisma.teacherProfile.findMany({
+    where: { organizationId: req.auth!.organizationId, user: { isActive: true, role: Role.TEACHER }, ...(!isCoaching(org?.groupLabelType) ? { branchId } : {}) },
+    select: { id: true, employeeNo: true, branchId: true, user: { select: { name: true } } },
+    orderBy: { user: { name: "asc" } }, take: 500,
+  });
+  res.json({ data });
 });
 router.get("/teachers/:id", async (req: AuthRequest, res) => { const data = await prisma.teacherProfile.findUnique({ where: { id: String(req.params.id) }, select: teacherSelect }); if (!data) throw new AppError(404, "TEACHER_NOT_FOUND", "Teacher not found"); await requireBranchAccess(req, data.branch.id); res.json({ data: teacherWithLegacyBranch(data) }); });
 router.post("/teachers", async (req: AuthRequest, res) => {
