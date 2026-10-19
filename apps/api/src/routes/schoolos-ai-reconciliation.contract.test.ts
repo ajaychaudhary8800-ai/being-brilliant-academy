@@ -4,7 +4,7 @@ import {readFile} from "node:fs/promises";
 const source=async(name:string)=>readFile(new URL(name,import.meta.url),"utf8");
 
 test("SchoolOS AI reconciliation is platform-only and cannot issue credit releases",async()=>{
- const route=await source("./schoolos-usage.ts");
+ const route=await source("./schoolos-ai-reconciliation.ts");
  assert.match(route,/router\.get\("\/platform\/schoolos\/ai-reconciliation\/\:organizationId"/);
  assert.match(route,/router\.post\("\/platform\/schoolos\/ai-reconciliation\/\:organizationId\/\:evaluationId\/commit"/);
  assert.match(route,/req\.auth\?\.homeOrganizationId!=="org_default"/);
