@@ -14,6 +14,7 @@ import { tenantContext } from "../lib/tenant-context.js";
 import adminBatches from "../routes/admin-batches.js";
 import adminEnquiries from "../routes/admin-enquiries.js";
 import adminStudents from "../routes/admin-students.js";
+import adminTimetables from "../routes/admin-timetables.js";
 
 const enabled = process.env.RUN_POSTGRES_INTEGRATION === "1";
 const barrier = (parties: number) => { let arrived = 0; let release!: () => void; const ready = new Promise<void>(resolve => { release = resolve; }); return () => { if (++arrived === parties) release(); return ready; }; };
@@ -74,6 +75,7 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
     application.use(express.json());
     application.use("/api/v1/admin", adminStudents);
     application.use("/api/v1/admin", adminBatches);
+    application.use("/api/v1/admin", adminTimetables);
     application.use("/api/v1/admin", adminEnquiries);
     application.use(errorHandler);
     server = application.listen(0, "127.0.0.1");
@@ -146,6 +148,92 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
       } finally {
         await systemPrisma.batch.update({ where: { id: batchB.id }, data: { teacherId: null } });
         await systemPrisma.teacherProfile.delete({ where: { id: teacher.id } });
+        await systemPrisma.user.delete({ where: { id: user.id } });
+      }
+    });
+
+
+    await t.test("real HTTP coaching timetable prevents cross-branch teacher conflicts, unsafe unarchive and tenant leakage", async () => {
+      const user = await systemPrisma.user.create({ data: {
+        organizationId, email: `ap-timetable-teacher-${key}@example.test`,
+        passwordHash: "integration", name: "Shared Coaching Teacher", role: Role.TEACHER,
+      } });
+      const teacher = await systemPrisma.teacherProfile.create({ data: {
+        organizationId, userId: user.id, employeeNo: `AP-TT-${key}`, branchId: branch.id,
+      } });
+      const subject = await systemPrisma.subject.create({ data: {
+        organizationId, name: "Cross-branch Physics", code: `AP-TT-${key}`,
+      } });
+      const roomA = await systemPrisma.classroom.create({ data: {
+        organizationId, branchId: branch.id, name: "Physics A", code: `AP-A-${key}`,
+      } });
+      const roomB = await systemPrisma.classroom.create({ data: {
+        organizationId, branchId: branchB.id, name: "Physics B", code: `AP-B-${key}`,
+      } });
+      await systemPrisma.courseSubject.createMany({ data: [
+        { organizationId, courseId: course.id, subjectId: subject.id },
+        { organizationId, courseId: courseB.id, subjectId: subject.id },
+      ] });
+      try {
+        const period = (location: typeof branch, group: typeof batch, courseId: string, classroomId: string, startTime: string, endTime: string) => ({
+          branchId: location.id, courseId, batchId: group.id, subjectId: subject.id,
+          teacherId: teacher.id, classroomId, academicSession: session.name,
+          day: "MONDAY", startTime, endTime, periodNumber: 1, status: "ACTIVE",
+        });
+        const branchBLesson = period(branchB, batchB, courseB.id, roomB.id, "15:00", "16:00");
+        const first = await request("/timetables", "POST", branchBLesson);
+        assert.equal(first.status, 201, JSON.stringify(first.payload));
+        const firstId = first.payload.data.id as string;
+
+        const doubleBooked = await request("/timetables", "POST",
+          period(branch, batch, course.id, roomA.id, "15:30", "16:30"));
+        assert.equal(doubleBooked.status, 409, JSON.stringify(doubleBooked.payload));
+        assert.equal(doubleBooked.payload.error.code, "TEACHER_SCHEDULE_CONFLICT");
+
+        const otherPeriod = await request("/timetables", "POST",
+          period(branch, batch, course.id, roomA.id, "16:00", "17:00"));
+        assert.equal(otherPeriod.status, 201, JSON.stringify(otherPeriod.payload));
+        const secondId = otherPeriod.payload.data.id as string;
+
+        const conflictingEdit = await request(`/timetables/${secondId}`, "PATCH",
+          { startTime: "15:00", endTime: "16:00" });
+        assert.equal(conflictingEdit.status, 409, JSON.stringify(conflictingEdit.payload));
+        assert.equal(conflictingEdit.payload.error.code, "TEACHER_SCHEDULE_CONFLICT");
+
+        const disallowedBranch = await request("/timetables", "POST",
+          period(branchB, batchB, courseB.id, roomB.id, "17:00", "18:00"), branchAdmin);
+        assert.equal(disallowedBranch.status, 403, JSON.stringify(disallowedBranch.payload));
+
+        const otherTenantList = await request("/timetables?limit=10", "GET", undefined,
+          otherAdmin, otherOrganizationId);
+        assert.equal(otherTenantList.status, 200, JSON.stringify(otherTenantList.payload));
+        assert.equal(otherTenantList.payload.meta.total, 0);
+        const otherTenantRead = await request(`/timetables/${firstId}`, "GET", undefined,
+          otherAdmin, otherOrganizationId);
+        assert.equal(otherTenantRead.status, 403, JSON.stringify(otherTenantRead.payload));
+        const otherTenantEdit = await request(`/timetables/${firstId}`, "PATCH",
+          { remarks: "unauthorized" }, otherAdmin, otherOrganizationId);
+        assert.equal(otherTenantEdit.status, 403, JSON.stringify(otherTenantEdit.payload));
+
+        const archived = await request(`/timetables/${firstId}/status`, "PATCH",
+          { status: "ARCHIVED" });
+        assert.equal(archived.status, 200, JSON.stringify(archived.payload));
+        const validEdit = await request(`/timetables/${secondId}`, "PATCH",
+          { startTime: "15:00", endTime: "16:00" });
+        assert.equal(validEdit.status, 200, JSON.stringify(validEdit.payload));
+        const unsafeRestore = await request(`/timetables/${firstId}/status`, "PATCH",
+          { status: "ACTIVE" });
+        assert.equal(unsafeRestore.status, 409, JSON.stringify(unsafeRestore.payload));
+        assert.equal(unsafeRestore.payload.error.code, "TEACHER_SCHEDULE_CONFLICT");
+        assert.equal((await systemPrisma.timetable.findUniqueOrThrow({ where: { id: firstId } })).status, "ARCHIVED");
+        assert.equal(await systemPrisma.timetable.count({ where: { organizationId, teacherId: teacher.id } }), 2);
+      } finally {
+        await systemPrisma.timetable.deleteMany({ where: { organizationId, teacherId: teacher.id } });
+        await systemPrisma.courseSubject.deleteMany({ where: { organizationId, subjectId: subject.id } });
+        await systemPrisma.classroom.deleteMany({ where: { organizationId, id: { in: [roomA.id, roomB.id] } } });
+        await systemPrisma.subject.delete({ where: { id: subject.id } });
+        await systemPrisma.teacherProfile.delete({ where: { id: teacher.id } });
+        await systemPrisma.auditLog.deleteMany({ where: { organizationId, entity: "Timetable" } });
         await systemPrisma.user.delete({ where: { id: user.id } });
       }
     });
