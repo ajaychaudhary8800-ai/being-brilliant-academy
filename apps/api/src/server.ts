@@ -348,7 +348,7 @@ app.use("/api/v1", onlyPaths(["/platform/schoolos/contracts"], schoolOSContracts
 app.use("/api/v1", onlyPaths(["/organization/subscription/contracted-checkout", "/organization/subscription/contracted-quotes"], schoolOSContractCheckout));
 app.use("/api/v1", onlyPaths(["/organization/subscription/usage-credits", "/platform/schoolos/usage"], schoolOSUsage));
 app.use("/api/v1", onlyPaths(["/platform/schoolos/ai-reconciliation"], schoolOSAIReconciliation));
-app.use("/api/v1",onlyPaths(["/platform/schoolos/livekit/webhook","/platform/schoolos/video-evidence","/platform/schoolos/video-reviews"],schoolOSLiveKitEvidence));
+app.use("/api/v1",onlyPaths(["/platform/schoolos/livekit/webhook","/platform/schoolos/video-evidence","/platform/schoolos/video-reviews","/platform/schoolos/video-zero-release"],schoolOSLiveKitEvidence));
 app.use("/api/v1", onlyPaths(["/platform/schoolos/addon-rates"], schoolOSAddonRates));
 app.use("/api/v1", onlyPaths(["/platform/schoolos/payment-risk"], schoolOSPaymentRiskReview));
 app.use("/api/v1", onlyPaths(["/organization/subscription/renewal-readiness", "/platform/schoolos/renewals"], schoolOSRenewals));

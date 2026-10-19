@@ -59,6 +59,9 @@ const schema = z.object({
   // Stage 7F3: never hold prepaid video allowance without separate explicit activation.
   SCHOOLOS_VIDEO_ADMISSION_ENABLED: z.string().default("false").transform(value=>value==="true"),
   SCHOOLOS_VIDEO_ADMISSION_TENANT_IDS: optionalString,
+  // Additional disabled finance gate: only independently verified zero-usage holds.
+  SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED: z.string().default("false").transform(value=>value==="true"),
+  SCHOOLOS_VIDEO_ZERO_RELEASE_TENANT_IDS: optionalString,
   LIVEKIT_RECORDING_PREFIX: z.string().default("live-class-recordings"),
   LIVEKIT_RECORDING_S3_REGION: optionalString,
   LIVEKIT_RECORDING_S3_BUCKET: optionalString,

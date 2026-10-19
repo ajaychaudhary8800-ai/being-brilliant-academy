@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 import test from "node:test";
 import { systemPrisma } from "../lib/prisma.js";
 import { proposeSchoolOSVideoReview,decideSchoolOSVideoReview,listSchoolOSVideoReviews } from "../lib/schoolos-video-review-service.js";
+import { schoolOSVideoEvidenceSnapshot } from "../lib/schoolos-video-settlement-policy.js";
+import { proposeSchoolOSZeroVideoRelease } from "../lib/schoolos-video-zero-release-service.js";
 
 function isolated() {
  let u:URL|null=null;
@@ -20,7 +22,7 @@ test("signed meeting minutes require independent manual review and cannot charge
  const token=crypto.randomUUID().replaceAll("-","").slice(0,14);
  const orgId="video-review-"+token;
  const room="video-review-room-"+token;
- let meetingId:string|undefined, makerId:string|undefined,checkerId:string|undefined;
+ let meetingId:string|undefined,zeroMeetingId:string|undefined, makerId:string|undefined,checkerId:string|undefined;
  try{
   await systemPrisma.organization.create({data:{id:orgId,slug:orgId,
    name:"Video Review Integration QA",email:orgId+"@example.test"}});
@@ -103,6 +105,64 @@ test("signed meeting minutes require independent manual review and cannot charge
   await assert.rejects(()=>decideSchoolOSVideoReview(orgId,prepared.id,checker.id,"REJECT",
    "Attempt to repeat an already finalized review"),/already finalized/);
   assert.equal(await systemPrisma.schoolOSUsageEvent.count({where:{organizationId:orgId}}),0);
+  // A distinct, provider-closed host-only meeting can hold a zero-use
+  // finance review, but cannot release prepaid credits without separate opt-in.
+  const zeroMeeting=await systemPrisma.meeting.create({data:{
+   organizationId:orgId,title:"Zero-use financial reconciliation QA",
+   startsAt:new Date("2026-10-19T05:00:00Z"),
+   endsAt:new Date("2026-10-19T05:30:00Z"),
+   timezone:"Asia/Kolkata",hostUserId:"qa-provider-host",createdById:maker.id,
+   livekitRoomName:"zero-video-"+token,status:"ENDED",
+  }});
+  zeroMeetingId=zeroMeeting.id;
+  await systemPrisma.meetingParticipant.create({data:{
+   organizationId:orgId,meetingId:zeroMeeting.id,userId:"qa-provider-host",
+   participantKind:"EMPLOYEE",meetingRole:"HOST",addedById:maker.id,
+  }});
+  for(const [eventType,identity,participantSid,offset] of [
+   ["participant_joined","qa-provider-host","single-host",0],
+   ["participant_left","qa-provider-host","single-host",15],
+   ["room_finished",null,null,25],
+  ] as const) await systemPrisma.schoolOSLiveKitEvent.create({data:{
+   providerEventId:"zero-"+token+"-"+offset,
+   organizationId:orgId,meetingId:zeroMeeting.id,
+   eventType,identity,participantSid,
+   occurredAt:new Date(Date.UTC(2026,9,19,5,0,offset)),
+   rawSha256:crypto.createHash("sha256").update("zero-"+token+offset).digest("hex"),
+  }});
+  const zeroRows=await systemPrisma.schoolOSLiveKitEvent.findMany({
+   where:{organizationId:orgId,meetingId:zeroMeeting.id},
+   select:{providerEventId:true,eventType:true,identity:true,participantSid:true,
+    occurredAt:true,rawSha256:true},
+  });
+  const proof=schoolOSVideoEvidenceSnapshot(zeroRows,"qa-provider-host","ENDED",true);
+  assert.equal(proof.minutes,0);
+  await assert.rejects(()=>proposeSchoolOSZeroVideoRelease(orgId,zeroMeeting.id,maker.id,
+   "signed-provider-room-proof-"+token,
+   "No billable guest ever joined this hosted room"),/disabled for this institution/);
+  const zeroReview=await systemPrisma.schoolOSVideoUsageReview.create({data:{
+   organizationId:orgId,meetingId:zeroMeeting.id,status:"PENDING",
+   evidenceSha256:proof.evidenceSha256,eventCount:proof.eventCount,proposedMinutes:0,
+   firstEventAt:proof.firstEventAt,lastEventAt:proof.lastEventAt,proposedBy:maker.id,
+   evidenceReference:"signed-provider-room-proof-"+token,
+   rationale:"Independent review of provider-signed host-only completion",
+  }});
+  await assert.rejects(()=>systemPrisma.schoolOSVideoUsageReview.update({
+   where:{id:zeroReview.id},data:{status:"RELEASED",reviewedBy:maker.id,
+    reviewedAt:new Date(),reviewComment:"Proposer cannot approve their own credit release"},
+  }));
+  await systemPrisma.schoolOSVideoUsageReview.update({where:{id:zeroReview.id},
+   data:{status:"RELEASED",reviewedBy:checker.id,reviewedAt:new Date(),
+    reviewComment:"Independent review confirms zero billable provider minutes"},
+  });
+  await assert.rejects(()=>systemPrisma.schoolOSLiveKitEvent.create({data:{
+   providerEventId:"late-"+token,organizationId:orgId,meetingId:zeroMeeting.id,
+   eventType:"room_finished",occurredAt:new Date("2026-10-19T05:30:00Z"),
+   rawSha256:"f".repeat(64),
+  }}),"Late provider evidence must be frozen after release");
+  await assert.rejects(()=>systemPrisma.schoolOSVideoUsageReview.update({
+   where:{id:zeroReview.id},data:{rationale:"Modified after finalization"},
+  }));
  }finally{
   await systemPrisma.auditLog.deleteMany({where:{organizationId:orgId}});
   await systemPrisma.schoolOSUsageReservation.deleteMany({where:{organizationId:orgId}});
@@ -117,6 +177,7 @@ test("signed meeting minutes require independent manual review and cannot charge
    await tx.$executeRawUnsafe('ALTER TABLE "SchoolOSLiveKitEvent" ENABLE TRIGGER "SchoolOSLiveKitEvent_guard"');
   });
   if(meetingId)await systemPrisma.meeting.deleteMany({where:{id:meetingId,organizationId:orgId}});
+  if(zeroMeetingId)await systemPrisma.meeting.deleteMany({where:{id:zeroMeetingId,organizationId:orgId}});
   await systemPrisma.user.deleteMany({where:{organizationId:orgId}});
   await systemPrisma.$transaction(async tx=>{
    await tx.$executeRawUnsafe('ALTER TABLE "AcademicSession" DISABLE TRIGGER "AcademicSession_exactly_one_current"');
