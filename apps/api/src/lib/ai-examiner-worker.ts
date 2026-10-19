@@ -440,7 +440,9 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
     // it or silently free the reserved unit. Keep it for finance reconciliation.
     let aiMeteringStatus: "DISABLED" | "SETTLED" | "RECONCILIATION_REQUIRED" =
       meteringEnabled ? "RECONCILIATION_REQUIRED" : "DISABLED";
-    if (aiCreditReserved) {
+    if (schoolOSAIExaminerSettlementDecision({
+      metered: meteringEnabled, admitted: aiCreditReserved, persistedResult: true,
+    }) === "COMMIT") {
       try {
         await commitSchoolOSAIExaminerCredit(evaluation.organizationId, evaluation.id);
         aiMeteringStatus = "SETTLED";
