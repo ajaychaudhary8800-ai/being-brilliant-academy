@@ -27,6 +27,9 @@
     "test:e2e:workflow": "playwright test --grep @workflow",
     "test:e2e:headed": "playwright test --headed",
     "launch:check": "node scripts/check-launch-readiness.mjs",
+    "v5:release:check": "node scripts/check-schoolos-v5-release.mjs",
+    "v5:release:require-ready": "node scripts/check-schoolos-v5-release.mjs --require-ready",
+    "v5:release:test": "node --test scripts/check-schoolos-v5-release.test.mjs",
     "launch:require-go": "node scripts/check-launch-readiness.mjs --require-go",
     "software:release:check": "node scripts/check-erp4-software-readiness.mjs",
     "software:release:require-ready": "node scripts/check-erp4-software-readiness.mjs --require-ready"
