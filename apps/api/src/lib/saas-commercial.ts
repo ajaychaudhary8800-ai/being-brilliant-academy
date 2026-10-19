@@ -4,6 +4,7 @@ import { systemPrisma } from "./prisma.js";
 import { readSchoolOSFeatureOverrides, schoolOSFeatureAccess, schoolOSEffectiveOverrideLists } from "./schoolos-feature-policy.js";
 import { validateSchoolOSAddonCheckout, type SchoolOSApprovedAddonLine } from "./schoolos-addon-checkout-policy.js";
 import { applySchoolOSPaidAddonSettlement } from "./schoolos-addon-settlement.js";
+import { assertSchoolOSRenewalSource, readSchoolOSRenewalContext } from "./schoolos-renewal-quote-policy.js";
 
 type JsonRecord = Record<string, unknown>;
 type CapturedPayment = { id: string; order_id: string; amount: number; currency: string };
@@ -198,6 +199,18 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
           || quote.planCode !== invoice.plan.code || quote.totalPaise !== invoice.totalPaise
           || quote.billingCycle !== "ANNUAL" || quote.contractDocumentId === null) {
           throw new AppError(409, "SCHOOLOS_QUOTE_SETTLEMENT_CONFLICT", "Quoted invoice or contracted subscription does not match the captured payment");
+        }
+        const renewal = readSchoolOSRenewalContext(quote.pricingSnapshot);
+        if (renewal) {
+          const [renewalSource, latestPaid] = await Promise.all([
+            tx.saaSInvoice.findUnique({where:{id:renewal.sourceInvoiceId},
+              select:{id:true,organizationId:true,status:true,schoolOSQuoteId:true,periodEnd:true,
+                schoolOSPaymentRiskHold:{select:{status:true}}}}),
+            tx.saaSInvoice.findFirst({where:{organizationId:invoice.organizationId,status:"PAID"},
+              orderBy:[{periodEnd:"desc"},{createdAt:"desc"}],select:{id:true}}),
+          ]);
+          assertSchoolOSRenewalSource(renewalSource, invoice.organizationId, latestPaid?.id ?? null,
+            renewal.sourcePeriodEnd, invoice.periodStart);
         }
         const signed = await tx.saaSCommercialDocument.findUnique({
           where: { id: quote.contractDocumentId }, select: { verificationStatus: true, archivedAt: true, documentReference: true },
