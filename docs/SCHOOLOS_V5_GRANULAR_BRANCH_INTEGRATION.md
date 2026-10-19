@@ -7,7 +7,7 @@ The stacked commercial development path from #179 through #208 **did not incorpo
 - Separate child features `ai_examiner` (parent `examinations`) and `workflow_automation` (parent `communication`).
 - A disabled parent always blocks its child, irrespective of child grant, trial or wildcard subscription. A previously bundled child *inherits* its paid parent entitlement unless an explicit child denial is recorded, preserving V4 compatibility.
 - The platform-admin feature editor cannot turn a child on while its parent is blocked; rejected grants and all client-specific overrides remain audited and time-bound under existing rules.
-- Server routes enforce separate AI Examiner and automation toggles after authentication. Frontend navigation reads server-computed effective features and hides denied child modules. Navigation is **not** the security boundary.
+- Server routes enforce separate AI Examiner and automation toggles after authentication. The asynchronous AI Examiner worker also rechecks the current parent and premium child entitlements immediately before credit reservation or an external provider call, so a queued job cannot bypass a later license revocation. Frontend navigation reads server-computed effective features and hides denied child modules. Navigation is **not** the security boundary.
 - Paid module add-ons and signed quote/capture logic remain unchanged; no subscription or credit is granted by this integration.
 - API, policy, navigation and regression test coverage added.
 
