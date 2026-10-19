@@ -45,7 +45,7 @@ import { requireCommercialFeature } from "../middleware/commercial-entitlement.j
 import checkedCopyReviewRouter from "./ai-examiner-checked-copy.js";
 
 const router = Router();
-router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER), requireCommercialFeature("examinations"));
+router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER), requireCommercialFeature("examinations"), requireCommercialFeature("ai_examiner"));
 router.use(checkedCopyReviewRouter);
 
 const cuid = z.string().cuid();

@@ -2,6 +2,7 @@ import { AIExaminerEvaluationStatus, AIExaminerRubricStatus, AIExaminerScanBindi
 import { env } from "../config.js";
 import { logger } from "./logger.js";
 import { systemPrisma } from "./prisma.js";
+import { assertFeatureEntitled } from "./saas-commercial.js";
 import {
   AI_EXAMINER_ENGINE_VERSION,
   AI_EXAMINER_REVIEW_THRESHOLD,
@@ -122,6 +123,10 @@ export async function runAIExaminerEvaluation(evaluationId: string) {
     if (evaluation.answerSheet.finalizedAt) throw new AIExaminerProviderError("AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet was finalized before AI evaluation completed");
 
     const questions = resolveAIExaminerRubricQuestions(evaluation.rubric.rubric, evaluation.rubric.modelAnswer);
+    // A queued evaluation may have been created before platform licensing changed.
+    // Re-evaluate the effective tenant and parent entitlement in the worker,
+    // before the first paid provider call or prepaid credit reservation.
+    await assertFeatureEntitled(evaluation.organizationId, "ai_examiner");
     const providerQuestions = aiExaminerProviderQuestions(questions);
     if (meteringEnabled) {
       const admission = await reserveSchoolOSAIExaminerCredit(
