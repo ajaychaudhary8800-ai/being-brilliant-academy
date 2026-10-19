@@ -11,8 +11,8 @@ export type StoredVideoEvent = {
 export function schoolOSVideoEvidenceSnapshot(
  events:StoredVideoEvent[],hostIdentity:string,meetingStatus:MeetingStatus,
 ) {
- if(![MeetingStatus.ENDED,MeetingStatus.CLOSED,MeetingStatus.MINUTES_PENDING,
-   MeetingStatus.MINUTES_PUBLISHED].includes(meetingStatus))
+ if(!new Set<MeetingStatus>([MeetingStatus.ENDED,MeetingStatus.CLOSED,MeetingStatus.MINUTES_PENDING,
+   MeetingStatus.MINUTES_PUBLISHED]).has(meetingStatus))
   throw new AppError(409,"SCHOOLOS_VIDEO_ROOM_NOT_CLOSED","Only ended meetings are eligible for finance review");
  if(events.length<3 || events.length>10000)
   throw new AppError(409,"SCHOOLOS_VIDEO_PROOF_COUNT_INVALID","Complete signed room evidence is required");
