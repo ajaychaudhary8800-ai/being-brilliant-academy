@@ -180,6 +180,21 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
           teacherId: teacher.id, classroomId, academicSession: session.name,
           day: "MONDAY", startTime, endTime, periodNumber: 1, status: "ACTIVE",
         });
+        // Real parallel HTTP requests must not double-book an institution-wide
+        // coaching teacher even when different branches lock independently.
+        const [raceA, raceB] = await Promise.all([
+          request("/timetables", "POST", { ...period(branch, batch, course.id, roomA.id, "18:00", "19:00"), day: "TUESDAY" }),
+          request("/timetables", "POST", { ...period(branchB, batchB, courseB.id, roomB.id, "18:30", "19:30"), day: "TUESDAY" }),
+        ]);
+        assert.deepEqual([raceA.status, raceB.status].sort((a, b) => a - b), [201, 409],
+          JSON.stringify({ raceA, raceB }));
+        const persistedRace = await systemPrisma.timetable.findMany({ where: {
+          organizationId, teacherId: teacher.id, day: "TUESDAY",
+          status: { not: "ARCHIVED" },
+        }, select: { id: true } });
+        assert.equal(persistedRace.length, 1, "Concurrent writes must leave exactly one active lesson");
+        await systemPrisma.timetable.delete({ where: { id: persistedRace[0]!.id } });
+
         const branchBLesson = period(branchB, batchB, courseB.id, roomB.id, "15:00", "16:00");
         const first = await request("/timetables", "POST", branchBLesson);
         assert.equal(first.status, 201, JSON.stringify(first.payload));
