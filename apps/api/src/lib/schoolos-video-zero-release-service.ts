@@ -183,7 +183,7 @@ export async function decideSchoolOSZeroVideoRelease(
   if(updated.count!==1)throw new AppError(409,"SCHOOLOS_VIDEO_HELD_BALANCE_INCONSISTENT",
    "Held prepaid minutes could not be verified");
   await tx.schoolOSUsageReservation.update({where:{id:reservation.id},
-   data:{status:"RELEASED",releasedAt:now,releaseReason:"Verified zero-use provider outcome; "+comment.trim()},
+   data:{status:"RELEASED",releasedAt:now,releaseReason:("Signed host-only terminal evidence; "+comment.trim()).slice(0,500)},
   });
   await tx.schoolOSVideoUsageReview.update({where:{id:row.id},
    data:{status:"RELEASED",reviewedBy:checkerId,reviewedAt:now,reviewComment:comment.trim()},
