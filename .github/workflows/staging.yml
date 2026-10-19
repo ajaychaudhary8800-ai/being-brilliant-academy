@@ -20,6 +20,12 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - name: Refuse V5 candidate in legacy shared staging
+        run: |
+          if [ -f config/schoolos-v5-release-gates.json ]; then
+            echo "::error::V5 needs its own isolated staging; legacy staging cannot be used"
+            exit 78
+          fi
       - uses: pnpm/action-setup@v4
         with: { version: 9.15.0 }
       - uses: actions/setup-node@v4

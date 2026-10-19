@@ -10,6 +10,12 @@ jobs:
     outputs: { version: "${{ steps.meta.outputs.version }}" }
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Enforce SchoolOS V5 production release approval before publishing any image
+        run: |
+          if [ -f config/schoolos-v5-release-gates.json ]; then
+            node scripts/check-schoolos-v5-promotion.mjs --target=production
+          fi
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
