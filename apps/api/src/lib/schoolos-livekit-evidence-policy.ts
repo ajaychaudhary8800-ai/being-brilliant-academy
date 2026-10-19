@@ -44,8 +44,11 @@ export function verifySchoolOSLiveKitWebhook(raw:Buffer, authorization:string|un
  if(!Number.isFinite(occurredAt.getTime()) || occurredAt.getTime()>Date.now()+5*60_000)
   throw new AppError(422,"SCHOOLOS_VIDEO_EVENT_TIME_INVALID","Invalid provider timestamp");
  return {eventId:event.data.id,eventType:event.data.event as VerifiedVideoWebhookEvent["eventType"],
-  roomName:event.data.room.name,identity:event.data.participant?.identity??null,
-  participantSid:event.data.participant?.sid??null,occurredAt,
+  roomName:event.data.room.name,
+  // room_finished is a ROOM event. A provider may include incidental participant
+  // metadata; never persist it as a participant event or break the DB contract.
+  identity:event.data.event==="room_finished"?null:(event.data.participant?.identity??null),
+  participantSid:event.data.event==="room_finished"?null:(event.data.participant?.sid??null),occurredAt,
   bodySha256:actual.toString("hex")};
 }
 
