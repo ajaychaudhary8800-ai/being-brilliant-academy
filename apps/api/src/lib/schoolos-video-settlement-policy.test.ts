@@ -41,3 +41,30 @@ test("incomplete, unused, unsettled and duplicate provider sessions never produc
   row("single-done","room_finished",null,null,25),
  ],"teacher",MeetingStatus.ENDED));
 });
+
+test("zero-usage release proof is opt-in, host-only, closed and complete",()=>{
+ const hosted=[
+  row("only-host-arrived","participant_joined","teacher","host-session",0),
+  row("only-host-left","participant_left","teacher","host-session",30),
+  row("room-end","room_finished",null,null,40),
+ ];
+ assert.throws(()=>schoolOSVideoEvidenceSnapshot(hosted,"teacher",MeetingStatus.ENDED));
+ const snapshot=schoolOSVideoEvidenceSnapshot(hosted,"teacher",MeetingStatus.ENDED,true);
+ assert.equal(snapshot.minutes,0);
+ assert.equal(snapshot.seconds,0);
+ assert.equal(snapshot.eventCount,3);
+ assert.match(snapshot.evidenceSha256,/^[0-9a-f]{64}$/);
+ assert.throws(()=>schoolOSVideoEvidenceSnapshot(hosted,"teacher",MeetingStatus.LIVE,true));
+ assert.throws(()=>schoolOSVideoEvidenceSnapshot([
+  hosted[0]!,row("extra","participant_joined","student","sid",1),
+  row("leave-extra","participant_left","student","sid",20),
+  ...hosted.slice(1),
+ ],"teacher",MeetingStatus.ENDED,true));
+ assert.throws(()=>schoolOSVideoEvidenceSnapshot([
+  hosted[0]!,row("bad-session","participant_left","teacher","different",30),
+  hosted[2]!,
+ ],"teacher",MeetingStatus.ENDED,true));
+ assert.throws(()=>schoolOSVideoEvidenceSnapshot([
+  hosted[0]!,row("never-closed","participant_left","teacher","host-session",30)
+ ],"teacher",MeetingStatus.ENDED,true));
+});
