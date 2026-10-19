@@ -13,6 +13,9 @@ test("provider-side closing cannot be inferred from browser attendance or settle
  assert.match(worker,/livekitRoomService\("DeleteRoom"/);
  assert.ok(worker.includes("expiredSchoolOSVideoRoomCandidates(now,tenants,limit)"));
  assert.match(worker,/SCHOOLOS_VIDEO_ADMISSION_ENABLED/);
+ const provider=await source("./livekit.ts");
+ assert.ok(provider.includes('method === "DeleteRoom" ? { roomCreate: true } : {}'));
+ assert.ok(provider.includes("signal: AbortSignal.timeout(10_000)"));
  assert.ok(worker.includes(".filter(schoolOSVideoAdmissionEnabled)"));
  const candidates=await source("./schoolos-video-expired-candidates.ts");
  assert.ok(candidates.includes('m."endsAt"<='));
