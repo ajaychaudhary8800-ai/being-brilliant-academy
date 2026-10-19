@@ -145,7 +145,7 @@ export async function consumeSchoolOSUsage(
 export async function schoolOSUsageReport(organizationId: string) {
   if (!organizationId || organizationId === "org_default")
     throw new AppError(403, "SCHOOLOS_USAGE_TENANT_REQUIRED", "Customer tenant required");
-  const [balances, events, riskHolds, reservations, reservationTotals] = await Promise.all([
+  const [balances, events, riskHolds, reservations, videoReservations, reservationTotals] = await Promise.all([
     systemPrisma.schoolOSUsageBalance.findMany({
       where: { organizationId }, orderBy: [{ periodEnd: "desc" }, { metric: "asc" }], take: 40,
       select: { id: true, metric: true, periodStart: true, periodEnd: true, grantedUnits: true, consumedUnits: true },
@@ -159,11 +159,16 @@ export async function schoolOSUsageReport(organizationId: string) {
       select: { invoiceId: true, firstEventType: true, latestEventType: true, openedAt: true },
     }),
     systemPrisma.schoolOSUsageReservation.findMany({
-      where: { organizationId, status: "RESERVED" }, orderBy: { createdAt: "asc" }, take: 50,
+      where: { organizationId, metric: "ai_credits", status: "RESERVED" }, orderBy: { createdAt: "asc" }, take: 50,
+      select: { id: true, balanceId: true, metric: true, requestKey: true, units: true, createdAt: true },
+    }),
+    systemPrisma.schoolOSUsageReservation.findMany({
+      where: { organizationId, metric: "video_minutes", status: "RESERVED" },
+      orderBy: { createdAt: "asc" }, take: 50,
       select: { id: true, balanceId: true, metric: true, requestKey: true, units: true, createdAt: true },
     }),
     systemPrisma.schoolOSUsageReservation.groupBy({
-      by: ["balanceId", "status"], where: { organizationId },
+      by: ["balanceId", "metric", "status"], where: { organizationId },
       _sum: { units: true }, _count: { _all: true },
     }),
   ]);
@@ -181,10 +186,21 @@ export async function schoolOSUsageReport(organizationId: string) {
     })),
     events,
     pendingAIReservations: {
-      count: [...pendingByBalance.values()].reduce((total, entry) => total + entry.count, 0),
-      units: [...pendingByBalance.values()].reduce((total, entry) => total + entry.units, 0),
-      oldestFirst: reservations,
-      truncated: reservations.length === 50,
+      count: reservationTotals.filter(r => r.status==="RESERVED" && r.metric==="ai_credits")
+        .reduce((n,r)=>n+r._count._all,0),
+      units: reservationTotals.filter(r => r.status==="RESERVED" && r.metric==="ai_credits")
+        .reduce((n,r)=>n+(r._sum.units??0),0),
+      oldestFirst: reservations.filter(r => r.metric==="ai_credits"),
+      truncated: reservations.filter(r => r.metric==="ai_credits").length===50,
+    },
+    pendingVideoReservations: {
+      count: reservationTotals.filter(r => r.status==="RESERVED" && r.metric==="video_minutes")
+        .reduce((n,r)=>n+r._count._all,0),
+      units: reservationTotals.filter(r => r.status==="RESERVED" && r.metric==="video_minutes")
+        .reduce((n,r)=>n+(r._sum.units??0),0),
+      oldestFirst: videoReservations,
+      truncated: videoReservations.length===50,
+      automaticReleaseEnabled:false,
     },
     financeReviewRequired: riskHolds.length > 0,
     riskHolds,
