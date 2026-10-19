@@ -51,3 +51,26 @@ test("plan eligibility still applies without client overrides", () => {
   assert.equal(schoolOSFeatureAccess({ crm: false }, true, {}, "crm", now).enabled, false);
   assert.equal(schoolOSFeatureAccess({}, false, {}, "crm", now).source, "LEGACY");
 });
+
+test("AI Examiner inherits its examinations license without charging legacy V4 users", () => {
+ assert.equal(schoolOSFeatureAccess({ examinations: true }, true, {}, "ai_examiner", now).enabled, true);
+ assert.equal(schoolOSFeatureAccess({ examinations: false }, true, {}, "ai_examiner", now).enabled, false);
+ assert.equal(schoolOSFeatureAccess({ examinations: true, ai_examiner: false }, true, {}, "ai_examiner", now).enabled, false);
+ assert.equal(schoolOSFeatureAccess({ examinations: true, ai_examiner: true }, true, {}, "ai_examiner", now).enabled, true);
+ assert.equal(schoolOSFeatureAccess({}, false, {}, "ai_examiner", now).source, "LEGACY");
+});
+
+test("parent-denied AI Examiner stays disabled even with explicit child grant", () => {
+ const overrides = readSchoolOSFeatureOverrides({
+  examinations: override(false), ai_examiner: override(true),
+ });
+ assert.deepEqual(schoolOSFeatureAccess({ "*": true },true,overrides,"ai_examiner",now),
+  {enabled:false,source:"PARENT"});
+});
+
+test("workflow automation independently disables without revoking communication", () => {
+ const overrides = readSchoolOSFeatureOverrides({workflow_automation:override(false)});
+ assert.equal(schoolOSFeatureAccess({communication:true},true,overrides,"communication",now).enabled,true);
+ assert.equal(schoolOSFeatureAccess({communication:true},true,overrides,"workflow_automation",now).enabled,false);
+ assert.equal(schoolOSFeatureAccess({communication:false},true,{}, "workflow_automation",now).enabled,false);
+});
