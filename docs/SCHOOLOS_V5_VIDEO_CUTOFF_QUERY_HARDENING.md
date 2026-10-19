@@ -21,3 +21,7 @@ Commercial release remains gated on end-to-end provider sandbox QA, supervised a
 ## QA
 
 The new isolated PostgreSQL integration scenario constructs four rooms: future eligible, expired eligible, expired non-allowlisted, and ended eligible. With LIMIT 1 the candidate query must yield the expired eligible room only, independently of the older noneligible reservations. Unit/contract tests verify the disabled worker remains inert, provider-first deletion, no financial consumption in the worker, and operational health reporting.
+
+## Provider authorization and availability
+
+LiveKit `DeleteRoom` requires the **roomCreate** permission, not only `roomAdmin`. The server room-service helper now includes `roomCreate` only for the DeleteRoom method and preserves the least-privileged moderation scope for other room actions. Provider RoomService requests are capped at ten seconds to prevent a hung network call from indefinitely blocking the 30-second quota worker. Real LiveKit staging credentials and an expiring connected room are still needed to validate provider behavior; unit contracts alone are insufficient.
