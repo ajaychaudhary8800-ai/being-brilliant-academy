@@ -27,7 +27,6 @@ export async function schoolOSAIReconciliationQueue(organizationId:string,limit=
   where:{organizationId,id:{in:ids}},
   select:{id:true,organizationId:true,status:true,completedAt:true,provider:true,model:true,errorCode:true,
    _count:{select:{questions:true}}},
-  },
  }):[];
  const byId=new Map(evaluations.map(e=>[e.id,e]));
  return {
