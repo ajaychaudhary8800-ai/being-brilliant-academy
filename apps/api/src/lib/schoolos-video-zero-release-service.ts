@@ -40,14 +40,15 @@ async function verifiedZeroProof(tx:Tx,organizationId:string,meetingId:string,no
  const events=await tx.schoolOSLiveKitEvent.findMany({
   where:{organizationId,meetingId},take:10001,orderBy:[{occurredAt:"asc"},{id:"asc"}],
   select:{providerEventId:true,eventType:true,identity:true,participantSid:true,
-   occurredAt:true,rawSha256:true},
+   occurredAt:true,rawSha256:true,receivedAt:true},
  });
  const proof=schoolOSVideoEvidenceSnapshot(events,meeting.hostUserId,meeting.status,true);
  if(proof.minutes!==0 || proof.seconds!==0)
   throw new AppError(409,"SCHOOLOS_VIDEO_HAS_BILLABLE_USAGE",
    "Provider evidence indicates possible billable participant overlap");
- if(now.getTime() - Math.max(proof.lastEventAt.getTime(),meeting.endsAt.getTime()) <
-     minimumProviderQuiescenceMs)
+ const lastProviderReceipt=Math.max(...events.map(e=>e.receivedAt.getTime()));
+ if(now.getTime() - Math.max(proof.lastEventAt.getTime(),meeting.endsAt.getTime(),
+   lastProviderReceipt) < minimumProviderQuiescenceMs)
   throw new AppError(409,"SCHOOLOS_VIDEO_RELEASE_COOLING_OFF",
    "At least 72 hours after provider room completion are required for delayed webhook review");
  const reservation=await tx.schoolOSUsageReservation.findUnique({
