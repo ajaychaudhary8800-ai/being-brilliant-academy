@@ -1078,6 +1078,7 @@ model Organization {
   schoolOSPaymentRiskReviews SchoolOSPaymentRiskReview[]
   schoolOSUsageEvents SchoolOSUsageEvent[]
   schoolOSUsageReservations SchoolOSUsageReservation[]
+  schoolOSLiveKitEvents SchoolOSLiveKitEvent[]
   branches               Branch[]
   communicationCirculars Circular[]
   communicationCalendarEvents CalendarEvent[]
@@ -8275,6 +8276,7 @@ model Meeting {
   agendaItems    MeetingAgendaItem[]
   attachments    MeetingAttachment[]
   attendanceSessions MeetingAttendanceSession[]
+  schoolOSLiveKitEvents SchoolOSLiveKitEvent[]
   minutes        MeetingMinutes?
   decisions      MeetingDecision[]
   actionItems    MeetingActionItem[]
@@ -8653,6 +8655,24 @@ model SchoolOSUsageReservation {
   @@unique([organizationId, metric, requestKey])
   @@index([organizationId, status, createdAt])
   @@index([balanceId, status])
+}
+
+/** Provider-signed raw webhook evidence only; never automatically bill from this table. */
+model SchoolOSLiveKitEvent {
+  id             String   @id @default(cuid())
+  providerEventId String   @unique
+  organizationId String
+  meetingId      String
+  eventType      String
+  identity       String?
+  participantSid String?
+  occurredAt     DateTime
+  rawSha256      String
+  receivedAt     DateTime @default(now())
+  organization Organization @relation(fields: [organizationId],references: [id],onDelete: Restrict)
+  meeting      Meeting @relation(fields: [meetingId],references: [id],onDelete: Restrict)
+  @@index([organizationId,meetingId,occurredAt])
+  @@index([meetingId,eventType])
 }
 
 model SchoolOSAddonRate {

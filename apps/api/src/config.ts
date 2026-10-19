@@ -51,6 +51,8 @@ const schema = z.object({
   LIVEKIT_URL: optionalUrl,
   LIVEKIT_API_KEY: optionalString,
   LIVEKIT_API_SECRET: optionalString,
+  SCHOOLOS_VIDEO_WEBHOOK_ENABLED: z.string().default("false").transform(value=>value==="true"),
+  SCHOOLOS_VIDEO_EVIDENCE_TENANT_IDS: optionalString,
   LIVEKIT_RECORDING_PREFIX: z.string().default("live-class-recordings"),
   LIVEKIT_RECORDING_S3_REGION: optionalString,
   LIVEKIT_RECORDING_S3_BUCKET: optionalString,
