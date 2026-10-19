@@ -32,6 +32,7 @@ function billingRecoveryPathAllowed(req: Request) {
   if (req.method === "GET" && path === "/api/v1/auth/me") return true;
   if (req.method === "GET" && path === "/api/v1/organization/entitlements") return true;
   if (req.method === "GET" && path === "/api/v1/organization/subscription") return true;
+  if (req.method === "GET" && path === "/api/v1/organization/subscription/renewal-readiness") return true;
   if (req.method === "GET" && path === "/api/v1/organization/subscription/plans") return true;
   if (req.method === "GET" && /^\/api\/v1\/organization\/subscription\/invoices\/[^/]+\/pdf$/.test(path)) return true;
   return (req.method === "POST" && (path === "/api/v1/organization/subscription/checkout" || path === "/api/v1/organization/subscription/contracted-checkout"))
