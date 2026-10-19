@@ -3,7 +3,8 @@ import crypto from "node:crypto";
 import test from "node:test";
 import { systemPrisma } from "../lib/prisma.js";
 import { expiredSchoolOSVideoRoomCandidates } from "../lib/schoolos-video-expired-candidates.js";
-import { schoolOSVideoRoomHasPrepaidHistory } from "../lib/schoolos-video-admission.js";
+import { assertSchoolOSVideoNoDisabledPrepaidJoin, schoolOSVideoAdmissionEnabled, schoolOSVideoRoomHasPrepaidHistory } from "../lib/schoolos-video-admission.js";
+import { AppError } from "../lib/http.js";
 
 function isolated(){
  let url:URL|null=null;
@@ -61,6 +62,29 @@ test("expired prepaid rooms are selected before LIMIT, excluding future, other-t
    "same meeting cannot borrow a prepaid hold from another tenant");
   assert.equal(await schoolOSVideoRoomHasPrepaidHistory("org_default",matched),false);
   assert.equal(await schoolOSVideoRoomHasPrepaidHistory(eligible,"not-a-real-meeting"),false);
+  // Financial opt-out must not mint a new unmetered admission for an already
+  // RESERVED room; this is an actual PostgreSQL-backed policy check, not only
+  // a source-string contract. It is tenant-bound and has no balance mutation.
+  assert.equal(schoolOSVideoAdmissionEnabled(eligible),false);
+  const heldBefore=await systemPrisma.schoolOSUsageReservation.count({where:{
+   organizationId:eligible,metric:"video_minutes",status:"RESERVED",
+  }});
+  await assert.rejects(
+   ()=>assertSchoolOSVideoNoDisabledPrepaidJoin(eligible,matched),
+   (err:unknown)=>err instanceof AppError &&
+    err.code==="SCHOOLOS_VIDEO_PREPAID_ROOM_OPTED_OUT",
+  );
+  await assert.doesNotReject(
+   ()=>assertSchoolOSVideoNoDisabledPrepaidJoin(foreign,matched),
+   "Other institutions cannot inherit a room's prepaid admission history",
+  );
+  await assert.doesNotReject(
+   ()=>assertSchoolOSVideoNoDisabledPrepaidJoin(eligible,"unmetered-existing-v4-room"),
+   "Existing V4/unmetered meetings retain their original admission behavior",
+  );
+  assert.equal(await systemPrisma.schoolOSUsageReservation.count({where:{
+   organizationId:eligible,metric:"video_minutes",status:"RESERVED",
+  }}),heldBefore,"Authorization refusals cannot debit or release financial holds");
   const rows=await expiredSchoolOSVideoRoomCandidates(now,[eligible],1);
   assert.equal(rows.length,1);
   assert.equal(rows[0]?.meetingId,matched);
