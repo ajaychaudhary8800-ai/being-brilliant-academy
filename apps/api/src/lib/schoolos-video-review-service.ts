@@ -5,6 +5,7 @@ import { systemPrisma } from "./prisma.js";
 import { isSchoolOSVideoEvidenceEnabled } from "./schoolos-livekit-evidence-service.js";
 import { schoolOSVideoEvidenceSnapshot } from "./schoolos-video-settlement-policy.js";
 import { assertSchoolOSUsageRequest } from "./schoolos-usage-policy.js";
+import { schoolOSVideoAdmissionEnabled, schoolOSVideoReservationKey } from "./schoolos-video-admission.js";
 
 type Tx=Prisma.TransactionClient;
 const metric="video_minutes";
@@ -35,7 +36,7 @@ async function lock(tx:Tx,organizationId:string,meetingId:string) {
 async function snapshot(tx:Tx,organizationId:string,meetingId:string) {
  const meeting=await tx.meeting.findFirst({
   where:{id:meetingId,organizationId},
-  select:{id:true,hostUserId:true,status:true},
+  select:{id:true,hostUserId:true,status:true,startsAt:true,endsAt:true},
  });
  if(!meeting)throw new AppError(404,"SCHOOLOS_VIDEO_MEETING_NOT_FOUND","Tenant meeting not found");
  const events=await tx.schoolOSLiveKitEvent.findMany({
@@ -134,19 +135,36 @@ export async function decideSchoolOSVideoReview(
    return {status:rejected.status,charged:false,minutes:row.proposedMinutes};
   }
   requireApproval(organizationId);
+  if(!schoolOSVideoAdmissionEnabled(organizationId))
+   throw new AppError(409,"SCHOOLOS_VIDEO_ADMISSION_MISSING",
+    "A separately approved prepaid room admission must precede provider usage");
+  // Meeting minutes must be inside the previously preauthorized time window.
+  if(row.firstEventAt.getTime()<meeting.startsAt.getTime()-10*60_000 ||
+     row.lastEventAt.getTime()>meeting.endsAt.getTime())
+   throw new AppError(409,"SCHOOLOS_VIDEO_UNAUTHORIZED_DURATION",
+    "Signed provider session exceeds the preauthorized room window");
   const organization=await tx.organization.findUnique({where:{id:organizationId},
    select:{isActive:true,deletedAt:true,subscriptionStatus:true,subscriptionEndsAt:true}});
-  if(!organization || !organization.isActive || organization.deletedAt ||
-     organization.subscriptionStatus!=="ACTIVE" || !organization.subscriptionEndsAt ||
-     organization.subscriptionEndsAt<=now)
-   throw new AppError(403,"SCHOOLOS_VIDEO_SUBSCRIPTION_INACTIVE","Verified active paid subscription required");
+  if(!organization || !organization.isActive || organization.deletedAt)
+   throw new AppError(403,"SCHOOLOS_VIDEO_SUBSCRIPTION_INACTIVE","Tenant institution not active");
+  // The reservation was prepaid while the subscription was active. A delayed
+  // provider review is still eligible after term expiry (unless risk-held).
   const hold=await tx.schoolOSPaymentRiskHold.findFirst({
    where:{organizationId,status:"ACTIVE"},select:{id:true},
   });
   if(hold)throw new AppError(409,"SCHOOLOS_VIDEO_PAYMENT_RISK_HOLD",
    "Financial risk hold prohibits settling video minutes");
-  const key="video-meeting:"+row.meetingId;
+  const key=schoolOSVideoReservationKey(row.meetingId);
   assertSchoolOSUsageRequest({metric,units:row.proposedMinutes,requestKey:key});
+  const reservation=await tx.schoolOSUsageReservation.findUnique({
+   where:{organizationId_metric_requestKey:{organizationId,metric,requestKey:key}},
+  });
+  if(!reservation || reservation.status!=="RESERVED")
+   throw new AppError(409,"SCHOOLOS_VIDEO_RESERVATION_MISSING",
+    "A live session must reserve prepaid capacity before any approved settlement");
+  if(reservation.units<row.proposedMinutes)
+   throw new AppError(409,"SCHOOLOS_VIDEO_RESERVED_BUDGET_EXCEEDED",
+    "Verified minutes exceeded the authorized hold; requires provider and finance review");
   const existing=await tx.schoolOSUsageEvent.findUnique({
    where:{organizationId_metric_requestKey:{organizationId,metric,requestKey:key}},
   });
@@ -156,9 +174,9 @@ export async function decideSchoolOSVideoReview(
    organizationId,metric,periodStart:{lte:row.firstEventAt},
    periodEnd:{gt:row.lastEventAt},
   }});
-  if(buckets.length!==1 || buckets[0]!.periodEnd<=now)
+  if(buckets.length!==1 || buckets[0]!.id!==reservation.balanceId)
    throw new AppError(409,"SCHOOLOS_VIDEO_BILLING_PERIOD_INVALID",
-    "A single current prepaid period must cover the complete room session");
+    "The originally reserved paid period must cover the signed session");
   const bucket=buckets[0]!;
   const paidGrant=await tx.schoolOSUsageEvent.findFirst({where:{
    organizationId,balanceId:bucket.id,metric,kind:"GRANT",
@@ -173,18 +191,24 @@ export async function decideSchoolOSVideoReview(
   if(!paidGrant)
    throw new AppError(409,"SCHOOLOS_VIDEO_PAID_GRANT_REQUIRED",
     "Valid provider-paid signed-contract video credit grant is missing");
+  // Available capacity was already reserved before LiveKit token issuance.
+  // The final provider-proven minutes consume part of that hold; unused
+  // minutes are restored only after two-person successful settlement.
+  const difference=reservation.units-row.proposedMinutes;
   const updated=await tx.schoolOSUsageBalance.updateMany({
    where:{id:bucket.id,organizationId,metric,
-    consumedUnits:{lte:bucket.grantedUnits-row.proposedMinutes}},
-   data:{consumedUnits:{increment:row.proposedMinutes}},
+    consumedUnits:{gte:reservation.units}},
+   data:{consumedUnits:{decrement:difference}},
   });
   if(updated.count!==1)
-   throw new AppError(402,"SCHOOLOS_VIDEO_MINUTES_EXHAUSTED",
-    "Insufficient prepaid room-minutes; manual service plan reconciliation required");
+   throw new AppError(409,"SCHOOLOS_VIDEO_HELD_BALANCE_INCONSISTENT",
+    "The reserved balance failed financial integrity validation");
   const debit=await tx.schoolOSUsageEvent.create({data:{
    organizationId,balanceId:bucket.id,metric,kind:"CONSUME",
    units:row.proposedMinutes,requestKey:key,actorId:reviewedBy,
   }});
+  await tx.schoolOSUsageReservation.update({where:{id:reservation.id},
+   data:{status:"COMMITTED",committedAt:now}});
   await tx.schoolOSVideoUsageReview.update({where:{id:row.id},
    data:{status:"SETTLED",reviewedBy,reviewedAt:now,reviewComment:reviewComment.trim()}});
   await tx.auditLog.create({data:{organizationId,actorId:reviewedBy,
@@ -192,10 +216,12 @@ export async function decideSchoolOSVideoReview(
    entityId:row.id,metadata:{
     meetingId:row.meetingId,policy:invoiceEvidence,units:row.proposedMinutes,
     signedEvidenceSha256:row.evidenceSha256,ledgerEventId:debit.id,
+    reservedMinutes:reservation.units,refundedUnusedMinutes:difference,
     evidenceReference:row.evidenceReference,reviewComment:reviewComment.trim(),
     makerId:row.proposedBy,checkerId:reviewedBy,
    }}});
   return {status:"SETTLED" as const,charged:true,minutes:row.proposedMinutes,
+   reservedMinutes:reservation.units,unusedMinutesRestored:difference,
    ledgerEventId:debit.id};
  },{isolationLevel:Prisma.TransactionIsolationLevel.ReadCommitted});
 }
