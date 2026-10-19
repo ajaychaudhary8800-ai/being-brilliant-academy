@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "product": "Adhyay SchoolOS",
+  "version": "5.0",
+  "releaseCandidateSha": null,
+  "declaredStatus": "HOLD",
+  "gates": [
+    {
+      "id": "draft_chain_integration",
+      "name": "Consolidated V5 branch dependency review and release-candidate commit",
+      "status": "PENDING",
+      "evidence": [],
+      "nextAction": "Resolve the staged Draft PR dependency chain and conflicting parallel PRs, review combined diffs, and pin one immutable release-candidate SHA."
+    },
+    {
+      "id": "release_candidate_ci",
+      "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
+      "status": "PENDING",
+      "evidence": [],
+      "nextAction": "Run TypeScript, full PostgreSQL integration, container CI, security and release checks against the single pinned integrated V5 candidate, not individual Draft PRs."
+    },
+    {
+      "id": "staging_migration_restore",
+      "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
+      "status": "PENDING",
+      "evidence": [],
+      "nextAction": "Verify off-host backup checksums, restore frozen V4 data to isolated staging, apply every V5 migration, validate tenant and financial counts, and rehearse rollback."
+    },
+    {
+      "id": "subscription_payment_qa",
+      "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
+      "status": "PENDING",
+      "evidence": [],
+      "nextAction": "Execute signed quote capture, renewal, add-on, duplicate webhook, dispute and finance-hold acceptance with test identities and institution-isolated ledgers."
+    },
+    {
+      "id": "ai_video_provider_qa",
+      "name": "Real staging AI Examiner and LiveKit usage, billing, failure and proof reconciliation",
+      "status": "PENDING",
+      "evidence": [],
+      "nextAction": "Prove real provider retry, reconnection, provider disconnect, delayed/lost webhooks, payment admission, quota exhaustion, two-person settlement and refund-protection end-to-end."
+    },
+    {
+      "id": "security_privacy_tenant_qa",
+      "name": "Multi-tenant security, authorization, privacy and load testing",
+      "status": "PENDING",
+      "evidence": [],
+      "nextAction": "Verify zero cross-tenant exposure, platform feature controls, IDORs, secrets, access audits, PII retention, browser/mobile flows, concurrency and peak-size load."
+    },
+    {
+      "id": "customer_uat",
+      "name": "Signed realistic customer UAT and operational onboarding",
+      "status": "PENDING",
+      "evidence": [],
+      "nextAction": "Run institution-admin, teacher, parent, student, accountant and platform-owner acceptance with real school workflows and signoff."
+    },
+    {
+      "id": "operational_support",
+      "name": "Production operations, monitoring, incident response and recovery",
+      "status": "PENDING",
+      "evidence": [],
+      "nextAction": "Verify monitoring alerts, worker failure escalation, runbooks, backup retention and restore, rollback and subscription support SLAs in staging."
+    },
+    {
+      "id": "commercial_legal_finance",
+      "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
+      "status": "PENDING",
+      "evidence": [],
+      "nextAction": "Obtain written business/finance/legal approval of AI and room-minute tariff, GST invoicing, refunds, overage, rollover, pilots, DPA and customer terms."
+    },
+    {
+      "id": "production_owner_approval",
+      "name": "Final signed owner authorization to promote V5 to production",
+      "status": "PENDING",
+      "evidence": [],
+      "nextAction": "Request explicit release-candidate-specific production approval only after all previous gates and their evidence are independently verified."
+    }
+  ]
+}
