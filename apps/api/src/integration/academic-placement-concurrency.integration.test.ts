@@ -227,6 +227,12 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
         assert.equal(unsafeRestore.payload.error.code, "TEACHER_SCHEDULE_CONFLICT");
         assert.equal((await systemPrisma.timetable.findUniqueOrThrow({ where: { id: firstId } })).status, "ARCHIVED");
         assert.equal(await systemPrisma.timetable.count({ where: { organizationId, teacherId: teacher.id } }), 2);
+        const ownedAudit = await systemPrisma.auditLog.findMany({ where: {
+          organizationId, entity: "Timetable", entityId: { in: [firstId, secondId] },
+        }, select: { action: true, organizationId: true } });
+        assert.ok(ownedAudit.some(event => event.action === "CREATE"), JSON.stringify(ownedAudit));
+        assert.ok(ownedAudit.some(event => event.action === "UPDATE"), JSON.stringify(ownedAudit));
+        assert.ok(ownedAudit.some(event => event.action === "STATUS_CHANGED"), JSON.stringify(ownedAudit));
       } finally {
         await systemPrisma.timetable.deleteMany({ where: { organizationId, teacherId: teacher.id } });
         await systemPrisma.courseSubject.deleteMany({ where: { organizationId, subjectId: subject.id } });
