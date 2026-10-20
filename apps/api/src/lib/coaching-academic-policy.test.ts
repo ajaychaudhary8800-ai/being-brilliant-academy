@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertBatchCoachingGrades, assertStudentCoachingGrade, teacherAssignable, teacherLmsBranchScope } from "./coaching-academic-policy.js";
+import { assertBatchCoachingGrades, assertStudentCoachingGrade, teacherAllocationReadScope, teacherAssignable, teacherLmsBranchScope } from "./coaching-academic-policy.js";
 
 test("one same-tenant teacher can teach multiple coaching branches", () => {
   const teacher = { organizationId: "tenant-a", branchId: "branch-1" };
@@ -23,4 +23,23 @@ test("LMS exposes allocated branches only in coaching mode, without duplicates",
   assert.deepEqual(teacherLmsBranchScope("BATCH", "branch-1", ["branch-2", "branch-1", "branch-3"]), ["branch-1", "branch-2", "branch-3"]);
   assert.deepEqual(teacherLmsBranchScope("SECTION", "branch-1", ["branch-2"]), ["branch-1"]);
   assert.deepEqual(teacherLmsBranchScope("GROUP", "branch-1", ["branch-2"]), ["branch-1"]);
+});
+
+test("subject allocation enforcement permits cross-branch coaching teachers only within the matching institution", () => {
+  assert.deepEqual(
+    teacherAllocationReadScope("BATCH", "tenant-a", "branch-b"),
+    { organizationId: "tenant-a", user: { isActive: true } },
+  );
+  assert.deepEqual(
+    teacherAllocationReadScope("SECTION", "tenant-a", "branch-b"),
+    { organizationId: "tenant-a", branchId: "branch-b", user: { isActive: true } },
+  );
+  assert.deepEqual(
+    teacherAllocationReadScope("GROUP", "tenant-a", "branch-b"),
+    { organizationId: "tenant-a", branchId: "branch-b", user: { isActive: true } },
+  );
+  assert.deepEqual(
+    teacherAllocationReadScope("BATCH", "tenant-b", "branch-b"),
+    { organizationId: "tenant-b", user: { isActive: true } },
+  );
 });
