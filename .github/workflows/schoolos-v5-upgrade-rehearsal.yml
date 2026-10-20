@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "apps/api/prisma/**"
+      - "apps/api/src/**"
+      - "config/schoolos-v5-release-gates.json"
+      - "docs/SCHOOLOS_V5_AUTOMATED_QA_RUNBOOK.md"
       - "scripts/schoolos-v5-upgrade-rehearsal.sh"
       - ".github/workflows/schoolos-v5-upgrade-rehearsal.yml"
   workflow_dispatch:
@@ -38,11 +41,13 @@ jobs:
       PGPASSWORD: postgres
       PGDATABASE: postgres
       SCHOOLOS_V4_BASE_SHA: 50dfdeb4f99c5cdbaf1d5a9502c709fbbf2798f6
+      SCHOOLOS_RC_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public
       CI: "true"
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: "${{ github.event.pull_request.head.sha || github.sha }}"
           fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@v4
@@ -56,6 +61,7 @@ jobs:
           pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"
           git cat-file -e "${SCHOOLOS_V4_BASE_SHA}^{commit}"
           test "$(git rev-parse "$SCHOOLOS_V4_BASE_SHA")" = "$SCHOOLOS_V4_BASE_SHA"
+          test "$(git rev-parse HEAD)" = "$SCHOOLOS_RC_SHA"
       - name: Execute synthetic V4-to-V5 migration and two verified restores
         run: bash scripts/schoolos-v5-upgrade-rehearsal.sh
       - name: Upload synthetic upgrade acceptance evidence (NOT production signoff)

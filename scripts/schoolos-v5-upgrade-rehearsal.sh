@@ -100,7 +100,7 @@ DATABASE_URL="$(conn "$upgrade_db")" pnpm --filter @bba/api exec prisma migrate 
  --schema "$root/apps/api/prisma/schema.prisma"
 upgraded_migrations="$(psql -d "$upgrade_db" -Atqc \
  'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')"
-if [[ ! "$upgraded_migrations" =~ ^[0-9]+$ || "$upgraded_migrations" -le "$baseline_migrations" ]]; then
+if [[ ! "$upgraded_migrations" =~ ^[0-9]+$ || "$upgraded_migrations" -ne 114 || "$upgraded_migrations" -le "$baseline_migrations" ]]; then
   echo "FAIL: current V5 migrations were not applied to restored frozen V4 database" >&2
   exit 1
 fi
@@ -179,7 +179,7 @@ const record = {
  kind: "ISOLATED_SYNTHETIC_V4_TO_V5_UPGRADE_REHEARSAL",
  result: "AUTOMATED_SYNTHETIC_PASS_NOT_STAGING_ACCEPTANCE",
  baselineCommit: process.env.SCHOOLOS_V4_BASE_SHA,
- candidateCommit: process.env.GITHUB_SHA,
+ candidateCommit: process.env.SCHOOLOS_RC_SHA,
  sourceV4MigrationCount: Number(process.env.BASELINE_MIGRATIONS),
  restoredV5MigrationCount: Number(process.env.CURRENT_MIGRATIONS),
  sourceDumpSha256: process.env.V4_DUMP_SHA,

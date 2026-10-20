@@ -14,6 +14,7 @@ import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { assertCanChangeUserRole, managedUserBranchIds } from "../lib/user-administration-policy.js";
 import { issueAccountSetup } from "../lib/account-setup.js";
 import { branchCodeConflict, isBranchCodeConflict } from "../lib/branch-uniqueness.js";
+import { retrySerializableWrite } from "../lib/serializable-retry.js";
 
 const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
@@ -188,7 +189,7 @@ router.post("/branches", async (req: AuthRequest, res) => {
   }
   const passwordHash = existingManager ? null : await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12);
   try {
-    const provisioned = await prisma.$transaction(async tx => {
+    const provisioned = await retrySerializableWrite(() => prisma.$transaction(async tx => {
       const created = await tx.branch.create({
         data: { ...branchData, organizationId: req.auth!.organizationId, isActive: branchData.isActive ?? true },
         select: { id: true },
@@ -216,7 +217,7 @@ router.post("/branches", async (req: AuthRequest, res) => {
         data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "BRANCH_CREATED", entity: "Branch", entityId: created.id, metadata: { managerUserId: manager.id, managerEmail } },
       });
       return { branchId: created.id, manager };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { conflictCode: "BRANCH_PROVISIONING_CONFLICT" });
     let setup: unknown = existingManager ? { skipped: true, reason: "EXISTING_MANAGER_ACCOUNT" } : null;
     if (!existingManager) {
       try {
