@@ -1,7 +1,7 @@
 import { BatchStatus, SubjectLegacyReviewStatus, SubjectStatus, TeacherAllocationStatus } from "@prisma/client";
 import { AppError } from "./http.js";
 import { teacherAllocationReadScope } from "./coaching-academic-policy.js";
-import { prisma } from "./prisma.js";
+import { prisma, systemPrisma } from "./prisma.js";
 import { currentTenant } from "./tenant-context.js";
 
 export type SubjectContext = { branchId: string; courseId: string; batchId: string; teacherId: string; academicSessionId: string; subjectId?: string; effectiveAt?: Date; rangeStart?: Date; rangeEnd?: Date };
@@ -19,7 +19,7 @@ async function allocationTenantScope(): Promise<AllocationTenantScope | null> {
   // authority for the institution and academic-mode lookup.
   const tenant = currentTenant();
   if (!tenant) return null;
-  const organization = await prisma.organization.findUnique({
+  const organization = await systemPrisma.organization.findUnique({
     where: { id: tenant.organizationId },
     select: { groupLabelType: true },
   });
