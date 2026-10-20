@@ -2,6 +2,7 @@ import { BatchStatus, SubjectLegacyReviewStatus, SubjectStatus, TeacherAllocatio
 import { AppError } from "./http.js";
 import { teacherAllocationReadScope } from "./coaching-academic-policy.js";
 import { prisma } from "./prisma.js";
+import { currentTenant } from "./tenant-context.js";
 
 export type SubjectContext = { branchId: string; courseId: string; batchId: string; teacherId: string; academicSessionId: string; subjectId?: string; effectiveAt?: Date; rangeStart?: Date; rangeEnd?: Date };
 
@@ -13,18 +14,22 @@ export function effectiveDateForSession(startsAt: Date, endsAt: Date, now = new 
 
 type AllocationTenantScope = { organizationId: string; groupLabelType: string | null | undefined };
 
-async function allocationTenantScope(branchId: string): Promise<AllocationTenantScope | null> {
-  const branch = await prisma.branch.findUnique({
-    where: { id: branchId },
-    select: { organizationId: true, organization: { select: { groupLabelType: true } } },
+async function allocationTenantScope(): Promise<AllocationTenantScope | null> {
+  // The authenticated tenant context, not a caller-supplied branch, is the
+  // authority for the institution and academic-mode lookup.
+  const tenant = currentTenant();
+  if (!tenant) return null;
+  const organization = await prisma.organization.findUnique({
+    where: { id: tenant.organizationId },
+    select: { groupLabelType: true },
   });
-  return branch ? { organizationId: branch.organizationId, groupLabelType: branch.organization.groupLabelType } : null;
+  return organization ? { organizationId: tenant.organizationId, groupLabelType: organization.groupLabelType } : null;
 }
 
-export function allocationWhere(context: SubjectContext, scope: AllocationTenantScope) {
+export function allocationWhere(context: SubjectContext, scope?: AllocationTenantScope) {
   const effectiveAt = context.effectiveAt ?? (!context.rangeStart || !context.rangeEnd ? new Date() : undefined);
   return {
-    organizationId: scope.organizationId,
+    ...(scope ? { organizationId: scope.organizationId } : {}),
     branchId: context.branchId,
     courseId: context.courseId,
     batchId: context.batchId,
@@ -32,10 +37,12 @@ export function allocationWhere(context: SubjectContext, scope: AllocationTenant
     academicSessionId: context.academicSessionId,
     ...(context.subjectId ? { subjectId: context.subjectId } : {}),
     status: TeacherAllocationStatus.ACTIVE,
-    branch: { organizationId: scope.organizationId, isActive: true },
-    academicSession: { organizationId: scope.organizationId, isArchived: false },
-    batch: { organizationId: scope.organizationId, status: BatchStatus.ACTIVE },
-    teacher: teacherAllocationReadScope(scope.groupLabelType, scope.organizationId, context.branchId),
+    branch: { ...(scope ? { organizationId: scope.organizationId } : {}), isActive: true },
+    academicSession: { ...(scope ? { organizationId: scope.organizationId } : {}), isArchived: false },
+    batch: { ...(scope ? { organizationId: scope.organizationId } : {}), status: BatchStatus.ACTIVE },
+    teacher: scope
+      ? teacherAllocationReadScope(scope.groupLabelType, scope.organizationId, context.branchId)
+      : { branchId: context.branchId, user: { isActive: true } },
     ...(effectiveAt
       ? { effectiveFrom: { lte: effectiveAt }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveAt } }] }
       : { effectiveFrom: { lte: context.rangeEnd! }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: context.rangeStart! } }] }),
@@ -43,7 +50,7 @@ export function allocationWhere(context: SubjectContext, scope: AllocationTenant
 }
 
 export async function allocatedSubjects(context: SubjectContext) {
-  const scope = await allocationTenantScope(context.branchId);
+  const scope = await allocationTenantScope();
   if (!scope) return [];
   const rows = await prisma.teacherAllocation.findMany({ where: allocationWhere(context, scope), select: { subject: { select: { id: true, name: true, code: true, status: true, legacyReviewStatus: true } }, weeklyPeriods: true, effectiveFrom: true, effectiveTo: true }, orderBy: { subjectName: "asc" } });
   const subjectIds = rows.map(row => row.subject.id);
@@ -56,7 +63,7 @@ export async function allocatedSubjects(context: SubjectContext) {
 }
 
 export async function requireAllocatedSubject(context: SubjectContext) {
-  const scope = await allocationTenantScope(context.branchId);
+  const scope = await allocationTenantScope();
   if (!scope) throw new AppError(422, "TEACHER_SUBJECT_NOT_ALLOCATED", "The selected branch has no valid allocation scope");
   const [allocation, link, teacherLink, subject] = await Promise.all([
     prisma.teacherAllocation.findFirst({ where: allocationWhere(context, scope), select: { id: true } }),
