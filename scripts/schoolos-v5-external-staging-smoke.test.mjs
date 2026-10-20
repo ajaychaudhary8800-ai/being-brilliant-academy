@@ -91,3 +91,44 @@ test("authenticated inventory fails closed if either QA tenant is missing", asyn
     assert.ok(result.checks.some(x => x.id === "V5_QA_TENANT_INVENTORY" && x.status === "FAIL"));
   } finally { console.log = originalLog; }
 });
+
+
+test("GET transient network failures retry once and recover without accepting false status", async () => {
+  let attempts = 0;
+  const result = await runReadOnlyStagingQa({
+    env: {},
+    request: async (url, init) => {
+      assert.equal(init, undefined, "Unauthenticated HTTP smoke must remain GET-only");
+      if (url.endsWith("/api/health/ready") && ++attempts === 1) {
+        const error = new Error("fetch failed");
+        error.cause = { code: "ETIMEDOUT" };
+        throw error;
+      }
+      return response(url.includes("/api/v1/") ? 401 : 200);
+    },
+  });
+  assert.equal(attempts, 2);
+  assert.equal(result.result, "PARTIAL_PASS_AUTH_REQUIRED");
+  assert.ok(result.checks.some(check =>
+    check.id === "V5_API_READY" && check.status === "PASS" &&
+    check.detail.includes("transient network retry")));
+});
+
+test("persistent network failure fails closed and reports only sanitized cause", async () => {
+  const result = await runReadOnlyStagingQa({
+    env: {},
+    request: async (url) => {
+      if (url.endsWith("/api/health/ready")) {
+        const error = new Error("sensitive error text");
+        error.cause = { code: "ETIMEDOUT" };
+        throw error;
+      }
+      return response(url.includes("/api/v1/") ? 401 : 200);
+    },
+  });
+  assert.equal(result.result, "FAIL");
+  const ready = result.checks.find(check => check.id === "V5_API_READY");
+  assert.equal(ready.status, "FAIL");
+  assert.match(ready.detail, /GET unreachable after 2 attempts \[ETIMEDOUT\]/);
+  assert.ok(!ready.detail.includes("sensitive error text"));
+});
