@@ -42,6 +42,32 @@ jobs:
         run: node --test scripts/schoolos-v5-external-staging-smoke.test.mjs
       - name: Test external staging (GET-only except optional staging QA login)
         run: node scripts/schoolos-v5-external-staging-smoke.mjs
+      - name: Publish consolidated external QA report
+        if: always()
+        shell: bash
+        run: |
+          if [ ! -s artifacts/v5-external-smoke/result.json ]; then
+            echo "No external staging QA evidence produced." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const result = JSON.parse(fs.readFileSync("artifacts/v5-external-smoke/result.json", "utf8"));
+          const lines = [
+            "# SchoolOS V5 staging QA — " + result.result,
+            "",
+            "| Check | Result |",
+            "|---|---|",
+            ...result.checks.map(c => "| " + c.id + " | " + c.status + " |"),
+            "",
+            "**Automated smoke tests do not approve commercial production promotion.**",
+            "Authenticated staging UAT is pending unless the dedicated QA credentials were configured.",
+          ];
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+          if (result.result === "PARTIAL_PASS_AUTH_REQUIRED") {
+            console.log("::warning::External QA partially passed; dedicated staging-only credentials were not configured.");
+          }
+          NODE
       - name: Upload redacted QA results
         if: always()
         uses: actions/upload-artifact@v4
