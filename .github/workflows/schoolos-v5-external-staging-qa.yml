@@ -7,6 +7,7 @@ on:
       - "scripts/schoolos-v5-external-staging-smoke*.mjs"
       - "apps/api/**"
       - "apps/web/**"
+      - "e2e/schoolos-v5-external-staging-public.spec.ts"
       - "config/schoolos-v5-release-gates.json"
       - ".github/workflows/schoolos-v5-*.yml"
       - "docs/SCHOOLOS_V5_*.md"
@@ -148,3 +149,37 @@ jobs:
           echo "## Disposable PostgreSQL regression" >> "$GITHUB_STEP_SUMMARY"
           echo "Tested only GitHub-hosted ephemeral infrastructure; no customer or production database contacted." >> "$GITHUB_STEP_SUMMARY"
           echo "This cannot replace authenticated live-staging coaching UAT or owner approval." >> "$GITHUB_STEP_SUMMARY"
+
+  external-browser-ui:
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    permissions: { contents: read }
+    env:
+      CI: "true"
+      QA_BASE_URL: https://v5-staging.beingbrilliantedu.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "${{ github.event.pull_request.head.sha || github.sha }}"
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Install ephemeral Chromium browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Render portal UI (desktop and mobile, no credentials or writes)
+        run: pnpm exec playwright test e2e/schoolos-v5-external-staging-public.spec.ts --workers=1 --retries=1
+      - name: Upload failure-only screenshots and redacted report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schoolos-v5-browser-qa-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results/e2e-junit.xml
+            test-results/e2e-artifacts
+          if-no-files-found: warn
+          retention-days: 14
