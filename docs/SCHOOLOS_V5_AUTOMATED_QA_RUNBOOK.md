@@ -15,7 +15,9 @@ QA and production promotion are distinct. Even when all machine jobs are green,
 Workflow: `.github/workflows/schoolos-v5-external-staging-qa.yml`
 
 The workflow automatically runs for relevant changes to a V5 Draft PR and offers
-manual `workflow_dispatch` for rechecks. It has two independent jobs:
+manual `workflow_dispatch` for rechecks. It has three independent jobs (external
+HTTP, disposable PostgreSQL, and desktop/mobile Chromium). No privileged QA
+credentials are injected into pull-request-controlled code.
 
 1. **External V5 staging smoke (read-only)**:
    - Confirms live staging home, admin login, readiness and operational URLs answer HTTP 200.
@@ -47,22 +49,58 @@ Do not duplicate their full build workload on the shared VPS.
 - Institution administrator setup email did not send because SMTP is not configured.
 - Full live authenticated student/teacher/branch UAT: NOT YET VERIFIED.
 
-## One-time credentials for expanded authenticated external QA
+## Credential and privilege isolation for live authenticated UAT
 
-To enable the optional authenticated external checks, configure encrypted **GitHub Actions
-repository secrets**: `SCHOOLOS_V5_QA_EMAIL` and `SCHOOLOS_V5_QA_PASSWORD`.
-Use a **new dedicated QA-only account created exclusively inside V5 staging**. Never use
-the primary/owner/production administrator login. Never put passwords in scripts, commits,
-chat transcripts, screenshots, issue comments, or artifacts. Repository secrets cannot be
-read back by the workflow. Limit workflow permissions to `contents: read`.
+**Security rule:** Never inject staging platform SUPER_ADMIN credentials into a
+`pull_request` job: an untrusted Draft PR can change the test script and disclose
+injected secrets. `.github/workflows/schoolos-v5-external-staging-qa.yml` therefore
+sets both credential variables to empty strings for all PR and manual workflow runs.
+The GitHub-hosted public job intentionally records `PARTIAL_PASS_AUTH_REQUIRED`.
+A green public workflow never means authenticated staging UAT passed.
 
-If either secret is absent the external job reports `PARTIAL_PASS_AUTH_REQUIRED`
-and **must not** be claimed as authenticated UAT.
+A tightly guarded optional staging QA account bootstrap is provided:
 
-The 24 coaching staging UAT scenarios are listed separately in
+- `apps/api/scripts/schoolos-v5-qa-bootstrap.mjs`
+- `apps/api/scripts/schoolos-v5-qa-guard.mjs`
+- `apps/api/scripts/schoolos-v5-qa-guard.test.mjs`
+
+It is **not invoked automatically** by CI or on production. It can create or
+rotate exactly one synthetic platform QA account
+`schoolos-v5-qa-platform@example.test`, only after a human verifies that:
+- `WEB_URL` exactly equals `https://v5-staging.beingbrilliantedu.com`;
+- `DATABASE_URL` uses PostgreSQL host `postgres`, user `schoolos_v5_user`,
+  database `schoolos_v5_staging`;
+- the existing default organization is `being-brilliant-academy` and both
+  synthetic QA organizations already exist;
+- explicit one-time approval flag
+  `SCHOOLOS_V5_QA_BOOTSTRAP_APPROVED=ISOLATED_STAGING_ONLY` was supplied;
+- the secret is received only on STDIN from a **non-echo private terminal prompt**.
+
+The script hashes the password, revokes old test sessions, records an audit event,
+and never prints credentials. It must not receive live user passwords or production
+identity information. It is not present on an older already deployed V5 staging
+container until the automation PR has been reviewed and that pinned candidate
+explicitly deployed to **isolated staging**.
+
+For authenticated UAT, use a dedicated trusted manual execution runner or an
+approved protected GitHub Environment/workflow from reviewed trusted code,
+not this PR workflow. Do not configure repository-wide SUPER_ADMIN secrets into
+a PR-executed workflow. Revocation or account disabling is required after
+live staging UAT.
+
+The 24 coaching staging UAT scenarios remain independently tracked in
 `docs/SCHOOLOS_V5_COACHING_STAGING_UAT.md`. Actual customer/UAT signoff, offsite
-backup/restore, third-party payment/video provider validations, browser/mobile workflows,
-and release authorization remain independent gates.
+backup/restore, third-party payments and video provider checks, and production
+release authorization remain separate gates.
+
+## Verified automated baseline
+
+At Draft PR #223 candidate
+`ddb959ecb6d9ca5e546fc8190d684b55a91e5857`, all four configured
+workflows were green: full CI (1,149 API tests), live external public smoke,
+disposable coaching integration, synthetic V4-to-V5 backup-and-restore rehearsal,
+and isolated API/Web acceptance. Subsequent modifications require a new
+green run on the **new** immutable PR head.
 
 ## Owner workflow from now on
 
