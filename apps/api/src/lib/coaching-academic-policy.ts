@@ -53,3 +53,16 @@ export function assertStudentCoachingGrade(groupLabelType: string | null | undef
 export function teacherLmsBranchScope(groupLabelType: string | null | undefined, homeBranchId: string, allocatedBranchIds: string[]) {
   return isCoaching(groupLabelType) ? [...new Set([homeBranchId, ...allocatedBranchIds])] : [homeBranchId];
 }
+
+/** Preflight leave checks may accept a cross-branch coaching teacher only when
+ * the requested batch has an active teacher allocation or timetable. The final
+ * attendance handler remains authoritative for enrollment and write access. */
+export function teacherAttendanceLeaveTargetAccess(
+  groupLabelType: string | null | undefined,
+  teacher: { organizationId: string; branchId: string },
+  student: { organizationId: string; branchId: string },
+  hasActiveBatchAssignment: boolean,
+) {
+  return teacher.organizationId === student.organizationId &&
+    (teacher.branchId === student.branchId || (isCoaching(groupLabelType) && hasActiveBatchAssignment));
+}

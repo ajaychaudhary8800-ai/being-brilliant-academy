@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertBatchCoachingGrades, assertStudentCoachingGrade, teacherAllocationReadScope, teacherAssignable, teacherLmsBranchScope } from "./coaching-academic-policy.js";
+import { assertBatchCoachingGrades, assertStudentCoachingGrade, teacherAllocationReadScope, teacherAssignable, teacherLmsBranchScope, teacherAttendanceLeaveTargetAccess } from "./coaching-academic-policy.js";
 
 test("one same-tenant teacher can teach multiple coaching branches", () => {
   const teacher = { organizationId: "tenant-a", branchId: "branch-1" };
@@ -42,4 +42,17 @@ test("subject allocation enforcement permits cross-branch coaching teachers only
     teacherAllocationReadScope("BATCH", "tenant-b", "branch-b"),
     { organizationId: "tenant-b", user: { isActive: true } },
   );
+});
+
+test("attendance leave checks preserve coaching cross-branch rights only for allocated batches", () => {
+  const teacher = { organizationId: "tenant-a", branchId: "branch-a" };
+  const branchBStudent = { organizationId: "tenant-a", branchId: "branch-b" };
+  const branchAStudent = { organizationId: "tenant-a", branchId: "branch-a" };
+  const foreignStudent = { organizationId: "tenant-b", branchId: "branch-b" };
+  assert.equal(teacherAttendanceLeaveTargetAccess("BATCH", teacher, branchBStudent, true), true);
+  assert.equal(teacherAttendanceLeaveTargetAccess("BATCH", teacher, branchBStudent, false), false);
+  assert.equal(teacherAttendanceLeaveTargetAccess("BATCH", teacher, branchAStudent, false), true);
+  assert.equal(teacherAttendanceLeaveTargetAccess("SECTION", teacher, branchBStudent, true), false);
+  assert.equal(teacherAttendanceLeaveTargetAccess("GROUP", teacher, branchBStudent, true), false);
+  assert.equal(teacherAttendanceLeaveTargetAccess("BATCH", teacher, foreignStudent, true), false);
 });
