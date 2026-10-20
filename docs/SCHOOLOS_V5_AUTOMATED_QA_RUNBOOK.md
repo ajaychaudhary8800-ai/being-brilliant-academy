@@ -82,6 +82,15 @@ identity information. It is not present on an older already deployed V5 staging
 container until the automation PR has been reviewed and that pinned candidate
 explicitly deployed to **isolated staging**.
 
+For authenticated **read-only** smoke testing after the manual staging QA
+account bootstrap, the approved operator can run
+`scripts/schoolos-v5-trusted-staging-auth-qa.mjs` on a trusted local machine
+with Node.js 22. The operator must set
+`SCHOOLOS_V5_QA_TRUSTED_RUN=OWNER_APPROVED_LOCAL_ONLY` and pass the dedicated
+QA password on STDIN from a no-echo prompt. It refuses `CI`/`GITHUB_ACTIONS`,
+never writes tokens or secrets to artifacts, and never grants production release
+approval. Its automated negative tests run with every QA PR.
+
 For authenticated UAT, use a dedicated trusted manual execution runner or an
 approved protected GitHub Environment/workflow from reviewed trusted code,
 not this PR workflow. Do not configure repository-wide SUPER_ADMIN secrets into
