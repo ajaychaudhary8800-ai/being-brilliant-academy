@@ -19,6 +19,20 @@ export function assertBatchCoachingGrades(groupLabelType: string | null | undefi
   }
 }
 
+/** Apply one-institution authorization to subject allocation reads without
+ * reimposing the school-mode home-branch restriction on coaching teachers. */
+export function teacherAllocationReadScope(
+  groupLabelType: string | null | undefined,
+  organizationId: string,
+  branchId: string,
+) {
+  return {
+    organizationId,
+    ...(!isCoaching(groupLabelType) ? { branchId } : {}),
+    user: { isActive: true },
+  };
+}
+
 /** An empty list preserves the unrestricted behavior of legacy coaching batches. */
 export function assertStudentCoachingGrade(groupLabelType: string | null | undefined, allowedGrades: number[] = [], grade: number | null | undefined, required = allowedGrades.length > 0) {
   if (!isCoaching(groupLabelType)) {
