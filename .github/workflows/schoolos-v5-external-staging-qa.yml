@@ -28,8 +28,10 @@ jobs:
     env:
       SCHOOLOS_QA_BASE_URL: https://v5-staging.beingbrilliantedu.com
       SCHOOLOS_QA_WORKSPACE: being-brilliant-academy
-      SCHOOLOS_QA_EMAIL: ${{ secrets.SCHOOLOS_V5_QA_EMAIL }}
-      SCHOOLOS_QA_PASSWORD: ${{ secrets.SCHOOLOS_V5_QA_PASSWORD }}
+      # PR-controlled code MUST NEVER receive privileged staging login secrets.
+      # Authenticated staging UAT executes separately from trusted reviewed code.
+      SCHOOLOS_QA_EMAIL: ""
+      SCHOOLOS_QA_PASSWORD: ""
     steps:
       - name: Pin exact PR commit
         uses: actions/checkout@v4
