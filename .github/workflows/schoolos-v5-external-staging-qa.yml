@@ -5,8 +5,11 @@ on:
     paths:
       - ".github/workflows/schoolos-v5-external-staging-qa.yml"
       - "scripts/schoolos-v5-external-staging-smoke*.mjs"
-      - "apps/api/src/integration/academic-placement-concurrency.integration.test.ts"
-      - "apps/api/prisma/**"
+      - "apps/api/**"
+      - "apps/web/**"
+      - "config/schoolos-v5-release-gates.json"
+      - ".github/workflows/schoolos-v5-*.yml"
+      - "docs/SCHOOLOS_V5_*.md"
   workflow_dispatch:
 
 permissions:
