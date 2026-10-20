@@ -1,0 +1,47 @@
+name: SchoolOS V5 External Staging Read-Only QA
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/schoolos-v5-external-staging-qa.yml"
+      - "scripts/schoolos-v5-external-staging-smoke*.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "schoolos-v5-external-qa-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  external-smoke:
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      SCHOOLOS_QA_BASE_URL: https://v5-staging.beingbrilliantedu.com
+      SCHOOLOS_QA_WORKSPACE: being-brilliant-academy
+      SCHOOLOS_QA_EMAIL: ${{ secrets.SCHOOLOS_V5_QA_EMAIL }}
+      SCHOOLOS_QA_PASSWORD: ${{ secrets.SCHOOLOS_V5_QA_PASSWORD }}
+    steps:
+      - name: Pin exact PR commit
+        uses: actions/checkout@v4
+        with:
+          ref: "${{ github.event.pull_request.head.sha || github.sha }}"
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate target guardrails with mocked HTTP
+        run: node --test scripts/schoolos-v5-external-staging-smoke.test.mjs
+      - name: Test external staging (GET-only except optional staging QA login)
+        run: node scripts/schoolos-v5-external-staging-smoke.mjs
+      - name: Upload redacted QA results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schoolos-v5-external-qa-${{ github.run_id }}
+          path: artifacts/v5-external-smoke/result.json
+          if-no-files-found: warn
+          retention-days: 14
