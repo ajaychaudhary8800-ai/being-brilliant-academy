@@ -44,11 +44,30 @@ export async function runReadOnlyStagingQa({ baseUrl = STAGING_ORIGIN, env = pro
     checks.push({ id, status, ...(detail ? { detail } : {}) });
     console.log(id + ": " + status + (detail ? " — " + detail : ""));
   };
+  // A transient DNS/TCP/TLS failure must not masquerade as an application
+  // regression. Retry only idempotent GET requests, never credentialed login.
+  async function guardedGet(route, init) {
+    let attempts = 0;
+    for (;;) {
+      attempts++;
+      try {
+        return { response: await request(base + route, init), attempts };
+      } catch (error) {
+        if (attempts >= 2) {
+          const networkCode = error?.cause?.code ?? error?.code;
+          const sanitizedCode = typeof networkCode === "string" &&
+            /^[A-Z0-9_]{2,48}$/.test(networkCode) ? " [" + networkCode + "]" : "";
+          throw new Error("GET unreachable after 2 attempts" + sanitizedCode);
+        }
+        await new Promise(resolve => setTimeout(resolve, 850));
+      }
+    }
+  }
   async function publicCheck(id, route) {
     try {
-      const response = await request(base + route);
+      const { response, attempts } = await guardedGet(route);
       if (response.status !== 200) throw new Error("HTTP " + response.status + ", expected 200");
-      add(id, "PASS", "HTTP 200");
+      add(id, "PASS", "HTTP 200" + (attempts > 1 ? " (transient network retry)" : ""));
     } catch (error) { add(id, "FAIL", error instanceof Error ? error.message : "Request failed"); }
   }
   await publicCheck("V5_PUBLIC_HOME", "/");
@@ -61,11 +80,11 @@ export async function runReadOnlyStagingQa({ baseUrl = STAGING_ORIGIN, env = pro
     ["V5_NO_ANONYMOUS_ADMIN_BATCHES", "/api/v1/admin/batches"],
   ]) {
     try {
-      const response = await request(base + route);
+      const { response, attempts } = await guardedGet(route);
       if (response.status !== 401 && response.status !== 403) {
         throw new Error("HTTP " + response.status + ": anonymous request not explicitly denied");
       }
-      add(id, "PASS", "HTTP " + response.status);
+      add(id, "PASS", "HTTP " + response.status + (attempts > 1 ? " (transient network retry)" : ""));
     } catch (error) { add(id, "FAIL", error instanceof Error ? error.message : "Request failed"); }
   }
 
@@ -94,7 +113,7 @@ export async function runReadOnlyStagingQa({ baseUrl = STAGING_ORIGIN, env = pro
       }
       authenticated = true;
       add("V5_AUTHENTICATED_ADMIN", "PASS", "Authenticated staging API login");
-      const inventory = await request(base + "/api/v1/platform/organizations?page=1&limit=50", {
+      const { response: inventory } = await guardedGet("/api/v1/platform/organizations?page=1&limit=50", {
         headers: { Authorization: "Bearer " + token },
       });
       if (inventory.status !== 200) throw new Error("QA inventory HTTP " + inventory.status);
