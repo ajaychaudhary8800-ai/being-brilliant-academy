@@ -192,7 +192,10 @@ test("real PostgreSQL concurrency contracts", { skip: !enabled, timeout: 60_000 
       const fee = await systemPrisma.fee.create({ data: { organizationId: ORG, studentId: student.id, branchId: branch.id, batchId: batch.id, feeHead: "Concurrency", totalPaise: 1_000, dueDate: new Date("2027-03-31") } });
       fixture.feeIds.push(fee.id);
       const waitForRace = barrier(2);
-      const pay = () => waitForRace().then(() => withinTenant(() => prisma.$transaction(async tx => {
+      // SERIALIZABLE can abort both competitors under contention. That is safe:
+      // PostgreSQL guarantees neither payment commits, and the caller can retry.
+      // Keep the concurrency barrier on the initial attempts only.
+      const payOnce = () => withinTenant(() => prisma.$transaction(async tx => {
         const current = await tx.fee.findUnique({ where: { id: fee.id }, select: { id: true, totalPaise: true, discountPaise: true, finePaise: true, dueDate: true, branchId: true } });
         const paid = await tx.feePayment.aggregate({ where: { feeId: fee.id }, _sum: { amountPaise: true } });
         const previous = paid._sum.amountPaise ?? 0;
@@ -200,15 +203,33 @@ test("real PostgreSQL concurrency contracts", { skip: !enabled, timeout: 60_000 
         const payment = await tx.feePayment.create({ data: { feeId: fee.id, amountPaise: 1_000, paymentMode: "CASH", receiptNumber: `${ORG}-${crypto.randomUUID()}`, collectedById: admin.id } });
         await tx.fee.update({ where: { id: fee.id }, data: { amountPaidPaise: previous + payment.amountPaise, status: FeeStatus.PAID } });
         await tx.auditLog.create({ data: { actorId: admin.id, action: "PAYMENT_CREATED", entity: "FeePayment", entityId: payment.id, metadata: { feeId: fee.id, amountPaise: payment.amountPaise } } });
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })));
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+      const pay = () => waitForRace().then(payOnce);
       const results = await Promise.allSettled([pay(), pay()]);
+      const succeeded = results.filter(result => result.status === "fulfilled").length;
+      assert.ok(succeeded <= 1, "concurrent attempts must never both commit");
+      for (const result of results) {
+        if (result.status === "rejected") {
+          assert.ok(isSerializableConflict(result.reason) ||
+            String(result.reason).includes("OVER_COLLECTION"),
+          `unexpected payment failure: ${String(result.reason)}`);
+        }
+      }
+      if (succeeded === 0) {
+        // Neither candidate committed: a fresh sequential retry must succeed.
+        // This must not re-enter the two-party barrier.
+        assert.ok(results.every(result => result.status === "rejected" && isSerializableConflict(result.reason)),
+          "both aborts must be serialization conflicts");
+        await payOnce();
+      }
+      // A subsequent fresh attempt must refuse over-collection after commit.
+      await assert.rejects(payOnce, /OVER_COLLECTION/);
       const [payments, finalFee, audits] = await Promise.all([
         systemPrisma.feePayment.count({ where: { feeId: fee.id } }),
         systemPrisma.fee.findUnique({ where: { id: fee.id }, select: { amountPaidPaise: true, status: true } }),
         systemPrisma.auditLog.count({ where: { organizationId: ORG, entity: "FeePayment" } }),
       ]);
       assert.equal(payments, 1);
-      assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
       assert.deepEqual(finalFee, { amountPaidPaise: 1_000, status: FeeStatus.PAID });
       assert.equal(audits, 1);
     });
