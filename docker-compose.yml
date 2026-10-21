@@ -38,6 +38,9 @@ x-api-env: &api-env
   AWS_S3_ENDPOINT: ${AWS_S3_ENDPOINT:-}
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  # Coolify versions adding a global env_file would otherwise leak R2 backup credentials.
+  BACKUP_AWS_ACCESS_KEY_ID: ""
+  BACKUP_AWS_SECRET_ACCESS_KEY: ""
   SMTP_HOST: ${SMTP_HOST:-}
   SMTP_PORT: ${SMTP_PORT:-587}
   SMTP_SECURE: ${SMTP_SECURE:-false}
@@ -64,7 +67,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    environment: { POSTGRES_DB: "${POSTGRES_DB:-bba}", POSTGRES_USER: "${POSTGRES_USER:-bba}", POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}" }
+    environment: { POSTGRES_DB: "${POSTGRES_DB:-bba}", POSTGRES_USER: "${POSTGRES_USER:-bba}", POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}", BACKUP_AWS_ACCESS_KEY_ID: "", BACKUP_AWS_SECRET_ACCESS_KEY: "" }
     volumes: [postgres_data:/var/lib/postgresql/data]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bba} -d ${POSTGRES_DB:-bba}"], interval: 10s, timeout: 5s, retries: 10 }
     networks: [backend]
@@ -72,7 +75,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    environment: { REDIS_PASSWORD: "${REDIS_PASSWORD}" }
+    environment: { REDIS_PASSWORD: "${REDIS_PASSWORD}", BACKUP_AWS_ACCESS_KEY_ID: "", BACKUP_AWS_SECRET_ACCESS_KEY: "" }
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
     volumes: [redis_data:/data]
     healthcheck: { test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"], interval: 10s, timeout: 5s, retries: 10 }
@@ -101,13 +104,14 @@ services:
     image: ${WEB_IMAGE:-bba-web:local}
     build: { context: ., dockerfile: apps/web/Dockerfile, args: { NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-/api/v1}" } }
     restart: unless-stopped
-    environment: { NODE_ENV: production, PORT: 3000, HOSTNAME: 0.0.0.0, INTERNAL_API_URL: http://api:4000/api/v1, INTERNAL_API_ORIGIN: http://api:4000, LEGAL_PAGES_PUBLISHED: "${LEGAL_PAGES_PUBLISHED:-false}", LEGAL_EFFECTIVE_DATE: "${LEGAL_EFFECTIVE_DATE:-}" }
+    environment: { NODE_ENV: production, PORT: 3000, HOSTNAME: 0.0.0.0, INTERNAL_API_URL: http://api:4000/api/v1, INTERNAL_API_ORIGIN: http://api:4000, LEGAL_PAGES_PUBLISHED: "${LEGAL_PAGES_PUBLISHED:-false}", LEGAL_EFFECTIVE_DATE: "${LEGAL_EFFECTIVE_DATE:-}", BACKUP_AWS_ACCESS_KEY_ID: "", BACKUP_AWS_SECRET_ACCESS_KEY: "" }
     expose: ["3000"]
     networks: [frontend]
     depends_on: { api: { condition: service_healthy } }
     deploy: { resources: { limits: { cpus: "1.0", memory: 1G }, reservations: { memory: 128M } } }
     logging: *default-logging
   nginx:
+    environment: { BACKUP_AWS_ACCESS_KEY_ID: "", BACKUP_AWS_SECRET_ACCESS_KEY: "" }
     build:
       context: ./infra/nginx
     restart: unless-stopped
@@ -128,12 +132,12 @@ services:
     build: { context: ./infra/backup }
     restart: unless-stopped
     init: true
-    environment: { DATABASE_URL: "${DATABASE_URL}", BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}", BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-14}", BACKUP_MAX_AGE_SECONDS: "${BACKUP_MAX_AGE_SECONDS:-108000}", AWS_S3_BUCKET: "${BACKUP_S3_BUCKET:-}", AWS_ENDPOINT_URL: "${AWS_S3_ENDPOINT:-}", AWS_REGION: "${AWS_REGION:-}", AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}", AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}" }
+    environment: { DATABASE_URL: "${DATABASE_URL}", BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}", BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-14}", BACKUP_MAX_AGE_SECONDS: "${BACKUP_MAX_AGE_SECONDS:-108000}", AWS_S3_BUCKET: "${BACKUP_S3_BUCKET:-}", AWS_ENDPOINT_URL: "${AWS_S3_ENDPOINT:-}", AWS_REGION: "${AWS_REGION:-}", AWS_ACCESS_KEY_ID: "${BACKUP_AWS_ACCESS_KEY_ID:-}", AWS_SECRET_ACCESS_KEY: "${BACKUP_AWS_SECRET_ACCESS_KEY:-}" }
     volumes: [backups:/backups, app_storage:/data/storage]
     healthcheck: { test: ["CMD", "/usr/local/bin/healthcheck.sh"], interval: 30m, timeout: 10s, retries: 2 }
     depends_on: { postgres: { condition: service_healthy } }
-    networks: [backend]
+    networks: [backend, backup_egress]
     logging: *default-logging
 
-networks: { frontend: {}, backend: { internal: true } }
+networks: { frontend: {}, backend: { internal: true }, backup_egress: {} }
 volumes: { postgres_data: {}, redis_data: {}, app_storage: {}, backups: {} }
