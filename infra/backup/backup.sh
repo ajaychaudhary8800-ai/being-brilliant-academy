@@ -22,7 +22,19 @@ pg_dump "$pg_dump_url" --format=custom --file="$target/database.dump"
 tar -czf "$target/files.tar.gz" -C /data/storage .
 sha256sum "$target/database.dump" "$target/files.tar.gz" > "$target/SHA256SUMS"
 find /backups -mindepth 1 -maxdepth 1 -type d -mtime "+${BACKUP_RETENTION_DAYS:-14}" -exec rm -rf -- {} +
-if [ -n "${AWS_S3_BUCKET:-}" ]; then aws s3 cp "$target" "s3://$AWS_S3_BUCKET/$stamp/" --recursive; fi
+if [ -n "${AWS_S3_BUCKET:-}" ]; then
+  if [ -n "${AWS_SHARED_CREDENTIALS_FILE:-}" ]; then
+    # A staging-only, backup-service-only mounted credentials file has priority.
+    # Explicitly unset any unrelated AWS credentials injected by Coolify's
+    # stack-wide env_file so aws-cli resolves the mounted file instead.
+    if [ ! -s "$AWS_SHARED_CREDENTIALS_FILE" ]; then
+      echo "Backup AWS credentials file is absent or empty" >&2
+      exit 1
+    fi
+    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+  fi
+  aws s3 cp "$target" "s3://$AWS_S3_BUCKET/$stamp/" --recursive
+fi
 printf '%s\n' "$stamp" > /backups/.last-success
 rm -f /backups/.last-failure
 
