@@ -132,8 +132,8 @@ services:
     volumes: [backups:/backups, app_storage:/data/storage]
     healthcheck: { test: ["CMD", "/usr/local/bin/healthcheck.sh"], interval: 30m, timeout: 10s, retries: 2 }
     depends_on: { postgres: { condition: service_healthy } }
-    networks: [backend]
+    networks: [backend, backup_egress]
     logging: *default-logging
 
-networks: { frontend: {}, backend: { internal: true } }
+networks: { frontend: {}, backend: { internal: true }, backup_egress: {} }
 volumes: { postgres_data: {}, redis_data: {}, app_storage: {}, backups: {} }
