@@ -9,7 +9,7 @@ test("V5 staging Compose mounts credentials only into backup", async () => {
   assert.doesNotMatch(compose,/BACKUP_AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/,
     "Backup key values must never be managed as Coolify app-wide environment variables");
   const [beforeNetworks] = compose.split("\nnetworks:");
-  const block = beforeNetworks.split("\nservices:")[1];
+  const block = "\n" + beforeNetworks.split("\nservices:")[1];
   assert.ok(block,"Compose services exist");
   const names=["postgres","redis","migrate","api","web","nginx","backup"];
   const sections={};
