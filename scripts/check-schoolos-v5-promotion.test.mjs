@@ -37,3 +37,26 @@ test("production gate precedes any registry push, V5 is forbidden in shared stag
  assert.match(stage,/Refuse V5 candidate in legacy shared staging/);
  assert.ok(stage.indexOf("Refuse V5 candidate")<stage.indexOf("pnpm install --frozen-lockfile"));
 });
+
+test("Coolify-injected global environment cannot expose V5 R2 credentials to other services",async()=>{
+ const compose=await readFile(new URL("../docker-compose.yml",import.meta.url),"utf8");
+ // Coolify may append env_file: .env to every service: explicit environment overrides win.
+ const services=compose.split("\nservices:\n")[1].split("\nnetworks:")[0];
+ const sections=Object.fromEntries([...services.matchAll(/^  (postgres|redis|migrate|api|web|nginx|backup):\n([\s\S]*?)(?=^  (?:postgres|redis|migrate|api|web|nginx|backup):|$(?![\s\S]))/gm)].map(m=>[m[1],m[2]]));
+ const sharedEnv=compose.split("\nx-api-env: &api-env\n")[1].split("\nservices:\n")[0];
+ const emptyId=/BACKUP_AWS_ACCESS_KEY_ID:\s*""/;
+ const emptySecret=/BACKUP_AWS_SECRET_ACCESS_KEY:\s*""/;
+ for(const service of ["postgres","redis","web","nginx"]){
+  assert.ok(sections[service], `missing ${service} service`);
+  assert.match(sections[service],emptyId, `${service} should mask injected access key`);
+  assert.match(sections[service],emptySecret, `${service} should mask injected secret key`);
+ }
+ for(const service of ["api","migrate"]){
+  assert.match(sections[service],/environment: \*api-env/, `${service} must use guarded shared environment`);
+ }
+ assert.match(sharedEnv,emptyId);
+ assert.match(sharedEnv,emptySecret);
+ assert.match(sections.backup,/AWS_ACCESS_KEY_ID:\s*"\$\{BACKUP_AWS_ACCESS_KEY_ID:-\}"/);
+ assert.match(sections.backup,/AWS_SECRET_ACCESS_KEY:\s*"\$\{BACKUP_AWS_SECRET_ACCESS_KEY:-\}"/);
+ assert.match(sections.backup,/networks: \[backend, backup_egress\]/);
+});
