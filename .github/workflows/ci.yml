@@ -49,7 +49,8 @@ jobs:
           sudo install -d -m 0700 /etc/schoolos/v5-staging
           printf 'RAZORPAY_KEY_SECRET=ci-disposable-test-only\nRAZORPAY_WEBHOOK_SECRET=ci-disposable-test-only\n' | sudo tee /etc/schoolos/v5-staging/razorpay-v5-api.env >/dev/null
           sudo chmod 0600 /etc/schoolos/v5-staging/razorpay-v5-api.env
-          docker compose -f docker-compose.schoolos-v5-staging.yml config --quiet
+          # Compose reads the root-only synthetic fixture as root; deployed staging requires a privileged Compose runner too.
+          sudo -E docker compose -f docker-compose.schoolos-v5-staging.yml config --quiet
       - name: Validate SchoolOS V5 release gate policy tests
         run: pnpm v5:release:test
       - name: Verify SchoolOS V5 release HOLD or evidence-backed READY status
