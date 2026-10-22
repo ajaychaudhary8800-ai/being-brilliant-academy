@@ -124,6 +124,9 @@ test("V5 unsigned tenant checkout fails closed; signed-quote checkout owns payme
   assert.match(signedRoute, /contracted-checkout/);
   assert.match(signedRoute, /providerOrderId.*return res\.json/s);
   assert.match(route, /SAAS_SUBSCRIPTION_UPDATED/);
+  assert.match(route, /SCHOOLOS_SIGNED_PAYMENT_REQUIRED/);
+  assert.match(route, /!sameDate\(data\.currentPeriodEnd, current\?\.currentPeriodEnd\)/);
+  assert.match(route, /organization\.subscriptionPlan !== plan\.code/);
 });
 
 test("verified Razorpay webhook delegates SaaS orders before learner invoice reconciliation", async () => {
@@ -207,6 +210,7 @@ test("SaaS billing UI keeps platform plans separate from tenant subscription che
   assert.match(plansPage, /Examinations & tests/);
   assert.match(billingPage, /\/platform\/saas\/organizations\/\$\{selectedId\}\/subscription/);
   assert.match(billingPage, /Enforce plan features & limits/);
+  assert.match(billingPage, /Paid activation and changes to an active plan/);
   assert.doesNotMatch(subscriptionPage, /api\("\/organization\/subscription\/checkout"/);
   assert.match(subscriptionPage, /contracted-checkout/);
   assert.match(subscriptionPage, /Signed quotation required/);
