@@ -127,6 +127,11 @@ test("V5 unsigned tenant checkout fails closed; signed-quote checkout owns payme
   assert.match(route, /SCHOOLOS_SIGNED_PAYMENT_REQUIRED/);
   assert.match(route, /!sameDate\(data\.currentPeriodEnd, current\?\.currentPeriodEnd\)/);
   assert.match(route, /organization\.subscriptionPlan !== plan\.code/);
+  assert.match(route, /current\.billingCycle !== data\.billingCycle/);
+  assert.match(route, /current\.planId !== plan\.id/);
+  assert.match(route, /immutablePaidPeriod\?\.start \?\? data\.currentPeriodStart/);
+  assert.match(route, /immutablePaidPeriod\?\.end \?\? data\.currentPeriodEnd/);
+  assert.match(route, /subscriptionEndsAt: immutablePaidPeriod\?\.end/);
 });
 
 test("verified Razorpay webhook delegates SaaS orders before learner invoice reconciliation", async () => {
