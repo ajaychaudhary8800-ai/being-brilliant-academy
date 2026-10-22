@@ -254,7 +254,7 @@ export default function Page() {
         <p className="font-semibold">Signed quotation required for all new SchoolOS subscriptions</p>
         <p className="mt-2">Payments are available only against an approved annual quotation and verified signed agreement. The signed order fixes the plan, tax, approved add-ons and total; direct checkout and self-service monthly purchases are disabled.</p>
         <p className="mt-2">Enterprise pricing is custom-quoted. If you do not see a payable signed order below, contact your Adhyay SchoolOS billing administrator.</p>
-        <p className="mt-2">This gateway pays Adhyay for the institution&apos;s software subscription. Student and parent fee payments use your institution&apos;s separate gateway under Fees &amp; Finance.</p>
+        <p className="mt-2">This platform gateway collects your institution&apos;s SaaS subscription payment. The merchant, tax invoice and contractual seller must match your approved signed order. Student and parent fee payments use your institution&apos;s separate gateway under Fees &amp; Finance.</p>
       </div>
       {snapshot?.subscription?.status === "ACTIVE" && snapshot.subscription.currentPeriodEnd && <div className="mt-5 rounded-xl border p-4">
         <p className="font-semibold">Subscription renewal</p>
