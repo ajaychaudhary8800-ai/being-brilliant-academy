@@ -125,7 +125,7 @@ test("V5 unsigned tenant checkout fails closed; signed-quote checkout owns payme
   assert.match(signedRoute, /providerOrderId.*return res\.json/s);
   assert.match(route, /SAAS_SUBSCRIPTION_UPDATED/);
   assert.match(route, /SCHOOLOS_SIGNED_PAYMENT_REQUIRED/);
-  assert.match(route, /!sameDate\(data\.currentPeriodEnd, current\?\.currentPeriodEnd\)/);
+  assert.match(route, /!sameDate\(data\.currentPeriodEnd, current\.currentPeriodEnd\)/);
   assert.match(route, /organization\.subscriptionPlan !== plan\.code/);
   assert.match(route, /current\.billingCycle !== data\.billingCycle/);
   assert.match(route, /current\.planId !== plan\.id/);
