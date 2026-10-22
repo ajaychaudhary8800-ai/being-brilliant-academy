@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile } from "node:fs/promises";
+import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const path = new URL("../docker-compose.schoolos-v5-staging.yml", import.meta.url);
 const names = ["postgres", "redis", "migrate", "api", "web", "nginx", "backup"];
@@ -47,4 +50,29 @@ test("API entrypoint overrides empty Coolify variables only on explicitly mounte
   assert.match(entrypoint, /RAZORPAY_WEBHOOK_SECRET=\*/);
   assert.match(entrypoint, /export "\$key=\$value"/);
   assert.match(entrypoint, /exec su-exec app "\$@"/);
+});
+
+test("V5 entrypoint loads quoted credentials over empty injected values without evaluating file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "v5-razorpay-fixture-"));
+  const filename = join(dir, "credentials.env");
+  try {
+    await writeFile(filename, 'RAZORPAY_KEY_SECRET="fixture-only-one"\nRAZORPAY_WEBHOOK_SECRET=\'fixture-only-two\'\n', { mode: 0o600 });
+    const original = await readFile(new URL("../apps/api/docker-entrypoint.sh", import.meta.url), "utf8");
+    const replacement = original
+      .replaceAll("/run/secrets/schoolos-v5-razorpay-api.env", filename)
+      .replace('exec su-exec app "$@"', '[ "$RAZORPAY_KEY_SECRET" = "fixture-only-one" ] && [ "$RAZORPAY_WEBHOOK_SECRET" = "fixture-only-two" ]');
+    const result = spawnSync("sh", ["-c", replacement], {
+      env: {
+        ...process.env,
+        STORAGE_DRIVER: "s3",
+        SCHOOLOS_V5_RAZORPAY_ENV_FILE: filename,
+        RAZORPAY_KEY_SECRET: "",
+        RAZORPAY_WEBHOOK_SECRET: ""
+      },
+      encoding: "utf8"
+    });
+    assert.equal(result.status, 0, "V5 entrypoint must override empty variables from protected file");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
