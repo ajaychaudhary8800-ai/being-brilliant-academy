@@ -107,15 +107,31 @@ test("commercial entitlement enforcement is opt-in for existing tenants", async 
   assert.match(policy, /PLAN_LIMIT_REACHED/);
 });
 
-test("tenant checkout is idempotent and platform subscription changes are audited", async () => {
+test("V5 unsigned tenant checkout fails closed; signed-quote checkout owns payment orders", async () => {
   const route = await readFile(new URL("saas-commercial.ts", import.meta.url), "utf8");
-  assert.match(route, /Idempotency-Key/);
-  assert.match(route, /checkoutKey: idempotencyKey/);
-  assert.match(route, /24 \* 60 \* 60 \* 1000/);
+  const signedRoute = await readFile(new URL("schoolos-contract-checkout.ts", import.meta.url), "utf8");
+  const forbiddenStart = route.indexOf('router.post("/organization/subscription/checkout"');
+  const forbiddenEnd = route.indexOf("export default router;", forbiddenStart);
+  const forbidden = route.slice(forbiddenStart, forbiddenEnd);
+  assert.ok(forbiddenStart >= 0);
+  assert.match(forbidden, /requireTenantBillingAdmin/);
+  assert.match(forbidden, /SCHOOLOS_SIGNED_QUOTE_REQUIRED/);
+  assert.doesNotMatch(forbidden, /saaSInvoice\.(create|update|upsert)|orders\.create|saaSSubscription\.upsert/);
+  assert.match(route, /code: \{ not: "ENTERPRISE" \}/);
+  assert.match(signedRoute, /validateSchoolOSBaseQuoteCheckout/);
+  assert.match(signedRoute, /validateSchoolOSAddonCheckout/);
+  assert.match(signedRoute, /assertSchoolOSNewTermDoesNotOverlap/);
+  assert.match(signedRoute, /contracted-checkout/);
+  assert.match(signedRoute, /providerOrderId.*return res\.json/s);
   assert.match(route, /SAAS_SUBSCRIPTION_UPDATED/);
-  assert.match(route, /SAAS_CHECKOUT_CREATED/);
-  assert.match(route, /requirePlatformAdmin/);
-  assert.match(route, /requireTenantBillingAdmin/);
+  assert.match(route, /SCHOOLOS_SIGNED_PAYMENT_REQUIRED/);
+  assert.match(route, /!sameDate\(data\.currentPeriodEnd, current\.currentPeriodEnd\)/);
+  assert.match(route, /organization\.subscriptionPlan !== plan\.code/);
+  assert.match(route, /current\.billingCycle !== data\.billingCycle/);
+  assert.match(route, /current\.planId !== plan\.id/);
+  assert.match(route, /immutablePaidPeriod\?\.start \?\? data\.currentPeriodStart/);
+  assert.match(route, /immutablePaidPeriod\?\.end \?\? data\.currentPeriodEnd/);
+  assert.match(route, /subscriptionEndsAt: immutablePaidPeriod\?\.end/);
 });
 
 test("verified Razorpay webhook delegates SaaS orders before learner invoice reconciliation", async () => {
@@ -170,16 +186,16 @@ test("database capacity violations become plan-limit API conflicts", async () =>
 });
 
 
-test("checkout cannot grant an unpaid plan", async () => {
-  const route = await readFile(new URL("saas-commercial.ts", import.meta.url), "utf8");
+test("unpaid signed order cannot activate a plan before verified capture", async () => {
+  const route = await readFile(new URL("schoolos-contract-checkout.ts", import.meta.url), "utf8");
   const policy = await readFile(new URL("../lib/saas-commercial.ts", import.meta.url), "utf8");
-  const checkoutStart = route.indexOf("const subscription = await systemPrisma.saaSSubscription.upsert");
-  const checkoutEnd = route.indexOf("let invoice = existing", checkoutStart);
-  const checkoutSubscription = route.slice(checkoutStart, checkoutEnd);
-  assert.doesNotMatch(checkoutSubscription, /update:\s*\{[^}]*planId:\s*plan\.id/s);
-  assert.match(route, /planId: plan\.id/);
+  assert.match(route, /status: SaaSInvoiceStatus\.OPEN/);
+  assert.match(route, /status: organization\.subscriptionStatus/);
+  assert.match(route, /update: \{\}/);
+  assert.doesNotMatch(route, /status: OrganizationSubscriptionStatus\.ACTIVE/);
   assert.match(policy, /planId: invoice\.planId/);
   assert.match(policy, /subscriptionPlan: invoice\.plan\.code/);
+  assert.match(policy, /status: OrganizationSubscriptionStatus\.ACTIVE/);
 });
 
 test("SaaS billing UI keeps platform plans separate from tenant subscription checkout", async () => {
@@ -199,8 +215,12 @@ test("SaaS billing UI keeps platform plans separate from tenant subscription che
   assert.match(plansPage, /Examinations & tests/);
   assert.match(billingPage, /\/platform\/saas\/organizations\/\$\{selectedId\}\/subscription/);
   assert.match(billingPage, /Enforce plan features & limits/);
-  assert.match(subscriptionPage, /Idempotency-Key/);
-  assert.match(subscriptionPage, /activation is confirmed by the verified payment webhook/);
+  assert.match(billingPage, /Paid activation and changes to an active plan/);
+  assert.doesNotMatch(subscriptionPage, /api\("\/organization\/subscription\/checkout"/);
+  assert.match(subscriptionPage, /contracted-checkout/);
+  assert.match(subscriptionPage, /Signed quotation required/);
+  assert.match(subscriptionPage, /Pay signed order/);
+  assert.match(subscriptionPage, /The signed plan activates only after the verified payment webhook/);
   assert.match(subscriptionPage, /checkout\.razorpay\.com\/v1\/checkout\.js/);
   assert.match(nginx, /https:\/\/checkout\.razorpay\.com/);
 });

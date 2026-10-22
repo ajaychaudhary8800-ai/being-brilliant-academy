@@ -19,8 +19,10 @@ test("institution fee gateway keeps tenant funds separate from platform SaaS bil
   assert.match(route, /\/organization\/payment-gateway/);
   assert.match(route, /allow\(Role\.SUPER_ADMIN\)/);
   assert.match(service, /gatewayClient\(gateway/);
-  assert.match(subscription, /\/organization\/subscription\/checkout/);
-  assert.match(subscription, /Pay subscription with Razorpay/);
+  assert.match(subscription, /contracted-checkout/);
+  assert.match(subscription, /Pay signed order/);
+  assert.match(subscription, /Signed quotation required/);
+  assert.doesNotMatch(subscription, /Pay subscription with Razorpay/);
 });
 
 test("institution gateway credentials are encrypted, masked and verification-gated", async () => {

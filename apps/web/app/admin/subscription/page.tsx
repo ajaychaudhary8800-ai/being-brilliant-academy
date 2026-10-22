@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CreditCard, ReceiptText, Users, Building2, Download, CalendarX2, RotateCcw } from "lucide-react";
 import { ProtectedAdminWorkspace } from "../../../components/admin-workspace";
 import { errorMessage, getAccessToken } from "../../../components/auth-provider";
@@ -110,12 +110,9 @@ function loadRazorpay() {
 
 export default function Page() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [plans, setPlans] = useState<Plan[]>([]);
   const [signedQuotes, setSignedQuotes] = useState<SignedQuote[]>([]);
   const [meteredUsage, setMeteredUsage] = useState<MeteredUsage | null>(null);
   const [renewal, setRenewal] = useState<RenewalReadiness | null>(null);
-  const [selectedPlan, setSelectedPlan] = useState("");
-  const [cycle, setCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [paying, setPaying] = useState(false);
@@ -124,9 +121,8 @@ export default function Page() {
 
   const load = useCallback(async () => {
     try {
-      const [billing, activePlans, approvedQuotes, usage, readiness] = await Promise.all([
+      const [billing, approvedQuotes, usage, readiness] = await Promise.all([
         api("/organization/subscription"),
-        api("/organization/subscription/plans"),
         api("/organization/subscription/contracted-quotes"),
         api("/organization/subscription/usage-credits").catch(() => null as MeteredUsage | null),
         api("/organization/subscription/renewal-readiness").catch(() => null as RenewalReadiness | null),
@@ -135,8 +131,6 @@ export default function Page() {
       setMeteredUsage(usage);
       setRenewal(readiness);
       setSnapshot(billing);
-      setPlans(activePlans);
-      setSelectedPlan((current) => current || billing.plan?.code || activePlans[0]?.code || "");
       setError("");
     } catch (cause) {
       setError(errorMessage(cause));
@@ -144,45 +138,6 @@ export default function Page() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-
-  const chosen = useMemo(() => plans.find(plan => plan.code === selectedPlan) ?? null, [plans, selectedPlan]);
-  const base = chosen ? (cycle === "ANNUAL" ? chosen.annualPricePaise : chosen.monthlyPricePaise) : 0;
-  const tax = chosen ? Math.round(base * chosen.taxRateBps / 10_000) : 0;
-  const total = base + tax;
-
-  async function checkout() {
-    if (!chosen || total <= 0) return;
-    setPaying(true);
-    setError("");
-    setNotice("");
-    try {
-      await loadRazorpay();
-      const result = await api("/organization/subscription/checkout", {
-        method: "POST",
-        headers: { "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ planCode: chosen.code, billingCycle: cycle }),
-      });
-      if (!window.Razorpay) throw new Error("Razorpay checkout is unavailable");
-      const checkoutInstance = new window.Razorpay({
-        key: result.keyId,
-        amount: result.order.amount,
-        currency: result.order.currency,
-        order_id: result.order.id,
-        name: chosen.name,
-        description: `${cycle === "ANNUAL" ? "Annual" : "Monthly"} SaaS subscription`,
-        handler: () => {
-          setNotice("Payment submitted. Subscription activation is confirmed by the verified payment webhook.");
-          window.setTimeout(() => void load(), 1500);
-        },
-        theme: { color: "#1d4ed8" },
-      });
-      checkoutInstance.open();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setPaying(false);
-    }
-  }
 
   async function checkoutSignedQuote(quote: SignedQuote) {
     setPaying(true); setError(""); setNotice("");
@@ -254,7 +209,7 @@ export default function Page() {
   const usage = snapshot?.usage ?? { branches: 0, users: 0, students: 0 };
   const limits = snapshot?.plan?.limits ?? {};
 
-  return <ProtectedAdminWorkspace roles={["SUPER_ADMIN"]} title="Subscription & Billing" description="Pay and manage your institution's Being Brilliant SaaS subscription through the separate platform billing gateway.">
+  return <ProtectedAdminWorkspace roles={["SUPER_ADMIN"]} title="Subscription & Billing" description="Manage your institution&apos;s Adhyay SchoolOS subscription and pay verified signed quotations.">
     {notice && <p className="mt-6 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p>}
     {error && <p role="alert" className="mt-6 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
@@ -295,31 +250,12 @@ export default function Page() {
         </span>
       </div>
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_220px_220px]">
-        <label className="text-sm font-semibold">Plan
-          <select className="mt-1 block w-full rounded-xl border p-2.5 font-normal dark:bg-slate-900" value={selectedPlan} onChange={event => setSelectedPlan(event.target.value)}>
-            {plans.map(plan => <option key={plan.id} value={plan.code}>{plan.name} ({plan.code})</option>)}
-          </select>
-        </label>
-        <label className="text-sm font-semibold">Billing cycle
-          <select className="mt-1 block w-full rounded-xl border p-2.5 font-normal dark:bg-slate-900" value={cycle} onChange={event => setCycle(event.target.value as "MONTHLY" | "ANNUAL")}>
-            <option value="MONTHLY">Monthly</option>
-            <option value="ANNUAL">Annual</option>
-          </select>
-        </label>
-        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-900">
-          <span className="text-xs text-slate-500">Payable</span>
-          <p className="mt-1 text-lg font-bold">{chosen ? money(total, chosen.currency) : "—"}</p>
-          {tax > 0 && <p className="text-xs text-slate-500">Includes {money(tax, chosen?.currency)} tax</p>}
-        </div>
+      <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+        <p className="font-semibold">Signed quotation required for all new SchoolOS subscriptions</p>
+        <p className="mt-2">Payments are available only against an approved annual quotation and verified signed agreement. The signed order fixes the plan, tax, approved add-ons and total; direct checkout and self-service monthly purchases are disabled.</p>
+        <p className="mt-2">Enterprise pricing is custom-quoted. If you do not see a payable signed order below, contact your Adhyay SchoolOS billing administrator.</p>
+        <p className="mt-2">This platform gateway collects your institution&apos;s SaaS subscription payment. The merchant, tax invoice and contractual seller must match your approved signed order. Student and parent fee payments use your institution&apos;s separate gateway under Fees &amp; Finance.</p>
       </div>
-      <p className="mt-3 text-sm text-slate-500">{chosen?.description}</p>
-      <p className="mt-3 rounded-xl bg-blue-50 p-3 text-sm text-blue-900">
-        This is the platform subscription gateway for payments from your institution to Being Brilliant. Student/parent fee collection uses your institution&apos;s separate merchant gateway under Fees &amp; Finance → Payment Gateway.
-      </p>
-      <button disabled={paying || !chosen || total <= 0} onClick={() => void checkout()} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-brand-700 px-5 py-3 font-semibold text-white disabled:opacity-50">
-        <CreditCard size={18}/>{paying ? "Preparing checkout…" : total <= 0 ? "Plan pricing not configured" : "Pay subscription with Razorpay"}
-      </button>
       {snapshot?.subscription?.status === "ACTIVE" && snapshot.subscription.currentPeriodEnd && <div className="mt-5 rounded-xl border p-4">
         <p className="font-semibold">Subscription renewal</p>
         <p className="mt-1 text-sm text-slate-500">
@@ -357,6 +293,11 @@ export default function Page() {
         </tr>)}</tbody>
       </table></div>
       <p className="border-t p-4 text-xs text-slate-500">Approved, signed and fully priced module, capacity, AI-credit and video-minute add-ons can be purchased with an eligible annual quotation. Custom work, discounts and unreconciled prices remain blocked.</p>
+    </section>}
+
+    {signedQuotes.length === 0 && <section className="card mt-6 p-5" aria-label="Signed quotations">
+      <h2 className="text-xl font-bold">Signed SchoolOS quotations</h2>
+      <p className="mt-2 text-sm text-slate-600">No payable signed quotations are available. Contact your platform billing administrator for an approved quotation and verified signed agreement. Do not attempt payment outside a signed order.</p>
     </section>}
 
     {meteredUsage?.financeReviewRequired && <div role="alert" className="mt-6 rounded-xl border border-amber-400 bg-amber-50 p-4 text-sm text-amber-950">
