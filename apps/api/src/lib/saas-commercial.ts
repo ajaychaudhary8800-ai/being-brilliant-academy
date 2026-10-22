@@ -1,6 +1,10 @@
 import { OrganizationSubscriptionStatus, Prisma, Role, SaaSPaymentStatus } from "@prisma/client";
 import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
+import { readSchoolOSFeatureOverrides, schoolOSFeatureAccess, schoolOSEffectiveOverrideLists, schoolOSResolvedFeatures } from "./schoolos-feature-policy.js";
+import { validateSchoolOSAddonCheckout, type SchoolOSApprovedAddonLine } from "./schoolos-addon-checkout-policy.js";
+import { applySchoolOSPaidAddonSettlement } from "./schoolos-addon-settlement.js";
+import { assertSchoolOSRenewalSource, readSchoolOSRenewalContext } from "./schoolos-renewal-quote-policy.js";
 
 type JsonRecord = Record<string, unknown>;
 type CapturedPayment = { id: string; order_id: string; amount: number; currency: string };
@@ -42,6 +46,32 @@ async function commercialPolicySnapshot(organizationId: string) {
   const enforcementEnabled = commercialSettings.enforce === true;
   const entitlements = booleanMap(plan?.entitlements);
   const limits = limitMap(plan?.limits);
+  const now = new Date();
+  // Add-ons are immutable payment-derived licenses, not writable tenant settings.
+  // Subscription cancellation/expiry and invoice reversals immediately revoke them.
+  const paidAddons = organization.subscriptionStatus === OrganizationSubscriptionStatus.ACTIVE &&
+    organization.subscriptionEndsAt && organization.subscriptionEndsAt.getTime() > now.getTime()
+    ? await systemPrisma.schoolOSAddonLicense.findMany({
+        where: { organizationId, periodStart: { lte: now }, periodEnd: { gt: now },
+          invoice: { status: "PAID", organizationId, OR: [
+            { schoolOSPaymentRiskHold: { is: null } },
+            { schoolOSPaymentRiskHold: { is: { status: "RESOLVED" } } },
+          ] } },
+        select: { category: true, code: true, units: true },
+      })
+    : [];
+  for (const license of paidAddons) {
+    if (license.category === "MODULE") entitlements[license.code] = true;
+    if (license.category === "CAPACITY" && ["students","users","branches"].includes(license.code)) {
+      const base = limits[license.code];
+      if (base !== null && base !== undefined) {
+        const increased = base + license.units;
+        if (!Number.isSafeInteger(increased)) throw new AppError(409, "SCHOOLOS_LIMIT_OVERFLOW", "Purchased capacity exceeds safe limit");
+        limits[license.code] = increased;
+      }
+    }
+  }
+  const featureOverrides = readSchoolOSFeatureOverrides(commercialSettings.featureOverrides);
 
   return {
     organization: organizationRecord,
@@ -59,6 +89,8 @@ async function commercialPolicySnapshot(organizationId: string) {
       limits,
     } : null,
     enforcementEnabled,
+    paidAddons,
+    featureOverrides,
   };
 }
 
@@ -68,6 +100,8 @@ export async function commercialEntitlementSnapshot(organizationId: string) {
     enforcementEnabled: policy.enforcementEnabled,
     planCode: policy.plan?.code ?? policy.organization.subscriptionPlan,
     entitlements: policy.plan?.entitlements ?? {},
+    ...schoolOSEffectiveOverrideLists(policy.featureOverrides),
+    effectiveFeatures: schoolOSResolvedFeatures(policy.plan?.entitlements ?? {}, policy.enforcementEnabled, policy.featureOverrides),
   };
 }
 
@@ -83,14 +117,14 @@ export async function commercialAccessSnapshot(organizationId: string) {
 
 export async function commercialFeatureEnabled(organizationId: string, feature: string) {
   const policy = await commercialPolicySnapshot(organizationId);
-  return !policy.enforcementEnabled || policy.plan?.entitlements["*"] === true || policy.plan?.entitlements[feature] === true;
+  return schoolOSFeatureAccess(policy.plan?.entitlements ?? {}, policy.enforcementEnabled, policy.featureOverrides, feature).enabled;
 }
 
 export async function assertFeatureEntitled(organizationId: string, feature: string) {
   const policy = await commercialPolicySnapshot(organizationId);
-  if (!policy.enforcementEnabled) return policy;
-  if (policy.plan?.entitlements["*"] === true || policy.plan?.entitlements[feature] === true) return policy;
-  throw new AppError(403, "PLAN_FEATURE_REQUIRED", `Your subscription plan does not include ${feature}`);
+  const decision = schoolOSFeatureAccess(policy.plan?.entitlements ?? {}, policy.enforcementEnabled, policy.featureOverrides, feature);
+  if (decision.enabled) return policy;
+  throw new AppError(403, "PLAN_FEATURE_REQUIRED", `Your subscription plan does not include ${feature} or platform access has been disabled`);
 }
 
 export async function assertCommercialPlanFitsUsage(organizationId: string, limitsValue: unknown) {
@@ -141,6 +175,76 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
       if (invoice.status === "PAID") return;
       if (payment.amount !== invoice.totalPaise || payment.currency.toUpperCase() !== invoice.currency.toUpperCase()) {
         throw new AppError(422, "PAYMENT_MISMATCH", "Captured SaaS payment does not match the subscription invoice");
+      }
+
+      let quotedSettings: Prisma.InputJsonValue | undefined;
+      let settledAddonLines: SchoolOSApprovedAddonLine[] | null = null;
+      if (invoice.schoolOSQuoteId) {
+        // Captured payments against a term already covered by a different PAID
+        // invoice go to finance reconciliation, never overwrite the live plan.
+        await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-renewal-settlement:"+invoice.organizationId}))`;
+        const alreadyPaid = await tx.saaSInvoice.findFirst({
+          where: { organizationId: invoice.organizationId, status: "PAID",
+            id: { not: invoice.id },
+            periodStart: { lt: invoice.periodEnd }, periodEnd: { gt: invoice.periodStart } },
+          select: { id: true },
+        });
+        if (alreadyPaid)
+          throw new AppError(409,"SCHOOLOS_RENEWAL_CAPTURE_OVERLAP",
+            "Captured payment overlaps an earlier paid term and requires finance reconciliation");
+        const quote = await tx.schoolOSQuotation.findUnique({
+          where: { id: invoice.schoolOSQuoteId },
+          include: { contractDocument: { include: { lead: { select: { wonOrganizationId: true } } } } },
+        });
+        if (!quote || quote.organizationId !== invoice.organizationId || quote.status !== "PAYMENT_PENDING"
+          || quote.planCode !== invoice.plan.code || quote.totalPaise !== invoice.totalPaise
+          || quote.billingCycle !== "ANNUAL" || quote.contractDocumentId === null) {
+          throw new AppError(409, "SCHOOLOS_QUOTE_SETTLEMENT_CONFLICT", "Quoted invoice or contracted subscription does not match the captured payment");
+        }
+        const renewal = readSchoolOSRenewalContext(quote.pricingSnapshot);
+        if (renewal) {
+          const [renewalSource, latestPaid] = await Promise.all([
+            tx.saaSInvoice.findUnique({where:{id:renewal.sourceInvoiceId},
+              select:{id:true,organizationId:true,status:true,schoolOSQuoteId:true,periodEnd:true,
+                schoolOSPaymentRiskHold:{select:{status:true}}}}),
+            tx.saaSInvoice.findFirst({where:{organizationId:invoice.organizationId,status:"PAID"},
+              orderBy:[{periodEnd:"desc"},{createdAt:"desc"}],select:{id:true}}),
+          ]);
+          assertSchoolOSRenewalSource(renewalSource, invoice.organizationId, latestPaid?.id ?? null,
+            renewal.sourcePeriodEnd, invoice.periodStart);
+        }
+        const signed = await tx.saaSCommercialDocument.findUnique({
+          where: { id: quote.contractDocumentId }, select: { verificationStatus: true, archivedAt: true, documentReference: true },
+        });
+        if (!signed || signed.archivedAt || signed.verificationStatus !== "VERIFIED"
+          || signed.documentReference !== quote.quoteNo) {
+          throw new AppError(409, "SCHOOLOS_CONTRACT_SETTLEMENT_BLOCKED", "Signed contract is no longer verified; payment requires finance reconciliation");
+        }
+        const invoiceMeta = record(invoice.metadata);
+        const hasItems = Array.isArray(quote.items) && quote.items.length > 0;
+        if (hasItems) {
+          if (invoiceMeta.basis !== "SIGNED_ANNUAL_BASE_PLUS_ADDONS")
+            throw new AppError(409, "SCHOOLOS_ADDON_INVOICE_BASIS_MISMATCH", "Add-on payment invoice basis is missing");
+          const priceSnapshot = record(quote.pricingSnapshot);
+          const rateSnapshot = priceSnapshot.addonRateSnapshot;
+          const rateIds = Array.isArray(rateSnapshot) ? rateSnapshot.map(x=>record(x).rateId).filter((x):x is string=>typeof x==="string") : [];
+          const approvedRates = await tx.schoolOSAddonRate.findMany({where:{id:{in:rateIds}}});
+          const verified = validateSchoolOSAddonCheckout(quote, invoice.plan, quote.contractDocument,
+            invoice.organizationId, approvedRates, new Date(), true);
+          if (invoice.amountPaise !== verified.baseAmountPaise + verified.addonsAmountPaise
+             || invoice.taxPaise !== verified.taxPaise || invoice.totalPaise !== verified.totalPaise)
+            throw new AppError(409,"SCHOOLOS_ADDON_CAPTURE_AMOUNT_MISMATCH","Paid invoice differs from signed finance approved amount");
+          settledAddonLines = verified.lines;
+        } else if (invoiceMeta.basis === "SIGNED_ANNUAL_BASE_PLUS_ADDONS") {
+          throw new AppError(409,"SCHOOLOS_ADDON_EMPTY_INVOICE","Add-on invoice has no add-on lines");
+        }
+        // Lock tenant settings against concurrent platform licensing edits.
+        await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-features:" + invoice.organizationId}))`;
+        const org = await tx.organization.findUnique({ where: { id: invoice.organizationId }, select: { settings: true } });
+        if (!org) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Customer tenant not found");
+        const settings = record(org.settings);
+        const commercial = record(settings.commercialEntitlements);
+        quotedSettings = { ...settings, commercialEntitlements: { ...commercial, enforce: true } } as Prisma.InputJsonValue;
       }
 
       const priorEvent = await tx.saaSWebhookEvent.findUnique({
@@ -202,8 +306,35 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
           trialEndsAt: null,
           subscriptionEndsAt: invoice.periodEnd,
           isActive: true,
+          ...(quotedSettings === undefined ? {} : { settings: quotedSettings }),
         },
       });
+      if (invoice.schoolOSQuoteId) {
+        const paid = await tx.schoolOSQuotation.updateMany({
+          where: { id: invoice.schoolOSQuoteId, organizationId: invoice.organizationId, status: "PAYMENT_PENDING" },
+          data: { status: "PAID", version: { increment: 1 } },
+        });
+        if (paid.count !== 1) throw new AppError(409, "SCHOOLOS_QUOTE_SETTLEMENT_CONFLICT", "Unable to atomically record the paid quotation");
+        const settledQuote = await tx.schoolOSQuotation.findUniqueOrThrow({ where: { id: invoice.schoolOSQuoteId } });
+        await tx.schoolOSQuotationRevision.create({
+          data: { quoteId: settledQuote.id, version: settledQuote.version, action: "VERIFIED_PAYMENT_CAPTURED",
+            actorId: "RAZORPAY_WEBHOOK", snapshot: { invoiceId: invoice.id, providerOrderId: payment.order_id,
+              providerPaymentId: payment.id, paidAmountPaise: payment.amount, currency: payment.currency,
+              activatedPlanCode: invoice.plan.code, periodEnd: invoice.periodEnd.toISOString() } as Prisma.InputJsonValue },
+        });
+        await tx.auditLog.create({
+          data: { organizationId: invoice.organizationId, action: "SCHOOLOS_CONTRACT_PAYMENT_CAPTURED",
+            entity: "SchoolOSQuotation", entityId: settledQuote.id,
+            metadata: { invoiceId: invoice.id, paymentId: payment.id, totalPaise: payment.amount, planCode: invoice.plan.code } },
+        });
+      }
+      if (invoice.schoolOSQuoteId && settledAddonLines) {
+        await applySchoolOSPaidAddonSettlement(tx, {
+          organizationId: invoice.organizationId, invoiceId: invoice.id,
+          quoteId: invoice.schoolOSQuoteId, periodStart: invoice.periodStart, periodEnd: invoice.periodEnd,
+          totalPaise: invoice.totalPaise, lines: settledAddonLines,
+        });
+      }
       await tx.auditLog.create({
         data: {
           organizationId: invoice.organizationId,
@@ -244,7 +375,7 @@ async function queueSaaSBillingNotice(input: {
 }) {
   return systemPrisma.$transaction(async tx => {
     const lockKey = `saas-billing-notice:${input.organizationId}:${input.sourceEntityId}`;
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${lockKey}))`;
     const existing = await tx.notification.findFirst({
       where: {
         organizationId: input.organizationId,

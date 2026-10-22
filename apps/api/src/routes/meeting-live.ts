@@ -20,6 +20,8 @@ import {
 } from "../lib/livekit.js";
 import { prisma } from "../lib/prisma.js";
 import { assertFeatureEntitled } from "../lib/saas-commercial.js";
+import { authorizeSchoolOSPrepaidVideoRoom,schoolOSVideoAdmissionEnabled,schoolOSVideoRoomHasPrepaidHistory,assertSchoolOSVideoNoDisabledPrepaidJoin } from "../lib/schoolos-video-admission.js";
+import { requireSchoolOSPrepaidRoomDisconnect } from "../lib/schoolos-video-provider-end.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
 
@@ -99,6 +101,24 @@ router.post("/meetings/native/:room/session", async (req: AuthRequest, res) => {
   const user = await prisma.user.findFirst({ where: { organizationId: org(req), id: actor(req), isActive: true }, select: { name: true } });
   if (!user) throw new AppError(404, "USER_NOT_FOUND", "User account not found");
 
+  // Do not bypass concurrent-room commercial restrictions via direct token API.
+  if (schoolOSVideoAdmissionEnabled(org(req)) && meeting.status !== MeetingStatus.LIVE) {
+    const policy = await assertFeatureEntitled(org(req), "meetings");
+    const limit = policy.enforcementEnabled ? policy.plan?.limits["meeting.concurrentRooms"] : null;
+    if (typeof limit === "number") {
+      const liveRooms = await prisma.meeting.count({where:{
+        organizationId:org(req),status:{in:[MeetingStatus.OPEN_FOR_JOIN,MeetingStatus.LIVE]},
+        id:{not:meeting.id},
+      }});
+      if (liveRooms >= limit)
+        throw new AppError(409,"MEETING_CONCURRENT_ROOM_LIMIT",
+          `Your plan allows ${limit} concurrent meeting rooms`);
+    }
+  }
+  // Only explicitly opted-in SchoolOS V5 tenants hold prepaid quota here.
+  // All existing V4 meeting behavior remains unchanged by default.
+  await assertSchoolOSVideoNoDisabledPrepaidJoin(org(req), meeting.id);
+  const videoAdmission = await authorizeSchoolOSPrepaidVideoRoom(org(req), meeting.id);
   const observer = participant.meetingRole === MeetingParticipantRole.OBSERVER;
   const sources = manager
     ? ["camera", "microphone", "screen_share", "screen_share_audio"]
@@ -112,7 +132,7 @@ router.post("/meetings/native/:room/session", async (req: AuthRequest, res) => {
     name: user.name,
     room,
     role: participant.meetingRole,
-    ttlSeconds: 4 * 60 * 60,
+    ttlSeconds: videoAdmission.tokenTtlSeconds,
     grant: {
       room,
       roomJoin: true,
@@ -132,6 +152,7 @@ router.post("/meetings/native/:room/session", async (req: AuthRequest, res) => {
       type: meeting.type, recordingStatus: meeting.recordings[0]?.status ?? null,
     },
     meetingRole: participant.meetingRole,
+    videoAdmission: { enforced: videoAdmission.enforced, heldMinutes: videoAdmission.heldMinutes },
     manager,
     locked: meeting.roomLocked,
     settings: {
@@ -161,6 +182,8 @@ router.post("/meetings/native/:room/join", async (req: AuthRequest, res) => {
       if (liveRooms >= limit) throw new AppError(409, "MEETING_CONCURRENT_ROOM_LIMIT", `Your plan allows ${limit} concurrent meeting rooms`);
     }
   }
+  await assertSchoolOSVideoNoDisabledPrepaidJoin(org(req), meeting.id);
+  await authorizeSchoolOSPrepaidVideoRoom(org(req), meeting.id);
   const existing = await prisma.meetingAttendanceSession.findFirst({
     where: { organizationId: org(req), meetingId: meeting.id, participantId: participant.id, leftAt: null },
     orderBy: { joinedAt: "desc" },
@@ -190,6 +213,17 @@ router.post("/meetings/native/:room/end", async (req: AuthRequest, res) => {
   const { meeting, participant } = await meetingForRoom(req, room);
   if (!managerRole(participant.meetingRole)) throw new AppError(403, "MEETING_MODERATION_FORBIDDEN", "Host or co-host permission is required");
   assertActiveMeeting(meeting);
+  // For prepaid rooms, confirm provider-side termination before mutating
+  // recording, attendance or meeting status. Failures remain retryable.
+  const meteredRoom = schoolOSVideoAdmissionEnabled(org(req)) ||
+    await schoolOSVideoRoomHasPrepaidHistory(org(req),meeting.id);
+  if (meteredRoom) {
+    await requireSchoolOSPrepaidRoomDisconnect(
+      room,
+      () => livekitRoomService("DeleteRoom", { room }, room),
+      () => livekitRoomService("ListRooms", { names: [room] }, room),
+    );
+  }
   const now = new Date();
   const activeRecordings = meeting.recordings.filter(r => (r.status === MeetingRecordingStatus.STARTING || r.status === MeetingRecordingStatus.RECORDING) && r.providerRecordingId);
   for (const recording of activeRecordings) {
@@ -203,7 +237,8 @@ router.post("/meetings/native/:room/end", async (req: AuthRequest, res) => {
       },
     });
   }
-  await livekitRoomService("DeleteRoom", { room }, room).catch(() => null);
+  // Unmetered V4 rooms retain the legacy best-effort provider deletion.
+  if (!meteredRoom) await livekitRoomService("DeleteRoom", { room }, room).catch(() => null);
   await closeOpenAttendance(meeting.id);
   const row = await prisma.meeting.update({ where: { id: meeting.id }, data: { status: MeetingStatus.ENDED, endedAt: now, roomLocked: true } });
   await meetingAudit(req, meeting.id, "END", { stoppedRecordings: activeRecordings.length });

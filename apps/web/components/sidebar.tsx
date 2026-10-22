@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 type DynamicLabel = "courses" | "groups" | "educators" | "assessments" | "learning";
-type CommercialFeature = "crm" | "lms" | "examinations" | "hr_payroll" | "finance" | "communication" | "meetings" | "transport" | "library" | "hostel" | "inventory" | "analytics" | "multi_branch" | "white_label" | "custom_domain";
+type CommercialFeature = "crm" | "lms" | "examinations" | "ai_examiner" | "workflow_automation" | "hr_payroll" | "finance" | "communication" | "meetings" | "transport" | "library" | "hostel" | "inventory" | "analytics" | "multi_branch" | "white_label" | "custom_domain";
 type MenuEntry = { name: string; href: string; icon: typeof LayoutDashboard; dynamicLabel?: DynamicLabel; superAdminOnly?: boolean; platformOnly?: boolean; tenantOnly?: boolean; feature?: CommercialFeature };
 type MenuGroup = { name: string; entries: MenuEntry[] };
 
@@ -25,6 +25,12 @@ const menuGroups: MenuGroup[] = [
     { name: "Organizations", href: "/admin/organizations", icon: School, platformOnly: true },
     { name: "SaaS Plans", href: "/admin/saas-plans", icon: CreditCard, platformOnly: true },
     { name: "SaaS Billing", href: "/admin/saas-billing", icon: CreditCard, platformOnly: true },
+    { name: "SchoolOS Feature Licensing", href: "/admin/schoolos-features", icon: ShieldCheck, platformOnly: true },
+    { name: "SchoolOS Quotations", href: "/admin/schoolos-quotations", icon: FileText, platformOnly: true },
+    { name: "SchoolOS Pricing Review", href: "/admin/schoolos-pricing", icon: CreditCard, platformOnly: true },
+    { name: "SchoolOS Metered Usage", href: "/admin/schoolos-usage", icon: BarChart3, platformOnly: true },
+    { name: "SchoolOS Add-on Pricing", href: "/admin/schoolos-addon-pricing", icon: CreditCard, platformOnly: true },
+    { name: "SchoolOS Payment Risk", href: "/admin/schoolos-risk", icon: ShieldCheck, platformOnly: true },
     { name: "SaaS Sales", href: "/admin/saas-sales", icon: BriefcaseBusiness, platformOnly: true },
     { name: "Commercial Vault", href: "/admin/commercial-documents", icon: FileArchive, platformOnly: true },
     { name: "Sales Documents", href: "/admin/legal-sales", icon: FileCheck2, platformOnly: true },
@@ -52,7 +58,7 @@ const menuGroups: MenuGroup[] = [
     { name: "Homework", href: "/admin/homeworks", icon: NotebookPen },
     { name: "Examinations", href: "/admin/examinations", icon: FileCheck2, dynamicLabel: "assessments", feature: "examinations" },
     { name: "Answer Submissions", href: "/admin/examination-submissions", icon: FileCheck2, feature: "examinations" },
-    { name: "Ranpal AI Examiner", href: "/admin/ai-examiner", icon: BrainCircuit, feature: "examinations" },
+    { name: "Ranpal AI Examiner", href: "/admin/ai-examiner", icon: BrainCircuit, feature: "ai_examiner" },
     { name: "Tests", href: "/admin/tests", icon: ClipboardCheck, feature: "examinations" },
     { name: "LMS", href: "/admin/lms", icon: PlaySquare, feature: "lms" },
     { name: "Learning Resources", href: "/admin/learning-ecosystem", icon: BrainCircuit, dynamicLabel: "learning", feature: "lms" },
@@ -73,7 +79,7 @@ const menuGroups: MenuGroup[] = [
   ] },
   { name: "Communication", entries: [
     { name: "Communication", href: "/admin/communication", icon: Bell, feature: "communication" },
-    { name: "Workflow Automation", href: "/admin/automations", icon: CalendarClock, feature: "communication" },
+    { name: "Workflow Automation", href: "/admin/automations", icon: CalendarClock, feature: "workflow_automation" },
     { name: "Notice Board", href: "/admin/notices", icon: Bell, feature: "communication" },
     { name: "Staff & Management Meetings", href: "/admin/meetings", icon: CalendarClock, feature: "meetings" },
   ] },
@@ -99,7 +105,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth();
   const { brand } = useTenantBranding();
   const terms = useGroupTerminology();
-  const [commercialEntitlements, setCommercialEntitlements] = useState<{ enforcementEnabled: boolean; entitlements: Record<string, boolean> } | null>(null);
+  const [commercialEntitlements, setCommercialEntitlements] = useState<{ enforcementEnabled: boolean; entitlements: Record<string, boolean>; deniedFeatures?: string[]; enabledFeatures?: string[]; effectiveFeatures?: Record<string, boolean> } | null>(null);
   const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
   useEffect(() => {
     const token = getAccessToken();
@@ -122,7 +128,9 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
     ...group,
     entries: group.entries.filter((entry) => {
       if (user?.billingRecovery) return entry.href === "/admin/subscription";
-      if (entry.feature && commercialEntitlements?.enforcementEnabled && commercialEntitlements.entitlements["*"] !== true && commercialEntitlements.entitlements[entry.feature] !== true) return false;
+      if (entry.feature && commercialEntitlements?.deniedFeatures?.includes(entry.feature)) return false;
+      if (entry.feature && commercialEntitlements?.effectiveFeatures?.[entry.feature] === false) return false;
+      if (entry.feature && commercialEntitlements?.enforcementEnabled && commercialEntitlements.entitlements["*"] !== true && commercialEntitlements.entitlements[entry.feature] !== true && !commercialEntitlements.enabledFeatures?.includes(entry.feature) && commercialEntitlements.effectiveFeatures?.[entry.feature] !== true) return false;
       if (user?.role === "ACCOUNTANT") return accountantRoutes.has(entry.href);
       if (entry.platformOnly) return user?.role === "SUPER_ADMIN" && user.organizationId === "org_default";
       if (entry.tenantOnly) return user?.role === "SUPER_ADMIN" && user.organizationId !== "org_default";

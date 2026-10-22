@@ -1,0 +1,190 @@
+name: SchoolOS V5 External Staging Read-Only QA
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/schoolos-v5-external-staging-qa.yml"
+      - "scripts/schoolos-v5-external-staging-smoke*.mjs"
+      - "apps/api/**"
+      - "apps/web/**"
+      - "e2e/schoolos-v5-external-staging-public.spec.ts"
+      - "config/schoolos-v5-release-gates.json"
+      - ".github/workflows/schoolos-v5-*.yml"
+      - "docs/SCHOOLOS_V5_*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "schoolos-v5-external-qa-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  external-smoke:
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      SCHOOLOS_QA_BASE_URL: https://v5-staging.beingbrilliantedu.com
+      SCHOOLOS_QA_WORKSPACE: being-brilliant-academy
+      # PR-controlled code MUST NEVER receive privileged staging login secrets.
+      # Authenticated staging UAT executes separately from trusted reviewed code.
+      SCHOOLOS_QA_EMAIL: ""
+      SCHOOLOS_QA_PASSWORD: ""
+    steps:
+      - name: Pin exact PR commit
+        uses: actions/checkout@v4
+        with:
+          ref: "${{ github.event.pull_request.head.sha || github.sha }}"
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate target guardrails and staging bootstrap safeguards
+        run: |
+          node --test scripts/schoolos-v5-external-staging-smoke.test.mjs
+          node --test apps/api/scripts/schoolos-v5-qa-guard.test.mjs
+          node --test scripts/schoolos-v5-trusted-staging-auth-qa.test.mjs
+      - name: Test external staging (GET-only except optional staging QA login)
+        run: node scripts/schoolos-v5-external-staging-smoke.mjs
+      - name: Publish consolidated external QA report
+        if: always()
+        shell: bash
+        run: |
+          if [ ! -s artifacts/v5-external-smoke/result.json ]; then
+            echo "No external staging QA evidence produced." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const result = JSON.parse(fs.readFileSync("artifacts/v5-external-smoke/result.json", "utf8"));
+          const lines = [
+            "# SchoolOS V5 staging QA — " + result.result,
+            "",
+            "| Check | Result |",
+            "|---|---|",
+            ...result.checks.map(c => "| " + c.id + " | " + c.status + " |"),
+            "",
+            "**Automated smoke tests do not approve commercial production promotion.**",
+            "Authenticated staging UAT is pending unless the dedicated QA credentials were configured.",
+          ];
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+          if (result.result === "PARTIAL_PASS_AUTH_REQUIRED") {
+            console.log("::warning::External QA partially passed; dedicated staging-only credentials were not configured.");
+          }
+          NODE
+      - name: Upload redacted QA results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schoolos-v5-external-qa-${{ github.run_id }}
+          path: artifacts/v5-external-smoke/result.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  coaching-postgres-regression:
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: schoolos_v5_integration_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d schoolos_v5_integration_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CI: "true"
+      NODE_ENV: test
+      RUN_POSTGRES_INTEGRATION: "1"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/schoolos_v5_integration_test?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/schoolos_v5_integration_test?schema=public
+      REDIS_URL: redis://127.0.0.1:6379/0
+      WEB_URL: http://localhost:3000
+      JWT_ACCESS_SECRET: disposable-qa-only-access-secret-long-enough-123
+      JWT_REFRESH_SECRET: disposable-qa-only-refresh-secret-long-enough-123
+      RAZORPAY_MODE: test
+      SCHOOLOS_VIDEO_ADMISSION_ENABLED: "false"
+      SCHOOLOS_VIDEO_SETTLEMENT_ENABLED: "false"
+      SCHOOLOS_VIDEO_WEBHOOK_ENABLED: "false"
+      SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED: "false"
+    steps:
+      - name: Pin immutable PR commit
+        uses: actions/checkout@v4
+        with:
+          ref: "${{ github.event.pull_request.head.sha || github.sha }}"
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Apply complete schema to disposable PostgreSQL only
+        run: |
+          pnpm --filter @bba/api prisma:generate
+          pnpm --filter @bba/api exec prisma migrate deploy
+          applied=$(PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d schoolos_v5_integration_test -Atqc 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')
+          if [ "$applied" != "114" ]; then echo "::error::Expected 114 migrations, got $applied"; exit 1; fi
+      - name: Real PostgreSQL coaching and cross-tenant HTTP regression
+        run: pnpm --filter @bba/api exec tsx --test src/integration/academic-placement-concurrency.integration.test.ts
+      - name: Preserve V5 commercial HOLD
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const x=JSON.parse(fs.readFileSync("config/schoolos-v5-release-gates.json","utf8"));
+            if(x.declaredStatus!=="HOLD" || x.gates.some(g=>g.status!=="PENDING")) process.exit(1);
+            console.log("Commercial release remains HOLD; all 10 gates unsigned");
+          '
+      - name: Distinguish ephemeral regression from live customer UAT
+        if: always()
+        shell: bash
+        run: |
+          echo "## Disposable PostgreSQL regression" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tested only GitHub-hosted ephemeral infrastructure; no customer or production database contacted." >> "$GITHUB_STEP_SUMMARY"
+          echo "This cannot replace authenticated live-staging coaching UAT or owner approval." >> "$GITHUB_STEP_SUMMARY"
+
+  external-browser-ui:
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    permissions: { contents: read }
+    env:
+      CI: "true"
+      QA_BASE_URL: https://v5-staging.beingbrilliantedu.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "${{ github.event.pull_request.head.sha || github.sha }}"
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Install ephemeral Chromium browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Render portal UI (desktop and mobile, no credentials or writes)
+        run: pnpm exec playwright test e2e/schoolos-v5-external-staging-public.spec.ts --workers=1 --retries=1
+      - name: Upload failure-only screenshots and redacted report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schoolos-v5-browser-qa-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results/e2e-junit.xml
+            test-results/e2e-artifacts
+          if-no-files-found: warn
+          retention-days: 14

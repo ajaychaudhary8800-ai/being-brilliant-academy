@@ -1071,6 +1071,15 @@ model Organization {
   createdAt              DateTime                       @default(now())
   updatedAt              DateTime                       @updatedAt
   users                  User[]
+  schoolOSUsageBalances SchoolOSUsageBalance[]
+  schoolOSAddonLicenses SchoolOSAddonLicense[]
+  schoolOSPaymentRiskHolds SchoolOSPaymentRiskHold[]
+  schoolOSPaymentAdjustments SchoolOSPaymentAdjustment[]
+  schoolOSPaymentRiskReviews SchoolOSPaymentRiskReview[]
+  schoolOSUsageEvents SchoolOSUsageEvent[]
+  schoolOSUsageReservations SchoolOSUsageReservation[]
+  schoolOSLiveKitEvents SchoolOSLiveKitEvent[]
+  schoolOSVideoUsageReviews SchoolOSVideoUsageReview[]
   branches               Branch[]
   communicationCirculars Circular[]
   communicationCalendarEvents CalendarEvent[]
@@ -1111,6 +1120,7 @@ model Organization {
   studentAcademicTransitions StudentAcademicTransition[]
   saasSubscription       SaaSSubscription?
   saasInvoices           SaaSInvoice[]
+  schoolOSQuotations     SchoolOSQuotation[]
   saasPayments           SaaSPayment[]
   institutionPaymentGateway InstitutionPaymentGateway?
   institutionPaymentOrders  InstitutionPaymentOrder[]
@@ -1180,6 +1190,8 @@ model SaaSInvoice {
   provider        String?
   providerOrderId String?           @unique
   checkoutKey     String?           @unique
+  schoolOSQuoteId String?           @unique
+  schoolOSQuote   SchoolOSQuotation? @relation(fields: [schoolOSQuoteId], references: [id], onDelete: Restrict)
   metadata        Json?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -1187,6 +1199,11 @@ model SaaSInvoice {
   subscription    SaaSSubscription  @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
   plan            SaaSPlan          @relation(fields: [planId], references: [id], onDelete: Restrict)
   payments        SaaSPayment[]
+  schoolOSUsageEvents SchoolOSUsageEvent[]
+  schoolOSAddonLicenses SchoolOSAddonLicense[]
+  schoolOSPaymentRiskHold SchoolOSPaymentRiskHold?
+  schoolOSPaymentAdjustments SchoolOSPaymentAdjustment[]
+  schoolOSPaymentRiskReviews SchoolOSPaymentRiskReview[]
 
   @@index([organizationId, status, createdAt])
   @@index([subscriptionId, periodEnd])
@@ -2712,6 +2729,7 @@ model Batch {
   days              String[]         @default([])
   classroom         String?
   teacherId         String?
+  coachingGrades    Int[]            @default([])
   feesPaise         Int              @default(0)
   status            BatchStatus      @default(ACTIVE)
   remarks           String?          @db.Text
@@ -2760,6 +2778,7 @@ model StudentProfile {
   fatherName           String
   motherName           String
   className            String
+  coachingGrade        Int?
   parentMobile         String
   address              String                       @db.Text
   branchId             String
@@ -8080,6 +8099,8 @@ model SaaSCommercialDocument {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
+  contractedQuotes SchoolOSQuotation[]
+
   lead SaaSSalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@index([leadId, documentType, createdAt])
@@ -8258,6 +8279,8 @@ model Meeting {
   agendaItems    MeetingAgendaItem[]
   attachments    MeetingAttachment[]
   attendanceSessions MeetingAttendanceSession[]
+  schoolOSLiveKitEvents SchoolOSLiveKitEvent[]
+  schoolOSVideoUsageReview SchoolOSVideoUsageReview?
   minutes        MeetingMinutes?
   decisions      MeetingDecision[]
   actionItems    MeetingActionItem[]
@@ -8522,4 +8545,264 @@ model MeetingAuditLog {
 
   @@index([organizationId, meetingId, createdAt])
   @@index([organizationId, actorUserId, createdAt])
+}
+
+model SchoolOSQuotation {
+  id              String    @id @default(cuid())
+  quoteNo         String    @unique
+  organizationId  String?
+  clientName      String
+  clientEmail     String?
+  planCode        String
+  billingCycle    SaaSBillingCycle
+  status          String    @default("DRAFT")
+  version         Int       @default(1)
+  validUntil      DateTime
+  items           Json      @default("[]")
+  pricingSnapshot Json
+  subtotalPaise   Int
+  discountBps     Int       @default(0)
+  discountPaise   Int       @default(0)
+  taxRateBps      Int
+  taxPaise        Int
+  totalPaise      Int
+  contractDocumentId String?  @unique
+  contractedAt      DateTime?
+  contractedBy      String?
+  contractDocument  SaaSCommercialDocument? @relation(fields: [contractDocumentId], references: [id], onDelete: Restrict)
+  checkoutInvoice   SaaSInvoice?
+  createdBy       String
+  updatedBy       String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  revisions       SchoolOSQuotationRevision[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([status, createdAt])
+}
+
+model SchoolOSQuotationRevision {
+  id        String   @id @default(cuid())
+  quoteId   String
+  version   Int
+  action    String
+  actorId   String
+  snapshot  Json
+  createdAt DateTime @default(now())
+  quote     SchoolOSQuotation @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+
+  @@unique([quoteId, version])
+  @@index([quoteId, createdAt])
+}
+
+
+model SchoolOSUsageBalance {
+  id             String   @id @default(cuid())
+  organizationId String
+  metric         String
+  periodStart    DateTime
+  periodEnd      DateTime
+  grantedUnits   Int      @default(0)
+  consumedUnits  Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  events SchoolOSUsageEvent[]
+  reservations SchoolOSUsageReservation[]
+
+  @@unique([organizationId, metric, periodStart])
+  @@index([organizationId, metric, periodEnd])
+}
+
+model SchoolOSUsageEvent {
+  id              String   @id @default(cuid())
+  organizationId  String
+  balanceId       String
+  metric          String
+  kind            String
+  units           Int
+  requestKey      String
+  sourceInvoiceId String?
+  actorId         String?
+  createdAt       DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  balance SchoolOSUsageBalance @relation(fields: [balanceId], references: [id], onDelete: Restrict)
+  sourceInvoice SaaSInvoice? @relation(fields: [sourceInvoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, metric, requestKey])
+  @@index([organizationId, createdAt])
+  @@index([balanceId, kind])
+  @@index([sourceInvoiceId])
+}
+
+model SchoolOSUsageReservation {
+  id             String   @id @default(cuid())
+  organizationId String
+  balanceId      String
+  metric         String
+  requestKey     String
+  units          Int
+  status         String   @default("RESERVED")
+  actorId        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  committedAt    DateTime?
+  releasedAt     DateTime?
+  releaseReason  String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  balance SchoolOSUsageBalance @relation(fields: [balanceId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, metric, requestKey])
+  @@index([organizationId, status, createdAt])
+  @@index([balanceId, status])
+}
+
+/** Provider-signed raw webhook evidence only; never automatically bill from this table. */
+model SchoolOSLiveKitEvent {
+  id             String   @id @default(cuid())
+  providerEventId String   @unique
+  organizationId String
+  meetingId      String
+  eventType      String
+  identity       String?
+  participantSid String?
+  occurredAt     DateTime
+  rawSha256      String
+  receivedAt     DateTime @default(now())
+  organization Organization @relation(fields: [organizationId],references: [id],onDelete: Restrict)
+  meeting      Meeting @relation(fields: [meetingId],references: [id],onDelete: Restrict)
+  @@index([organizationId,meetingId,occurredAt])
+  @@index([meetingId,eventType])
+}
+
+/** Two-person evidence-locked video-minute financial review; no automatic charges. */
+model SchoolOSVideoUsageReview {
+  id             String   @id @default(cuid())
+  organizationId String
+  meetingId      String   @unique
+  status         String   @default("PENDING")
+  evidenceSha256 String
+  eventCount     Int
+  proposedMinutes Int
+  firstEventAt   DateTime
+  lastEventAt    DateTime
+  proposedBy     String
+  evidenceReference String
+  rationale      String   @db.Text
+  proposedAt     DateTime @default(now())
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  reviewComment  String?  @db.Text
+
+  organization Organization @relation(fields: [organizationId],references:[id],onDelete:Restrict)
+  meeting      Meeting      @relation(fields: [meetingId],references:[id],onDelete:Restrict)
+
+  @@index([organizationId,status,proposedAt])
+}
+
+model SchoolOSAddonRate {
+  id             String   @id @default(cuid())
+  category       String
+  code           String
+  revision       Int
+  label          String
+  description    String?  @db.Text
+  unitPricePaise Int
+  currency       String   @default("INR")
+  taxRateBps     Int
+  status         String   @default("DRAFT")
+  effectiveFrom  DateTime
+  effectiveUntil DateTime?
+  createdBy      String
+  approvedBy     String?
+  approvedAt     DateTime?
+  approvalReference String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([category, code, revision])
+  @@index([status, category, code, effectiveFrom])
+}
+
+model SchoolOSAddonLicense {
+  id             String   @id @default(cuid())
+  organizationId String
+  invoiceId      String
+  quoteId        String
+  category       String
+  code           String
+  units          Int
+  periodStart    DateTime
+  periodEnd      DateTime
+  createdAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice        SaaSInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceId, category, code])
+  @@index([organizationId, category, code, periodEnd])
+}
+
+model SchoolOSPaymentRiskHold {
+  id               String   @id @default(cuid())
+  invoiceId        String   @unique
+  organizationId   String
+  status           String   @default("ACTIVE")
+  firstEventType   String
+  latestEventType  String
+  firstEventKey    String
+  latestEventKey   String
+  revision         Int      @default(1)
+  resolvedAt       DateTime?
+  resolvedBy       String?
+  resolutionReference String?
+  openedAt         DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  invoice      SaaSInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status])
+}
+
+model SchoolOSPaymentAdjustment {
+  id                String   @id @default(cuid())
+  invoiceId         String
+  organizationId    String
+  eventType         String
+  eventKey          String   @unique
+  providerEntityId  String
+  providerPaymentId String
+  amountPaise       Int
+  currency          String
+  createdAt         DateTime @default(now())
+  invoice           SaaSInvoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([eventType, providerEntityId])
+  @@index([organizationId, createdAt])
+}
+
+model SchoolOSPaymentRiskReview {
+  id                String   @id @default(cuid())
+  invoiceId         String
+  organizationId    String
+  riskRevision      Int
+  status            String   @default("PENDING")
+  evidenceReference String
+  rationale         String   @db.Text
+  proposedBy        String
+  proposedAt        DateTime @default(now())
+  reviewedBy        String?
+  reviewedAt        DateTime?
+  reviewComment     String?  @db.Text
+
+  invoice      SaaSInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceId, riskRevision])
+  @@index([organizationId, status])
 }

@@ -60,17 +60,35 @@ function subscriptionInvoiceLines(invoice: {
   dueAt: Date | null;
   paidAt: Date | null;
   providerOrderId: string | null;
+  metadata: unknown;
   organization: { name: string; email: string };
   plan: { name: string; code: string };
 }) {
   const amount = (paise: number) => `${invoice.currency} ${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const metadata = record(invoice.metadata);
+  const isAddons = metadata.basis === "SIGNED_ANNUAL_BASE_PLUS_ADDONS";
+  const addons = isAddons && Array.isArray(metadata.addonLines)
+    ? metadata.addonLines.filter(row => row && typeof row === "object" && !Array.isArray(row))
+      .map(row => record(row))
+      .filter(row => typeof row.code === "string" && typeof row.quantity === "number" && Number.isSafeInteger(row.quantity)
+        && typeof row.unitPricePaise === "number" && Number.isSafeInteger(row.unitPricePaise))
+    : [];
+  const addonPaise = addons.reduce((sum, item) => sum + (item.quantity as number) * (item.unitPricePaise as number), 0);
+  const addonLines = addons.slice(0, 22).map(item => {
+    const code = String(item.code).slice(0, 50);
+    return `Add-on ${String(item.category).slice(0, 20)}:${code} x${item.quantity} - ${amount((item.quantity as number) * (item.unitPricePaise as number))}`;
+  });
   return [
     `Invoice: ${invoice.invoiceNo}`,
     `Customer: ${invoice.organization.name}`,
     `Customer email: ${invoice.organization.email}`,
     `Plan: ${invoice.plan.name} (${invoice.plan.code})`,
     `Period: ${invoice.periodStart.toISOString().slice(0, 10)} to ${invoice.periodEnd.toISOString().slice(0, 10)}`,
-    `Base amount: ${amount(invoice.amountPaise)}`,
+    ...(isAddons
+      ? [`Base subscription: ${amount(invoice.amountPaise - addonPaise)}`,
+        ...addonLines, `Add-ons subtotal: ${amount(addonPaise)}`,
+        `Total before tax: ${amount(invoice.amountPaise)}`]
+      : [`Base amount: ${amount(invoice.amountPaise)}`]),
     `Tax: ${amount(invoice.taxPaise)}`,
     `Total: ${amount(invoice.totalPaise)}`,
     `Status: ${invoice.status}`,

@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { AppError } from "../lib/http.js";
 import { assertApprovedLeaveAttendance, attendanceStatusForLeave } from "../lib/leave-attendance-policy.js";
+import { teacherAttendanceLeaveTargetAccess } from "../lib/coaching-academic-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
@@ -12,7 +13,7 @@ const id = z.string().cuid();
 const attendanceManagers: Role[] = [Role.SUPER_ADMIN, Role.BRANCH_ADMIN, Role.TEACHER];
 const day = (value: Date) => new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
 const overrideInput = z.object({ overrideApprovedLeave: z.boolean().optional().default(false), overrideReason: z.string().trim().max(1000).nullable().optional() }).passthrough();
-type Context = { kind: "student" | "teacher"; personId: string; date: Date; status: AttendanceStatus; entityId?: string };
+type Context = { kind: "student" | "teacher"; personId: string; date: Date; status: AttendanceStatus; entityId?: string; batchId?: string };
 type AppliedOverride = { leaveRequestId: string; kind: Context["kind"]; personId: string; date: string; approvedStatus: AttendanceStatus; newStatus: AttendanceStatus; attendanceRecordId?: string; previousStatus?: AttendanceStatus };
 const approvedLeaveOverrides = Symbol("approvedLeaveOverrides");
 type OverrideRequest = AuthRequest & { [approvedLeaveOverrides]?: AppliedOverride[] };
@@ -34,27 +35,55 @@ async function approvedLeave(context: Context) {
 }
 
 async function assertTargetScope(req: AuthRequest, context: Context) {
-  if (req.auth!.role === Role.SUPER_ADMIN) return;
   const target = context.kind === "student"
-    ? await prisma.studentProfile.findUnique({ where: { userId: context.personId }, select: { branchId: true } })
-    : await prisma.teacherProfile.findUnique({ where: { id: context.personId }, select: { branchId: true } });
-  if (!target) return;
+    ? await prisma.studentProfile.findUnique({ where: { userId: context.personId }, select: { branchId: true, organizationId: true } })
+    : await prisma.teacherProfile.findUnique({ where: { id: context.personId }, select: { branchId: true, organizationId: true } });
+  if (!target) return; // The attendance handler validates missing targets.
+  if (target.organizationId !== req.auth!.organizationId) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
+  if (req.auth!.role === Role.SUPER_ADMIN) return;
   if (req.auth!.role === Role.BRANCH_ADMIN) {
-    if (!await prisma.branchUser.findFirst({ where: { userId: req.auth!.userId, branchId: target.branchId }, select: { branchId: true } })) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
+    if (!await prisma.branchUser.findFirst({ where: { organizationId: req.auth!.organizationId, userId: req.auth!.userId, branchId: target.branchId }, select: { branchId: true } })) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
     return;
   }
-  const teacher = await prisma.teacherProfile.findUnique({ where: { userId: req.auth!.userId }, select: { branchId: true } });
-  if (!teacher || teacher.branchId !== target.branchId) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
+  const teacher = await prisma.teacherProfile.findFirst({ where: { organizationId: req.auth!.organizationId, userId: req.auth!.userId }, select: { id: true, branchId: true, organizationId: true } });
+  if (!teacher) throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
+  if (teacher.branchId === target.branchId) return;
+  // Coaching teachers may mark a student's attendance outside their home branch only
+  // when they have a currently valid teaching allocation for the *requested* batch.
+  // The attendance route still validates the student's historical enrollment in that batch.
+  if (context.kind === "student" && context.batchId) {
+    const batch = await prisma.batch.findFirst({
+      where: { id: context.batchId, organizationId: req.auth!.organizationId },
+      select: { id: true, branch: { select: { organization: { select: { groupLabelType: true } } } } },
+    });
+    if (batch?.branch.organization.groupLabelType === "BATCH") {
+      const attendanceDate = day(context.date);
+      const [allocation, timetable] = await Promise.all([
+        prisma.teacherAllocation.findFirst({
+          where: {
+            organizationId: req.auth!.organizationId, teacherId: teacher.id, batchId: batch.id, status: "ACTIVE",
+            effectiveFrom: { lte: attendanceDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: attendanceDate } }],
+          }, select: { id: true },
+        }),
+        prisma.timetable.findFirst({
+          where: { organizationId: req.auth!.organizationId, teacherId: teacher.id, batchId: batch.id, status: "ACTIVE" },
+          select: { id: true },
+        }),
+      ]);
+      if (teacherAttendanceLeaveTargetAccess("BATCH", teacher, target, Boolean(allocation || timetable))) return;
+    }
+  }
+  throw new AppError(403, "BRANCH_FORBIDDEN", "Branch access denied");
 }
 
 async function contexts(req: AuthRequest): Promise<Context[]> {
   if (req.method === "POST" && req.path === "/bulk") {
-    const body = z.object({ date: z.coerce.date(), records: z.array(z.object({ studentId: id, status: z.nativeEnum(AttendanceStatus) })) }).parse(req.body);
-    return body.records.map(record => ({ kind: "student", personId: record.studentId, date: body.date, status: record.status }));
+    const body = z.object({ batchId: id, date: z.coerce.date(), records: z.array(z.object({ studentId: id, status: z.nativeEnum(AttendanceStatus) })) }).parse(req.body);
+    return body.records.map(record => ({ kind: "student", personId: record.studentId, batchId: body.batchId, date: body.date, status: record.status }));
   }
   if (req.method === "POST" && req.path === "/") {
-    const body = z.object({ studentId: id, date: z.coerce.date(), status: z.nativeEnum(AttendanceStatus) }).parse(req.body);
-    return [{ kind: "student", personId: body.studentId, date: body.date, status: body.status }];
+    const body = z.object({ studentId: id, batchId: id, date: z.coerce.date(), status: z.nativeEnum(AttendanceStatus) }).parse(req.body);
+    return [{ kind: "student", personId: body.studentId, batchId: body.batchId, date: body.date, status: body.status }];
   }
   if (req.method === "POST" && req.path === "/teachers/records") {
     const body = z.object({ teacherId: id, date: z.coerce.date(), status: z.nativeEnum(AttendanceStatus) }).parse(req.body);
@@ -71,11 +100,11 @@ async function contexts(req: AuthRequest): Promise<Context[]> {
   }
   const studentMatch = req.path.match(/^\/([^/]+)$/);
   if (studentMatch && (req.method === "PATCH" || req.method === "DELETE")) {
-    const old = await prisma.attendance.findUnique({ where: { id: id.parse(studentMatch[1]) }, select: { id: true, studentId: true, date: true, status: true } });
+    const old = await prisma.attendance.findUnique({ where: { id: id.parse(studentMatch[1]) }, select: { id: true, studentId: true, batchId: true, date: true, status: true } });
     if (!old) return [];
     const body = req.method === "PATCH" ? z.object({ studentId: id.optional(), date: z.coerce.date().optional(), status: z.nativeEnum(AttendanceStatus).optional() }).passthrough().parse(req.body) : {};
-    const updated = { kind: "student" as const, entityId: old.id, personId: body.studentId ?? old.studentId, date: body.date ?? old.date, status: req.method === "DELETE" ? AttendanceStatus.ABSENT : body.status ?? old.status };
-    if (req.method === "PATCH" && (updated.personId !== old.studentId || day(updated.date).getTime() !== day(old.date).getTime())) return [{ kind: "student", entityId: old.id, personId: old.studentId, date: old.date, status: AttendanceStatus.ABSENT }, updated];
+    const updated = { kind: "student" as const, entityId: old.id, personId: body.studentId ?? old.studentId, batchId: old.batchId, date: body.date ?? old.date, status: req.method === "DELETE" ? AttendanceStatus.ABSENT : body.status ?? old.status };
+    if (req.method === "PATCH" && (updated.personId !== old.studentId || day(updated.date).getTime() !== day(old.date).getTime())) return [{ kind: "student", entityId: old.id, personId: old.studentId, batchId: old.batchId, date: old.date, status: AttendanceStatus.ABSENT }, updated];
     return [updated];
   }
   return [];

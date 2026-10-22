@@ -33,6 +33,20 @@ type Invoice = {
   providerOrderId: string | null;
 };
 
+type MeteredUsageBalance = { metric: string; periodStart: string; periodEnd: string; grantedUnits: number; consumedUnits: number; remainingUnits: number };
+type MeteredUsage = { balances: MeteredUsageBalance[]; meteringConnected: boolean; activationStatus: string; financeReviewRequired: boolean; riskHolds: { invoiceId: string; latestEventType: string; openedAt: string }[] };
+type RenewalReadiness = { status: string; checkoutRecommendation: string; nextRenewalAt: string | null;
+  daysUntilRenewal: number | null; financeReviewRequired: boolean; expiredCreditsCarryOver: false;
+  paymentRecovery: {status:string; invoiceNo:string|null; failedAttempts:number;
+    retryExistingOrderAllowed:boolean; financeReconciliationRequired:boolean; gracePeriodDays:number};
+  credits: { metric: string; periodStart: string; periodEnd: string; ledgerRemainingUnits: number; usableNowUnits: number; expired: boolean }[]; };
+
+type SignedQuote = {
+  id: string; quoteNo: string; status: string; planCode: string; billingCycle: string;
+  totalPaise: number; validUntil: string;
+  checkoutInvoice: { id: string; status: string; providerOrderId: string | null; dueAt: string | null } | null;
+};
+
 type Snapshot = {
   organization: {
     subscriptionPlan: string;
@@ -97,6 +111,9 @@ function loadRazorpay() {
 export default function Page() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [signedQuotes, setSignedQuotes] = useState<SignedQuote[]>([]);
+  const [meteredUsage, setMeteredUsage] = useState<MeteredUsage | null>(null);
+  const [renewal, setRenewal] = useState<RenewalReadiness | null>(null);
   const [selectedPlan, setSelectedPlan] = useState("");
   const [cycle, setCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
   const [error, setError] = useState("");
@@ -107,10 +124,16 @@ export default function Page() {
 
   const load = useCallback(async () => {
     try {
-      const [billing, activePlans] = await Promise.all([
+      const [billing, activePlans, approvedQuotes, usage, readiness] = await Promise.all([
         api("/organization/subscription"),
         api("/organization/subscription/plans"),
+        api("/organization/subscription/contracted-quotes"),
+        api("/organization/subscription/usage-credits").catch(() => null as MeteredUsage | null),
+        api("/organization/subscription/renewal-readiness").catch(() => null as RenewalReadiness | null),
       ]);
+      setSignedQuotes(approvedQuotes);
+      setMeteredUsage(usage);
+      setRenewal(readiness);
       setSnapshot(billing);
       setPlans(activePlans);
       setSelectedPlan((current) => current || billing.plan?.code || activePlans[0]?.code || "");
@@ -159,6 +182,28 @@ export default function Page() {
     } finally {
       setPaying(false);
     }
+  }
+
+  async function checkoutSignedQuote(quote: SignedQuote) {
+    setPaying(true); setError(""); setNotice("");
+    try {
+      await loadRazorpay();
+      const result = await api("/organization/subscription/contracted-checkout", {
+        method: "POST", body: JSON.stringify({ quoteId: quote.id }),
+      });
+      if (!window.Razorpay) throw new Error("Razorpay checkout is unavailable");
+      new window.Razorpay({
+        key: result.keyId, amount: result.order.amount, currency: result.order.currency,
+        order_id: result.order.id, name: quote.planCode,
+        description: `Signed SchoolOS order ${quote.quoteNo}`,
+        handler: () => {
+          setNotice("Payment submitted. The signed plan activates only after the verified payment webhook.");
+          window.setTimeout(() => void load(), 1500);
+        },
+        theme: { color: "#1d4ed8" },
+      }).open();
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setPaying(false); }
   }
 
   async function setCancellation(cancelAtPeriodEnd: boolean) {
@@ -213,6 +258,21 @@ export default function Page() {
     {notice && <p className="mt-6 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p>}
     {error && <p role="alert" className="mt-6 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
+    {renewal && <section aria-label="Contract renewal readiness" className="mt-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+      <p className="font-bold">Paid contract renewal and purchased credit expiry</p>
+      <p className="mt-1">
+        {renewal.status === "PAID_TERM_ACTIVE" && renewal.nextRenewalAt
+          ? `Existing paid period runs through ${new Date(renewal.nextRenewalAt).toLocaleDateString("en-IN")}. A second overlapping annual signed quote is blocked to prevent duplicate billing.`
+          : "No current paid term is available. A new independently signed quotation and verified payment are required."}
+      </p>
+      <p className="mt-1">Unused AI/video credits expire at the end of their paid term and do not automatically roll over to another term.</p>
+      {renewal.financeReviewRequired && <p className="mt-2 font-semibold">Finance dispute hold: purchased credit consumption is suspended pending approved reconciliation.</p>}
+      {renewal.paymentRecovery?.status === "RETRY_EXISTING_ORDER" &&
+        <p className="mt-2 font-semibold">The last payment attempt failed ({renewal.paymentRecovery.failedAttempts} recorded). Retry the same existing order from your signed quotation; no new invoice was created.</p>}
+      {renewal.paymentRecovery?.financeReconciliationRequired &&
+        <p className="mt-2 font-semibold text-amber-900">Payment reconciliation required. Contact the platform billing team before attempting a new order.</p>}
+      <p className="mt-1">Unpaid renewal grace period: disabled. No access extension or extra AI/video credits are granted by a failed payment.</p>
+    </section>}
     <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       <Stat label="Status" value={snapshot?.organization.subscriptionStatus ?? "—"} icon={<CreditCard size={18}/>} />
       <Stat label="Plan" value={snapshot?.plan?.name ?? snapshot?.organization.subscriptionPlan ?? "—"} icon={<ReceiptText size={18}/>} />
@@ -277,6 +337,47 @@ export default function Page() {
         </button>
       </div>}
     </section>
+
+    {signedQuotes.length > 0 && <section className="card mt-6 overflow-hidden">
+      <div className="border-b p-5">
+        <h2 className="text-xl font-bold">Your signed SchoolOS quotations</h2>
+        <p className="mt-1 text-sm text-slate-500">Signed annual contracts may include independently approved add-ons. The signed total cannot be modified during checkout.</p>
+      </div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm">
+        <thead><tr><th className="p-3">Signed order</th><th className="p-3">Annual plan</th><th className="p-3">Total incl. tax</th><th className="p-3">Status</th><th className="p-3">Payment</th></tr></thead>
+        <tbody>{signedQuotes.map(quote => <tr key={quote.id} className="border-t">
+          <td className="p-3">{quote.quoteNo}</td><td className="p-3">{quote.planCode}</td>
+          <td className="p-3">{money(quote.totalPaise)}</td><td className="p-3">{quote.status}</td>
+          <td className="p-3">{quote.status === "PAID" ? "Captured and recorded" :
+            <button onClick={() => void checkoutSignedQuote(quote)} disabled={paying || (quote.status === "CONTRACTED" && new Date(quote.validUntil).getTime() <= Date.now()) ||
+              (quote.checkoutInvoice?.status === "OPEN" && !quote.checkoutInvoice.providerOrderId)}
+              className="rounded-lg bg-brand-700 px-3 py-2 font-semibold text-white disabled:opacity-50">
+              {paying ? "Preparing…" : quote.checkoutInvoice?.providerOrderId ? "Resume payment" : "Pay signed order"}
+            </button>}</td>
+        </tr>)}</tbody>
+      </table></div>
+      <p className="border-t p-4 text-xs text-slate-500">Approved, signed and fully priced module, capacity, AI-credit and video-minute add-ons can be purchased with an eligible annual quotation. Custom work, discounts and unreconciled prices remain blocked.</p>
+    </section>}
+
+    {meteredUsage?.financeReviewRequired && <div role="alert" className="mt-6 rounded-xl border border-amber-400 bg-amber-50 p-4 text-sm text-amber-950">
+      <p className="font-bold">Payment reconciliation required</p>
+      <p>Refund or payment dispute evidence was received. Purchased add-on entitlements and AI/video consumption may be suspended until platform finance verification. Contact support with the relevant subscription invoice.</p>
+    </div>}
+    {meteredUsage && <section className="card mt-6 overflow-hidden">
+      <div className="border-b p-5"><h2 className="text-xl font-bold">AI & Video Usage Credits</h2>
+        <p className="mt-1 text-sm text-slate-500">Prepaid usage ledger. This preview is not yet connected to AI Examiner or live-class streaming, and does not reflect total provider usage.</p>
+      </div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm">
+        <thead><tr><th className="p-3">Service</th><th className="p-3">Valid through</th><th className="p-3">Purchased</th><th className="p-3">Consumed</th><th className="p-3">Remaining</th></tr></thead>
+        <tbody>{meteredUsage.balances.map((balance, index) => <tr key={index} className="border-t">
+          <td className="p-3">{balance.metric.replaceAll("_", " ")}</td><td className="p-3">{new Date(balance.periodEnd).toLocaleDateString("en-IN")}</td>
+          <td className="p-3">{balance.grantedUnits}</td><td className="p-3">{balance.consumedUnits}</td>
+          <td className="p-3 font-semibold">{renewal?.credits.find(c => c.metric === balance.metric && c.periodStart === balance.periodStart)?.usableNowUnits ?? balance.remainingUnits}
+          {renewal?.credits.find(c => c.metric === balance.metric && c.periodStart === balance.periodStart)?.expired && <span className="ml-2 text-xs text-red-700">(expired)</span>}</td>
+        </tr>)}</tbody>
+      </table></div>
+      {!meteredUsage.balances.length && <p className="p-4 text-sm text-slate-500">No purchased metered add-on credits are currently recorded.</p>}
+    </section>}
 
     <section className="card mt-6 overflow-hidden">
       <div className="border-b p-5"><h2 className="text-xl font-bold">Invoices</h2><p className="mt-1 text-sm text-slate-500">Subscription invoices and payment status.</p></div>

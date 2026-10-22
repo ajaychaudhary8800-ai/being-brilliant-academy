@@ -77,3 +77,40 @@ test("terminal transitions do not require a destination and route reuses the gua
   assert.doesNotMatch(source, /Promise\.all\(.*transitionStudentAcademicPlacement/s);
   assert.match(source, /transitionStudentAcademicPlacement\(prisma/);
 });
+
+test("bulk coaching promotions carry each student's individual target grade", async () => {
+  const first = student("grade5"), second = student("grade7");
+  const seen: Array<{ studentId: string; coachingGrade: number | undefined }> = [];
+  const result = await processBulkAcademicTransitions({
+    items: [item(first, { coachingGrade: 5 }), item(second, { coachingGrade: 7 })],
+  }, async row => {
+    seen.push({ studentId: row.studentId, coachingGrade: row.coachingGrade });
+    return transition(row.studentId);
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(seen, [
+    { studentId: first, coachingGrade: 5 },
+    { studentId: second, coachingGrade: 7 },
+  ]);
+  const source = readFileSync(fileURLToPath(new URL("../routes/admin-students.ts", import.meta.url)), "utf8");
+  assert.match(source, /coachingGrade: item\.coachingGrade/);
+});
+
+test("bulk coaching level validates Grades 1-12 without mutating invalid rows", async () => {
+  const seen: number[] = [];
+  const result = await processBulkAcademicTransitions({
+    items: [
+      item(student("grade-low"), { coachingGrade: 0 }),
+      item(student("grade-high"), { coachingGrade: 13 }),
+      item(student("grade-decimal"), { coachingGrade: 6.5 }),
+      item(student("grade6"), { coachingGrade: 6 }),
+    ],
+  }, async row => {
+    if (row.coachingGrade !== undefined) seen.push(row.coachingGrade);
+    return transition(row.studentId);
+  });
+  assert.equal(result.status, 207);
+  assert.equal(result.data.failed, 3);
+  assert.equal(result.data.succeeded, 1);
+  assert.deepEqual(seen, [6]);
+});

@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { AppError } from "../lib/http.js";
+import { isCoaching } from "../lib/coaching-academic-policy.js";
 import { logger } from "../lib/logger.js";
 import { prisma } from "../lib/prisma.js";
 import { deleteObject } from "../lib/storage.js";
@@ -13,6 +14,7 @@ import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { assertCanChangeUserRole, managedUserBranchIds } from "../lib/user-administration-policy.js";
 import { issueAccountSetup } from "../lib/account-setup.js";
 import { branchCodeConflict, isBranchCodeConflict } from "../lib/branch-uniqueness.js";
+import { retrySerializableWrite } from "../lib/serializable-retry.js";
 
 const router = Router();
 router.use(requireAuth, allow(Role.SUPER_ADMIN, Role.BRANCH_ADMIN));
@@ -187,7 +189,7 @@ router.post("/branches", async (req: AuthRequest, res) => {
   }
   const passwordHash = existingManager ? null : await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12);
   try {
-    const provisioned = await prisma.$transaction(async tx => {
+    const provisioned = await retrySerializableWrite(() => prisma.$transaction(async tx => {
       const created = await tx.branch.create({
         data: { ...branchData, organizationId: req.auth!.organizationId, isActive: branchData.isActive ?? true },
         select: { id: true },
@@ -215,7 +217,7 @@ router.post("/branches", async (req: AuthRequest, res) => {
         data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "BRANCH_CREATED", entity: "Branch", entityId: created.id, metadata: { managerUserId: manager.id, managerEmail } },
       });
       return { branchId: created.id, manager };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { conflictCode: "BRANCH_PROVISIONING_CONFLICT" });
     let setup: unknown = existingManager ? { skipped: true, reason: "EXISTING_MANAGER_ACCOUNT" } : null;
     if (!existingManager) {
       try {
@@ -381,6 +383,17 @@ router.get("/teachers", async (req: AuthRequest, res) => {
   const orderBy = query.sortBy === "name" ? { user: { name: query.sortOrder } } : { [query.sortBy]: query.sortOrder };
   const [total, data] = await prisma.$transaction([prisma.teacherProfile.count({ where }), prisma.teacherProfile.findMany({ where, skip: (query.page - 1) * query.limit, take: query.limit, orderBy, select: teacherSelect })]);
   res.json({ data: data.map(teacherWithLegacyBranch), meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
+});
+router.get("/teachers/assignable", async (req: AuthRequest, res) => {
+  const { branchId } = z.object({ branchId: z.string().cuid() }).parse(req.query);
+  await requireValidTeacherBranch(req, branchId);
+  const org = await prisma.organization.findUnique({ where: { id: req.auth!.organizationId }, select: { groupLabelType: true } });
+  const data = await prisma.teacherProfile.findMany({
+    where: { organizationId: req.auth!.organizationId, user: { isActive: true, role: Role.TEACHER }, ...(!isCoaching(org?.groupLabelType) ? { branchId } : {}) },
+    select: { id: true, employeeNo: true, branchId: true, user: { select: { name: true } } },
+    orderBy: { user: { name: "asc" } }, take: 500,
+  });
+  res.json({ data });
 });
 router.get("/teachers/:id", async (req: AuthRequest, res) => { const data = await prisma.teacherProfile.findUnique({ where: { id: String(req.params.id) }, select: teacherSelect }); if (!data) throw new AppError(404, "TEACHER_NOT_FOUND", "Teacher not found"); await requireBranchAccess(req, data.branch.id); res.json({ data: teacherWithLegacyBranch(data) }); });
 router.post("/teachers", async (req: AuthRequest, res) => {

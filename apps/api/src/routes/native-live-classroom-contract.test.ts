@@ -54,3 +54,25 @@ test("attendance close is idempotent for explicit leave and browser-exit retries
   const source = await readFile(route, "utf8");
   assert.match(source, /if \(row\.leftAt\) return res\.json\(\{ data: row \}\)/);
 });
+
+test("paid-video tenants cannot bypass Meetings quota through native LMS tokens or attendance",async()=>{
+ const source=await readFile(route,"utf8");
+ const policy=await readFile(new URL("../lib/schoolos-video-admission.ts",import.meta.url),"utf8");
+ const session=source.slice(source.indexOf('router.post("/learning/live-classes/native/:room/session"'),
+   source.indexOf('router.post("/learning/live-classes/native/:room/control"'));
+ const join=source.slice(source.indexOf('router.post("/learning/live-classes/:id/join"'),
+   source.indexOf('router.post("/learning/live-classes/:id/leave"'));
+ assert.match(policy,/export function assertSchoolOSNativeLiveClassAdmissionAllowed/);
+ assert.match(policy,/schoolOSVideoAdmissionEnabled\(organizationId\)/);
+ assert.match(policy,/SCHOOLOS_VIDEO_NATIVE_CLASS_UNMETERED/);
+ assert.match(session,/assertSchoolOSNativeLiveClassAdmissionAllowed\(req\.auth!\.organizationId\)/);
+ assert.ok(session.indexOf("assertSchoolOSNativeLiveClassAdmissionAllowed")<session.indexOf("createLiveKitToken("));
+ assert.match(join,/live\.provider === LiveClassProvider\.NATIVE/);
+ assert.match(join,/assertSchoolOSNativeLiveClassAdmissionAllowed\(req\.auth!\.organizationId\)/);
+ assert.ok(join.indexOf("assertSchoolOSNativeLiveClassAdmissionAllowed")<join.indexOf("liveClassAttendance.upsert"));
+ const recording=source.slice(source.indexOf('router.post("/learning/live-classes/native/:room/recording/start"'),
+   source.indexOf('router.post("/learning/live-classes/native/:room/recording/stop"'));
+ assert.ok(recording.indexOf("assertSchoolOSNativeLiveClassAdmissionAllowed")<
+   recording.indexOf('livekitEgress("StartEgress"'),
+   "Unmetered paid-provider recording creation must fail before remote Egress");
+});

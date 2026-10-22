@@ -38,6 +38,8 @@ const schema = z.object({
   AI_EXAMINER_REVIEW_THRESHOLD: z.coerce.number().min(0.5).max(1).default(0.85),
   AI_EXAMINER_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(120_000),
   AI_EXAMINER_WORKER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(60_000).default(5_000),
+  // Stage 7E2: disabled unless operator explicitly allowlists exact tenant IDs.
+  SCHOOLOS_AI_METERING_TENANT_IDS: optionalString,
   AI_EXAMINER_SECOND_PASS_PROVIDER_URL: optionalUrl,
   AI_EXAMINER_SECOND_PASS_API_KEY: optionalString,
   AI_EXAMINER_SECOND_PASS_MODEL: optionalString,
@@ -49,6 +51,17 @@ const schema = z.object({
   LIVEKIT_URL: optionalUrl,
   LIVEKIT_API_KEY: optionalString,
   LIVEKIT_API_SECRET: optionalString,
+  SCHOOLOS_VIDEO_WEBHOOK_ENABLED: z.string().default("false").transform(value=>value==="true"),
+  SCHOOLOS_VIDEO_EVIDENCE_TENANT_IDS: optionalString,
+  // Extra, disabled by default, finance approval gate for settled video credit debits.
+  SCHOOLOS_VIDEO_SETTLEMENT_ENABLED: z.string().default("false").transform(value=>value==="true"),
+  SCHOOLOS_VIDEO_SETTLEMENT_TENANT_IDS: optionalString,
+  // Stage 7F3: never hold prepaid video allowance without separate explicit activation.
+  SCHOOLOS_VIDEO_ADMISSION_ENABLED: z.string().default("false").transform(value=>value==="true"),
+  SCHOOLOS_VIDEO_ADMISSION_TENANT_IDS: optionalString,
+  // Additional disabled finance gate: only independently verified zero-usage holds.
+  SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED: z.string().default("false").transform(value=>value==="true"),
+  SCHOOLOS_VIDEO_ZERO_RELEASE_TENANT_IDS: optionalString,
   LIVEKIT_RECORDING_PREFIX: z.string().default("live-class-recordings"),
   LIVEKIT_RECORDING_S3_REGION: optionalString,
   LIVEKIT_RECORDING_S3_BUCKET: optionalString,

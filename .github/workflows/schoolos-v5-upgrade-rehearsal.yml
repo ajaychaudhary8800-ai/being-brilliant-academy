@@ -1,0 +1,74 @@
+name: SchoolOS V5 Isolated V4 Upgrade Rehearsal
+
+on:
+  pull_request:
+    paths:
+      - "apps/api/prisma/**"
+      - "apps/api/src/**"
+      - "config/schoolos-v5-release-gates.json"
+      - "docs/SCHOOLOS_V5_AUTOMATED_QA_RUNBOOK.md"
+      - "scripts/schoolos-v5-upgrade-rehearsal.sh"
+      - ".github/workflows/schoolos-v5-upgrade-rehearsal.yml"
+  workflow_dispatch:
+
+permissions: { contents: read }
+concurrency:
+  group: "v5-upgrade-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  synthetic-upgrade-and-restore:
+    name: Synthetic V4 backup to V5 upgrade + restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/schoolos-v5-') || startsWith(github.head_ref, 'release-candidate/schoolos-v5-')
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      NODE_ENV: test
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+      SCHOOLOS_V4_BASE_SHA: 50dfdeb4f99c5cdbaf1d5a9502c709fbbf2798f6
+      SCHOOLOS_RC_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "${{ github.event.pull_request.head.sha || github.sha }}"
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - name: Install isolated Prisma migration dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify local PostgreSQL and frozen V4 baseline
+        run: |
+          pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"
+          git cat-file -e "${SCHOOLOS_V4_BASE_SHA}^{commit}"
+          test "$(git rev-parse "$SCHOOLOS_V4_BASE_SHA")" = "$SCHOOLOS_V4_BASE_SHA"
+          test "$(git rev-parse HEAD)" = "$SCHOOLOS_RC_SHA"
+      - name: Execute synthetic V4-to-V5 migration and two verified restores
+        run: bash scripts/schoolos-v5-upgrade-rehearsal.sh
+      - name: Upload synthetic upgrade acceptance evidence (NOT production signoff)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schoolos-v5-v4-upgrade-synthetic-${{ github.run_id }}
+          path: artifacts/v5-upgrade-rehearsal/result.json
+          if-no-files-found: warn
+          retention-days: 30

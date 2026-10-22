@@ -21,6 +21,7 @@ import { executeActiveAutomations } from "./lib/automation-executor.js";
 import { processQueuedAIExaminerEvaluations } from "./lib/ai-examiner-worker.js";
 import { processAIExaminerCheckedCopyRetries } from "./lib/ai-examiner-checked-copy-retry-worker.js";
 import { processDueDeviceRetries } from "./lib/device-hub-retry-worker.js";
+import { closeExpiredSchoolOSPrepaidVideoRooms } from "./lib/schoolos-video-expiry-worker.js";
 import { onlyPaths } from "./lib/scoped-router.js";
 import auth from "./routes/auth.js";
 import courses from "./routes/courses.js";
@@ -87,6 +88,17 @@ import teacherPhotos from "./routes/teacher-photos.js";
 import imageUploads from "./routes/image-uploads.js";
 import publicBranding from "./routes/public-branding.js";
 import saasCommercial from "./routes/saas-commercial.js";
+import schoolOSFeatures from "./routes/schoolos-features.js";
+import schoolOSQuotations from "./routes/schoolos-quotations.js";
+import schoolOSPricing from "./routes/schoolos-pricing.js";
+import schoolOSContracts from "./routes/schoolos-contracts.js";
+import schoolOSContractCheckout from "./routes/schoolos-contract-checkout.js";
+import schoolOSUsage from "./routes/schoolos-usage.js";
+import schoolOSAIReconciliation from "./routes/schoolos-ai-reconciliation.js";
+import schoolOSLiveKitEvidence from "./routes/schoolos-livekit-evidence.js";
+import schoolOSAddonRates from "./routes/schoolos-addon-rates.js";
+import schoolOSPaymentRiskReview from "./routes/schoolos-payment-risk-review.js";
+import schoolOSRenewals from "./routes/schoolos-renewals.js";
 import saasSales from "./routes/saas-sales.js";
 import legalSalesDocuments from "./routes/legal-sales-documents.js";
 import commercialDocumentVault from "./routes/commercial-document-vault.js";
@@ -185,6 +197,7 @@ app.use(
 );
 app.use("/api/v1/payments/razorpay/webhook", express.raw({ type: "application/json" }));
 app.use("/api/v1/institution-payments/razorpay/webhook/:gatewayId", express.raw({ type: "application/json" }));
+app.use("/api/v1/platform/schoolos/livekit/webhook",express.raw({type:"application/webhook+json",limit:"64kb"}));
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
@@ -218,13 +231,15 @@ async function dependencyChecks() {
   return checks;
 }
 
-const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation" | "aiExaminer" | "meetingReminders" | "deviceHub", WorkerHeartbeat> = {
+let schoolOSVideoResidualWorkObserved = false;
+const workerHeartbeats: Record<"notificationDelivery" | "saasLifecycle" | "workflowAutomation" | "aiExaminer" | "meetingReminders" | "deviceHub" | "videoQuota", WorkerHeartbeat> = {
   notificationDelivery: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   saasLifecycle: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   workflowAutomation: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   aiExaminer: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   meetingReminders: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
   deviceHub: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
+  videoQuota: { lastSuccessAt: null, lastFailureAt: null, lastError: null },
 };
 
 function workerSnapshot(name: keyof typeof workerHeartbeats, maxAgeMs: number, now = new Date()) {
@@ -246,6 +261,7 @@ app.get("/health/operational", async (_req, res) => {
     aiExaminer: workerSnapshot("aiExaminer", Math.max(60_000, env.AI_EXAMINER_WORKER_INTERVAL_MS * 12)),
     meetingReminders: workerSnapshot("meetingReminders", 15 * 60_000),
     deviceHub: workerSnapshot("deviceHub", Math.max(60_000, env.DEVICE_HUB_WORKER_INTERVAL_MS * 6)),
+    ...(env.SCHOOLOS_VIDEO_ADMISSION_ENABLED || schoolOSVideoResidualWorkObserved ? { videoQuota: workerSnapshot("videoQuota", 2 * 60_000) } : {}),
   };
   const healthy = Object.values(checks).every(Boolean) && Object.values(workers).every(worker => worker.healthy);
   res.status(healthy ? 200 : 503).json({
@@ -326,6 +342,17 @@ app.use("/api/v1", onlyPaths(["/finance/payments", "/finance/payment-offsets"], 
 
 app.use("/api/v1", onlyPaths(["/platform", "/organization"], organizations));
 app.use("/api/v1", onlyPaths(["/platform/saas", "/organization/entitlements", "/organization/subscription"], saasCommercial));
+app.use("/api/v1", onlyPaths(["/platform/schoolos"], schoolOSFeatures));
+app.use("/api/v1", onlyPaths(["/platform/schoolos/quotes"], schoolOSQuotations));
+app.use("/api/v1", onlyPaths(["/platform/schoolos/pricing"], schoolOSPricing));
+app.use("/api/v1", onlyPaths(["/platform/schoolos/contracts"], schoolOSContracts));
+app.use("/api/v1", onlyPaths(["/organization/subscription/contracted-checkout", "/organization/subscription/contracted-quotes"], schoolOSContractCheckout));
+app.use("/api/v1", onlyPaths(["/organization/subscription/usage-credits", "/platform/schoolos/usage"], schoolOSUsage));
+app.use("/api/v1", onlyPaths(["/platform/schoolos/ai-reconciliation"], schoolOSAIReconciliation));
+app.use("/api/v1",onlyPaths(["/platform/schoolos/livekit/webhook","/platform/schoolos/video-evidence","/platform/schoolos/video-reviews","/platform/schoolos/video-zero-release"],schoolOSLiveKitEvidence));
+app.use("/api/v1", onlyPaths(["/platform/schoolos/addon-rates"], schoolOSAddonRates));
+app.use("/api/v1", onlyPaths(["/platform/schoolos/payment-risk"], schoolOSPaymentRiskReview));
+app.use("/api/v1", onlyPaths(["/organization/subscription/renewal-readiness", "/platform/schoolos/renewals"], schoolOSRenewals));
 app.use("/api/v1", institutionPayments);
 app.use("/api/v1", onlyPaths(["/analytics"], analytics));
 app.use("/api/v1", onlyPaths(["/automations"], automation));
@@ -453,6 +480,36 @@ void runMeetingReminderWorker();
 const meetingReminderWorker = setInterval(() => void runMeetingReminderWorker(), 5 * 60_000);
 meetingReminderWorker.unref();
 
+let schoolOSVideoWorkerRunning = false;
+const runSchoolOSVideoWorker = async () => {
+  if (schoolOSVideoWorkerRunning) return;
+  schoolOSVideoWorkerRunning = true;
+  // Outstanding paid holds remain enforceable even after new admissions are disabled.
+  const finishMetric = startWorkerRun("schoolos_video_quota");
+  try {
+    const result = await closeExpiredSchoolOSPrepaidVideoRooms(new Date(), 50);
+    // Surface provider failures in operational health while disabled rooms remain outstanding.
+    schoolOSVideoResidualWorkObserved = result.processed > 0;
+    workerHeartbeats.videoQuota = { lastSuccessAt: new Date(),
+      lastFailureAt: result.failed ? new Date() : workerHeartbeats.videoQuota.lastFailureAt,
+      lastError: result.failed ? "PROVIDER_ROOM_DISCONNECT_FAILED" : null };
+    finishMetric(result.failed ? "failure" : "success");
+    if (result.closed || result.failed)
+      logger.info({closed:result.closed,failed:result.failed},
+        "SchoolOS prepaid video room budget enforcement");
+  } catch (error) {
+    workerHeartbeats.videoQuota = {
+      lastSuccessAt: workerHeartbeats.videoQuota.lastSuccessAt,
+      lastFailureAt: new Date(),
+      lastError: error instanceof Error ? error.message.slice(0, 500) : "Video quota worker failed" };
+    finishMetric("failure");
+    logger.error({err:error},"SchoolOS prepaid video quota worker failed");
+  } finally { schoolOSVideoWorkerRunning = false; }
+};
+void runSchoolOSVideoWorker();
+const schoolOSVideoWorker = setInterval(() => void runSchoolOSVideoWorker(), 30_000);
+schoolOSVideoWorker.unref();
+
 let analyticsReportWorkerRunning = false;
 const runAnalyticsReportWorker = async () => {
   if (analyticsReportWorkerRunning) return;
@@ -574,6 +631,7 @@ async function shutdown(signal: string) {
   clearInterval(aiExaminerWorker);
   clearInterval(deviceHubWorker);
   clearInterval(meetingReminderWorker);
+  clearInterval(schoolOSVideoWorker);
   server.close(async () => {
     await Promise.allSettled([systemPrisma.$disconnect(), redis?.quit() ?? Promise.resolve()]);
     process.exit(0);

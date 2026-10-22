@@ -10,6 +10,14 @@ jobs:
     outputs: { version: "${{ steps.meta.outputs.version }}" }
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Enforce SchoolOS V5 production release approval before publishing any image
+        run: |
+          # A v5.* tag MUST NOT bypass approval by omitting the release
+          # manifest. V4 tags without V5 metadata retain legacy behavior.
+          if [[ "${GITHUB_REF:-}" == refs/tags/v5.* ]] || [ -f config/schoolos-v5-release-gates.json ]; then
+            node scripts/check-schoolos-v5-promotion.mjs --target=production
+          fi
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }

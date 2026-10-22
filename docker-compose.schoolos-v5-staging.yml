@@ -1,0 +1,142 @@
+# Adhyay SchoolOS V5 isolated staging only. Do not point V4 production at this file.
+# Backup AWS credentials are supplied by a backup-only read-only host-file mount.
+# See docs/schoolos-v5-backup-credential-isolation.md before selecting this file in Coolify.
+name: ${BBA_COMPOSE_PROJECT_NAME:-bba-production}
+x-logging: &default-logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+x-api-build: &api-build
+  context: .
+  dockerfile: apps/api/Dockerfile
+x-api-env: &api-env
+  NODE_ENV: production
+  PORT: 4000
+  DATABASE_URL: ${DATABASE_URL}
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  REDIS_REQUIRED: "true"
+  WEB_URL: https://${APP_DOMAIN}
+  CORS_ORIGINS: "https://${APP_DOMAIN},https://www.${APP_DOMAIN}"
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+  METRICS_TOKEN: ${METRICS_TOKEN:-}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-250}
+  AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
+  AI_PROVIDER_URL: ${AI_PROVIDER_URL:-}
+  AI_API_KEY: ${AI_API_KEY:-}
+  AI_MODEL: ${AI_MODEL:-learning-assistant}
+  LIVEKIT_URL: ${LIVEKIT_URL:-}
+  LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+  LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+  LIVEKIT_RECORDING_PREFIX: ${LIVEKIT_RECORDING_PREFIX:-live-class-recordings}
+  LIVEKIT_RECORDING_S3_REGION: ${LIVEKIT_RECORDING_S3_REGION:-}
+  LIVEKIT_RECORDING_S3_BUCKET: ${LIVEKIT_RECORDING_S3_BUCKET:-}
+  LIVEKIT_RECORDING_S3_ENDPOINT: ${LIVEKIT_RECORDING_S3_ENDPOINT:-}
+  LIVEKIT_RECORDING_S3_ACCESS_KEY_ID: ${LIVEKIT_RECORDING_S3_ACCESS_KEY_ID:-}
+  LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY: ${LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY:-}
+  STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+  LOCAL_STORAGE_PATH: /data/storage
+  AWS_REGION: ${AWS_REGION:-}
+  AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+  AWS_S3_ENDPOINT: ${AWS_S3_ENDPOINT:-}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_SECURE: ${SMTP_SECURE:-false}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  EMAIL_FROM: ${EMAIL_FROM:-}
+  TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+  TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+  TWILIO_SMS_FROM: ${TWILIO_SMS_FROM:-}
+  WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+  WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+  WHATSAPP_API_VERSION: ${WHATSAPP_API_VERSION:-v23.0}
+  WEB_PUSH_PUBLIC_KEY: ${WEB_PUSH_PUBLIC_KEY:-}
+  WEB_PUSH_PRIVATE_KEY: ${WEB_PUSH_PRIVATE_KEY:-}
+  WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-mailto:admin@beingbrilliant.in}
+  RAZORPAY_MODE: ${RAZORPAY_MODE:-test}
+  RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+  RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+  RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+  PAYMENT_CREDENTIAL_ENCRYPTION_KEY: ${PAYMENT_CREDENTIAL_ENCRYPTION_KEY:-}
+  COMMERCIAL_DOCUMENT_ENCRYPTION_KEY: ${COMMERCIAL_DOCUMENT_ENCRYPTION_KEY:-}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment: { POSTGRES_DB: "${POSTGRES_DB:-bba}", POSTGRES_USER: "${POSTGRES_USER:-bba}", POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}" }
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bba} -d ${POSTGRES_DB:-bba}"], interval: 10s, timeout: 5s, retries: 10 }
+    networks: [backend]
+    logging: *default-logging
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment: { REDIS_PASSWORD: "${REDIS_PASSWORD}" }
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes: [redis_data:/data]
+    healthcheck: { test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"], interval: 10s, timeout: 5s, retries: 10 }
+    networks: [backend]
+    logging: *default-logging
+  migrate:
+    image: ${API_IMAGE:-bba-api:local}
+    build: *api-build
+    command: ["node", "scripts/prisma-run.mjs", "migrate", "deploy"]
+    environment: *api-env
+    depends_on: { postgres: { condition: service_healthy } }
+    networks: [backend]
+    restart: "no"
+  api:
+    image: ${API_IMAGE:-bba-api:local}
+    build: *api-build
+    restart: unless-stopped
+    environment: *api-env
+    volumes: [app_storage:/data/storage]
+    depends_on: { migrate: { condition: service_completed_successfully }, redis: { condition: service_healthy } }
+    expose: ["4000"]
+    networks: [backend, frontend]
+    deploy: { resources: { limits: { cpus: "2.0", memory: 2G }, reservations: { memory: 256M } } }
+    logging: *default-logging
+  web:
+    image: ${WEB_IMAGE:-bba-web:local}
+    build: { context: ., dockerfile: apps/web/Dockerfile, args: { NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-/api/v1}" } }
+    restart: unless-stopped
+    environment: { NODE_ENV: production, PORT: 3000, HOSTNAME: 0.0.0.0, INTERNAL_API_URL: http://api:4000/api/v1, INTERNAL_API_ORIGIN: http://api:4000, LEGAL_PAGES_PUBLISHED: "${LEGAL_PAGES_PUBLISHED:-false}", LEGAL_EFFECTIVE_DATE: "${LEGAL_EFFECTIVE_DATE:-}" }
+    expose: ["3000"]
+    networks: [frontend]
+    depends_on: { api: { condition: service_healthy } }
+    deploy: { resources: { limits: { cpus: "1.0", memory: 1G }, reservations: { memory: 128M } } }
+    logging: *default-logging
+  nginx:
+    build:
+      context: ./infra/nginx
+    restart: unless-stopped
+    expose: ["80"]
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/health/nginx"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [frontend]
+    logging: *default-logging
+  backup:
+    build: { context: ./infra/backup }
+    restart: unless-stopped
+    init: true
+    environment: { DATABASE_URL: "${DATABASE_URL}", BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}", BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-14}", BACKUP_MAX_AGE_SECONDS: "${BACKUP_MAX_AGE_SECONDS:-108000}", AWS_S3_BUCKET: "${BACKUP_S3_BUCKET:-}", AWS_ENDPOINT_URL: "${AWS_S3_ENDPOINT:-}", AWS_REGION: "${AWS_REGION:-}", AWS_SHARED_CREDENTIALS_FILE: "/run/secrets/schoolos-v5-r2-credentials" }
+    volumes: [backups:/backups, app_storage:/data/storage, /etc/schoolos/v5-staging/r2-aws-credentials:/run/secrets/schoolos-v5-r2-credentials:ro]
+    healthcheck: { test: ["CMD", "/usr/local/bin/healthcheck.sh"], interval: 30m, timeout: 10s, retries: 2 }
+    depends_on: { postgres: { condition: service_healthy } }
+    networks: [backend, backup_egress]
+    logging: *default-logging
+
+networks: { frontend: {}, backend: { internal: true }, backup_egress: {} }
+volumes: { postgres_data: {}, redis_data: {}, app_storage: {}, backups: {} }

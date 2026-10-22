@@ -148,7 +148,8 @@ export async function livekitRoomService(method: string, body: Record<string, un
   const token = createLiveKitToken({
     identity: "bba-server",
     room,
-    grant: { roomAdmin: true, room },
+    grant: { roomAdmin: true, room, ...(method === "DeleteRoom" ? { roomCreate: true } : {}),
+      ...(method === "ListRooms" ? { roomList: true } : {}) },
     ttlSeconds: 300,
   });
   const response = await fetch(`${livekitHttpUrl()}/twirp/livekit.RoomService/${method}`, {
@@ -158,6 +159,7 @@ export async function livekitRoomService(method: string, body: Record<string, un
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
   });
   const value = await response.json().catch(() => null);
   if (!response.ok) {
