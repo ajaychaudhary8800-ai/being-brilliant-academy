@@ -58,8 +58,6 @@ x-api-env: &api-env
   WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-mailto:admin@beingbrilliant.in}
   RAZORPAY_MODE: ${RAZORPAY_MODE:-test}
   RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
-  RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
-  RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
   PAYMENT_CREDENTIAL_ENCRYPTION_KEY: ${PAYMENT_CREDENTIAL_ENCRYPTION_KEY:-}
   COMMERCIAL_DOCUMENT_ENCRYPTION_KEY: ${COMMERCIAL_DOCUMENT_ENCRYPTION_KEY:-}
 
@@ -93,8 +91,14 @@ services:
     image: ${API_IMAGE:-bba-api:local}
     build: *api-build
     restart: unless-stopped
-    environment: *api-env
-    volumes: [app_storage:/data/storage]
+    environment:
+      <<: *api-env
+      SCHOOLOS_V5_RAZORPAY_ENV_FILE: /run/secrets/schoolos-v5-razorpay-api.env
+    # An API-only read-only bind mount avoids Coolify's later, shared .env overrides.
+    # Entrypoint reads this as root and exports values solely to the API process.
+    volumes:
+      - app_storage:/data/storage
+      - /etc/schoolos/v5-staging/razorpay-v5-api.env:/run/secrets/schoolos-v5-razorpay-api.env:ro
     depends_on: { migrate: { condition: service_completed_successfully }, redis: { condition: service_healthy } }
     expose: ["4000"]
     networks: [backend, frontend]
