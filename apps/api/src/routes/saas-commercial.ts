@@ -243,6 +243,25 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
   if (!organization || organization.deletedAt) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
   if (!plan) throw new AppError(404, "SAAS_PLAN_NOT_FOUND", "SaaS plan not found");
 
+  // Existing paid subscriptions may retain unchanged terms for entitlement
+  // controls, but platform settings must never mint or extend a paid period.
+  // Only HMAC-verified capture of a signed contract can perform activation.
+  if (data.status === OrganizationSubscriptionStatus.ACTIVE) {
+    const current = await systemPrisma.saaSSubscription.findUnique({ where: { organizationId } });
+    const sameDate = (a: Date | null | undefined, b: Date | null | undefined) =>
+      (a?.toISOString().slice(0, 10) ?? null) === (b?.toISOString().slice(0, 10) ?? null);
+    if (
+      organization.subscriptionStatus !== OrganizationSubscriptionStatus.ACTIVE ||
+      organization.subscriptionPlan !== plan.code ||
+      current?.status !== OrganizationSubscriptionStatus.ACTIVE ||
+      !sameDate(data.currentPeriodStart, current?.currentPeriodStart) ||
+      !sameDate(data.currentPeriodEnd, current?.currentPeriodEnd)
+    ) {
+      throw new AppError(409, "SCHOOLOS_SIGNED_PAYMENT_REQUIRED",
+        "Paid subscription activation, plan upgrades and term changes require verified signed-order payment.");
+    }
+  }
+
   const settings = record(organization.settings);
   const commercialEntitlements = {
     ...record(settings.commercialEntitlements),
