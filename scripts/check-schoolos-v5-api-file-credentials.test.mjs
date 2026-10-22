@@ -31,10 +31,20 @@ test("V5 Razorpay protected credentials are attached to api alone, never migrate
     .filter(([, section]) => section.includes(hostFile))
     .map(([name]) => name);
   assert.deepEqual(exposed, ["api"]);
-  assert.match(sections.api, /environment: \*api-env/);
-  assert.match(sections.api, /env_file:\s*\n\s*- \/etc\/schoolos\/v5-staging\/razorpay-v5-api\.env/);
+  assert.match(sections.api, /<<: \*api-env/);
+  assert.match(sections.api, /SCHOOLOS_V5_RAZORPAY_ENV_FILE: \/run\/secrets\/schoolos-v5-razorpay-api\.env/);
+  assert.match(sections.api, /\/etc\/schoolos\/v5-staging\/razorpay-v5-api\.env:\/run\/secrets\/schoolos-v5-razorpay-api\.env:ro/);
   for (const name of names.filter(x => x !== "api")) {
     assert.doesNotMatch(sections[name], /RAZORPAY_(?:KEY_SECRET|WEBHOOK_SECRET)/,
       "Razorpay API secrets must not enter " + name);
   }
+});
+
+test("API entrypoint overrides empty Coolify variables only on explicitly mounted V5 secrets", async () => {
+  const entrypoint = await readFile(new URL("../apps/api/docker-entrypoint.sh", import.meta.url), "utf8");
+  assert.match(entrypoint, /SCHOOLOS_V5_RAZORPAY_ENV_FILE/);
+  assert.match(entrypoint, /RAZORPAY_KEY_SECRET=\*/);
+  assert.match(entrypoint, /RAZORPAY_WEBHOOK_SECRET=\*/);
+  assert.match(entrypoint, /export "\$key=\$value"/);
+  assert.match(entrypoint, /exec su-exec app "\$@"/);
 });
