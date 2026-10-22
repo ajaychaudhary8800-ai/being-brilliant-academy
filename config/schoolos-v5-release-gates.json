@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": null,
+  "releaseCandidateSha": "e23349acf7b9cfbf81c1d5c26a4eefadfb45ebf6",
   "declaredStatus": "HOLD",
   "gates": [
     {
