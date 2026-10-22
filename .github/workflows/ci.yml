@@ -40,9 +40,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Validate SchoolOS V5 promotion lock and legacy staging veto
         run: node --test scripts/check-schoolos-v5-promotion.test.mjs
-      - name: Validate staging-only backup credential file isolation
+      - name: Validate V5 staging-only backup and API credential isolation
         run: |
           node --test scripts/check-schoolos-v5-r2-file-credentials.test.mjs
+          node --test scripts/check-schoolos-v5-api-file-credentials.test.mjs
+          # A CI runner has no access to the staging host's protected secrets.
+          # Use disposable placeholders ONLY for Compose interpolation checks.
+          sudo install -d -m 0700 /etc/schoolos/v5-staging
+          printf 'RAZORPAY_KEY_SECRET=ci-disposable-test-only\nRAZORPAY_WEBHOOK_SECRET=ci-disposable-test-only\n' | sudo tee /etc/schoolos/v5-staging/razorpay-v5-api.env >/dev/null
+          sudo chmod 0600 /etc/schoolos/v5-staging/razorpay-v5-api.env
           docker compose -f docker-compose.schoolos-v5-staging.yml config --quiet
       - name: Validate SchoolOS V5 release gate policy tests
         run: pnpm v5:release:test
