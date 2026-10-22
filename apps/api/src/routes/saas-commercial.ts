@@ -1,5 +1,3 @@
-import crypto from "node:crypto";
-import Razorpay from "razorpay";
 import {
   OrganizationSubscriptionStatus,
   Prisma,
@@ -9,7 +7,6 @@ import {
 } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
-import { env } from "../config.js";
 import { assertCommercialPlanFitsUsage, commercialAccessSnapshot, commercialEntitlementSnapshot } from "../lib/saas-commercial.js";
 import { AppError } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
@@ -313,7 +310,7 @@ router.get("/organization/subscription/plans", async (req: AuthRequest, res) => 
   requireTenantBillingAdmin(req);
   res.json({
     data: await systemPrisma.saaSPlan.findMany({
-      where: { isActive: true },
+      where: { isActive: true, code: { not: "ENTERPRISE" } },
       select: {
         id: true,
         code: true,
@@ -393,150 +390,16 @@ router.patch("/organization/subscription/cancellation", async (req: AuthRequest,
   res.json({ data: updated });
 });
 
-const checkoutInput = z.object({
-  planCode: z.string().trim().toUpperCase().min(2).max(40),
-  billingCycle: z.enum(["MONTHLY", "ANNUAL"]),
-});
-
-function addBillingPeriod(start: Date, cycle: "MONTHLY" | "ANNUAL") {
-  const end = new Date(start);
-  if (cycle === "ANNUAL") end.setUTCFullYear(end.getUTCFullYear() + 1);
-  else end.setUTCMonth(end.getUTCMonth() + 1);
-  return end;
-}
-
-router.post("/organization/subscription/checkout", async (req: AuthRequest, res) => {
+// All V5 commercial payments must be linked to a verified signed quotation.
+// Keep this legacy URL explicitly fail-closed so old clients cannot bypass
+// /organization/subscription/contracted-checkout by forging a plan/amount.
+router.post("/organization/subscription/checkout", (req: AuthRequest) => {
   requireTenantBillingAdmin(req);
-  if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET) {
-    throw new AppError(503, "PAYMENT_UNAVAILABLE", "Razorpay is not configured");
-  }
-  const idempotencyKey = req.header("Idempotency-Key")?.trim();
-  if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 100) {
-    throw new AppError(422, "IDEMPOTENCY_KEY_REQUIRED", "Provide an Idempotency-Key header between 8 and 100 characters");
-  }
-
-  const organizationId = req.auth!.organizationId;
-  const body = checkoutInput.parse(req.body);
-  const [organization, plan] = await Promise.all([
-    systemPrisma.organization.findUnique({ where: { id: organizationId } }),
-    systemPrisma.saaSPlan.findUnique({ where: { code: body.planCode } }),
-  ]);
-  if (!organization || organization.deletedAt) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
-  if (!plan || !plan.isActive) throw new AppError(404, "SAAS_PLAN_NOT_FOUND", "SaaS plan is unavailable");
-
-  const existing = await systemPrisma.saaSInvoice.findUnique({ where: { checkoutKey: idempotencyKey } });
-  if (existing) {
-    if (existing.organizationId !== organizationId) throw new AppError(409, "IDEMPOTENCY_KEY_CONFLICT", "Idempotency key is already in use");
-    if (existing.providerOrderId) {
-      return res.json({
-        data: {
-          reused: true,
-          invoiceId: existing.id,
-          keyId: env.RAZORPAY_KEY_ID,
-          order: {
-            id: existing.providerOrderId,
-            amount: existing.totalPaise,
-            currency: existing.currency,
-            receipt: existing.invoiceNo,
-          },
-        },
-      });
-    }
-    if (existing.status !== SaaSInvoiceStatus.VOID) {
-      throw new AppError(409, "CHECKOUT_IN_PROGRESS", "A checkout with this idempotency key is already in progress");
-    }
-  }
-
-  const currentPlan = await systemPrisma.saaSPlan.findUnique({ where: { code: organization.subscriptionPlan } });
-  const baseAmount = body.billingCycle === "ANNUAL" ? plan.annualPricePaise : plan.monthlyPricePaise;
-  if (baseAmount <= 0) throw new AppError(409, "SAAS_PLAN_NOT_PRICED", "This SaaS plan does not yet have a checkout price");
-  const taxPaise = Math.round(baseAmount * plan.taxRateBps / 10_000);
-  const totalPaise = baseAmount + taxPaise;
-  const periodStart = new Date();
-  const periodEnd = addBillingPeriod(periodStart, body.billingCycle);
-  const dueAt = new Date(periodStart.getTime() + 24 * 60 * 60 * 1000);
-  const invoiceNo = existing?.invoiceNo ?? `SAA-${Date.now()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-
-  const subscription = await systemPrisma.saaSSubscription.upsert({
-    where: { organizationId },
-    create: {
-      organizationId,
-      planId: currentPlan?.id ?? plan.id,
-      status: organization.subscriptionStatus,
-      billingCycle: body.billingCycle,
-    },
-    update: {
-      billingCycle: body.billingCycle,
-    },
-  });
-
-  let invoice = existing
-    ? await systemPrisma.saaSInvoice.update({
-        where: { id: existing.id },
-        data: {
-          subscriptionId: subscription.id,
-          planId: plan.id,
-          amountPaise: baseAmount,
-          taxPaise,
-          totalPaise,
-          currency: plan.currency,
-          status: SaaSInvoiceStatus.OPEN,
-          periodStart,
-          periodEnd,
-          dueAt,
-          provider: "RAZORPAY",
-        },
-      })
-    : await systemPrisma.saaSInvoice.create({
-        data: {
-          organizationId,
-          subscriptionId: subscription.id,
-          planId: plan.id,
-          invoiceNo,
-          checkoutKey: idempotencyKey,
-          amountPaise: baseAmount,
-          taxPaise,
-          totalPaise,
-          currency: plan.currency,
-          status: SaaSInvoiceStatus.OPEN,
-          periodStart,
-          periodEnd,
-          dueAt,
-          provider: "RAZORPAY",
-          metadata: { planCode: plan.code, billingCycle: body.billingCycle } as Prisma.InputJsonValue,
-        },
-      });
-
-  try {
-    const client = new Razorpay({ key_id: env.RAZORPAY_KEY_ID, key_secret: env.RAZORPAY_KEY_SECRET });
-    const order = await client.orders.create({
-      amount: totalPaise,
-      currency: plan.currency,
-      receipt: invoice.invoiceNo.slice(0, 40),
-      notes: { organizationId, invoiceId: invoice.id, planCode: plan.code },
-    });
-    invoice = await systemPrisma.saaSInvoice.update({
-      where: { id: invoice.id },
-      data: { providerOrderId: order.id },
-    });
-    await systemPrisma.auditLog.create({
-      data: {
-        organizationId,
-        actorId: req.auth!.userId,
-        action: "SAAS_CHECKOUT_CREATED",
-        entity: "SaaSInvoice",
-        entityId: invoice.id,
-        metadata: { planCode: plan.code, billingCycle: body.billingCycle, totalPaise, providerOrderId: order.id },
-      },
-    });
-    return res.status(201).json({ data: { reused: false, order, invoiceId: invoice.id, keyId: env.RAZORPAY_KEY_ID } });
-  } catch (error) {
-    await systemPrisma.saaSInvoice.update({
-      where: { id: invoice.id },
-      data: { status: SaaSInvoiceStatus.VOID },
-    }).catch(() => undefined);
-    throw error;
-  }
+  throw new AppError(
+    409,
+    "SCHOOLOS_SIGNED_QUOTE_REQUIRED",
+    "Direct subscription checkout is disabled. Request an approved, signed SchoolOS quotation and pay the signed order.",
+  );
 });
 
 export default router;
