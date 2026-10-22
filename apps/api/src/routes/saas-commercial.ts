@@ -246,6 +246,9 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
   // Existing paid subscriptions may retain unchanged terms for entitlement
   // controls, but platform settings must never mint or extend a paid period.
   // Only HMAC-verified capture of a signed contract can perform activation.
+  // The platform form supplies date-only values; validate those calendar
+  // days but persist the original paid timestamps to prevent sub-day extensions.
+  let immutablePaidPeriod: { start: Date; end: Date } | null = null;
   if (data.status === OrganizationSubscriptionStatus.ACTIVE) {
     const current = await systemPrisma.saaSSubscription.findUnique({ where: { organizationId } });
     const sameDate = (a: Date | null | undefined, b: Date | null | undefined) =>
@@ -254,12 +257,16 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
       organization.subscriptionStatus !== OrganizationSubscriptionStatus.ACTIVE ||
       organization.subscriptionPlan !== plan.code ||
       current?.status !== OrganizationSubscriptionStatus.ACTIVE ||
-      !sameDate(data.currentPeriodStart, current?.currentPeriodStart) ||
-      !sameDate(data.currentPeriodEnd, current?.currentPeriodEnd)
+      current.planId !== plan.id ||
+      current.billingCycle !== data.billingCycle ||
+      !current.currentPeriodStart || !current.currentPeriodEnd ||
+      !sameDate(data.currentPeriodStart, current.currentPeriodStart) ||
+      !sameDate(data.currentPeriodEnd, current.currentPeriodEnd)
     ) {
       throw new AppError(409, "SCHOOLOS_SIGNED_PAYMENT_REQUIRED",
         "Paid subscription activation, plan upgrades and term changes require verified signed-order payment.");
     }
+    immutablePaidPeriod = { start: current.currentPeriodStart, end: current.currentPeriodEnd };
   }
 
   const settings = record(organization.settings);
@@ -277,16 +284,16 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
         planId: plan.id,
         status: data.status,
         billingCycle: data.billingCycle,
-        currentPeriodStart: data.currentPeriodStart ?? null,
-        currentPeriodEnd: data.currentPeriodEnd ?? null,
+        currentPeriodStart: immutablePaidPeriod?.start ?? data.currentPeriodStart ?? null,
+        currentPeriodEnd: immutablePaidPeriod?.end ?? data.currentPeriodEnd ?? null,
         cancelAtPeriodEnd: data.cancelAtPeriodEnd,
       },
       update: {
         planId: plan.id,
         status: data.status,
         billingCycle: data.billingCycle,
-        currentPeriodStart: data.currentPeriodStart ?? null,
-        currentPeriodEnd: data.currentPeriodEnd ?? null,
+        currentPeriodStart: immutablePaidPeriod?.start ?? data.currentPeriodStart ?? null,
+        currentPeriodEnd: immutablePaidPeriod?.end ?? data.currentPeriodEnd ?? null,
         cancelAtPeriodEnd: data.cancelAtPeriodEnd,
       },
       include: { plan: true },
@@ -296,7 +303,7 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
       data: {
         subscriptionPlan: plan.code,
         subscriptionStatus: data.status,
-        subscriptionEndsAt: data.currentPeriodEnd ?? null,
+        subscriptionEndsAt: immutablePaidPeriod?.end ?? data.currentPeriodEnd ?? null,
         settings: { ...settings, commercialEntitlements } as Prisma.InputJsonValue,
       },
     });
