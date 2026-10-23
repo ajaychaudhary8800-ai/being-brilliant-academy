@@ -82,6 +82,8 @@ jobs:
           test "$applied" = "114"
       - name: Real authenticated HTTP coaching with PostgreSQL
         run: pnpm --filter @bba/api exec tsx --test src/integration/academic-placement-concurrency.integration.test.ts
+      - name: SchoolOS consent-based real HTTP sales funnel and CRM handoff (synthetic only)
+        run: pnpm --filter @bba/api exec tsx --test src/integration/schoolos-private-demo-sales.integration.test.ts
       - name: Synthetic signed-quote and HMAC webhook HTTP replay (NO real provider traffic)
         env:
           RAZORPAY_KEY_ID: rzp_test_synthetic_disposable_only

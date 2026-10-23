@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "450baa758b053b066b6587941d577d3e3c90bba2",
+  "releaseCandidateSha": "5e8b87524f3d715671cd5a73ffafe99dd133c17b",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Candidate source 450baa758b053b066b6587941d577d3e3c90bba2 integrates cumulative PR #257 commercial read-only preflight plus new private-preview /schoolos institutional landing and consent-based SaaS Sales CRM enquiry flow. Review SEO noindex, stage-A-only claims, no checkout and exact compiled candidate provenance; release remains HOLD."
+      "nextAction": "Source 5e8b87524f3d715671cd5a73ffafe99dd133c17b builds upon cumulative Draft #259 passing commercial preview front-end, adding real PostgreSQL advisory-lock serialized deduplication and CRM visibility proof for SchoolOS-only consent-confirmed enquiries. Review integration dependency and exact Coolify staging provenance; no customer-facing deployment or production approval."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Run exact-head full CI including private SchoolOS preview claim/CRM safety regression, disposable PostgreSQL billing/coaching acceptance, external GET-only staging QA and V4→V5 upgrade rehearsal for source 450baa758b053b066b6587941d577d3e3c90bba2. Prior PR #257 passing runs are not proof of this candidate."
+      "nextAction": "Require exact-head full CI (including real PostgreSQL lead intake test), isolated sandbox (explicit concurrent SchoolOS CRM handoff step), external read-only staging QA and V4→V5 upgrade on source 5e8b87524f3d715671cd5a73ffafe99dd133c17b. Historical #259 green results are not this integrated commit acceptance."
     },
     {
       "id": "staging_migration_restore",
@@ -52,7 +52,7 @@
       "name": "Signed realistic customer UAT and operational onboarding",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "New SchoolOS private-demo web flow targets school/coaching CRM leads only, with consent and no paid CTA; currently source-only, not deployed or human-tested. Verify responsive browser UX, real institutional enquiry delivery and follow-up in isolated approved staging; complete school/coaching role UAT with real sponsor, no synthetic impersonation."
+      "nextAction": "Source-level SchoolOS demo funnel now enforces website-only public source, declared lead contact permission, atomic multi-replica public deduplication and platform-authenticated sales handoff. Real PostgreSQL HTTP acceptance must pass before staging; CRM response still not a booking/contract/payment or real institution UAT. Need approved staging operator/browser/mobile customer validation."
     },
     {
       "id": "operational_support",
@@ -66,7 +66,7 @@
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Commercial prelaunch webpage must remain noindex and clearly private-demo only until pricing, onboarding inclusion versus separately charged estimates, 60-day pilot contract/payment policy, GST and add-on tariffs approved. Existing V5 staging pricebook drift, TEST provider, signed customer quote and independent financial proof remain unresolved."
+      "nextAction": "Private demo marketing submission records a server timestamp for consent assertion (NOT cryptographic signed consent) and preserves SchoolOS sales attribution; signed contract/provider TEST receipts and finance, privacy policy, onboarding fee vs included scope, taxes and 60-day pilot approval remain separate unsigned commercial launch blockers."
     },
     {
       "id": "production_owner_approval",
