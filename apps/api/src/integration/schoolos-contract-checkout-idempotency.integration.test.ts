@@ -48,7 +48,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
   const unique = crypto.randomUUID().replaceAll("-", "").slice(0, 18);
   const customerId = "qa-contract-" + unique;
   const otherId = "qa-other-" + unique;
-  const orderId = "order_synthetic_" + unique;
+  const orderId = "order_" + unique;
   const invoiceNo = "QA-SOI-" + unique;
   const quoteNo = "QA-SO5-" + unique;
   const validUntil = new Date(Date.now() + 10 * 86400_000);
@@ -208,7 +208,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     // locally generated synthetic events. This does NOT certify a real Razorpay
     // signed callback, legal contract or real merchant capture.
     const payment = {
-      id: "pay_synthetic_" + unique, order_id: orderId,
+      id: "pay_" + unique, order_id: orderId,
       amount: totalPaise, currency: "INR",
     };
     const event = { event: "payment.captured", payload: { payment: { entity: payment } } };
@@ -244,9 +244,28 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
       where: { id: invoiceId },
     })).status, "OPEN");
+    // A signed failed attempt is recorded against the existing contracted order,
+    // but never closes the invoice, issues another provider order or grants access.
+    const failedPaymentId = "pay_" + unique + "failed";
+    const failure = { event: "payment.failed", payload: { payment: { entity: {
+      ...payment, id: failedPaymentId, status: "failed", error_code: "BAD_REQUEST_ERROR",
+    } } } };
+    assert.equal((await postWebhook(failure, signatureFor(failure))).status, 200);
+    assert.equal((await postWebhook(failure, signatureFor(failure))).status, 200,
+      "Identical signed failure retry cannot create extra financial state");
+    assert.equal(await systemPrisma.saaSPayment.count({
+      where: { providerPaymentId: failedPaymentId, status: "FAILED" },
+    }), 1);
+    assert.equal(await systemPrisma.saaSWebhookEvent.count({
+      where: { provider: "RAZORPAY", eventKey: "payment.failed:" + failedPaymentId },
+    }), 1);
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "OPEN");
+
     // A previously recorded FAILED payment ID is not safe to promote into a
     // capture just because it arrives with a newly signed HTTP payload.
-    const reusedFailedId = "pay_failed_synthetic_" + unique;
+    const reusedFailedId = "pay_" + unique + "priorfailed";
     const conflictingPayment = { ...payment, id: reusedFailedId };
     await systemPrisma.saaSPayment.create({ data: {
       organizationId: customerId, invoiceId: invoice.id, provider: "RAZORPAY",
@@ -307,6 +326,70 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     } }), 1);
     assert.equal(await systemPrisma.saaSInvoice.count({ where: { organizationId: customerId } }), 1);
 
+    // A late provider failure for an already captured payment must not reverse
+    // the invoice or downgrade the verified captured payment evidence.
+    const lateFailure = { event: "payment.failed", payload: { payment: { entity: {
+      ...payment, status: "failed", error_code: "PAYMENT_DECLINED",
+    } } } };
+    assert.equal((await postWebhook(lateFailure, signatureFor(lateFailure))).status, 200);
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "PAID");
+    assert.equal((await systemPrisma.saaSPayment.findUniqueOrThrow({
+      where: { providerPaymentId: payment.id },
+    })).status, "CAPTURED");
+
+    // HMAC is necessary but insufficient: a refund with the wrong child
+    // payment ID is rejected even when the attacker knows the test HMAC key.
+    const refundId = "rfnd_" + unique;
+    const refundAmountPaise = Math.floor(totalPaise / 2);
+    const refund = { event: "refund.processed", payload: {
+      payment: { entity: payment }, refund: { entity: {
+        id: refundId, payment_id: payment.id, amount: refundAmountPaise,
+        currency: "INR", status: "processed",
+      } },
+    } };
+    const falseLinkedRefund = { ...refund, payload: {
+      ...refund.payload, refund: { entity: {
+        ...refund.payload.refund.entity, payment_id: "pay_" + unique + "other",
+      } },
+    } };
+    assert.equal((await postWebhook(falseLinkedRefund, signatureFor(falseLinkedRefund))).status, 422);
+    assert.equal(await systemPrisma.schoolOSPaymentRiskHold.count({
+      where: { invoiceId },
+    }), 0, "Invalid linkage cannot freeze or mutate an invoice");
+
+    assert.equal((await postWebhook(refund, signatureFor(refund))).status, 200,
+      "Signed partial refund should create a finance hold");
+    assert.equal((await postWebhook(refund, signatureFor(refund))).status, 200,
+      "Signed refund retry is idempotent");
+    const hold = await systemPrisma.schoolOSPaymentRiskHold.findUniqueOrThrow({
+      where: { invoiceId },
+    });
+    assert.equal(hold.status, "ACTIVE");
+    assert.equal(hold.revision, 1, "Retry must not increase finance-hold revision");
+    assert.equal(await systemPrisma.schoolOSPaymentAdjustment.count({
+      where: { invoiceId, eventKey: "refund.processed:" + refundId },
+    }), 1);
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "PAID", "Refund creates a hold, not an unaudited invoice rewrite");
+
+    const overRefundId = "rfnd_" + unique + "over";
+    const overRefund = { ...refund, payload: { ...refund.payload, refund: {
+      entity: { ...refund.payload.refund.entity, id: overRefundId, amount: totalPaise },
+    } } };
+    assert.equal((await postWebhook(overRefund, signatureFor(overRefund))).status, 409,
+      "Aggregate processed refunds exceeding paid amount must be blocked");
+    assert.equal(await systemPrisma.schoolOSPaymentAdjustment.count({
+      where: { invoiceId, eventType: "refund.processed" },
+    }), 1);
+    assert.equal(await systemPrisma.saaSInvoice.count({ where: { organizationId: customerId } }), 1);
+
+    console.log("SYNTHETIC_SIGNED_FAILURE_REPLAY=PASS");
+    console.log("SYNTHETIC_LATE_FAILURE_AFTER_CAPTURE=PASS");
+    console.log("SYNTHETIC_SIGNED_REFUND_HOLD_REPLAY=PASS");
+    console.log("SYNTHETIC_REFUND_AGGREGATE_OVERFLOW_DENIAL=PASS");
     console.log("SYNTHETIC_CAPTURE_SETTLEMENT_IDEMPOTENCY=PASS");
     console.log("SYNTHETIC_SIGNED_WEBHOOK_HTTP=PASS");
     console.log("SYNTHETIC_CAPTURE_REPLAY_ID_AND_AMOUNT_PROTECTION=PASS");
@@ -319,8 +402,14 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     console.log("LIVE_SIGNED_RAZORPAY_WEBHOOK=NOT_TESTED");
   } finally {
     if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));
+    await systemPrisma.schoolOSPaymentAdjustment.deleteMany({ where: { organizationId: customerId } });
+    await systemPrisma.schoolOSPaymentRiskHold.deleteMany({ where: { organizationId: customerId } });
     await systemPrisma.saaSWebhookEvent.deleteMany({
-      where: { provider: "RAZORPAY", eventKey: "payment.captured:pay_synthetic_" + unique },
+      where: { provider: "RAZORPAY", eventKey: { in: [
+        "payment.captured:pay_" + unique,
+        "payment.failed:pay_" + unique + "failed",
+        "refund.processed:rfnd_" + unique,
+      ] } },
     });
     await systemPrisma.saaSPayment.deleteMany({ where: { organizationId: customerId } });
     await systemPrisma.auditLog.deleteMany({ where: { organizationId: customerId } });
