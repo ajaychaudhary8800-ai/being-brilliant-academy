@@ -12,9 +12,9 @@ function container(service) {
       "WEB_URL=https://v5-staging.beingbrilliantedu.com", "RAZORPAY_MODE=test"]
     : [];
   const mounts = service === "api"
-    ? [{ Destination: "/run/secrets/schoolos-v5-razorpay-api.env", RW: false }]
+    ? [{ Destination: "/run/secrets/schoolos-v5-razorpay-api.env", Source: "/etc/schoolos/v5-staging/razorpay-v5-api.env", Type: "bind", RW: false }]
     : service === "backup"
-      ? [{ Destination: "/run/secrets/schoolos-v5-r2-credentials", RW: false }]
+      ? [{ Destination: "/run/secrets/schoolos-v5-r2-credentials", Source: "/etc/schoolos/v5-staging/r2-aws-credentials", Type: "bind", RW: false }]
       : [];
   return {
     Created: "2026-10-23T00:00:00Z",
