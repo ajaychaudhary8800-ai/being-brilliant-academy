@@ -172,7 +172,28 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
         include: { subscription: true, plan: true },
       });
       if (!invoice) return;
-      if (invoice.status === "PAID") return;
+      if (invoice.status === "PAID") {
+        // A paid order is NOT evidence that every subsequent payment ID is its
+        // capture. Reject a second/different capture for finance review rather
+        // than silently acknowledging a potential duplicate charge.
+        const settled = await tx.saaSPayment.findUnique({
+          where: { providerPaymentId: payment.id },
+          select: { invoiceId: true, organizationId: true, provider: true,
+            status: true, amountPaise: true, currency: true },
+        });
+        if (!settled || settled.invoiceId !== invoice.id ||
+            settled.organizationId !== invoice.organizationId ||
+            settled.provider !== "RAZORPAY" ||
+            ![SaaSPaymentStatus.CAPTURED, SaaSPaymentStatus.REFUNDED].includes(settled.status) ||
+            settled.amountPaise !== payment.amount ||
+            settled.currency !== payment.currency.toUpperCase() ||
+            invoice.totalPaise !== payment.amount ||
+            invoice.currency.toUpperCase() !== payment.currency.toUpperCase()) {
+          throw new AppError(409, "SCHOOLOS_CAPTURE_REPLAY_CONFLICT",
+            "Paid provider order has conflicting capture evidence; finance reconciliation required");
+        }
+        return;
+      }
       if (payment.amount !== invoice.totalPaise || payment.currency.toUpperCase() !== invoice.currency.toUpperCase()) {
         throw new AppError(422, "PAYMENT_MISMATCH", "Captured SaaS payment does not match the subscription invoice");
       }
@@ -250,7 +271,19 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
       const priorEvent = await tx.saaSWebhookEvent.findUnique({
         where: { provider_eventKey: { provider: "RAZORPAY", eventKey } },
       });
-      if (priorEvent?.processedAt) return;
+      // A processed capture event with an unpaid invoice is inconsistent:
+      // it must not be treated as a successful settlement replay.
+      if (priorEvent?.processedAt)
+        throw new AppError(409, "SCHOOLOS_CAPTURE_REPLAY_CONFLICT",
+          "Processed capture evidence refers to an unpaid invoice");
+
+      const earlierPayment = await tx.saaSPayment.findUnique({
+        where: { providerPaymentId: payment.id },
+        select: { invoiceId: true },
+      });
+      if (earlierPayment)
+        throw new AppError(409, "SCHOOLOS_CAPTURE_PAYMENT_ID_REUSED",
+          "Provider payment ID already has a ledger entry; finance reconciliation required");
 
       await tx.saaSWebhookEvent.upsert({
         where: { provider_eventKey: { provider: "RAZORPAY", eventKey } },
@@ -264,20 +297,14 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
       });
 
       const now = new Date();
-      await tx.saaSPayment.upsert({
-        where: { providerPaymentId: payment.id },
-        create: {
+      await tx.saaSPayment.create({
+        data: {
           organizationId: invoice.organizationId,
           invoiceId: invoice.id,
           provider: "RAZORPAY",
           providerPaymentId: payment.id,
           amountPaise: payment.amount,
           currency: payment.currency.toUpperCase(),
-          status: SaaSPaymentStatus.CAPTURED,
-          capturedAt: now,
-          raw: event as Prisma.InputJsonValue,
-        },
-        update: {
           status: SaaSPaymentStatus.CAPTURED,
           capturedAt: now,
           raw: event as Prisma.InputJsonValue,
@@ -358,8 +385,22 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
     return true;
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const captured = await systemPrisma.saaSPayment.findUnique({ where: { providerPaymentId: payment.id } });
-      if (captured?.status === SaaSPaymentStatus.CAPTURED) return true;
+      // Concurrent delivery can legitimately insert this receipt first. A
+      // collided provider ID belonging to *another* tenant/order is NEVER
+      // proof of successful settlement.
+      const [captured, paid] = await Promise.all([
+        systemPrisma.saaSPayment.findUnique({ where: { providerPaymentId: payment.id } }),
+        systemPrisma.saaSInvoice.findUnique({ where: { id: existingInvoice.id } }),
+      ]);
+      if (captured?.status === SaaSPaymentStatus.CAPTURED &&
+          captured.provider === "RAZORPAY" &&
+          captured.invoiceId === existingInvoice.id &&
+          captured.organizationId === paid?.organizationId &&
+          captured.amountPaise === payment.amount &&
+          captured.currency === payment.currency.toUpperCase() &&
+          paid?.status === "PAID" && paid.providerOrderId === payment.order_id &&
+          paid.totalPaise === payment.amount &&
+          paid.currency.toUpperCase() === payment.currency.toUpperCase()) return true;
     }
     throw error;
   }
