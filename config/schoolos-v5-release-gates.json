@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "18b9f15c446890f5749944dd66f1fb6d482c2b83",
+  "releaseCandidateSha": "905fa529c60d204f7a9dc1698674a220692ffafd",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Review full Draft #230 -> #231 -> #232 -> Step75 audit dependency stack, verify all commits and Coolify image digests against reviewed application SHA 18b9f15c446890f5749944dd66f1fb6d482c2b83; capture immutable candidate/rollback evidence. See docs/SCHOOLOS_V5_STEP75_RC_AUDIT_20261023.md; no V4 production merge."
+      "nextAction": "Step75 Draft PR #235 QA passed on its earlier application source. PR #239 adds an independently CI-tested pricebook status fix; repin reviewed application source to 905fa529c60d204f7a9dc1698674a220692ffafd; verify exact deployed digest, stacked dependency diff, human review and restore/rollback before promoting any gate. Production remains HOLD."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Review GitHub CI run 39841427564 SUCCESS on PR232, then execute the currently skipped V5 external GET-only smoke, disposable PostgreSQL sandbox and synthetic V4 upgrade/restore on the eligible Step75 Draft branch; independently inspect results, artifacts and candidate provenance before verifying."
+      "nextAction": "Run full CI, isolated sandbox and V4 upgrade/rehearsal against PR239's pinned source 905fa529c60d204f7a9dc1698674a220692ffafd, verify all job conclusions/artifacts and separate public-partial smoke from authenticated UAT; do not reuse earlier PR235 successful jobs as acceptance for changed code."
     },
     {
       "id": "staging_migration_restore",
