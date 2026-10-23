@@ -33,7 +33,12 @@ function assertLocalSyntheticTarget() {
 }
 
 test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates another provider order", {
-  skip: process.env.RUN_POSTGRES_INTEGRATION !== "1", timeout: 120_000,
+  // Generic API CI does not provide synthetic billing credentials.
+  // The isolated V5 sandbox job opts into this exact local-only fixture.
+  skip: process.env.RUN_POSTGRES_INTEGRATION !== "1"
+    || process.env.RAZORPAY_KEY_ID !== "rzp_test_synthetic_disposable_only"
+    || process.env.RAZORPAY_KEY_SECRET !== "synthetic-local-only-nonsecret",
+  timeout: 120_000,
 }, async () => {
   assertLocalSyntheticTarget();
   const unique = crypto.randomUUID().replaceAll("-", "").slice(0, 18);
