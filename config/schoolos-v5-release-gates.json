@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "7385ff4eeb9c43add66ec7660e3b55f224ca3b03",
+  "releaseCandidateSha": "e0f9bf91610d474d0b4489d95845c355c67beddb",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "RC source 7385ff4eeb9c43add66ec7660e3b55f224ca3b03 extends historical-invoice-safe staging pricebook and synthetic webhook tests with network failure diagnostics. Verify complete stacked draft chain, exact source/container provenance, staging isolation, security review and rollback evidence. Production HOLD."
+      "nextAction": "Candidate e0f9bf91610d474d0b4489d95845c355c67beddb extends Draft #250 with isolated signed failure/refund webhook HTTP acceptance and correctly scoped external QA network failure diagnostics. Review exact source, previous stacked draft chain and builds before promotion; production HOLD."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Collect four GitHub QA workflow run conclusions for exact app source 7385ff4eeb9c43add66ec7660e3b55f224ca3b03 and manifest SHA, review test outcomes, container digest, untested UAT limitations and any timeout diagnosis. No machine test signs a commercial gate."
+      "nextAction": "Collect four fresh QA run conclusions pinned to e0f9bf91610d474d0b4489d95845c355c67beddb, including real disposable PostgreSQL route tests with synthetic payment.failed, refund.processed and replay, strict V5 staging public checks and isolated V4→V5 upgrade/restore; require signed reviewer evidence before gate clearance."
     },
     {
       "id": "staging_migration_restore",
@@ -31,7 +31,7 @@
       "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "A disposable synthetic Razorpay-style webhook HTTP suite now checks omitted/forged HMAC, signed amount mismatch, valid capture and replay, without provider network calls or customer proof. Verify new CI results; still require genuine independently signed Order Form, actual Razorpay TEST signed capture/late webhooks and refund/dispute/renewal acceptance before finance signoff."
+      "nextAction": "Disposable integration now exercises HMAC-signed failure and replay, capture after failed attempt, late failure after capture, forged refund link rejection, signed partial refund finance hold and idempotence, and aggregate over-refund prevention. Actual Razorpay TEST provider webhook, signed institution Order Form, real refund/dispute lifecycle and finance acceptance remain PENDING; zero real provider calls."
     },
     {
       "id": "ai_video_provider_qa",
@@ -59,7 +59,7 @@
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Issue #240 network failures still unresolved. On failed V5 staging GET smoke, new safe diagnostics capture DNS counts plus separate IPv4/IPv6 TLS handshake outcomes and sanitized error codes, without HTTP writes or credentials. Compare future evidence with proxies/DNS/runner egress, and verify backup retention, recovery, alerting and rollback before ops signoff."
+      "nextAction": "Network incident #240 remains OPEN. Issue #240 diagnostic workflow only runs after actual external staging public GET-smoke failure; transport DNS/TLS probes remain safe, redacted and read-only. Real remediation, full DR vault recovery, monitoring and rollback evidence still required."
     },
     {
       "id": "commercial_legal_finance",
