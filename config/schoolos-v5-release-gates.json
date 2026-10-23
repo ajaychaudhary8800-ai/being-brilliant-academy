@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "83a8354c1a8573885e526e797d4b3031b1b5060c",
+  "releaseCandidateSha": "d616431168e3bb3b9b66e8a38bad6eef8263eb8c",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Cumulative candidate source 83a8354c1a8573885e526e797d4b3031b1b5060c extends #254 with a per-provider-order advisory lock before capture invoice reads and triple parallel signed HTTP callback regression; includes #252 real branch concurrency and #250 transport diagnostics. Check SHA ancestry, rollback and staging image attestation; production HOLD."
+      "nextAction": "Source d616431168e3bb3b9b66e8a38bad6eef8263eb8c combines #255 serializable payment capture and real onboarding race, #253 signed failure/refund/dispute-related synthetic HTTP risk QA, #250 network diagnostics, and #249 pricebook/branch security safeguards. Review cumulative immutable diff, deployed image provenance, independent approval and rollback. Production HOLD."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Run four independent workflows on exact application source 83a8354c1a8573885e526e797d4b3031b1b5060c: full CI/typecheck/integration, isolated staging sandbox with triple concurrent HTTP payment capture, external GET-only browser/API, V4→V5 upgrade/restore. Confirm no previously green branch substitutes for this head."
+      "nextAction": "Independently inspect full CI + isolated PostgreSQL sandbox (signed concurrent capture, payment.failed, partial refund, replay/over-refund), external staging GET/browser and V4→V5 upgrade workflows against exact combined candidate d616431168e3bb3b9b66e8a38bad6eef8263eb8c and manifest-only pin. Earlier isolated branch successes do not certify new integrated head."
     },
     {
       "id": "staging_migration_restore",
@@ -31,7 +31,7 @@
       "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Concurrent identical synthetic HMAC-signed capture callbacks must all HTTP 200 with one payment, paid invoice and processed event; per-order advisory lock now occurs before any invoice read and distinct conflicting capture still fails closed. Still need independently signed contract, genuine provider TEST payment, refund/dispute, renewal and finance acceptance."
+      "nextAction": "Synthetic provider-shaped HMAC-signed HTTP integration now covers unsigned/forged capture, concurrent valid replay, conflicting identities/amounts, failed payment, delayed failure, partial refund active finance hold, idempotent refund and over-refund rejection. Actual Razorpay TEST provider, genuine independently verified Order Form, real refund/dispute/renewal and finance acceptance remain PENDING."
     },
     {
       "id": "ai_video_provider_qa",
@@ -59,7 +59,7 @@
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Staging GET failure now triggers separate sanitized DNS A/AAAA and TLS IPv4/IPv6 evidence tests, without relaxing strict HTTP/browser failures. Inspect actual failures/runner and nginx logs; still require root-cause resolution of issue #240 and #237, alerts, DR, R2 retention, runbook review and ops signoff."
+      "nextAction": "Strict external staging GET failures now trigger informational sanitized DNS/TLS IPv4/IPv6 probes only when staging_readonly_smoke.outcome == failure, not unrelated step failure. Issue #240 remains unresolved without RCA. Require monitoring, DR/rollback and 14-day R2 recovery signoffs."
     },
     {
       "id": "commercial_legal_finance",
