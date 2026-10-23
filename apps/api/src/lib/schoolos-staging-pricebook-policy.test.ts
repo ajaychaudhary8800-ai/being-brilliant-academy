@@ -30,6 +30,46 @@ test("missing plan, signed or pending approved quote, PAID invoice and tax drift
   assert.equal(stagingPricebookPlan(base.map(x => x.code === "GROWTH" ? { ...x, isActive: false } : x))[1]?.status, "BLOCKED");
 });
 
+test("historical PAID Professional invoice never blocks unrelated Essentials or Growth repricing", () => {
+  const plans = snapshot().map(plan => plan.code === "PROFESSIONAL"
+    ? { ...plan, paidInvoices: 2, outstandingInvoices: 1, unresolvedQuotes: 1 }
+    : plan);
+  assert.deepEqual(stagingPricebookPlan(plans).map(action => [action.planCode, action.status]), [
+    ["ESSENTIALS", "CHANGE_SAFE"],
+    ["GROWTH", "CHANGE_SAFE"],
+    ["PROFESSIONAL", "ALIGNED"],
+  ]);
+  const aligned = stagingPricebookPlan(plans)[2]!;
+  assert.deepEqual(aligned.reasons, [], "No historical invoicing changes are proposed or needed");
+});
+
+test("only affected mispriced tier is blocked by existing contracted or paid state", () => {
+  const plans = snapshot().map(plan => {
+    if (plan.code === "ESSENTIALS") return { ...plan, paidInvoices: 1 };
+    if (plan.code === "PROFESSIONAL") return { ...plan, paidInvoices: 5 };
+    return plan;
+  });
+  assert.deepEqual(stagingPricebookPlan(plans).map(action => [action.planCode, action.status]), [
+    ["ESSENTIALS", "BLOCKED"],
+    ["GROWTH", "CHANGE_SAFE"],
+    ["PROFESSIONAL", "ALIGNED"],
+  ]);
+  assert.match(stagingPricebookPlan(plans)[0]!.reasons.join("; "), /PAID invoices/);
+});
+
+test("aligned plan with prior invoices must still be active and use approved INR GST", () => {
+  const plans = snapshot().map(plan => plan.code === "PROFESSIONAL"
+    ? { ...plan, paidInvoices: 3, currency: "USD" }
+    : plan);
+  assert.equal(stagingPricebookPlan(plans)[2]?.status, "BLOCKED");
+  const doubleProfessional = [...snapshot(), { ...snapshot()[2]!, id: "duplicate-professional" }];
+  assert.equal(stagingPricebookPlan(doubleProfessional)[2]?.status, "BLOCKED");
+  const previouslyPaidEssentials = snapshot().map(plan => plan.code === "ESSENTIALS"
+    ? { ...plan, annualPricePaise: 4_990_000, paidInvoices: 4 }
+    : plan);
+  assert.equal(stagingPricebookPlan(previouslyPaidEssentials)[0]?.status, "ALIGNED");
+});
+
 test("script rejects V4 production, non-staging DB, live payment mode and unauthorized apply", () => {
   const staging = {
     DATABASE_URL: "postgresql://placeholder:placeholder@127.0.0.1:5432/schoolos_v5_staging",

@@ -28,13 +28,19 @@ export function stagingPricebookPlan(plans: StagingPlanSnapshot[]): PricebookAct
       reasons.push("Plan is inactive or has non-approved currency/tax settings");
     if (!Number.isSafeInteger(current.annualPricePaise) || current.annualPricePaise <= 0)
       reasons.push("Configured plan annual price is invalid");
-    if (current.unresolvedQuotes !== 0)
-      reasons.push("A quotation has entered approval/contract/payment; reconcile separately");
-    if (current.paidInvoices !== 0)
-      reasons.push("Historical PAID invoices require independent reconciliation");
-    if (current.outstandingInvoices !== 0)
-      reasons.push("Existing DRAFT, OPEN or OVERDUE invoices require independent reconciliation");
-    const status = reasons.length ? "BLOCKED" : current.annualPricePaise === expected ? "ALIGNED" : "CHANGE_SAFE";
+    const needsPriceChange = current.annualPricePaise !== expected;
+    // Existing invoices/contracts block changing their plan's price, not an
+    // unrelated tier or a no-op verification of an already aligned price.
+    // Retain strict active/currency/tax/uniqueness checks for every tier.
+    if (needsPriceChange) {
+      if (current.unresolvedQuotes !== 0)
+        reasons.push("A quotation has entered approval/contract/payment; reconcile separately");
+      if (current.paidInvoices !== 0)
+        reasons.push("Historical PAID invoices require independent reconciliation");
+      if (current.outstandingInvoices !== 0)
+        reasons.push("Existing DRAFT, OPEN or OVERDUE invoices require independent reconciliation");
+    }
+    const status = reasons.length ? "BLOCKED" : needsPriceChange ? "CHANGE_SAFE" : "ALIGNED";
     return { planCode, planId: current.id, previousPaise: current.annualPricePaise,
       proposedPaise: expected, status, reasons };
   });
