@@ -1,6 +1,6 @@
 /**
  * Operator-run V5 staging-only commercial diagnostic.
- * NO --apply mode: query plans and invoice/quotation COUNTS only.
+ * Query plans and invoice/quotation COUNTS only; no write mode exists.
  * No customer/user/email/secret values or provider calls appear in output.
  *
  * Run inside reviewed isolated V5 staging API with DATABASE_URL, WEB_URL
