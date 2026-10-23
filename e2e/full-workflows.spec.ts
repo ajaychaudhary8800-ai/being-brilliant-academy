@@ -195,21 +195,41 @@ test("@workflow synthetic cross-role academic workflow", async ({ request, baseU
   );
   let attendance = attendanceList.data.find((item: any) => item.student?.id === student.user.id);
   if (!attendance) {
+    // A school subject allocation permits homework, but does NOT authorize
+    // daily roll-call: only the section's designated Class Teacher may mark it.
+    const batch = await apiJson<{ data: { teacher: { id: string } | null } }>(
+      request,
+      superAdmin,
+      `/api/v1/admin/batches/${encodeURIComponent(qaStudent!.batch.id)}`,
+    );
+    const designatedClassTeacherId = batch.data.teacher?.id ?? null;
+    const assignedTeacherIsClassTeacher = designatedClassTeacherId === teacherDashboard.data.profile.id;
+    const attendanceInput = {
+      studentId: student.user.id,
+      batchId: qaStudent!.batch.id,
+      date: `${attendanceDate}T00:00:00.000Z`,
+      status: "PRESENT",
+      teacherId: designatedClassTeacherId,
+      remarks: `Nightly QA attendance ${token}`,
+    };
+
+    if (!assignedTeacherIsClassTeacher) {
+      // Assert the security boundary instead of altering the Class Teacher
+      // designation of an established school section just to satisfy QA.
+      const denied = await request.post("/api/v1/attendance", {
+        headers: { Authorization: `Bearer ${teacher.accessToken}` },
+        data: attendanceInput,
+      });
+      expect(denied.status(), "Non-Class-Teacher attendance must be forbidden").toBe(403);
+      const deniedBody = await denied.json();
+      expect(deniedBody.error?.code).toBe("CLASS_ACCESS_DENIED");
+    }
+
     const marked = await apiJson<any>(
       request,
-      teacher,
+      assignedTeacherIsClassTeacher ? teacher : superAdmin,
       "/api/v1/attendance",
-      {
-        method: "POST",
-        data: {
-          studentId: student.user.id,
-          batchId: qaStudent!.batch.id,
-          date: `${attendanceDate}T00:00:00.000Z`,
-          status: "PRESENT",
-          teacherId: teacherDashboard.data.profile.id,
-          remarks: `Nightly QA attendance ${token}`,
-        },
-      },
+      { method: "POST", data: attendanceInput },
     );
     attendance = marked.data;
   }
