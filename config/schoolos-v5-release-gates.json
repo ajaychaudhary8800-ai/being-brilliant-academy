@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "5e8b87524f3d715671cd5a73ffafe99dd133c17b",
+  "releaseCandidateSha": "435af0991d491a9511b8309121892633be2a2e82",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,21 +10,21 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Source 5e8b87524f3d715671cd5a73ffafe99dd133c17b builds upon cumulative Draft #259 passing commercial preview front-end, adding real PostgreSQL advisory-lock serialized deduplication and CRM visibility proof for SchoolOS-only consent-confirmed enquiries. Review integration dependency and exact Coolify staging provenance; no customer-facing deployment or production approval."
+      "nextAction": "Candidate source 435af0991d491a9511b8309121892633be2a2e82 stacks on #260 successful CRM/commercial QA and now adds V5-only Docker source revision labels, no-secret isolated Coolify host inventory and protected bind-source validation. Independently inspect source ancestry/build logs and exact Coolify application ID before any owner-approved V5 staging promotion. Frozen V4 main untouched; release HOLD."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Require exact-head full CI (including real PostgreSQL lead intake test), isolated sandbox (explicit concurrent SchoolOS CRM handoff step), external read-only staging QA and V4→V5 upgrade on source 5e8b87524f3d715671cd5a73ffafe99dd133c17b. Historical #259 green results are not this integrated commit acceptance."
+      "nextAction": "Run all FOUR exact-head workflows on source 435af0991d491a9511b8309121892633be2a2e82: full CI including no-secret staging-provenance unit tests and image build, disposable PostgreSQL V5 sandbox, external GET-only staging QA and synthetic V4→V5 upgrade/restore. Earlier PR #260 green checks cannot certify the revised Dockerfiles/compose source."
     },
     {
       "id": "staging_migration_restore",
       "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Re-run and attest staging-only latest off-site backup download, isolated full restore, 114 migration parity, school/coaching row isolation and AES-256-GCM Commercial Vault document recovery; user-run prior checks do not constitute complete disaster recovery signoff."
+      "nextAction": "Before an owner-approved V5-only Coolify deployment, preserve existing V5 staging image IDs, source build log, 114 migration state, backup SHA and rollback; avoid reused V4 shared staging and any volume or database reset. Post-deployment run strictly read-only scripts/schoolos-v5-staging-provenance.mjs on the actual isolated Docker project. Source-label match is claimed revision only, not independently attested provenance; offsite restore and Vault key decryption still pending."
     },
     {
       "id": "subscription_payment_qa",
@@ -45,7 +45,7 @@
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "New disposable real-PostgreSQL 3-request race now asserts exactly one branch, one manager, one membership, one audit set, at most one setup token and 409 for losing requests. Confirm CI result and independently repeat on pinned staging; retain multi-tenant IDOR, privacy, load and role UAT gates."
+      "nextAction": "New staging-only read-only inventory verifies 6 healthy core V5 services, DB name/host and HTTPS origin, Razorpay TEST mode, exact API-only Razorpay and backup-only R2 read-only host file bind mounts, no backup/payment secret environment leakage, and two image source labels. No real deployed-code security verification, authenticated school/guardian UAT, or third-party provider proof yet."
     },
     {
       "id": "customer_uat",
@@ -73,7 +73,7 @@
       "name": "Final signed owner authorization to promote V5 to production",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Commercial launch has Stage A offline pre-sales/demo preparation only, Stage B individually signed institution pilot only after all applicable real provider/contract/UAT and deployment approvals, Stage C paid GA only after all ten independently VERIFIED release gates, protected tag/CI and signed owner production authorization. This preflight never authorizes paid checkout."
+      "nextAction": "Do not infer commercial GO from a Docker image label or green synthetic CI. V5 owner-controlled operator staging promotion must remain separate from V4 production and requires independent image/backup/rollback evidence. Production readiness only after 10/10 signed release gates, verified providers/payments, legal/finance/real customer UAT and written owner authorization."
     }
   ]
 }
