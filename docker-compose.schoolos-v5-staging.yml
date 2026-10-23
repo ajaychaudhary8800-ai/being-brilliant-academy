@@ -8,6 +8,7 @@ x-logging: &default-logging
 x-api-build: &api-build
   context: .
   dockerfile: apps/api/Dockerfile
+  args: { SCHOOLOS_BUILD_REVISION: "${SCHOOLOS_BUILD_REVISION:-unattested}" }
 x-api-env: &api-env
   NODE_ENV: production
   PORT: 4000
