@@ -167,6 +167,11 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
   const eventKey = `payment.captured:${payment.id}`;
   try {
     await systemPrisma.$transaction(async tx => {
+      // Lock the provider ORDER before reading invoice/payment state. Concurrent
+      // identical signed callbacks must observe the first committed settlement
+      // as PAID, not both read OPEN and race through quote validation. This
+      // order lock also prevents legacy non-quoted SaaS double-settlement.
+      await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-capture-order:" + payment.order_id}))`;
       const invoice = await tx.saaSInvoice.findUnique({
         where: { providerOrderId: payment.order_id },
         include: { subscription: true, plan: true },
