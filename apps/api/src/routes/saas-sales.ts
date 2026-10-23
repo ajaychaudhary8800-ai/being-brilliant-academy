@@ -116,7 +116,7 @@ router.post("/public/saas-sales/leads", async (req, res) => {
           city: existing.city ?? input.city,
           state: existing.state ?? input.state,
           website: existing.website ?? input.website,
-          campaign: existing.campaign ?? input.campaign,
+          campaign: isSchoolOS ? "SCHOOLOS_V5_PRIVATE_DEMO" : existing.campaign ?? input.campaign,
           requirements: input.requirements ?? undefined,
           utm: utm ?? undefined,
           leadScore: Math.max(existing.leadScore, leadScore),
