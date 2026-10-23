@@ -146,8 +146,9 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     // The real API mounts raw webhook bytes before its general JSON parser.
     app.use("/api/v1/payments/razorpay/webhook", express.raw({ type: "application/json" }));
     app.use(express.json());
-    app.use("/api/v1", contractRouter);
+    // The webhook must be reachable without the subscription router's auth middleware.
     app.use("/api/v1/payments", paymentsRouter);
+    app.use("/api/v1", contractRouter);
     app.use(errorHandler);
     server = await new Promise<ReturnType<ReturnType<typeof express>["listen"]>>((resolve, reject) => {
       const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
