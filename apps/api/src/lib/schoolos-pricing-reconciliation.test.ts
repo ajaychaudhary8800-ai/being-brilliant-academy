@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { reconcileSchoolOSPricing, SCHOOL_OS_COMMERCIAL_REFERENCE, schoolOSExternalQuoteReady } from "./schoolos-pricing-reconciliation.js";
+import { reconcileSchoolOSPricing, SCHOOL_OS_COMMERCIAL_REFERENCE, schoolOSExternalQuoteReady, schoolOSPriceBookReconciled } from "./schoolos-pricing-reconciliation.js";
 
 test("approved rate reference records tier prices in paise without mutating SaaS plan", () => {
   assert.equal(SCHOOL_OS_COMMERCIAL_REFERENCE.tiers.ESSENTIALS.annualPaise, 4990000);
@@ -31,4 +31,31 @@ test("approved quote cannot activate access without future payment and acceptanc
   const unready = schoolOSExternalQuoteReady({ quoteStatus: "DRAFT", validUntil: new Date("2026-10-01T00:00:00Z"), clientOrganizationId: null, planResult: aligned });
   assert.equal(unready.commercialReviewReady, false);
   assert.equal(unready.activationAllowed, false);
+});
+
+test("price-book alignment correctly treats Enterprise as intentional custom quote", () => {
+  const standardCodes = ["ESSENTIALS", "GROWTH", "PROFESSIONAL"] as const;
+  const aligned = standardCodes.map(code => {
+    const plan = SCHOOL_OS_COMMERCIAL_REFERENCE.tiers[code];
+    return reconcileSchoolOSPricing(code, {
+      code, annualPricePaise: plan.annualPaise, currency: "INR",
+      taxRateBps: 1800, isActive: true,
+    });
+  });
+  const enterprise = reconcileSchoolOSPricing("ENTERPRISE", {
+    code: "ENTERPRISE", annualPricePaise: 29999000, currency: "INR",
+    taxRateBps: 1800, isActive: true,
+  });
+  assert.equal(schoolOSPriceBookReconciled([...aligned, enterprise]), true);
+  assert.equal(schoolOSPriceBookReconciled(aligned), false, "Missing Enterprise is not reconciled");
+  const inactiveEnterprise = reconcileSchoolOSPricing("ENTERPRISE", {
+    code: "ENTERPRISE", annualPricePaise: 29999000, currency: "INR",
+    taxRateBps: 1800, isActive: false,
+  });
+  assert.equal(schoolOSPriceBookReconciled([...aligned, inactiveEnterprise]), false);
+  const drift = reconcileSchoolOSPricing("GROWTH", {
+    code: "GROWTH", annualPricePaise: 8999000, currency: "INR",
+    taxRateBps: 1800, isActive: true,
+  });
+  assert.equal(schoolOSPriceBookReconciled([...aligned.filter(x => x.planCode !== "GROWTH"), drift, enterprise]), false);
 });
