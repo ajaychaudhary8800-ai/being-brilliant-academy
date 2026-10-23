@@ -196,6 +196,9 @@ export function PremiumLanding({ legalPagesPublished = false }: { legalPagesPubl
                 <a href="#modules" className="premium-secondary dark:border-slate-700 dark:bg-slate-900 dark:text-white">
                   Explore modules
                 </a>
+                <Link href="/schoolos" className="inline-flex items-center gap-2 rounded-xl border border-cyan-300 px-5 py-3.5 font-bold text-brand-700 transition hover:bg-cyan-50 dark:border-cyan-600 dark:text-cyan-300 dark:hover:bg-slate-800">
+                  Explore Adhyay SchoolOS <ArrowRight size={17} />
+                </Link>
               </div>
               <div className="mt-9 flex flex-wrap gap-3 text-sm font-semibold text-slate-600 dark:text-slate-300">
                 {["Multi-tenant SaaS", "Role-based portals", "Multi-branch", "White-label ready"].map((item) => (
