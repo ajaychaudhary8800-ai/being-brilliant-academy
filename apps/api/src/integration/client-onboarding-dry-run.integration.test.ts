@@ -182,29 +182,60 @@ test("real PostgreSQL completes the full client onboarding dry run to READY / 10
     assert.equal(initial.body.data.administrator.email, tenantAdminEmail);
     assert.equal(initial.body.data.activeBranches, 0);
 
-    const branch = await request(port, "/api/v1/admin/branches", tenantToken, {
-      method: "POST",
-      body: {
-        branchCode: `DR-${suffix.slice(0, 6).toUpperCase()}`,
-        branchName: "Main Campus",
-        address: "101 Dry Run Road",
-        city: "Ghaziabad",
-        state: "Uttar Pradesh",
-        pincode: "201001",
-        phone: "9876543210",
-        email: `campus-${suffix}@example.test`,
-        managerName: "Dry Run Branch Manager",
-        managerEmail,
-        openingDate: "2026-04-01",
-        isActive: true,
-      },
-    });
-
-    assert.equal(branch.status, 201, JSON.stringify(branch.body));
+    const branchPayload = {
+      branchCode: `DR-${suffix.slice(0, 6).toUpperCase()}`,
+      branchName: "Main Campus",
+      address: "101 Dry Run Road",
+      city: "Ghaziabad",
+      state: "Uttar Pradesh",
+      pincode: "201001",
+      phone: "9876543210",
+      email: `campus-${suffix}@example.test`,
+      managerName: "Dry Run Branch Manager",
+      managerEmail,
+      openingDate: "2026-04-01",
+      isActive: true,
+    };
+    // Real PostgreSQL race: three simultaneous requests attempt to provision
+    // the SAME branch and manager. Serializable retries and DB uniqueness must
+    // deliver exactly one committed graph and no duplicate setup/audit records.
+    const attempts = await Promise.all(Array.from({ length: 3 }, () =>
+      request(port, "/api/v1/admin/branches", tenantToken, {
+        method: "POST", body: branchPayload,
+      }),
+    ));
+    const winners = attempts.filter(result => result.status === 201);
+    const rejected = attempts.filter(result => result.status === 409);
+    assert.equal(winners.length, 1, JSON.stringify(attempts));
+    assert.equal(rejected.length, 2, JSON.stringify(attempts));
+    for (const rejectedAttempt of rejected) {
+      assert.ok(["BRANCH_CODE_EXISTS", "BRANCH_OR_MANAGER_EXISTS", "BRANCH_PROVISIONING_CONFLICT"]
+        .includes(rejectedAttempt.body?.error?.code), JSON.stringify(rejectedAttempt.body));
+    }
+    const branch = winners[0]!;
     branchId = branch.body.data.id;
     managerUserId = branch.body.data.managerUserId;
     assert.ok(managerUserId);
     assert.equal(branch.body.data.branchName, "Main Campus");
+    assert.equal(await systemPrisma.branch.count({
+      where: { organizationId, branchCode: branchPayload.branchCode },
+    }), 1);
+    assert.equal(await systemPrisma.user.count({
+      where: { organizationId, email: managerEmail, role: Role.BRANCH_ADMIN },
+    }), 1);
+    assert.equal(await systemPrisma.branchUser.count({
+      where: { organizationId, branchId, userId: managerUserId },
+    }), 1);
+    assert.equal(await systemPrisma.auditLog.count({
+      where: { organizationId, action: "BRANCH_CREATED", entityId: branchId },
+    }), 1);
+    assert.equal(await systemPrisma.auditLog.count({
+      where: { organizationId, action: "USER_CREATED", entityId: managerUserId },
+    }), 1);
+    assert.ok((await systemPrisma.passwordResetToken.count({
+      where: { organizationId, userId: managerUserId },
+    })) <= 1, "Aborted branch attempts must not issue additional setup tokens");
+    console.log("V5_BRANCH_CONCURRENT_SERIALIZABLE_PROVISIONING=PASS");
 
     await systemPrisma.organization.create({
       data: {

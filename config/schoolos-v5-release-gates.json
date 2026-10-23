@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "bc244f499b58cde05658eaef70ed6a5667b19d8d",
+  "releaseCandidateSha": "de508ce34c242c2512a5aeffd975932a1f6e8209",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Consolidated review-only source bc244f499b58cde05658eaef70ed6a5667b19d8d incorporates #247 signed-webhook QA, #243 browser diagnostics, #244 historical-quote staging price safeguards, and #246 serializable branch-manager eligibility fix. Human review each changed blob, source-to-container provenance and branch dependency ancestry; all release gates remain HOLD."
+      "nextAction": "Draft integrated source de508ce34c242c2512a5aeffd975932a1f6e8209 builds on #251 replay-integrity fixes and #249 accumulated quote/manager fixes, adding real PostgreSQL race QA. Review stacked ancestry and exact Coolify image provenance before candidate approval. HOLD. 2026-10-23: fixed TypeScript discriminant typing for capture replay status check after CI TS2345; latest head CI must be rerun and verified."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Verify full CI, disposable PostgreSQL regression, isolated sandbox, read-only external staging QA and frozen V4-to-V5 upgrade against integrated exact source bc244f499b58cde05658eaef70ed6a5667b19d8d and this manifest-only pin commit. Earlier green checks on isolated branches are not acceptance evidence for integrated source."
+      "nextAction": "Run full CI, real disposable PostgreSQL concurrent branch+manager creation, signed Razorpay synthetic webhook replay regression, sandbox, external public QA and V4→V5 restore on source de508ce34c242c2512a5aeffd975932a1f6e8209. Verify all conclusions, no earlier branch checks substitute for this SHA. 2026-10-23: fixed TypeScript discriminant typing for capture replay status check after CI TS2345; latest head CI must be rerun and verified."
     },
     {
       "id": "staging_migration_restore",
@@ -31,7 +31,7 @@
       "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "A disposable synthetic Razorpay-style webhook HTTP suite now checks omitted/forged HMAC, signed amount mismatch, valid capture and replay, without provider network calls or customer proof. Verify new CI results; still require genuine independently signed Order Form, actual Razorpay TEST signed capture/late webhooks and refund/dispute/renewal acceptance before finance signoff."
+      "nextAction": "New fail-closed safeguards for PAID-order capture replay with changed payment ID/amount and provider ID already used by an earlier payment; synthetic HMAC-signed HTTP regressions added. Real Razorpay TEST provider capture, signed independently verified customer order, refunds, disputes, renewal, and finance acceptance still unverified."
     },
     {
       "id": "ai_video_provider_qa",
@@ -45,7 +45,7 @@
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "New branch-manager P2034 retry and inactive/cross-tenant eligibility tests need integration-level CI and independent real PostgreSQL concurrent acceptance. Continue full platform, teacher, parent and student cross-tenant IDOR, secret isolation, mobile, privacy, retention, load and concurrency acceptance. Do not weaken school Class Teacher attendance authorization."
+      "nextAction": "New disposable real-PostgreSQL 3-request race now asserts exactly one branch, one manager, one membership, one audit set, at most one setup token and 409 for losing requests. Confirm CI result and independently repeat on pinned staging; retain multi-tenant IDOR, privacy, load and role UAT gates."
     },
     {
       "id": "customer_uat",

@@ -244,10 +244,50 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
       where: { id: invoiceId },
     })).status, "OPEN");
+    // A previously recorded FAILED payment ID is not safe to promote into a
+    // capture just because it arrives with a newly signed HTTP payload.
+    const reusedFailedId = "pay_failed_synthetic_" + unique;
+    const conflictingPayment = { ...payment, id: reusedFailedId };
+    await systemPrisma.saaSPayment.create({ data: {
+      organizationId: customerId, invoiceId: invoice.id, provider: "RAZORPAY",
+      providerPaymentId: reusedFailedId, amountPaise: totalPaise, currency: "INR",
+      status: "FAILED",
+    } });
+    const conflictingEvent = { ...event, payload: { payment: { entity: conflictingPayment } } };
+    const reusedFailed = await postWebhook(conflictingEvent, signatureFor(conflictingEvent));
+    assert.equal(reusedFailed.status, 409, "Existing FAILED payment identity cannot become CAPTURED");
+    assert.equal((await systemPrisma.saaSPayment.findUniqueOrThrow({
+      where: { providerPaymentId: reusedFailedId },
+    })).status, "FAILED");
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "OPEN");
+    await systemPrisma.saaSPayment.delete({ where: { providerPaymentId: reusedFailedId } });
+
     const paid = await postWebhook(event, signatureFor(event));
     assert.equal(paid.status, 200, "Synthetic valid HMAC settles one matching payment");
     const replay = await postWebhook(event, signatureFor(event));
     assert.equal(replay.status, 200, "Identical signed retry must be idempotent");
+    // A signed callback from the provider referencing an already PAID order
+    // but a DIFFERENT payment ID must not be silently acknowledged as paid.
+    const secondPayment = { ...payment, id: payment.id + "second" };
+    const secondEvent = { ...event, payload: { payment: { entity: secondPayment } } };
+    const conflictingSecond = await postWebhook(secondEvent, signatureFor(secondEvent));
+    assert.equal(conflictingSecond.status, 409,
+      "A different capture identity on a settled order requires finance review");
+
+    // Nor may a replay change amount while recycling a valid captured ID.
+    const alteredAmountEvent = { ...event, payload: { payment: {
+      entity: { ...payment, amount: totalPaise + 1 },
+    } } };
+    const changedReplay = await postWebhook(alteredAmountEvent, signatureFor(alteredAmountEvent));
+    assert.equal(changedReplay.status, 409,
+      "A signed replay with a mismatched amount cannot reuse a paid capture");
+    assert.equal(await systemPrisma.saaSPayment.count({ where: { providerPaymentId: secondPayment.id } }), 0);
+    assert.equal(await systemPrisma.saaSWebhookEvent.count({ where: {
+      provider: "RAZORPAY", eventKey: "payment.captured:" + secondPayment.id,
+    } }), 0);
+
     const paidInvoice = await systemPrisma.saaSInvoice.findUniqueOrThrow({ where: { id: invoiceId } });
     const paidQuote = await systemPrisma.schoolOSQuotation.findUniqueOrThrow({ where: { id: quote.id } });
     const paidOrg = await systemPrisma.organization.findUniqueOrThrow({ where: { id: customerId } });
@@ -264,6 +304,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
 
     console.log("SYNTHETIC_CAPTURE_SETTLEMENT_IDEMPOTENCY=PASS");
     console.log("SYNTHETIC_SIGNED_WEBHOOK_HTTP=PASS");
+    console.log("SYNTHETIC_CAPTURE_REPLAY_ID_AND_AMOUNT_PROTECTION=PASS");
     console.log("SYNTHETIC_CONTRACT_ORDER_REUSE=PASS");
     console.log("SYNTHETIC_CROSS_TENANT_DENIAL=PASS");
     console.log("SYNTHETIC_UNSIGNED_QUOTE_DENIAL=PASS");
