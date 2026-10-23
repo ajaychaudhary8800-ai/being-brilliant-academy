@@ -27,11 +27,12 @@ async function main() {
     const rows = await tx.saaSPlan.findMany({ where: { code: { in: [...FIXED_V5_PLANS] } },
       select: { id: true, code: true, annualPricePaise: true, currency: true, taxRateBps: true, isActive: true } });
     const plans: StagingPlanSnapshot[] = await Promise.all(rows.map(async plan => {
-      const [unresolvedQuotes, paidInvoices] = await Promise.all([
+      const [unresolvedQuotes, paidInvoices, outstandingInvoices] = await Promise.all([
         tx.schoolOSQuotation.count({ where: { planCode: plan.code, status: { in: applicableQuotes } } }),
         tx.saaSInvoice.count({ where: { planId: plan.id, status: "PAID" } }),
+        tx.saaSInvoice.count({ where: { planId: plan.id, status: { in: ["DRAFT", "OPEN", "OVERDUE"] } } }),
       ]);
-      return { ...plan, unresolvedQuotes, paidInvoices };
+      return { ...plan, unresolvedQuotes, paidInvoices, outstandingInvoices };
     }));
     const actions = stagingPricebookPlan(plans);
     const blocked = actions.filter(x => x.status === "BLOCKED");
