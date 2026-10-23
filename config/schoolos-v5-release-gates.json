@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "905fa529c60d204f7a9dc1698674a220692ffafd",
+  "releaseCandidateSha": "df1e30cfda13f0be36b646b5422f9e4133874789",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Step75 Draft PR #235 QA passed on its earlier application source. PR #239 adds an independently CI-tested pricebook status fix; repin reviewed application source to 905fa529c60d204f7a9dc1698674a220692ffafd; verify exact deployed digest, stacked dependency diff, human review and restore/rollback before promoting any gate. Production remains HOLD."
+      "nextAction": "2026-10-23 consolidated source df1e30cfda13f0be36b646b5422f9e4133874789 incorporates PR #242 latest guarded pricebook changes and the exact PR #243 DOM-ready browser QA file on one isolated branch (parent PR #242). Confirm branch ancestry, review dependencies #230/#231/#232/#235/#239/#241/#242, container digest and rollout rollback evidence. All commercial release gates remain PENDING, V4 production untouched."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Run full CI, isolated sandbox and V4 upgrade/rehearsal against PR239's pinned source 905fa529c60d204f7a9dc1698674a220692ffafd, verify all job conclusions/artifacts and separate public-partial smoke from authenticated UAT; do not reuse earlier PR235 successful jobs as acceptance for changed code."
+      "nextAction": "Trigger and inspect fresh CI, external staging read-only QA, disposable PostgreSQL regression and V4-to-V5 isolated upgrade on consolidated source df1e30cfda13f0be36b646b5422f9e4133874789. PR #242 CI and PR #243 CI were on separate commits and do not certify this combination. Capture workflow run IDs/conclusions and source SHA before any reviewer signs off."
     },
     {
       "id": "staging_migration_restore",
@@ -66,7 +66,7 @@
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Professional annual INR 14999000 paise plus 18% GST passed staging preview and approval; reconcile Essentials/Growth prices, Enterprise custom-only terms, signed service agreements and DPA, pilots/onboarding, billable AI/video units, GST refunds and human finance/legal signoffs. Synthetic WON lead and legacy TEST paid invoice must be excluded from real sales KPIs."
+      "nextAction": "Owner-approved Essentials ₹49,900, Growth ₹99,900, Professional ₹149,990 annual; Enterprise custom. Guarded staging-only reconciliation is code-complete but no live staging price change has been verified; run read-only staging audit and authorized guarded application when safe, preserving contract/invoice history. Obtain independent legal and finance signoffs."
     },
     {
       "id": "production_owner_approval",
