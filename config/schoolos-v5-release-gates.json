@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "40ca5e6d89e8fe71e3073a4a65f310e5791f8d88",
+  "releaseCandidateSha": "83a8354c1a8573885e526e797d4b3031b1b5060c",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "V5 integrated review candidate at application SHA 40ca5e6d89e8fe71e3073a4a65f310e5791f8d88 now combines #252 real PostgreSQL onboarding concurrency, #251 signed capture replay protection and #250 transport diagnostics from the parallel staging QA branch, atop #249 consolidation. Confirm source-to-image provenance, dependency DAG, review and rollback before any release approval."
+      "nextAction": "Cumulative candidate source 83a8354c1a8573885e526e797d4b3031b1b5060c extends #254 with a per-provider-order advisory lock before capture invoice reads and triple parallel signed HTTP callback regression; includes #252 real branch concurrency and #250 transport diagnostics. Check SHA ancestry, rollback and staging image attestation; production HOLD."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Re-run all four workflows on the combined candidate SHA 40ca5e6d89e8fe71e3073a4a65f310e5791f8d88: CI/typecheck/integration/containers, isolated PostgreSQL sandbox, GET-only external QA and synthetic V4→V5 migration. Prior green workflows belong to parent branches and cannot certify this candidate."
+      "nextAction": "Run four independent workflows on exact application source 83a8354c1a8573885e526e797d4b3031b1b5060c: full CI/typecheck/integration, isolated staging sandbox with triple concurrent HTTP payment capture, external GET-only browser/API, V4→V5 upgrade/restore. Confirm no previously green branch substitutes for this head."
     },
     {
       "id": "staging_migration_restore",
@@ -31,7 +31,7 @@
       "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "New fail-closed safeguards for PAID-order capture replay with changed payment ID/amount and provider ID already used by an earlier payment; synthetic HMAC-signed HTTP regressions added. Real Razorpay TEST provider capture, signed independently verified customer order, refunds, disputes, renewal, and finance acceptance still unverified."
+      "nextAction": "Concurrent identical synthetic HMAC-signed capture callbacks must all HTTP 200 with one payment, paid invoice and processed event; per-order advisory lock now occurs before any invoice read and distinct conflicting capture still fails closed. Still need independently signed contract, genuine provider TEST payment, refund/dispute, renewal and finance acceptance."
     },
     {
       "id": "ai_video_provider_qa",
