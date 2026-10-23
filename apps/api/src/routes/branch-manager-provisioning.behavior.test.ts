@@ -36,24 +36,34 @@ test("branch creation provisions a tenant-owned Branch Admin atomically", async 
   let assignmentCreateData: any;
   let setupTokenData: any;
   let transactionCalls = 0;
+  let managerLookup: { id: string; organizationId: string; role: Role; isActive: boolean } | null = null;
+  let managerEligibilityReads = 0;
+  let branchCreates = 0;
+  let userCreates = 0;
+  let setupTokenCreates = 0;
 
   patch((systemPrisma as any).user, "findFirst", async () => ({ isActive: true, role: currentRole }));
   patch((systemPrisma as any).organization, "findUnique", async () => ({ id: ORG, isActive: true, deletedAt: null, subscriptionStatus: "ACTIVE", trialEndsAt: null, subscriptionEndsAt: null }));
   patch((systemPrisma as any).tenantAccessAudit, "create", async () => ({}));
 
-  patch((prisma as any).user, "findFirst", async ({ where }: any) => {
-    assert.equal(where.email, MANAGER_EMAIL);
-    return null;
-  });
   patch((prisma as any), "$transaction", async (value: any) => {
     transactionCalls++;
     if (typeof value !== "function") throw new Error("Unexpected array transaction in branch provisioning test");
+    // First serializable attempt aborts before commit; only the successful
+    // second attempt may create a branch or issue a setup token.
+    if (transactionCalls === 1) throw Object.assign(new Error("serialization conflict"), { code: "P2034" });
     const tx = {
       branch: {
-        create: async ({ data }: any) => { branchCreateData = data; return { id: BRANCH }; },
+        create: async ({ data }: any) => { branchCreates++; branchCreateData = data; return { id: BRANCH }; },
       },
       user: {
+        findFirst: async ({ where }: any) => {
+          managerEligibilityReads++;
+          assert.equal(where.email, MANAGER_EMAIL);
+          return managerLookup;
+        },
         create: async ({ data }: any) => {
+          userCreates++;
           userCreateData = data;
           return { id: MANAGER, organizationId: ORG, name: data.name, email: data.email, role: data.role, isActive: data.isActive };
         },
@@ -66,7 +76,7 @@ test("branch creation provisions a tenant-owned Branch Admin atomically", async 
     return value(tx);
   });
   patch((systemPrisma as any).passwordResetToken, "deleteMany", async () => ({ count: 0 }));
-  patch((systemPrisma as any).passwordResetToken, "create", async ({ data }: any) => { setupTokenData = data; return { id: "setup-token", ...data }; });
+  patch((systemPrisma as any).passwordResetToken, "create", async ({ data }: any) => { setupTokenCreates++; setupTokenData = data; return { id: "setup-token", ...data }; });
   patch((prisma as any).auditLog, "create", async () => ({}));
   patch((prisma as any).branch, "findFirst", async ({ where }: any) => {
     if (where.id !== BRANCH || where.organizationId !== ORG) return null;
@@ -132,7 +142,37 @@ test("branch creation provisions a tenant-owned Branch Admin atomically", async 
   assert.equal(assignmentCreateData.userId, MANAGER);
   assert.equal(setupTokenData.organizationId, ORG);
   assert.equal(setupTokenData.userId, MANAGER);
-  assert.equal(transactionCalls, 1);
+  assert.equal(transactionCalls, 2);
+  assert.equal(managerEligibilityReads, 1);
+  assert.equal(branchCreates, 1);
+  assert.equal(userCreates, 1);
+  assert.equal(setupTokenCreates, 1);
+
+  // Never attach a deactivated or foreign-tenant manager on a later request.
+  managerLookup = { id: "existing-manager", organizationId: ORG, role: Role.BRANCH_ADMIN, isActive: false };
+  response = await fetch(`${origin}/admin/branches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
+    body: JSON.stringify({ ...payload, branchCode: "B02" }),
+  });
+  assert.equal(response.status, 409);
+  assert.equal(((await response.json()) as any).error.code, "MANAGER_ACCOUNT_INACTIVE");
+  assert.equal(branchCreates, 1);
+  assert.equal(userCreates, 1);
+  assert.equal(setupTokenCreates, 1);
+
+  managerLookup = { ...managerLookup, isActive: true, organizationId: "other-tenant" };
+  response = await fetch(`${origin}/admin/branches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
+    body: JSON.stringify({ ...payload, branchCode: "B03" }),
+  });
+  assert.equal(response.status, 409);
+  assert.equal(((await response.json()) as any).error.code, "MANAGER_EMAIL_EXISTS");
+  assert.equal(branchCreates, 1);
+  assert.equal(setupTokenCreates, 1);
+  assert.equal(managerEligibilityReads, 3);
+  assert.equal(transactionCalls, 4);
 
   currentRole = Role.BRANCH_ADMIN;
   response = await fetch(`${origin}/admin/branches`, {
@@ -142,5 +182,5 @@ test("branch creation provisions a tenant-owned Branch Admin atomically", async 
   });
   assert.equal(response.status, 403);
   assert.equal(((await response.json()) as any).error.code, "SUPER_ADMIN_REQUIRED");
-  assert.equal(transactionCalls, 1);
+  assert.equal(transactionCalls, 4);
 });

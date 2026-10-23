@@ -183,13 +183,23 @@ router.get("/branches/:id", async (req: AuthRequest, res) => { const data = awai
 router.post("/branches", async (req: AuthRequest, res) => {
   if (req.auth!.role !== Role.SUPER_ADMIN) throw new AppError(403, "SUPER_ADMIN_REQUIRED", "Only a Super Admin can create a branch");
   const input = branchCreateInput.parse(req.body), { managerEmail, ...branchData } = input;
-  const existingManager = await prisma.user.findFirst({ where: { email: managerEmail }, select: { id: true, organizationId: true, name: true, email: true, role: true, isActive: true } });
-  if (existingManager && (existingManager.organizationId !== req.auth!.organizationId || existingManager.role !== Role.BRANCH_ADMIN)) {
-    throw new AppError(409, "MANAGER_EMAIL_EXISTS", "Manager email already belongs to another account");
-  }
-  const passwordHash = existingManager ? null : await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12);
+  // Precompute secrets outside the serializable transaction: no external
+  // side effects are ever retried. Manager eligibility is checked *inside*
+  // each attempt so a P2034 retry cannot reuse a stale account snapshot.
+  const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12);
   try {
     const provisioned = await retrySerializableWrite(() => prisma.$transaction(async tx => {
+      const existingManager = await tx.user.findFirst({
+        where: { email: managerEmail },
+        select: { id: true, organizationId: true, name: true, email: true, role: true, isActive: true },
+      });
+      if (existingManager && (existingManager.organizationId !== req.auth!.organizationId ||
+          existingManager.role !== Role.BRANCH_ADMIN)) {
+        throw new AppError(409, "MANAGER_EMAIL_EXISTS", "Manager email already belongs to another account");
+      }
+      if (existingManager && !existingManager.isActive) {
+        throw new AppError(409, "MANAGER_ACCOUNT_INACTIVE", "The manager account is inactive and cannot manage a new branch");
+      }
       const created = await tx.branch.create({
         data: { ...branchData, organizationId: req.auth!.organizationId, isActive: branchData.isActive ?? true },
         select: { id: true },
@@ -199,7 +209,7 @@ router.post("/branches", async (req: AuthRequest, res) => {
           organizationId: req.auth!.organizationId,
           name: branchData.managerName,
           email: managerEmail,
-          passwordHash: passwordHash!,
+          passwordHash,
           role: Role.BRANCH_ADMIN,
           isActive: true,
         },
@@ -216,10 +226,10 @@ router.post("/branches", async (req: AuthRequest, res) => {
       await tx.auditLog.create({
         data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "BRANCH_CREATED", entity: "Branch", entityId: created.id, metadata: { managerUserId: manager.id, managerEmail } },
       });
-      return { branchId: created.id, manager };
+      return { branchId: created.id, manager, managerCreated: !existingManager };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { conflictCode: "BRANCH_PROVISIONING_CONFLICT" });
-    let setup: unknown = existingManager ? { skipped: true, reason: "EXISTING_MANAGER_ACCOUNT" } : null;
-    if (!existingManager) {
+    let setup: unknown = provisioned.managerCreated ? null : { skipped: true, reason: "EXISTING_MANAGER_ACCOUNT" };
+    if (provisioned.managerCreated) {
       try {
         setup = await issueAccountSetup(provisioned.manager);
         await prisma.auditLog.create({
