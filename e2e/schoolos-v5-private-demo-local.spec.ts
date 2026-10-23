@@ -76,7 +76,7 @@ test("Invalid Indian mobile never generates a CRM API POST", async ({ page }) =>
   await page.locator('input[name="email"]').fill("synthetic@example.test");
   await page.locator('input[name="contactConsent"]').check();
   await page.getByRole("button", { name: /request private demo/i }).click();
-  await expect(page.getByRole("alert")).toContainText("valid 10-digit Indian mobile");
+  await expect(page.locator("#request-demo").getByRole("alert")).toContainText("valid 10-digit Indian mobile");
   expect(attempts).toBe(0);
 });
 
@@ -95,7 +95,7 @@ test("@mobile Mobile private-demo form is usable and rejected API submissions re
   await page.locator('input[name="email"]').fill("synthetic@example.test");
   await page.locator('input[name="contactConsent"]').check();
   await page.getByRole("button", { name: /request private demo/i }).click();
-  await expect(page.getByRole("alert")).toContainText("temporarily unavailable");
+  await expect(page.locator("#request-demo").getByRole("alert")).toContainText("temporarily unavailable");
   await expect(page.getByRole("status")).toHaveCount(0);
   expect(intercepted).toBe(1);
 });
