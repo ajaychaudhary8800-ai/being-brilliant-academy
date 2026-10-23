@@ -60,12 +60,25 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
   for (const container of matched) {
     const service = container.Config?.Labels?.[labels.service] ?? "";
     const env = entryEnvironment(container);
-    const destinations = (container.Mounts ?? []).map(m => ({ destination: m.Destination, readOnly: m.RW === false }));
-    const r2 = destinations.filter(m => m.destination === r2Mount);
-    const razorpay = destinations.filter(m => m.destination === razorpayMount);
-    if (service === "backup" ? r2.length !== 1 || !r2[0].readOnly : r2.length !== 0)
+    // Verify BOTH ends of the host bind. A correct in-container destination
+    // alone is insufficient if the host source was pointed at another file.
+    const mounts = (container.Mounts ?? []).map(m => ({
+      destination: m.Destination, source: m.Source,
+      bind: m.Type === "bind", readOnly: m.RW === false,
+    }));
+    const r2Host = "/etc/schoolos/v5-staging/r2-aws-credentials";
+    const razorpayHost = "/etc/schoolos/v5-staging/razorpay-v5-api.env";
+    const r2 = mounts.filter(m => m.destination === r2Mount || m.source === r2Host);
+    const razorpay = mounts.filter(m => m.destination === razorpayMount || m.source === razorpayHost);
+    if (service === "backup"
+      ? r2.length !== 1 || !r2[0].readOnly || !r2[0].bind
+        || r2[0].source !== r2Host || r2[0].destination !== r2Mount
+      : r2.length !== 0)
       reasons.push("R2_MOUNT_ISOLATION_" + String(service).toUpperCase());
-    if (service === "api" ? razorpay.length !== 1 || !razorpay[0].readOnly : razorpay.length !== 0)
+    if (service === "api"
+      ? razorpay.length !== 1 || !razorpay[0].readOnly || !razorpay[0].bind
+        || razorpay[0].source !== razorpayHost || razorpay[0].destination !== razorpayMount
+      : razorpay.length !== 0)
       reasons.push("PAYMENT_MOUNT_ISOLATION_" + String(service).toUpperCase());
     if (["BACKUP_AWS_ACCESS_KEY_ID", "BACKUP_AWS_SECRET_ACCESS_KEY"].some(k => env.has(k)))
       reasons.push("SHARED_BACKUP_KEY_EXPOSURE_" + String(service).toUpperCase());
