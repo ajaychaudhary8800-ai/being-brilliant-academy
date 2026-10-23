@@ -11,6 +11,8 @@ RUN pnpm --filter @bba/api prisma:generate
 RUN pnpm --filter @bba/api exec tsc -p tsconfig.json --noCheck
 
 FROM node:22-alpine AS runtime
+ARG SCHOOLOS_BUILD_REVISION=unattested
+LABEL org.opencontainers.image.revision=$SCHOOLOS_BUILD_REVISION
 ENV NODE_ENV=production PORT=4000
 RUN apk add --no-cache tini curl su-exec imagemagick poppler-utils font-dejavu font-urw-base35 rsvg-convert \
     && command -v rsvg-convert >/dev/null \
