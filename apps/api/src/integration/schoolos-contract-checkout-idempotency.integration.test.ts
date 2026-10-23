@@ -9,6 +9,7 @@ import jwt from "jsonwebtoken";
 import { env } from "../config.js";
 import { errorHandler } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
+import { captureSaaSRazorpayPayment } from "../lib/saas-commercial.js";
 import contractRouter from "../routes/schoolos-contract-checkout.js";
 
 /**
@@ -195,13 +196,52 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     assert.equal(missingContract.status, 409);
     assert.equal(missingContract.body.error?.code, "SCHOOLOS_QUOTE_NOT_CONTRACTED");
     assert.equal(await systemPrisma.saaSInvoice.count({ where: { organizationId: customerId } }), 1);
+
+    // Only invoke the trusted settlement routine with a fabricated, local-only
+    // captured payment event. This bypasses real webhook signature verification,
+    // which requires separately authorized provider TEST acceptance.
+    const payment = {
+      id: "pay_synthetic_" + unique, order_id: orderId,
+      amount: totalPaise, currency: "INR",
+    };
+    const event = { event: "payment.captured", kind: "SYNTHETIC_DISPOSABLE_FIXTURE",
+      order_id: orderId, payment_id: payment.id, amount: totalPaise };
+    await assert.rejects(
+      () => captureSaaSRazorpayPayment({ ...payment, amount: totalPaise + 1 }, event),
+      (error: unknown) => error instanceof Error && /does not match/.test(error.message),
+      "Mismatched captured amount must not activate the subscription",
+    );
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({ where: { id: invoiceId } })).status, "OPEN");
+    assert.equal(await captureSaaSRazorpayPayment(payment, event), true);
+    assert.equal(await captureSaaSRazorpayPayment(payment, event), true, "Duplicate capture must be idempotent");
+    const paidInvoice = await systemPrisma.saaSInvoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    const paidQuote = await systemPrisma.schoolOSQuotation.findUniqueOrThrow({ where: { id: quote.id } });
+    const paidOrg = await systemPrisma.organization.findUniqueOrThrow({ where: { id: customerId } });
+    assert.equal(paidInvoice.status, "PAID");
+    assert.equal(paidQuote.status, "PAID");
+    assert.equal(paidOrg.subscriptionStatus, "ACTIVE");
+    assert.equal(paidOrg.subscriptionPlan, plan.code);
+    assert.equal((paidOrg.settings as { commercialEntitlements?: { enforce?: boolean } }).commercialEntitlements?.enforce, true);
+    assert.equal(await systemPrisma.saaSPayment.count({ where: { providerPaymentId: payment.id } }), 1);
+    assert.equal(await systemPrisma.saaSWebhookEvent.count({ where: {
+      provider: "RAZORPAY", eventKey: "payment.captured:" + payment.id, processedAt: { not: null },
+    } }), 1);
+    assert.equal(await systemPrisma.saaSInvoice.count({ where: { organizationId: customerId } }), 1);
+
+    console.log("SYNTHETIC_CAPTURE_SETTLEMENT_IDEMPOTENCY=PASS");
     console.log("SYNTHETIC_CONTRACT_ORDER_REUSE=PASS");
     console.log("SYNTHETIC_CROSS_TENANT_DENIAL=PASS");
     console.log("SYNTHETIC_UNSIGNED_QUOTE_DENIAL=PASS");
     console.log("PROVIDER_NETWORK_ORDERS_CREATED=0");
     console.log("REAL_SIGNED_CUSTOMER_EVIDENCE=NOT_TESTED");
+    console.log("LIVE_SIGNED_RAZORPAY_WEBHOOK=NOT_TESTED");
   } finally {
     if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));
+    await systemPrisma.saaSWebhookEvent.deleteMany({
+      where: { provider: "RAZORPAY", eventKey: "payment.captured:pay_synthetic_" + unique },
+    });
+    await systemPrisma.saaSPayment.deleteMany({ where: { organizationId: customerId } });
+    await systemPrisma.auditLog.deleteMany({ where: { organizationId: customerId } });
     if (invoiceId) await systemPrisma.saaSInvoice.deleteMany({ where: { organizationId: customerId } });
     await systemPrisma.schoolOSQuotationRevision.deleteMany({ where: { quote: { organizationId: customerId } } });
     await systemPrisma.schoolOSQuotation.deleteMany({ where: { organizationId: customerId } });
