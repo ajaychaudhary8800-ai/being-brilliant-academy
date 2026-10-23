@@ -66,3 +66,19 @@ export function schoolOSExternalQuoteReady(params: {
   // A future legally vetted order acceptance and payment capture remain independent requirements.
   return { commercialReviewReady: reasons.length === 0, activationAllowed: false, reasons };
 }
+
+/**
+ * Only the three fixed-price tiers must match the approved rate card.
+ * ENTERPRISE is intentionally custom-priced; it can never have ALIGNED status.
+ * Misconfigured/inactive Enterprise still prevents a fully reconciled catalogue.
+ * This flag is informational and does NOT authorize external issuance or checkout.
+ */
+export function schoolOSPriceBookReconciled(
+  evaluations: Array<{ planCode: string; status: SchoolOSPricingStatus; issues: string[] }>,
+) {
+  const byPlan = new Map(evaluations.map(item => [item.planCode, item]));
+  return ["ESSENTIALS", "GROWTH", "PROFESSIONAL"].every(
+    code => byPlan.get(code)?.status === "ALIGNED",
+  ) && byPlan.get("ENTERPRISE")?.status === "CUSTOM_QUOTE_REQUIRED"
+    && byPlan.get("ENTERPRISE")?.issues.length === 1;
+}
