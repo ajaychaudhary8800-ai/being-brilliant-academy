@@ -6,6 +6,7 @@ import { useState } from "react";
 
 const nav = [
   { href: "/#platform", label: "Platform" },
+  { href: "/schoolos", label: "SchoolOS" },
   { href: "/#modules", label: "Modules" },
   { href: "/#solutions", label: "Solutions" },
   { href: "/#white-label", label: "White-label" },
