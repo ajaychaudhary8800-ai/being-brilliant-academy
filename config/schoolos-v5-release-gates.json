@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "bc244f499b58cde05658eaef70ed6a5667b19d8d",
+  "releaseCandidateSha": "c8435b1e9cddf516a189be67595bf75948f8125b",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Consolidated review-only source bc244f499b58cde05658eaef70ed6a5667b19d8d incorporates #247 signed-webhook QA, #243 browser diagnostics, #244 historical-quote staging price safeguards, and #246 serializable branch-manager eligibility fix. Human review each changed blob, source-to-container provenance and branch dependency ancestry; all release gates remain HOLD."
+      "nextAction": "Candidate source c8435b1e9cddf516a189be67595bf75948f8125b includes Draft #249 consolidated security fixes plus signed Razorpay capture-replay conflict rejection. Reviewer must verify the branch stack, complete exact-SHA CI and source-to-deployed-container provenance. Commercial production remains HOLD."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Verify full CI, disposable PostgreSQL regression, isolated sandbox, read-only external staging QA and frozen V4-to-V5 upgrade against integrated exact source bc244f499b58cde05658eaef70ed6a5667b19d8d and this manifest-only pin commit. Earlier green checks on isolated branches are not acceptance evidence for integrated source."
+      "nextAction": "Run and independently inspect CI, disposable PostgreSQL signed-webhook integration, isolated sandbox, browser GET-only staging QA, and synthetic V4→V5 upgrade at exact current integrated source c8435b1e9cddf516a189be67595bf75948f8125b; parent PR success does not certify this source."
     },
     {
       "id": "staging_migration_restore",
@@ -31,7 +31,7 @@
       "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "A disposable synthetic Razorpay-style webhook HTTP suite now checks omitted/forged HMAC, signed amount mismatch, valid capture and replay, without provider network calls or customer proof. Verify new CI results; still require genuine independently signed Order Form, actual Razorpay TEST signed capture/late webhooks and refund/dispute/renewal acceptance before finance signoff."
+      "nextAction": "New fail-closed safeguards for PAID-order capture replay with changed payment ID/amount and provider ID already used by an earlier payment; synthetic HMAC-signed HTTP regressions added. Real Razorpay TEST provider capture, signed independently verified customer order, refunds, disputes, renewal, and finance acceptance still unverified."
     },
     {
       "id": "ai_video_provider_qa",
