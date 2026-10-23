@@ -5,7 +5,7 @@ import { FIXED_V5_PLANS, assertV5StagingPricebookTarget, stagingPricebookPlan, t
 const snapshot = (): StagingPlanSnapshot[] => FIXED_V5_PLANS.map((code, index) => ({
   id: "plan-" + code, code, annualPricePaise: [4_999_000, 8_999_000, 14_999_000][index]!,
   currency: "INR", taxRateBps: 1800, isActive: true,
-  unresolvedQuotes: 0, paidInvoices: 0,
+  unresolvedQuotes: 0, paidInvoices: 0, outstandingInvoices: 0,
 }));
 
 test("approved fixed-tier staging plan pinpoints Essentials and Growth drift without touching Professional", () => {
@@ -24,6 +24,7 @@ test("missing plan, signed or pending approved quote, PAID invoice and tax drift
   assert.equal(stagingPricebookPlan(base.filter(x => x.code !== "ESSENTIALS"))[0]?.status, "BLOCKED");
   assert.equal(stagingPricebookPlan(base.map(x => x.code === "GROWTH" ? { ...x, unresolvedQuotes: 1 } : x))[1]?.status, "BLOCKED");
   assert.equal(stagingPricebookPlan(base.map(x => x.code === "ESSENTIALS" ? { ...x, paidInvoices: 1 } : x))[0]?.status, "BLOCKED");
+  assert.equal(stagingPricebookPlan(base.map(x => x.code === "ESSENTIALS" ? { ...x, outstandingInvoices: 1 } : x))[0]?.status, "BLOCKED");
   assert.equal(stagingPricebookPlan(base.map(x => x.code === "GROWTH" ? { ...x, taxRateBps: 0 } : x))[1]?.status, "BLOCKED");
   assert.equal(stagingPricebookPlan(base.map(x => x.code === "GROWTH" ? { ...x, isActive: false } : x))[1]?.status, "BLOCKED");
 });
