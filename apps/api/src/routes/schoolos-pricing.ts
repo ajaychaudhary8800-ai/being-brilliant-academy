@@ -3,7 +3,7 @@ import { Router } from "express";
 import { AppError } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
 import {
-  SCHOOL_OS_COMMERCIAL_REFERENCE, reconcileSchoolOSPricing, schoolOSExternalQuoteReady,
+  SCHOOL_OS_COMMERCIAL_REFERENCE, reconcileSchoolOSPricing, schoolOSExternalQuoteReady, schoolOSPriceBookReconciled,
 } from "../lib/schoolos-pricing-reconciliation.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
@@ -24,7 +24,7 @@ router.get("/platform/schoolos/pricing/reconciliation", async (req: AuthRequest,
     data: {
       reference: SCHOOL_OS_COMMERCIAL_REFERENCE,
       evaluations,
-      aligned: evaluations.every(item => item.status === "ALIGNED"),
+      aligned: schoolOSPriceBookReconciled(evaluations),
       productionPricesModified: false,
       externalIssuanceEnabled: false,
     },
