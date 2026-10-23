@@ -43,7 +43,7 @@ export function SchoolOSInterestForm({ legalPagesPublished }: { legalPagesPublis
           source: "WEBSITE",
           campaign: "SCHOOLOS_V5_PRIVATE_DEMO",
           requirements: allowedRequirements.filter(code => data.getAll("requirements").includes(code)),
-          utm: { intent: "B2B_PRODUCT_DEMO", product: "ADHYAY_SCHOOLOS", stage: "PRIVATE_DEMO_ONLY" },
+          utm: { intent: "B2B_PRODUCT_DEMO", product: "ADHYAY_SCHOOLOS", stage: "PRIVATE_DEMO_ONLY", contactConsent: "yes" },
         }),
       });
       const json = await response.json().catch(() => null);
