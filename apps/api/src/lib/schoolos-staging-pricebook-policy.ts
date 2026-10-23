@@ -6,7 +6,7 @@ export type FixedV5Plan = typeof FIXED_V5_PLANS[number];
 export type StagingPlanSnapshot = {
   id: string; code: string; annualPricePaise: number; currency: string;
   taxRateBps: number; isActive: boolean;
-  unresolvedQuotes: number; paidInvoices: number;
+  unresolvedQuotes: number; paidInvoices: number; outstandingInvoices: number;
 };
 export type PricebookAction = {
   planCode: FixedV5Plan; planId: string; previousPaise: number;
@@ -32,6 +32,8 @@ export function stagingPricebookPlan(plans: StagingPlanSnapshot[]): PricebookAct
       reasons.push("A quotation has entered approval/contract/payment; reconcile separately");
     if (current.paidInvoices !== 0)
       reasons.push("Historical PAID invoices require independent reconciliation");
+    if (current.outstandingInvoices !== 0)
+      reasons.push("Existing DRAFT, OPEN or OVERDUE invoices require independent reconciliation");
     const status = reasons.length ? "BLOCKED" : current.annualPricePaise === expected ? "ALIGNED" : "CHANGE_SAFE";
     return { planCode, planId: current.id, previousPaise: current.annualPricePaise,
       proposedPaise: expected, status, reasons };
