@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "e23349acf7b9cfbf81c1d5c26a4eefadfb45ebf6",
+  "releaseCandidateSha": "18b9f15c446890f5749944dd66f1fb6d482c2b83",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,28 +10,28 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "RC3 code and integration tests are in the Draft V5 dependency chain; review all parent PRs, stage the consolidated build, and pin the immutable release candidate before collecting independent acceptance evidence."
+      "nextAction": "Review full Draft #230 -> #231 -> #232 -> Step75 audit dependency stack, verify all commits and Coolify image digests against reviewed application SHA 18b9f15c446890f5749944dd66f1fb6d482c2b83; capture immutable candidate/rollback evidence. See docs/SCHOOLOS_V5_STEP75_RC_AUDIT_20261023.md; no V4 production merge."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Run TypeScript, full PostgreSQL integration, container CI, security and release checks against the single pinned integrated V5 candidate, not individual Draft PRs."
+      "nextAction": "Review GitHub CI run 39841427564 SUCCESS on PR232, then execute the currently skipped V5 external GET-only smoke, disposable PostgreSQL sandbox and synthetic V4 upgrade/restore on the eligible Step75 Draft branch; independently inspect results, artifacts and candidate provenance before verifying."
     },
     {
       "id": "staging_migration_restore",
       "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Synthetic V4-to-V5 114-migration and restored school/coaching fixture rehearsal is not staging acceptance; execute off-site backup, isolated staging upgrade and disaster restore with redacted institution data."
+      "nextAction": "Re-run and attest staging-only latest off-site backup download, isolated full restore, 114 migration parity, school/coaching row isolation and AES-256-GCM Commercial Vault document recovery; user-run prior checks do not constitute complete disaster recovery signoff."
     },
     {
       "id": "subscription_payment_qa",
       "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Execute signed quote capture, renewal, add-on, duplicate webhook, dispute and finance-hold acceptance with test identities and institution-isolated ledgers."
+      "nextAction": "Owner-operated QA passed HTTP 409 unsigned direct checkout, HTTP 409 uncontracted quote checkout and unchanged invoices. Next: genuine independently signed QA Order Form, verification, binding, Razorpay TEST signed capture and webhook idempotency, refund/dispute/hold and renewal acceptance. Historical QA School unsigned TEST paid invoice is not a compliant contract."
     },
     {
       "id": "ai_video_provider_qa",
@@ -45,7 +45,7 @@
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Verify zero cross-tenant exposure, platform feature controls, IDORs, secrets, access audits, PII retention, browser/mobile flows, concurrency and peak-size load."
+      "nextAction": "Owner-operated QA confirmed 404 cross-tenant quote lookup, 409 legacy checkout and separate staging database; run comprehensive platform/teacher/student cross-tenant IDOR, secret-mount, browser/mobile, retention, performance and concurrency acceptance on pinned RC. Investigate nightly main-staging class-teacher 403 without weakening authorization."
     },
     {
       "id": "customer_uat",
@@ -59,14 +59,14 @@
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Verify monitoring alerts, worker failure escalation, runbooks, backup retention and restore, rollback and subscription support SLAs in staging."
+      "nextAction": "Investigate transient main-staging:443 timeouts in monitor run 39882393493 (recovered in 39909035993), failed main-branch nightly cross-role attendance run 39875552720, worker alerts, 14-day R2 backup retention, encrypted Vault key recovery, DR and rollback runbooks before ops signoff."
     },
     {
       "id": "commercial_legal_finance",
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Obtain written business/finance/legal approval of AI and room-minute tariff, GST invoicing, refunds, overage, rollover, pilots, DPA and customer terms."
+      "nextAction": "Professional annual INR 14999000 paise plus 18% GST passed staging preview and approval; reconcile Essentials/Growth prices, Enterprise custom-only terms, signed service agreements and DPA, pilots/onboarding, billable AI/video units, GST refunds and human finance/legal signoffs. Synthetic WON lead and legacy TEST paid invoice must be excluded from real sales KPIs."
     },
     {
       "id": "production_owner_approval",
