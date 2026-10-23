@@ -51,7 +51,7 @@ Even if every technical field passes, the report sets `sourceBuildProvenanceInde
 Once exactly the reviewed image is running and attested with nonsecret IDs, use the **already authored** isolated-staging API script from the *correct reviewed image*:
 
 ```sh
-pnpm --filter @bba/api exec tsx src/scripts/schoolos-v5-commercial-preflight.ts
+node dist/src/scripts/schoolos-v5-commercial-preflight.js
 ```
 
 The preflight refuses any non-isolated database, expects `WEB_URL=https://v5-staging.beingbrilliantedu.com`, `RAZORPAY_MODE=test`, and reads **only** four plan configurations and historical quotation/invoice counts. It never changes pricebook rows, creates orders or flags paid release ready. **Important:** the container runtime may not include `tsx` / TypeScript source; verify how the exact reviewed staging API image exposes this script before attempting. If absent, do not improvise a production Prisma command or bypass isolation—package a separately reviewed, runtime-compatible read-only entrypoint.
