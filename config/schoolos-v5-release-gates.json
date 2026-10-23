@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "c8435b1e9cddf516a189be67595bf75948f8125b",
+  "releaseCandidateSha": "2ce84e8dbf3bdd5d50ebfa65a65bc1058767e96f",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Candidate source c8435b1e9cddf516a189be67595bf75948f8125b includes Draft #249 consolidated security fixes plus signed Razorpay capture-replay conflict rejection. Reviewer must verify the branch stack, complete exact-SHA CI and source-to-deployed-container provenance. Commercial production remains HOLD."
+      "nextAction": "Candidate source 2ce84e8dbf3bdd5d50ebfa65a65bc1058767e96f includes Draft #249 consolidated security fixes plus signed Razorpay capture-replay conflict rejection. Reviewer must verify the branch stack, complete exact-SHA CI and source-to-deployed-container provenance. Commercial production remains HOLD. 2026-10-23: fixed TypeScript discriminant typing for capture replay status check after CI TS2345; latest head CI must be rerun and verified."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Run and independently inspect CI, disposable PostgreSQL signed-webhook integration, isolated sandbox, browser GET-only staging QA, and synthetic V4→V5 upgrade at exact current integrated source c8435b1e9cddf516a189be67595bf75948f8125b; parent PR success does not certify this source."
+      "nextAction": "Run and independently inspect CI, disposable PostgreSQL signed-webhook integration, isolated sandbox, browser GET-only staging QA, and synthetic V4→V5 upgrade at exact current integrated source 2ce84e8dbf3bdd5d50ebfa65a65bc1058767e96f; parent PR success does not certify this source. 2026-10-23: fixed TypeScript discriminant typing for capture replay status check after CI TS2345; latest head CI must be rerun and verified."
     },
     {
       "id": "staging_migration_restore",
