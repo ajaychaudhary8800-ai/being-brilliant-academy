@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import { FIXED_V5_PLANS, assertV5StagingPricebookTarget, stagingPricebookPlan, type StagingPlanSnapshot } from "./schoolos-staging-pricebook-policy.js";
 
 const snapshot = (): StagingPlanSnapshot[] => FIXED_V5_PLANS.map((code, index) => ({
@@ -48,4 +49,13 @@ test("script rejects V4 production, non-staging DB, live payment mode and unauth
     { WEB_URL: "https://beingbrilliantedu.com" },
     { RAZORPAY_MODE: "live" },
   ]) assert.throws(() => assertV5StagingPricebookTarget({ ...staging, ...changed }, false), /PRICEBOOK_TARGET_NOT_ISOLATED_V5_STAGING/);
+});
+
+test("staging repricing records a transactionally paired audit and never rewrites customer contracts", async () => {
+  const script = await readFile(new URL("../scripts/schoolos-v5-staging-pricebook.ts", import.meta.url), "utf8");
+  assert.match(script, /tx\.auditLog\.create\(/);
+  assert.match(script, /SCHOOLOS_V5_STAGING_PRICEBOOK_APPLIED/);
+  assert.match(script, /financeSignoffRecorded: false/);
+  assert.doesNotMatch(script, /tx\.schoolOSQuotation\.(?:update|delete|upsert)/);
+  assert.doesNotMatch(script, /tx\.saaSInvoice\.(?:update|delete|upsert)/);
 });
