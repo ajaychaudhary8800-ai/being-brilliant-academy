@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "435af0991d491a9511b8309121892633be2a2e82",
+  "releaseCandidateSha": "d4a393a4e7d15b5b82c708a07618ca59a342e4c3",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Candidate source 435af0991d491a9511b8309121892633be2a2e82 stacks on #260 successful CRM/commercial QA and now adds V5-only Docker source revision labels, no-secret isolated Coolify host inventory and protected bind-source validation. Independently inspect source ancestry/build logs and exact Coolify application ID before any owner-approved V5 staging promotion. Frozen V4 main untouched; release HOLD."
+      "nextAction": "Candidate source d4a393a4e7d15b5b82c708a07618ca59a342e4c3 includes cumulative Coolify staging provenance #261 plus local browser demo Playwright, with precise validation error selector corrected after first actual browser run. Remains Draft; no external staging deployment or commercial GO."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Run all FOUR exact-head workflows on source 435af0991d491a9511b8309121892633be2a2e82: full CI including no-secret staging-provenance unit tests and image build, disposable PostgreSQL V5 sandbox, external GET-only staging QA and synthetic V4→V5 upgrade/restore. Earlier PR #260 green checks cannot certify the revised Dockerfiles/compose source."
+      "nextAction": "Playwright detected real rendered Next.js global live region alert overlapping generic getByRole('alert') from the form. Regression narrowed to the #request-demo section without weakening expected client error. Re-run exact-head all four workflows including local desktop/mobile browser on application source d4a393a4e7d15b5b82c708a07618ca59a342e4c3. Do not count 2/5 earlier test pass as acceptance."
     },
     {
       "id": "staging_migration_restore",
@@ -52,7 +52,7 @@
       "name": "Signed realistic customer UAT and operational onboarding",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Source-level SchoolOS demo funnel now enforces website-only public source, declared lead contact permission, atomic multi-replica public deduplication and platform-authenticated sales handoff. Real PostgreSQL HTTP acceptance must pass before staging; CRM response still not a booking/contract/payment or real institution UAT. Need approved staging operator/browser/mobile customer validation."
+      "nextAction": "Local browser-only synthetic private demo flow now has Playwright submission success/validation/error/mobile coverage, with all lead API calls intercepted and no real CRM mutation. This does NOT evidence an authorized institution submitted a live lead on V5 staging, nor parent/teacher/student/accountant UAT. Need reviewed V5-only staging rollout and signed authentic role-based UAT acceptance."
     },
     {
       "id": "operational_support",
@@ -66,7 +66,7 @@
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Private demo marketing submission records a server timestamp for consent assertion (NOT cryptographic signed consent) and preserves SchoolOS sales attribution; signed contract/provider TEST receipts and finance, privacy policy, onboarding fee vs included scope, taxes and 60-day pilot approval remain separate unsigned commercial launch blockers."
+      "nextAction": "Stage-A demo marketing page is explicitly noindex/private-preview with no checkout and CRM frontend mock-only browser acceptance. Staging Essentials/Growth price drift, onboarding-included-vs-estimate decision, pilot commercial terms, verified TEST provider/contract, live video/AI tariffs and legal/finance approval remain PENDING."
     },
     {
       "id": "production_owner_approval",
