@@ -1,3 +1,4 @@
+import "express-async-errors";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import type { AddressInfo } from "node:net";
