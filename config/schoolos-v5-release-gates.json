@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "de508ce34c242c2512a5aeffd975932a1f6e8209",
+  "releaseCandidateSha": "40ca5e6d89e8fe71e3073a4a65f310e5791f8d88",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Draft integrated source de508ce34c242c2512a5aeffd975932a1f6e8209 builds on #251 replay-integrity fixes and #249 accumulated quote/manager fixes, adding real PostgreSQL race QA. Review stacked ancestry and exact Coolify image provenance before candidate approval. HOLD. 2026-10-23: fixed TypeScript discriminant typing for capture replay status check after CI TS2345; latest head CI must be rerun and verified."
+      "nextAction": "V5 integrated review candidate at application SHA 40ca5e6d89e8fe71e3073a4a65f310e5791f8d88 now combines #252 real PostgreSQL onboarding concurrency, #251 signed capture replay protection and #250 transport diagnostics from the parallel staging QA branch, atop #249 consolidation. Confirm source-to-image provenance, dependency DAG, review and rollback before any release approval."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Run full CI, real disposable PostgreSQL concurrent branch+manager creation, signed Razorpay synthetic webhook replay regression, sandbox, external public QA and V4→V5 restore on source de508ce34c242c2512a5aeffd975932a1f6e8209. Verify all conclusions, no earlier branch checks substitute for this SHA. 2026-10-23: fixed TypeScript discriminant typing for capture replay status check after CI TS2345; latest head CI must be rerun and verified."
+      "nextAction": "Re-run all four workflows on the combined candidate SHA 40ca5e6d89e8fe71e3073a4a65f310e5791f8d88: CI/typecheck/integration/containers, isolated PostgreSQL sandbox, GET-only external QA and synthetic V4→V5 migration. Prior green workflows belong to parent branches and cannot certify this candidate."
     },
     {
       "id": "staging_migration_restore",
@@ -59,7 +59,7 @@
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Investigate transient main-staging:443 timeouts in monitor run 39882393493 (recovered in 39909035993), failed main-branch nightly cross-role attendance run 39875552720, worker alerts, 14-day R2 backup retention, encrypted Vault key recovery, DR and rollback runbooks before ops signoff."
+      "nextAction": "Staging GET failure now triggers separate sanitized DNS A/AAAA and TLS IPv4/IPv6 evidence tests, without relaxing strict HTTP/browser failures. Inspect actual failures/runner and nginx logs; still require root-cause resolution of issue #240 and #237, alerts, DR, R2 retention, runbook review and ops signoff."
     },
     {
       "id": "commercial_legal_finance",
