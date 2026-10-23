@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "0ba39c3290d12aea14ed8d0274b4317692140fc1",
+  "releaseCandidateSha": "d4a393a4e7d15b5b82c708a07618ca59a342e4c3",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Candidate source 0ba39c3290d12aea14ed8d0274b4317692140fc1 consolidates immutable #261 deployment-provenance review with local desktop/mobile private demo Playwright UI/CRM-mocked tests and fix for pnpm devDependencies in CI. Staging deployment not performed, preserve frozen V4 main and production HOLD."
+      "nextAction": "Candidate source d4a393a4e7d15b5b82c708a07618ca59a342e4c3 includes cumulative Coolify staging provenance #261 plus local browser demo Playwright, with precise validation error selector corrected after first actual browser run. Remains Draft; no external staging deployment or commercial GO."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "New isolated local-private-demo-browser failed first CI attempt because NODE_ENV=production made pnpm skip required devDependencies (Next.js TypeScript config); workflow fixed to install dev dependencies normally. Re-run all four workflows at corrected exact-source 0ba39c3290d12aea14ed8d0274b4317692140fc1, including browser job, and accept only if all succeed. Do not interpret parent PR pass as new source proof."
+      "nextAction": "Playwright detected real rendered Next.js global live region alert overlapping generic getByRole('alert') from the form. Regression narrowed to the #request-demo section without weakening expected client error. Re-run exact-head all four workflows including local desktop/mobile browser on application source d4a393a4e7d15b5b82c708a07618ca59a342e4c3. Do not count 2/5 earlier test pass as acceptance."
     },
     {
       "id": "staging_migration_restore",
