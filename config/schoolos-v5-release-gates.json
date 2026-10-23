@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "3f982c2b90c4261dbae137dbca04e7ea4de21d6b",
+  "releaseCandidateSha": "de508ce34c242c2512a5aeffd975932a1f6e8209",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Draft integrated source 3f982c2b90c4261dbae137dbca04e7ea4de21d6b builds on #251 replay-integrity fixes and #249 accumulated quote/manager fixes, adding real PostgreSQL race QA. Review stacked ancestry and exact Coolify image provenance before candidate approval. HOLD."
+      "nextAction": "Draft integrated source de508ce34c242c2512a5aeffd975932a1f6e8209 builds on #251 replay-integrity fixes and #249 accumulated quote/manager fixes, adding real PostgreSQL race QA. Review stacked ancestry and exact Coolify image provenance before candidate approval. HOLD. 2026-10-23: fixed TypeScript discriminant typing for capture replay status check after CI TS2345; latest head CI must be rerun and verified."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Run full CI, real disposable PostgreSQL concurrent branch+manager creation, signed Razorpay synthetic webhook replay regression, sandbox, external public QA and V4→V5 restore on source 3f982c2b90c4261dbae137dbca04e7ea4de21d6b. Verify all conclusions, no earlier branch checks substitute for this SHA."
+      "nextAction": "Run full CI, real disposable PostgreSQL concurrent branch+manager creation, signed Razorpay synthetic webhook replay regression, sandbox, external public QA and V4→V5 restore on source de508ce34c242c2512a5aeffd975932a1f6e8209. Verify all conclusions, no earlier branch checks substitute for this SHA. 2026-10-23: fixed TypeScript discriminant typing for capture replay status check after CI TS2345; latest head CI must be rerun and verified."
     },
     {
       "id": "staging_migration_restore",
