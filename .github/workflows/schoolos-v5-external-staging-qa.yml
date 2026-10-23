@@ -172,7 +172,9 @@ jobs:
     permissions: { contents: read }
     env:
       CI: "true"
-      NODE_ENV: production
+      # Do not set NODE_ENV=production before pnpm install: pnpm would omit
+      # devDependencies such as TypeScript/Playwright needed by this CI job.
+      # Next.js itself sets production mode for build/start.
       QA_BASE_URL: http://127.0.0.1:3000
       NEXT_PUBLIC_API_URL: /api/v1
       LEGAL_PAGES_PUBLISHED: "false"
