@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "5dcf67d22d4bb20d71ef217f1fbc603c25d74cfe",
+  "releaseCandidateSha": "0ba39c3290d12aea14ed8d0274b4317692140fc1",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Pinned cumulative V5 release candidate 5dcf67d22d4bb20d71ef217f1fbc603c25d74cfe extends Draft #261 exact-source Coolify provenance with true desktop/mobile Chromium SchoolOS private-demo browser regression. Browser runs local Next.js with API POST fully mocked, no customer or staging writes. Require dependency review and real isolated V5 staging source/digest provenance before operator deployment."
+      "nextAction": "Candidate source 0ba39c3290d12aea14ed8d0274b4317692140fc1 consolidates immutable #261 deployment-provenance review with local desktop/mobile private demo Playwright UI/CRM-mocked tests and fix for pnpm devDependencies in CI. Staging deployment not performed, preserve frozen V4 main and production HOLD."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Verify all four full exact-head CI/sandbox/browser/upgrade workflows and the NEW local-private-demo-browser Playwright job on source 5dcf67d22d4bb20d71ef217f1fbc603c25d74cfe. Assert desktop/mobile /schoolos page noindex, consented single CRM request payload, invalid mobile prevented, rejected API response visible. Parent #261 green is not evidence for new browser candidate."
+      "nextAction": "New isolated local-private-demo-browser failed first CI attempt because NODE_ENV=production made pnpm skip required devDependencies (Next.js TypeScript config); workflow fixed to install dev dependencies normally. Re-run all four workflows at corrected exact-source 0ba39c3290d12aea14ed8d0274b4317692140fc1, including browser job, and accept only if all succeed. Do not interpret parent PR pass as new source proof."
     },
     {
       "id": "staging_migration_restore",
