@@ -44,10 +44,14 @@ jobs:
       - name: Validate target guardrails and staging bootstrap safeguards
         run: |
           node --test scripts/schoolos-v5-external-staging-smoke.test.mjs
+          node --test scripts/schoolos-v5-network-diagnostics.test.mjs
           node --test apps/api/scripts/schoolos-v5-qa-guard.test.mjs
           node --test scripts/schoolos-v5-trusted-staging-auth-qa.test.mjs
       - name: Test external staging (GET-only except optional staging QA login)
         run: node scripts/schoolos-v5-external-staging-smoke.mjs
+      - name: Capture sanitized DNS/TLS diagnostics if staging GET failed
+        if: failure()
+        run: node scripts/schoolos-v5-network-diagnostics.mjs
       - name: Publish consolidated external QA report
         if: always()
         shell: bash
