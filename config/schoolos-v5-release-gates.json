@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "4990017b2b25cdf28d804b0a15347f42bd32738e",
+  "releaseCandidateSha": "dc81a16071d871e91b42e2976dd3157e5867f08a",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "2026-10-23 extended consolidated source 4990017b2b25cdf28d804b0a15347f42bd32738e includes Draft #245 (#242 latest pricebook + #243 browser) and new isolated synthetic signed-webhook HTTP integration tests. Reviewer must verify PR #245/#246 dependency chain, exact source and runtime container provenance. Production HOLD remains."
+      "nextAction": "Candidate source dc81a16071d871e91b42e2976dd3157e5867f08a extends draft #247 atop #245 with targeted pricebook planning correction for previously PAID Professional invoice. Verify full stacked PR dependency chain (#230, #231, #232, #235, #239, #241, #242, #245, #247 and this PR), source/image digest, staging parity and rollback. Production remains HOLD."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Re-run full CI, external read-only QA, disposable PostgreSQL and V4→V5 upgrade on exact source 4990017b2b25cdf28d804b0a15347f42bd32738e. Earlier #245 runs validate #245 only; collect distinct #246 run IDs and verify all conclusions. Keep release gates unsigned."
+      "nextAction": "Verify full CI, synthetic HTTP billing sandbox, isolated V4→V5 upgrade and read-only external staging browser/smoke at exact SHA dc81a16071d871e91b42e2976dd3157e5867f08a; older PR #247 checks do not certify newly modified planner. Do not sign the gate on machine CI alone."
     },
     {
       "id": "staging_migration_restore",
@@ -66,7 +66,7 @@
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Owner-approved Essentials ₹49,900, Growth ₹99,900, Professional ₹149,990 annual; Enterprise custom. Guarded staging-only reconciliation is code-complete but no live staging price change has been verified; run read-only staging audit and authorized guarded application when safe, preserving contract/invoice history. Obtain independent legal and finance signoffs."
+      "nextAction": "Guarded dry-run now permits aligned Professional to retain paid historical invoices while Essentials and Growth are considered independently; mispriced tiers with own invoices or contracted quotes remain BLOCKED. Confirm dry-run on genuine V5 staging; obtain owner-approved staging-only application and finance/legal signoff. No existing SaaS pricing was changed."
     },
     {
       "id": "production_owner_approval",
