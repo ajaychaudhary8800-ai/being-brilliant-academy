@@ -184,7 +184,7 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
         if (!settled || settled.invoiceId !== invoice.id ||
             settled.organizationId !== invoice.organizationId ||
             settled.provider !== "RAZORPAY" ||
-            ![SaaSPaymentStatus.CAPTURED, SaaSPaymentStatus.REFUNDED].includes(settled.status) ||
+            (settled.status !== SaaSPaymentStatus.CAPTURED && settled.status !== SaaSPaymentStatus.REFUNDED) ||
             settled.amountPaise !== payment.amount ||
             settled.currency !== payment.currency.toUpperCase() ||
             invoice.totalPaise !== payment.amount ||
