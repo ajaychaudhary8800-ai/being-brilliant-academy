@@ -47,6 +47,19 @@ async function main() {
           data: { annualPricePaise: a.proposedPaise },
         });
         if (saved.count !== 1) throw new Error("PRICEBOOK_CONCURRENT_CHANGE: " + a.planCode);
+        // Audit is written in the SAME transaction as the plan change.
+        // This records an operator-run staging action, NOT finance/legal signoff.
+        await tx.auditLog.create({ data: {
+          organizationId: "org_default",
+          action: "SCHOOLOS_V5_STAGING_PRICEBOOK_APPLIED",
+          entity: "SaaSPlan", entityId: a.planId,
+          metadata: {
+            planCode: a.planCode, oldAnnualPricePaise: a.previousPaise,
+            newAnnualPricePaise: a.proposedPaise,
+            referenceId: "SCHOOLOS-LAUNCH-2027-INDIA-V1",
+            target: "schoolos_v5_staging", financeSignoffRecorded: false,
+          } as Prisma.InputJsonValue,
+        } });
       }
     }
     return { mode: apply ? "STAGING_APPLIED" : "STAGING_DRY_RUN", target: "schoolos_v5_staging",
