@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "dc81a16071d871e91b42e2976dd3157e5867f08a",
+  "releaseCandidateSha": "7385ff4eeb9c43add66ec7660e3b55f224ca3b03",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Candidate source dc81a16071d871e91b42e2976dd3157e5867f08a extends draft #247 atop #245 with targeted pricebook planning correction for previously PAID Professional invoice. Verify full stacked PR dependency chain (#230, #231, #232, #235, #239, #241, #242, #245, #247 and this PR), source/image digest, staging parity and rollback. Production remains HOLD."
+      "nextAction": "RC source 7385ff4eeb9c43add66ec7660e3b55f224ca3b03 extends historical-invoice-safe staging pricebook and synthetic webhook tests with network failure diagnostics. Verify complete stacked draft chain, exact source/container provenance, staging isolation, security review and rollback evidence. Production HOLD."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Verify full CI, synthetic HTTP billing sandbox, isolated V4→V5 upgrade and read-only external staging browser/smoke at exact SHA dc81a16071d871e91b42e2976dd3157e5867f08a; older PR #247 checks do not certify newly modified planner. Do not sign the gate on machine CI alone."
+      "nextAction": "Collect four GitHub QA workflow run conclusions for exact app source 7385ff4eeb9c43add66ec7660e3b55f224ca3b03 and manifest SHA, review test outcomes, container digest, untested UAT limitations and any timeout diagnosis. No machine test signs a commercial gate."
     },
     {
       "id": "staging_migration_restore",
@@ -59,7 +59,7 @@
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Investigate transient main-staging:443 timeouts in monitor run 39882393493 (recovered in 39909035993), failed main-branch nightly cross-role attendance run 39875552720, worker alerts, 14-day R2 backup retention, encrypted Vault key recovery, DR and rollback runbooks before ops signoff."
+      "nextAction": "Issue #240 network failures still unresolved. On failed V5 staging GET smoke, new safe diagnostics capture DNS counts plus separate IPv4/IPv6 TLS handshake outcomes and sanitized error codes, without HTTP writes or credentials. Compare future evidence with proxies/DNS/runner egress, and verify backup retention, recovery, alerting and rollback before ops signoff."
     },
     {
       "id": "commercial_legal_finance",
