@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "72bed5f89de7902bd1428ead198a33f685208930",
+  "releaseCandidateSha": "450baa758b053b066b6587941d577d3e3c90bba2",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "V5 consolidated app source 72bed5f89de7902bd1428ead198a33f685208930 includes #256 verified regression baseline plus guarded V5-staging-only READ-ONLY commercial preflight for catalogue, historical quotes and provider configuration presence, and commercial stage-A/B/C launch control pack. Confirm PR dependency, exact staging image, QA and rollback. No deployment or payment authorization."
+      "nextAction": "Candidate source 450baa758b053b066b6587941d577d3e3c90bba2 integrates cumulative PR #257 commercial read-only preflight plus new private-preview /schoolos institutional landing and consent-based SaaS Sales CRM enquiry flow. Review SEO noindex, stage-A-only claims, no checkout and exact compiled candidate provenance; release remains HOLD."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Verify full CI, disposable PostgreSQL sandbox, external read-only staging QA, V4→V5 upgrade and new commercial preflight unit tests on pinned exact application source 72bed5f89de7902bd1428ead198a33f685208930. Prior green #256 is not exact-head proof. Do not treat configuration-presence booleans as successful external provider tests."
+      "nextAction": "Run exact-head full CI including private SchoolOS preview claim/CRM safety regression, disposable PostgreSQL billing/coaching acceptance, external GET-only staging QA and V4→V5 upgrade rehearsal for source 450baa758b053b066b6587941d577d3e3c90bba2. Prior PR #257 passing runs are not proof of this candidate."
     },
     {
       "id": "staging_migration_restore",
@@ -52,7 +52,7 @@
       "name": "Signed realistic customer UAT and operational onboarding",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Run institution-admin, teacher, parent, student, accountant and platform-owner acceptance with real school workflows and signoff."
+      "nextAction": "New SchoolOS private-demo web flow targets school/coaching CRM leads only, with consent and no paid CTA; currently source-only, not deployed or human-tested. Verify responsive browser UX, real institutional enquiry delivery and follow-up in isolated approved staging; complete school/coaching role UAT with real sponsor, no synthetic impersonation."
     },
     {
       "id": "operational_support",
@@ -66,7 +66,7 @@
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Staging read-only commercial preflight is available in Draft source but has NOT been run on actual isolated V5 staging. Approved 2026-10-18 base reference differs from historical Essentials/Growth; onboarding estimates conflict with September annual-included onboarding. Formalize V5 pricing, actual add-on tariff, 60-day pilot billing mechanics, GST, signatures and legal/finance signoff. No price mutation or customer issuance authorized."
+      "nextAction": "Commercial prelaunch webpage must remain noindex and clearly private-demo only until pricing, onboarding inclusion versus separately charged estimates, 60-day pilot contract/payment policy, GST and add-on tariffs approved. Existing V5 staging pricebook drift, TEST provider, signed customer quote and independent financial proof remain unresolved."
     },
     {
       "id": "production_owner_approval",
