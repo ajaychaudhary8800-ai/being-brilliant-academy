@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "df1e30cfda13f0be36b646b5422f9e4133874789",
+  "releaseCandidateSha": "4990017b2b25cdf28d804b0a15347f42bd32738e",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "2026-10-23 consolidated source df1e30cfda13f0be36b646b5422f9e4133874789 incorporates PR #242 latest guarded pricebook changes and the exact PR #243 DOM-ready browser QA file on one isolated branch (parent PR #242). Confirm branch ancestry, review dependencies #230/#231/#232/#235/#239/#241/#242, container digest and rollout rollback evidence. All commercial release gates remain PENDING, V4 production untouched."
+      "nextAction": "2026-10-23 extended consolidated source 4990017b2b25cdf28d804b0a15347f42bd32738e includes Draft #245 (#242 latest pricebook + #243 browser) and new isolated synthetic signed-webhook HTTP integration tests. Reviewer must verify PR #245/#246 dependency chain, exact source and runtime container provenance. Production HOLD remains."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Trigger and inspect fresh CI, external staging read-only QA, disposable PostgreSQL regression and V4-to-V5 isolated upgrade on consolidated source df1e30cfda13f0be36b646b5422f9e4133874789. PR #242 CI and PR #243 CI were on separate commits and do not certify this combination. Capture workflow run IDs/conclusions and source SHA before any reviewer signs off."
+      "nextAction": "Re-run full CI, external read-only QA, disposable PostgreSQL and V4→V5 upgrade on exact source 4990017b2b25cdf28d804b0a15347f42bd32738e. Earlier #245 runs validate #245 only; collect distinct #246 run IDs and verify all conclusions. Keep release gates unsigned."
     },
     {
       "id": "staging_migration_restore",
@@ -31,7 +31,7 @@
       "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Owner-operated QA passed HTTP 409 unsigned direct checkout, HTTP 409 uncontracted quote checkout and unchanged invoices. Next: genuine independently signed QA Order Form, verification, binding, Razorpay TEST signed capture and webhook idempotency, refund/dispute/hold and renewal acceptance. Historical QA School unsigned TEST paid invoice is not a compliant contract."
+      "nextAction": "A disposable synthetic Razorpay-style webhook HTTP suite now checks omitted/forged HMAC, signed amount mismatch, valid capture and replay, without provider network calls or customer proof. Verify new CI results; still require genuine independently signed Order Form, actual Razorpay TEST signed capture/late webhooks and refund/dispute/renewal acceptance before finance signoff."
     },
     {
       "id": "ai_video_provider_qa",

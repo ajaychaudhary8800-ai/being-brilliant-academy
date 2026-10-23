@@ -11,6 +11,7 @@ import { errorHandler } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
 import { captureSaaSRazorpayPayment } from "../lib/saas-commercial.js";
 import contractRouter from "../routes/schoolos-contract-checkout.js";
+import paymentsRouter from "../routes/payments.js";
 
 /**
  * Disposable PostgreSQL HTTP integration. Only tests reuse of an existing
@@ -28,7 +29,8 @@ function assertLocalSyntheticTarget() {
     || !/(^|[_-])(test|integration)([_-]|$)/i.test(name)
     || process.env.RAZORPAY_MODE !== "test"
     || !process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_")
-    || !process.env.RAZORPAY_KEY_SECRET?.startsWith("synthetic-")) {
+    || !process.env.RAZORPAY_KEY_SECRET?.startsWith("synthetic-")
+    || process.env.RAZORPAY_WEBHOOK_SECRET !== "synthetic-local-webhook-only") {
     throw new Error("Refusing quote HTTP QA without isolated local PostgreSQL and synthetic TEST provider credentials");
   }
 }
@@ -38,7 +40,8 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
   // The isolated V5 sandbox job opts into this exact local-only fixture.
   skip: process.env.RUN_POSTGRES_INTEGRATION !== "1"
     || process.env.RAZORPAY_KEY_ID !== "rzp_test_synthetic_disposable_only"
-    || process.env.RAZORPAY_KEY_SECRET !== "synthetic-local-only-nonsecret",
+    || process.env.RAZORPAY_KEY_SECRET !== "synthetic-local-only-nonsecret"
+    || process.env.RAZORPAY_WEBHOOK_SECRET !== "synthetic-local-webhook-only",
   timeout: 120_000,
 }, async () => {
   assertLocalSyntheticTarget();
@@ -140,7 +143,11 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     invoiceId = invoice.id;
 
     const app = express();
+    // The real API mounts raw webhook bytes before its general JSON parser.
+    app.use("/api/v1/payments/razorpay/webhook", express.raw({ type: "application/json" }));
     app.use(express.json());
+    // The webhook must be reachable without the subscription router's auth middleware.
+    app.use("/api/v1/payments", paymentsRouter);
     app.use("/api/v1", contractRouter);
     app.use(errorHandler);
     server = await new Promise<ReturnType<ReturnType<typeof express>["listen"]>>((resolve, reject) => {
@@ -197,23 +204,50 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     assert.equal(missingContract.body.error?.code, "SCHOOLOS_QUOTE_NOT_CONTRACTED");
     assert.equal(await systemPrisma.saaSInvoice.count({ where: { organizationId: customerId } }), 1);
 
-    // Only invoke the trusted settlement routine with a fabricated, local-only
-    // captured payment event. This bypasses real webhook signature verification,
-    // which requires separately authorized provider TEST acceptance.
+    // Exercise the actual HMAC-verified HTTP webhook with only disposable,
+    // locally generated synthetic events. This does NOT certify a real Razorpay
+    // signed callback, legal contract or real merchant capture.
     const payment = {
       id: "pay_synthetic_" + unique, order_id: orderId,
       amount: totalPaise, currency: "INR",
     };
-    const event = { event: "payment.captured", kind: "SYNTHETIC_DISPOSABLE_FIXTURE",
-      order_id: orderId, payment_id: payment.id, amount: totalPaise };
-    await assert.rejects(
-      () => captureSaaSRazorpayPayment({ ...payment, amount: totalPaise + 1 }, event),
-      (error: unknown) => error instanceof Error && /does not match/.test(error.message),
-      "Mismatched captured amount must not activate the subscription",
+    const event = { event: "payment.captured", payload: { payment: { entity: payment } } };
+    const signatureFor = (payload: unknown) => crypto.createHmac(
+      "sha256", "synthetic-local-webhook-only",
+    ).update(JSON.stringify(payload)).digest("hex");
+    const postWebhook = (payload: unknown, signature?: string) => fetch(
+      origin + "/api/v1/payments/razorpay/webhook", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(signature === undefined ? {} : { "x-razorpay-signature": signature }),
+        },
+        body: JSON.stringify(payload),
+      },
     );
-    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({ where: { id: invoiceId } })).status, "OPEN");
-    assert.equal(await captureSaaSRazorpayPayment(payment, event), true);
-    assert.equal(await captureSaaSRazorpayPayment(payment, event), true, "Duplicate capture must be idempotent");
+    const unsigned = await postWebhook(event);
+    assert.equal(unsigned.status, 400, "Unsigned webhook must be denied");
+    const forged = await postWebhook(event, "0".repeat(64));
+    assert.equal(forged.status, 400, "Incorrect HMAC must be denied");
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "OPEN");
+    assert.equal(await systemPrisma.saaSWebhookEvent.count({
+      where: { provider: "RAZORPAY", eventKey: "payment.captured:" + payment.id },
+    }), 0, "Unsigned/forged callbacks must not enter settlement");
+    const mismatched = {
+      ...event,
+      payload: { payment: { entity: { ...payment, amount: totalPaise + 1 } } },
+    };
+    const amountRejected = await postWebhook(mismatched, signatureFor(mismatched));
+    assert.equal(amountRejected.status, 422, "Valid HMAC cannot bypass invoice amount guard");
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "OPEN");
+    const paid = await postWebhook(event, signatureFor(event));
+    assert.equal(paid.status, 200, "Synthetic valid HMAC settles one matching payment");
+    const replay = await postWebhook(event, signatureFor(event));
+    assert.equal(replay.status, 200, "Identical signed retry must be idempotent");
     const paidInvoice = await systemPrisma.saaSInvoice.findUniqueOrThrow({ where: { id: invoiceId } });
     const paidQuote = await systemPrisma.schoolOSQuotation.findUniqueOrThrow({ where: { id: quote.id } });
     const paidOrg = await systemPrisma.organization.findUniqueOrThrow({ where: { id: customerId } });
@@ -229,6 +263,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     assert.equal(await systemPrisma.saaSInvoice.count({ where: { organizationId: customerId } }), 1);
 
     console.log("SYNTHETIC_CAPTURE_SETTLEMENT_IDEMPOTENCY=PASS");
+    console.log("SYNTHETIC_SIGNED_WEBHOOK_HTTP=PASS");
     console.log("SYNTHETIC_CONTRACT_ORDER_REUSE=PASS");
     console.log("SYNTHETIC_CROSS_TENANT_DENIAL=PASS");
     console.log("SYNTHETIC_UNSIGNED_QUOTE_DENIAL=PASS");
