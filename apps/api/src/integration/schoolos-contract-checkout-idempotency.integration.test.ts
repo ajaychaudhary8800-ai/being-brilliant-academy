@@ -50,10 +50,21 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
   let leadId: string | undefined;
   let documentId: string | undefined;
   let invoiceId: string | undefined;
+  let originalEssentialsPricePaise: number | undefined;
 
   try {
-    const plan = await systemPrisma.saaSPlan.findUniqueOrThrow({ where: { code: "ESSENTIALS" } });
-    assert.equal(plan.annualPricePaise, 4_990_000, "Disposable database must have reconciled Essentials catalogue");
+    const seeded = await systemPrisma.saaSPlan.findUniqueOrThrow({ where: { code: "ESSENTIALS" } });
+    // V4 migration fixture still seeds Essentials at ₹49,990 while the
+    // approved V5 reference is ₹49,900. Reconcile only this disposable CI
+    // database to exercise a valid signed-quote policy, then restore it.
+    originalEssentialsPricePaise = seeded.annualPricePaise;
+    if (seeded.annualPricePaise !== 4_990_000) {
+      await systemPrisma.saaSPlan.update({
+        where: { id: seeded.id }, data: { annualPricePaise: 4_990_000 },
+      });
+    }
+    const plan = await systemPrisma.saaSPlan.findUniqueOrThrow({ where: { id: seeded.id } });
+    assert.equal(plan.annualPricePaise, 4_990_000);
     assert.equal(plan.taxRateBps, 1800);
     const taxPaise = Math.round(plan.annualPricePaise * plan.taxRateBps / 10_000);
     const totalPaise = plan.annualPricePaise + taxPaise;
@@ -200,5 +211,11 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
       await tx.organization.deleteMany({ where: { id: { in: [customerId, otherId] } } });
       await tx.$executeRawUnsafe('ALTER TABLE "AcademicSession" ENABLE TRIGGER "AcademicSession_exactly_one_current"');
     });
+    if (originalEssentialsPricePaise !== undefined) {
+      await systemPrisma.saaSPlan.update({
+        where: { code: "ESSENTIALS" },
+        data: { annualPricePaise: originalEssentialsPricePaise },
+      });
+    }
   }
 });
