@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "d616431168e3bb3b9b66e8a38bad6eef8263eb8c",
+  "releaseCandidateSha": "72bed5f89de7902bd1428ead198a33f685208930",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Source d616431168e3bb3b9b66e8a38bad6eef8263eb8c combines #255 serializable payment capture and real onboarding race, #253 signed failure/refund/dispute-related synthetic HTTP risk QA, #250 network diagnostics, and #249 pricebook/branch security safeguards. Review cumulative immutable diff, deployed image provenance, independent approval and rollback. Production HOLD."
+      "nextAction": "V5 consolidated app source 72bed5f89de7902bd1428ead198a33f685208930 includes #256 verified regression baseline plus guarded V5-staging-only READ-ONLY commercial preflight for catalogue, historical quotes and provider configuration presence, and commercial stage-A/B/C launch control pack. Confirm PR dependency, exact staging image, QA and rollback. No deployment or payment authorization."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Independently inspect full CI + isolated PostgreSQL sandbox (signed concurrent capture, payment.failed, partial refund, replay/over-refund), external staging GET/browser and V4→V5 upgrade workflows against exact combined candidate d616431168e3bb3b9b66e8a38bad6eef8263eb8c and manifest-only pin. Earlier isolated branch successes do not certify new integrated head."
+      "nextAction": "Verify full CI, disposable PostgreSQL sandbox, external read-only staging QA, V4→V5 upgrade and new commercial preflight unit tests on pinned exact application source 72bed5f89de7902bd1428ead198a33f685208930. Prior green #256 is not exact-head proof. Do not treat configuration-presence booleans as successful external provider tests."
     },
     {
       "id": "staging_migration_restore",
@@ -66,14 +66,14 @@
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Approved Essentials ₹49,900/year, Growth ₹99,900/year, Professional ₹149,990/year; Enterprise custom. Guarded staging-only annual price audit now refuses repricing with any historical quote (even DRAFT/REJECTED), paid or outstanding invoice, while leaving unchanged Professional TEST history intact. No staging plan data has been changed: independent legal and finance signoffs still required."
+      "nextAction": "Staging read-only commercial preflight is available in Draft source but has NOT been run on actual isolated V5 staging. Approved 2026-10-18 base reference differs from historical Essentials/Growth; onboarding estimates conflict with September annual-included onboarding. Formalize V5 pricing, actual add-on tariff, 60-day pilot billing mechanics, GST, signatures and legal/finance signoff. No price mutation or customer issuance authorized."
     },
     {
       "id": "production_owner_approval",
       "name": "Final signed owner authorization to promote V5 to production",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Request explicit release-candidate-specific production approval only after all previous gates and their evidence are independently verified."
+      "nextAction": "Commercial launch has Stage A offline pre-sales/demo preparation only, Stage B individually signed institution pilot only after all applicable real provider/contract/UAT and deployment approvals, Stage C paid GA only after all ten independently VERIFIED release gates, protected tag/CI and signed owner production authorization. This preflight never authorizes paid checkout."
     }
   ]
 }
