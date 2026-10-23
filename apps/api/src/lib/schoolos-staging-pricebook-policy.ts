@@ -6,7 +6,7 @@ export type FixedV5Plan = typeof FIXED_V5_PLANS[number];
 export type StagingPlanSnapshot = {
   id: string; code: string; annualPricePaise: number; currency: string;
   taxRateBps: number; isActive: boolean;
-  unresolvedQuotes: number; paidInvoices: number; outstandingInvoices: number;
+  existingQuotes: number; paidInvoices: number; outstandingInvoices: number;
 };
 export type PricebookAction = {
   planCode: FixedV5Plan; planId: string; previousPaise: number;
@@ -33,8 +33,8 @@ export function stagingPricebookPlan(plans: StagingPlanSnapshot[]): PricebookAct
     // it must not veto unrelated, safe Essentials/Growth corrections.
     const needsRepricing = current.annualPricePaise !== expected;
     if (needsRepricing) {
-      if (current.unresolvedQuotes !== 0)
-        reasons.push("A quotation has entered approval/contract/payment; reconcile separately");
+      if (current.existingQuotes !== 0)
+        reasons.push("Existing quotation snapshots (including DRAFT or REJECTED) may be submitted later; reconcile separately");
       if (current.paidInvoices !== 0)
         reasons.push("Historical PAID invoices require independent reconciliation");
       if (current.outstandingInvoices !== 0)
