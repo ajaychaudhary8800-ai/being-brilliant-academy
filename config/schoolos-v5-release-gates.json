@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "9029d1ff3ff53fb4e68af2bc2d39739938f3a0e1",
+  "releaseCandidateSha": "4990017b2b25cdf28d804b0a15347f42bd32738e",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "2026-10-23 extended consolidated source 9029d1ff3ff53fb4e68af2bc2d39739938f3a0e1 includes Draft #245 (#242 latest pricebook + #243 browser) and new isolated synthetic signed-webhook HTTP integration tests. Reviewer must verify PR #245/#246 dependency chain, exact source and runtime container provenance. Production HOLD remains."
+      "nextAction": "2026-10-23 extended consolidated source 4990017b2b25cdf28d804b0a15347f42bd32738e includes Draft #245 (#242 latest pricebook + #243 browser) and new isolated synthetic signed-webhook HTTP integration tests. Reviewer must verify PR #245/#246 dependency chain, exact source and runtime container provenance. Production HOLD remains."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Re-run full CI, external read-only QA, disposable PostgreSQL and V4→V5 upgrade on exact source 9029d1ff3ff53fb4e68af2bc2d39739938f3a0e1. Earlier #245 runs validate #245 only; collect distinct #246 run IDs and verify all conclusions. Keep release gates unsigned."
+      "nextAction": "Re-run full CI, external read-only QA, disposable PostgreSQL and V4→V5 upgrade on exact source 4990017b2b25cdf28d804b0a15347f42bd32738e. Earlier #245 runs validate #245 only; collect distinct #246 run IDs and verify all conclusions. Keep release gates unsigned."
     },
     {
       "id": "staging_migration_restore",
