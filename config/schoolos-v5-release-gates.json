@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "4990017b2b25cdf28d804b0a15347f42bd32738e",
+  "releaseCandidateSha": "bc244f499b58cde05658eaef70ed6a5667b19d8d",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "2026-10-23 extended consolidated source 4990017b2b25cdf28d804b0a15347f42bd32738e includes Draft #245 (#242 latest pricebook + #243 browser) and new isolated synthetic signed-webhook HTTP integration tests. Reviewer must verify PR #245/#246 dependency chain, exact source and runtime container provenance. Production HOLD remains."
+      "nextAction": "Consolidated review-only source bc244f499b58cde05658eaef70ed6a5667b19d8d incorporates #247 signed-webhook QA, #243 browser diagnostics, #244 historical-quote staging price safeguards, and #246 serializable branch-manager eligibility fix. Human review each changed blob, source-to-container provenance and branch dependency ancestry; all release gates remain HOLD."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Re-run full CI, external read-only QA, disposable PostgreSQL and V4→V5 upgrade on exact source 4990017b2b25cdf28d804b0a15347f42bd32738e. Earlier #245 runs validate #245 only; collect distinct #246 run IDs and verify all conclusions. Keep release gates unsigned."
+      "nextAction": "Verify full CI, disposable PostgreSQL regression, isolated sandbox, read-only external staging QA and frozen V4-to-V5 upgrade against integrated exact source bc244f499b58cde05658eaef70ed6a5667b19d8d and this manifest-only pin commit. Earlier green checks on isolated branches are not acceptance evidence for integrated source."
     },
     {
       "id": "staging_migration_restore",
@@ -45,7 +45,7 @@
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Owner-operated QA confirmed 404 cross-tenant quote lookup, 409 legacy checkout and separate staging database; run comprehensive platform/teacher/student cross-tenant IDOR, secret-mount, browser/mobile, retention, performance and concurrency acceptance on pinned RC. Investigate nightly main-staging class-teacher 403 without weakening authorization."
+      "nextAction": "New branch-manager P2034 retry and inactive/cross-tenant eligibility tests need integration-level CI and independent real PostgreSQL concurrent acceptance. Continue full platform, teacher, parent and student cross-tenant IDOR, secret isolation, mobile, privacy, retention, load and concurrency acceptance. Do not weaken school Class Teacher attendance authorization."
     },
     {
       "id": "customer_uat",
@@ -66,7 +66,7 @@
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Owner-approved Essentials ₹49,900, Growth ₹99,900, Professional ₹149,990 annual; Enterprise custom. Guarded staging-only reconciliation is code-complete but no live staging price change has been verified; run read-only staging audit and authorized guarded application when safe, preserving contract/invoice history. Obtain independent legal and finance signoffs."
+      "nextAction": "Approved Essentials ₹49,900/year, Growth ₹99,900/year, Professional ₹149,990/year; Enterprise custom. Guarded staging-only annual price audit now refuses repricing with any historical quote (even DRAFT/REJECTED), paid or outstanding invoice, while leaving unchanged Professional TEST history intact. No staging plan data has been changed: independent legal and finance signoffs still required."
     },
     {
       "id": "production_owner_approval",
