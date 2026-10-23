@@ -82,6 +82,12 @@ jobs:
           test "$applied" = "114"
       - name: Real authenticated HTTP coaching with PostgreSQL
         run: pnpm --filter @bba/api exec tsx --test src/integration/academic-placement-concurrency.integration.test.ts
+      - name: Synthetic signed-quote HTTP order reuse (NO real provider orders)
+        env:
+          RAZORPAY_KEY_ID: rzp_test_synthetic_disposable_only
+          RAZORPAY_KEY_SECRET: synthetic-local-only-nonsecret
+        run: |
+          pnpm --filter @bba/api exec tsx --test src/integration/schoolos-contract-checkout-idempotency.integration.test.ts
       - name: Signed LiveKit simulation and provider disconnect negative QA
         run: |
           pnpm --filter @bba/api exec tsx --test \
