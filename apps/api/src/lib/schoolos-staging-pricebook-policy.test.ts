@@ -30,6 +30,29 @@ test("missing plan, signed or pending approved quote, PAID invoice and tax drift
   assert.equal(stagingPricebookPlan(base.map(x => x.code === "GROWTH" ? { ...x, isActive: false } : x))[1]?.status, "BLOCKED");
 });
 
+test("unchanged Professional TEST billing cannot veto unrelated staging tier corrections", () => {
+  // Earlier signed-quote QA generated a Professional invoice. Its historical
+  // state is not touched by this maintenance script and must remain intact.
+  const plans = snapshot().map(plan => plan.code === "PROFESSIONAL"
+    ? { ...plan, unresolvedQuotes: 2, paidInvoices: 1, outstandingInvoices: 1 }
+    : plan);
+  const actions = stagingPricebookPlan(plans);
+  assert.deepEqual(actions.map(a => a.status), ["CHANGE_SAFE", "CHANGE_SAFE", "ALIGNED"]);
+  assert.deepEqual(actions[2]?.reasons, []);
+  assert.equal(actions[2]?.previousPaise, actions[2]?.proposedPaise);
+});
+
+test("commercial records on a tier that needs repricing still fail closed", () => {
+  const base = snapshot();
+  for (const field of ["unresolvedQuotes", "paidInvoices", "outstandingInvoices"] as const) {
+    const actions = stagingPricebookPlan(base.map(plan => plan.code === "ESSENTIALS"
+      ? { ...plan, [field]: 1 } : plan));
+    assert.equal(actions[0]?.status, "BLOCKED", field);
+    assert.equal(actions[1]?.status, "CHANGE_SAFE");
+    assert.equal(actions[2]?.status, "ALIGNED");
+  }
+});
+
 test("script rejects V4 production, non-staging DB, live payment mode and unauthorized apply", () => {
   const staging = {
     DATABASE_URL: "postgresql://placeholder:placeholder@127.0.0.1:5432/schoolos_v5_staging",
