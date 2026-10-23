@@ -11,8 +11,6 @@ import { Prisma } from "@prisma/client";
 import { systemPrisma } from "../lib/prisma.js";
 import { FIXED_V5_PLANS, assertV5StagingPricebookTarget, stagingPricebookPlan, type StagingPlanSnapshot } from "../lib/schoolos-staging-pricebook-policy.js";
 
-const applicableQuotes = ["PENDING_APPROVAL", "INTERNALLY_APPROVED", "CONTRACTED", "PAYMENT_PENDING", "PAID"];
-
 async function main() {
   const args = process.argv.slice(2);
   if (args.some(arg => arg !== "--apply") || args.filter(arg => arg === "--apply").length > 1)
@@ -27,12 +25,14 @@ async function main() {
     const rows = await tx.saaSPlan.findMany({ where: { code: { in: [...FIXED_V5_PLANS] } },
       select: { id: true, code: true, annualPricePaise: true, currency: true, taxRateBps: true, isActive: true } });
     const plans: StagingPlanSnapshot[] = await Promise.all(rows.map(async plan => {
-      const [unresolvedQuotes, paidInvoices, outstandingInvoices] = await Promise.all([
-        tx.schoolOSQuotation.count({ where: { planCode: plan.code, status: { in: applicableQuotes } } }),
+      const [existingQuotes, paidInvoices, outstandingInvoices] = await Promise.all([
+        // Even DRAFT or REJECTED quote snapshots can later be submitted; never
+        // silently reprice the catalogue beneath their frozen amounts.
+        tx.schoolOSQuotation.count({ where: { planCode: plan.code } }),
         tx.saaSInvoice.count({ where: { planId: plan.id, status: "PAID" } }),
         tx.saaSInvoice.count({ where: { planId: plan.id, status: { in: ["DRAFT", "OPEN", "OVERDUE"] } } }),
       ]);
-      return { ...plan, unresolvedQuotes, paidInvoices, outstandingInvoices };
+      return { ...plan, existingQuotes, paidInvoices, outstandingInvoices };
     }));
     const actions = stagingPricebookPlan(plans);
     const blocked = actions.filter(x => x.status === "BLOCKED");
