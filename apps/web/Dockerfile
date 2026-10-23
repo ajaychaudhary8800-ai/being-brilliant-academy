@@ -13,6 +13,8 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL NODE_ENV=production NEXT_OUTPUT_MOD
 RUN pnpm --filter @bba/web build
 
 FROM node:22-alpine AS runtime
+ARG SCHOOLOS_BUILD_REVISION=unattested
+LABEL org.opencontainers.image.revision=$SCHOOLOS_BUILD_REVISION
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 RUN apk add --no-cache tini curl && addgroup -S nextjs && adduser -S -G nextjs nextjs
 WORKDIR /app
