@@ -264,10 +264,15 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     })).status, "OPEN");
     await systemPrisma.saaSPayment.delete({ where: { providerPaymentId: reusedFailedId } });
 
-    const paid = await postWebhook(event, signatureFor(event));
-    assert.equal(paid.status, 200, "Synthetic valid HMAC settles one matching payment");
+    // Real PostgreSQL transaction race: three signed HTTP deliveries for the
+    // same provider capture arrive before the first one has committed.
+    // Replays must serialize before invoice status reads and all return 200.
+    const concurrent = await Promise.all(Array.from({ length: 3 }, () =>
+      postWebhook(event, signatureFor(event))));
+    for (const result of concurrent)
+      assert.equal(result.status, 200, "Concurrent identical signed captures must be idempotent");
     const replay = await postWebhook(event, signatureFor(event));
-    assert.equal(replay.status, 200, "Identical signed retry must be idempotent");
+    assert.equal(replay.status, 200, "Later identical signed retry must stay idempotent");
     // A signed callback from the provider referencing an already PAID order
     // but a DIFFERENT payment ID must not be silently acknowledged as paid.
     const secondPayment = { ...payment, id: payment.id + "second" };
@@ -305,6 +310,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     console.log("SYNTHETIC_CAPTURE_SETTLEMENT_IDEMPOTENCY=PASS");
     console.log("SYNTHETIC_SIGNED_WEBHOOK_HTTP=PASS");
     console.log("SYNTHETIC_CAPTURE_REPLAY_ID_AND_AMOUNT_PROTECTION=PASS");
+    console.log("SYNTHETIC_CONCURRENT_CAPTURE_ORDER_LOCK=PASS");
     console.log("SYNTHETIC_CONTRACT_ORDER_REUSE=PASS");
     console.log("SYNTHETIC_CROSS_TENANT_DENIAL=PASS");
     console.log("SYNTHETIC_UNSIGNED_QUOTE_DENIAL=PASS");
