@@ -15,9 +15,37 @@ if [[ "${SCHOOLOS_V4_BASE_SHA:-}" != "50dfdeb4f99c5cdbaf1d5a9502c709fbbf2798f6" 
   echo "REFUSED: pinned frozen V4 baseline mismatched" >&2
   exit 78
 fi
-for cmd in git pnpm psql createdb pg_dump pg_restore sha256sum node; do
+for cmd in git pnpm psql createdb docker sha256sum node; do
   command -v "$cmd" >/dev/null || { echo "Missing tool: $cmd" >&2; exit 78; }
 done
+# GitHub-hosted PostgreSQL client tools can be newer than the pinned server.
+# A newer pg_dump may emit SET transaction_timeout, unsupported by PostgreSQL 16,
+# which causes --exit-on-error restore to fail before schema verification.
+# Run *both* dump and restore with client 16 from this job's isolated PG16 service.
+mapfile -t pg16_containers < <(docker ps --filter "ancestor=postgres:16-alpine" --format '{{.ID}}')
+if [[ "${#pg16_containers[@]}" -ne 1 ]]; then
+  echo "REFUSED: expected exactly one local synthetic PostgreSQL 16 service" >&2
+  exit 78
+fi
+pg16_container="${pg16_containers[0]}"
+docker exec "$pg16_container" pg_dump --version | grep -Eq 'PostgreSQL\) 16[.]' || {
+  echo "REFUSED: PostgreSQL dump client is not pinned to server major 16" >&2
+  exit 78
+}
+docker exec "$pg16_container" pg_restore --version | grep -Eq 'PostgreSQL\) 16[.]' || {
+  echo "REFUSED: PostgreSQL restore client is not pinned to server major 16" >&2
+  exit 78
+}
+# The service has its own synthetic-only PostgreSQL role/database.
+pg16_dump() {
+  local db="$1" dump="$2"
+  docker exec "$pg16_container" pg_dump --username=postgres -Fc --no-owner --no-acl "$db" > "$dump"
+}
+pg16_restore() {
+  local db="$1" dump="$2"
+  docker exec -i "$pg16_container" pg_restore --username=postgres --exit-on-error --no-owner --no-acl -d "$db" < "$dump"
+}
+
 source_db="bba_v4_rehearsal_test"
 upgrade_db="bba_v5_rehearsal_test"
 restored_db="bba_v5_restored_test"
@@ -92,9 +120,9 @@ user_before="$(psql -d "$source_db" -Atqc \
 }
 
 # Dump and restore V4 FIRST; run every V5 migration on the restored database.
-pg_dump -Fc --no-owner --no-acl -f "$base_dir/v4-frozen.dump" "$source_db"
+pg16_dump "$source_db" "$base_dir/v4-frozen.dump"
 dump_sha_before="$(sha256sum "$base_dir/v4-frozen.dump" | awk '{print $1}')"
-pg_restore --exit-on-error --no-owner --no-acl -d "$upgrade_db" "$base_dir/v4-frozen.dump"
+pg16_restore "$upgrade_db" "$base_dir/v4-frozen.dump"
 SOURCE_DATABASE_MUST_REMAIN_V4=1
 DATABASE_URL="$(conn "$upgrade_db")" pnpm --filter @bba/api exec prisma migrate deploy \
  --schema "$root/apps/api/prisma/schema.prisma"
@@ -145,8 +173,8 @@ configured="$(psql -d "$upgrade_db" -Atqc \
 }
 
 # A second independent dump/restore validates the complete upgraded state.
-pg_dump -Fc --no-owner --no-acl -f "$base_dir/v5-upgraded.dump" "$upgrade_db"
-pg_restore --exit-on-error --no-owner --no-acl -d "$restored_db" "$base_dir/v5-upgraded.dump"
+pg16_dump "$upgrade_db" "$base_dir/v5-upgraded.dump"
+pg16_restore "$restored_db" "$base_dir/v5-upgraded.dump"
 restored_migrations="$(psql -d "$restored_db" -Atqc \
  'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')"
 restored_orgs="$(psql -d "$restored_db" -Atqc \
