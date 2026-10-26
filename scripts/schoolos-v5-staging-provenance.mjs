@@ -84,6 +84,17 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
       reasons.push("SHARED_BACKUP_KEY_EXPOSURE_" + String(service).toUpperCase());
     if (service !== "api" && ["RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET"].some(k => env.has(k)))
       reasons.push("PAYMENT_KEY_EXPOSURE_" + String(service).toUpperCase());
+    // V5 media credentials must not be inherited by the migrate, Web,
+    // backup, proxy or database services. Check NONEMPTY values because
+    // Compose may deliberately pass empty optional placeholders.
+    // Never include secret values in the diagnostic result.
+    if (service !== "api" && [
+      "LIVEKIT_API_SECRET",
+      "LIVEKIT_API_KEY",
+      "LIVEKIT_RECORDING_S3_ACCESS_KEY_ID",
+      "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY",
+    ].some(key => Boolean(env.get(key))))
+      reasons.push("MEDIA_SECRET_EXPOSURE_" + String(service).toUpperCase());
     if (service === "api") {
       let dbSafe = false;
       try {
