@@ -82,6 +82,38 @@ test("read-only V5 runtime audit rejects backup key leakage and secret mount dri
   assert.ok(!JSON.stringify(result).includes("secret-pass"));
 });
 
+test("read-only V5 runtime audit confines nonempty LiveKit keys to the API", () => {
+  const sensitiveKeys = [
+    "LIVEKIT_API_KEY",
+    "LIVEKIT_API_SECRET",
+    "LIVEKIT_RECORDING_S3_ACCESS_KEY_ID",
+    "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY",
+  ];
+  for (const service of names.filter(value => value !== "api")) {
+    for (const key of sensitiveKeys) {
+      const entries = fixtures();
+      const target = entries.find(x => x.Config.Labels["com.docker.compose.service"] === service);
+      target.Config.Env.push(key + "=do-not-print-media-key");
+      const result = check(entries);
+      assert.equal(result.status, "FAIL", service + "/" + key);
+      assert.ok(result.reasons.includes("MEDIA_SECRET_EXPOSURE_" + service.toUpperCase()), service + "/" + key);
+      assert.ok(!JSON.stringify(result).includes("do-not-print-media-key"), "No provider secrets in audit output");
+    }
+  }
+});
+
+test("empty media placeholders are safe and API-only media secrets are allowed", () => {
+  const entries = fixtures();
+  const web = entries.find(x => x.Config.Labels["com.docker.compose.service"] === "web");
+  const api = entries.find(x => x.Config.Labels["com.docker.compose.service"] === "api");
+  web.Config.Env.push("LIVEKIT_API_KEY=", "LIVEKIT_API_SECRET=", "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY=");
+  api.Config.Env.push("LIVEKIT_API_KEY=qa", "LIVEKIT_API_SECRET=secret-should-not-print",
+    "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY=secret-should-not-print");
+  const result = check(entries);
+  assert.equal(result.status, "PASS_TECHNICAL_SNAPSHOT_ONLY");
+  assert.ok(!JSON.stringify(result).includes("secret-should-not-print"));
+});
+
 test("repository labels cannot identify V4 production or legacy staging as V5", () => {
   assert.equal(approvedStagingProject("bba-production"), false);
   assert.equal(approvedStagingProject("bba-staging"), false);
