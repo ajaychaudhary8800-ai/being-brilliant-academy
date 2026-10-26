@@ -108,3 +108,22 @@ test("LMS recording download counters are not incremented for missing R2 objects
     storageBranch.indexOf("downloadCount: { increment: 1 }"),
     "Count only successfully retrieved storage objects");
 });
+
+test("classroom direct recordings and LMS recordings share pending-object handling", async () => {
+  const [source, helper] = await Promise.all([
+    readFile(route, "utf8"),
+    readFile(livekit, "utf8"),
+  ]);
+  assert.match(helper, /export function livekitRecordingObjectMissing\(error: unknown\)/);
+  const materialStart = source.indexOf('router.get("/learning/materials/:id/download"');
+  const materialEnd = source.indexOf('router.post("/learning/materials/:id/bookmark"', materialStart);
+  const directStart = source.indexOf('router.get("/learning/live-classes/native/:room/recording"');
+  const directEnd = source.indexOf('router.get("/learning/gamification/me"', directStart);
+  assert.ok(materialStart >= 0 && materialEnd > materialStart);
+  assert.ok(directStart >= 0 && directEnd > directStart);
+  for (const segment of [source.slice(materialStart, materialEnd), source.slice(directStart, directEnd)]) {
+    assert.match(segment, /livekitRecordingObjectMissing\(error\)/);
+    assert.match(segment, /RECORDING_PROCESSING/);
+    assert.match(segment, /throw error/);
+  }
+});

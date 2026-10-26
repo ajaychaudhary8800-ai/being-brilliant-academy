@@ -37,7 +37,7 @@ import {
 } from "../lib/learning-test-delivery-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { getObject } from "../lib/storage.js";
-import { createLiveKitToken, getLiveKitRecordingObject, livekitClientUrl, livekitConfigured, livekitEgress, livekitRecordingConfigured, livekitRecordingStorage, livekitRoomService } from "../lib/livekit.js";
+import { createLiveKitToken, getLiveKitRecordingObject, livekitClientUrl, livekitConfigured, livekitEgress, livekitRecordingConfigured, livekitRecordingObjectMissing, livekitRecordingStorage, livekitRoomService } from "../lib/livekit.js";
 import { assertSchoolOSNativeLiveClassAdmissionAllowed } from "../lib/schoolos-video-admission.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
@@ -1440,9 +1440,7 @@ router.get("/learning/materials/:id/download", async (req: AuthRequest, res) => 
         ? await getLiveKitRecordingObject(row.storageKey)
         : await getObject(row.storageKey);
     } catch (error) {
-      const providerError = error as { name?: string; $metadata?: { httpStatusCode?: number } } | null;
-      if (isRecording && (providerError?.name === "NoSuchKey" ||
-        providerError?.name === "NotFound" || providerError?.$metadata?.httpStatusCode === 404))
+      if (isRecording && livekitRecordingObjectMissing(error))
         throw new AppError(409, "RECORDING_PROCESSING", "Class recording is still processing");
       throw error;
     }
@@ -1790,8 +1788,16 @@ router.get("/learning/live-classes/native/:room/recording", async (req: AuthRequ
   const room = z.string().min(10).max(120).parse(req.params.room);
   const { live } = await nativeClassForActor(actor, room);
   if (!live.recordingObjectKey) throw new AppError(404, "RECORDING_NOT_FOUND", "No recording is available for this class");
-  const object = await getLiveKitRecordingObject(live.recordingObjectKey);
-  if (!object || !(Symbol.asyncIterator in Object(object))) throw new AppError(404, "RECORDING_NOT_FOUND", "Class recording is not available yet");
+  let object: Awaited<ReturnType<typeof getLiveKitRecordingObject>>;
+  try {
+    object = await getLiveKitRecordingObject(live.recordingObjectKey);
+  } catch (error) {
+    if (livekitRecordingObjectMissing(error))
+      throw new AppError(409, "RECORDING_PROCESSING", "Class recording is still processing");
+    throw error;
+  }
+  if (!object || !(Symbol.asyncIterator in Object(object)))
+    throw new AppError(409, "RECORDING_PROCESSING", "Class recording is still processing");
   res.setHeader("Content-Type", "video/mp4");
   res.setHeader("Content-Disposition", `attachment; filename="live-class-${live.id}.mp4"`);
   for await (const chunk of object as AsyncIterable<Uint8Array | string>) res.write(chunk);
