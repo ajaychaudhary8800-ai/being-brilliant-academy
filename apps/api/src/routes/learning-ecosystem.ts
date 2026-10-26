@@ -1413,18 +1413,49 @@ router.get("/learning/materials/:id/download", async (req: AuthRequest, res) => 
   const actor = await learningActorForRequest(req);
   const row = await prisma.studyMaterial.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor), isArchived: false } });
   if (!row) throw new AppError(404, "MATERIAL_NOT_FOUND", "Material not found");
-  await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
   if (row.fileData) {
+    await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
     return res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"`, "Content-Length": String(row.fileData.length) }).send(Buffer.from(row.fileData));
   }
   if (row.storageKey) {
-    const object = await getObject(row.storageKey);
+    // LiveKit writes native classroom recordings to a dedicated R2 bucket.
+    // The ordinary LMS object store may be local or a completely different S3
+    // bucket. Never route a LiveKit recording through the general getObject().
+    const isRecording = Boolean(row.sourceLiveClassId);
+    if (isRecording) {
+      const source = await prisma.liveClass.findFirst({
+        where: {
+          id: row.sourceLiveClassId!,
+          organizationId: row.organizationId,
+          provider: LiveClassProvider.NATIVE,
+          recordingObjectKey: row.storageKey,
+        },
+        select: { id: true },
+      });
+      if (!source) throw new AppError(404, "RECORDING_NOT_FOUND", "Class recording is no longer available");
+    }
+    let object: Awaited<ReturnType<typeof getLiveKitRecordingObject>> | Awaited<ReturnType<typeof getObject>>;
+    try {
+      object = isRecording
+        ? await getLiveKitRecordingObject(row.storageKey)
+        : await getObject(row.storageKey);
+    } catch (error) {
+      const providerError = error as { name?: string; $metadata?: { httpStatusCode?: number } } | null;
+      if (isRecording && (providerError?.name === "NoSuchKey" ||
+        providerError?.name === "NotFound" || providerError?.$metadata?.httpStatusCode === 404))
+        throw new AppError(409, "RECORDING_PROCESSING", "Class recording is still processing");
+      throw error;
+    }
     if (!object || !(Symbol.asyncIterator in Object(object))) throw new AppError(404, "FILE_NOT_FOUND", "Material file not found");
+    await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
     res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"` });
     for await (const chunk of object as AsyncIterable<Uint8Array | string>) res.write(chunk);
     return res.end();
   }
-  if (row.externalUrl) return res.redirect(row.externalUrl);
+  if (row.externalUrl) {
+    await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
+    return res.redirect(row.externalUrl);
+  }
   throw new AppError(404, "FILE_NOT_FOUND", "Material file not found");
 });
 
