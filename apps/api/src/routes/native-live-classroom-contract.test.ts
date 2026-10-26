@@ -76,3 +76,35 @@ test("paid-video tenants cannot bypass Meetings quota through native LMS tokens 
    recording.indexOf('livekitEgress("StartEgress"'),
    "Unmetered paid-provider recording creation must fail before remote Egress");
 });
+
+
+test("native LiveKit recording LMS downloads use recording R2, not ordinary application storage", async () => {
+  const source = await readFile(route, "utf8");
+  const start = source.indexOf('router.get("/learning/materials/:id/download"');
+  const end = source.indexOf('router.post("/learning/materials/:id/bookmark"', start);
+  assert.ok(start > 0 && end > start, "LMS download endpoint exists");
+  const download = source.slice(start, end);
+  assert.match(download, /learningResourceWhere\(actor\)/, "Preserve role-scoped material lookup");
+  assert.match(download, /sourceLiveClassId/, "Distinguish native recording materials");
+  assert.match(download, /organizationId: row\.organizationId/, "Source must share the exact tenant");
+  assert.match(download, /provider: LiveClassProvider\.NATIVE/, "Source must be a native LiveKit class");
+  assert.match(download, /recordingObjectKey: row\.storageKey/, "Source object key must match stored LMS material");
+  assert.match(download, /isRecording\s*\?\s*await getLiveKitRecordingObject\(row\.storageKey\)\s*:\s*await getObject\(row\.storageKey\)/,
+    "LiveKit recordings must use their dedicated R2 client while ordinary LMS files retain general storage");
+  assert.match(download, /RECORDING_PROCESSING/, "Incomplete Egress uploads should not be represented as downloadable");
+  assert.ok(download.indexOf("const isRecording") < download.indexOf("getLiveKitRecordingObject(row.storageKey)"),
+    "Tenant/source association must be verified before R2 access");
+  assert.ok(download.indexOf("const object") === -1 || download.includes("let object"),
+    "Material stream must be chosen by recording-specific routing");
+});
+
+test("LMS recording download counters are not incremented for missing R2 objects", async () => {
+  const source = await readFile(route, "utf8");
+  const start = source.indexOf('router.get("/learning/materials/:id/download"');
+  const end = source.indexOf('router.post("/learning/materials/:id/bookmark"', start);
+  const download = source.slice(start, end);
+  const storageBranch = download.slice(download.indexOf("if (row.storageKey)"), download.indexOf("if (row.externalUrl)"));
+  assert.ok(storageBranch.indexOf("getLiveKitRecordingObject(row.storageKey)") <
+    storageBranch.indexOf("downloadCount: { increment: 1 }"),
+    "Count only successfully retrieved storage objects");
+});
