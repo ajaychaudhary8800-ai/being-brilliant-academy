@@ -1415,7 +1415,7 @@ router.get("/learning/materials/:id/download", async (req: AuthRequest, res) => 
   if (!row) throw new AppError(404, "MATERIAL_NOT_FOUND", "Material not found");
   if (row.fileData) {
     await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
-    return res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\\r\\n]/g, "")}"`, "Content-Length": String(row.fileData.length) }).send(Buffer.from(row.fileData));
+    return res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"`, "Content-Length": String(row.fileData.length) }).send(Buffer.from(row.fileData));
   }
   if (row.storageKey) {
     // LiveKit writes native classroom recordings to a dedicated R2 bucket.
@@ -1448,7 +1448,7 @@ router.get("/learning/materials/:id/download", async (req: AuthRequest, res) => 
     }
     if (!object || !(Symbol.asyncIterator in Object(object))) throw new AppError(404, "FILE_NOT_FOUND", "Material file not found");
     await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
-    res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\\r\\n]/g, "")}"` });
+    res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"` });
     for await (const chunk of object as AsyncIterable<Uint8Array | string>) res.write(chunk);
     return res.end();
   }
