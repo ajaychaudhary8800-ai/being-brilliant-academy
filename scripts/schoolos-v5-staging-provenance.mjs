@@ -11,6 +11,7 @@ const appRevisionKey = "org.opencontainers.image.revision";
 const labels = { project: "com.docker.compose.project", service: "com.docker.compose.service" };
 const r2Mount = "/run/secrets/schoolos-v5-r2-credentials";
 const razorpayMount = "/run/secrets/schoolos-v5-razorpay-api.env";
+const mediaMount = "/run/secrets/schoolos-v5-livekit-api.env";
 
 function entryEnvironment(container) {
   const values = new Map();
@@ -59,7 +60,7 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
       const mounts = (container.Mounts ?? []).filter(m => m.Destination === destination);
       const mount = mounts[0];
       if (mounts.length !== 1 || mount.Type !== "volume"
-        || mount.Name !== project + "_" + name || (writable && mount.RW !== true))
+        || ![project + "_" + name, project + "_" + name.replaceAll("_", "-")].includes(mount.Name) || (writable && mount.RW !== true))
         reasons.push("PERSISTENT_VOLUME_" + service.toUpperCase() + "_" + name.toUpperCase());
       dataVolumes.set(service + ":" + destination, mount?.Name);
     }
@@ -88,6 +89,7 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
     }));
     const r2Host = "/etc/schoolos/v5-staging/r2-aws-credentials";
     const razorpayHost = "/etc/schoolos/v5-staging/razorpay-v5-api.env";
+    const mediaHost = "/etc/schoolos/v5-staging/livekit-v5-api.env";
     const r2 = mounts.filter(m => m.destination === r2Mount || m.source === r2Host);
     const razorpay = mounts.filter(m => m.destination === razorpayMount || m.source === razorpayHost);
     if (service === "backup"
@@ -100,6 +102,12 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
         || razorpay[0].source !== razorpayHost || razorpay[0].destination !== razorpayMount
       : razorpay.length !== 0)
       reasons.push("PAYMENT_MOUNT_ISOLATION_" + String(service).toUpperCase());
+    const media = mounts.filter(m => m.destination === mediaMount || m.source === mediaHost);
+    if (service === "api"
+      ? media.length !== 1 || !media[0].readOnly || !media[0].bind
+        || media[0].source !== mediaHost || media[0].destination !== mediaMount
+      : media.length !== 0)
+      reasons.push("MEDIA_MOUNT_ISOLATION_" + String(service).toUpperCase());
     if (["BACKUP_AWS_ACCESS_KEY_ID", "BACKUP_AWS_SECRET_ACCESS_KEY"].some(k => env.has(k)))
       reasons.push("SHARED_BACKUP_KEY_EXPOSURE_" + String(service).toUpperCase());
     if (service !== "api" && ["RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET"].some(k => env.has(k)))
@@ -116,6 +124,8 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
     ].some(key => Boolean(env.get(key))))
       reasons.push("MEDIA_SECRET_EXPOSURE_" + String(service).toUpperCase());
     if (service === "api") {
+      if (env.get("SCHOOLOS_V5_LIVEKIT_ENV_FILE") !== mediaMount)
+        reasons.push("API_MEDIA_FILE_NOT_CONFIGURED");
       for (const flag of ["SCHOOLOS_VIDEO_ADMISSION_ENABLED",
         "SCHOOLOS_VIDEO_SETTLEMENT_ENABLED", "SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED"]) {
         // Missing means false in config.ts. Reject unexpected values too.

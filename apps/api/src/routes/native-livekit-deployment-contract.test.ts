@@ -96,7 +96,13 @@ test("V5 isolated staging confines LiveKit and recording secrets to the API cont
   ]) {
     assert.doesNotMatch(shared, new RegExp("^\\s*" + key + ":", "m"), key + " must not leak via the shared migrate/API anchor");
     assert.doesNotMatch(migration, new RegExp("^\\s*" + key + ":", "m"), key + " must not be set on the migration service");
-    assert.match(api, new RegExp("^      " + key + ":", "m"), key + " must be explicitly API-scoped");
+    assert.doesNotMatch(api, new RegExp("^\\s*" + key + ":", "m"), key + " must come from the API-only protected file");
     assert.doesNotMatch(web, new RegExp("^\\s*" + key + ":", "m"), key + " must not be set on the Web service");
   }
+  assert.match(api, /SCHOOLOS_V5_LIVEKIT_ENV_FILE: \/run\/secrets\/schoolos-v5-livekit-api\.env/);
+  assert.match(api, /\/etc\/schoolos\/v5-staging\/livekit-v5-api\.env:\/run\/secrets\/schoolos-v5-livekit-api\.env:ro/);
+  const entrypoint = await readFile(new URL("apps/api/docker-entrypoint.sh", root), "utf8");
+  assert.match(entrypoint, /SCHOOLOS_V5_LIVEKIT_ENV_FILE/);
+  assert.doesNotMatch(entrypoint, /(?:^|\n)\s*\.\s+"?\$media_file/m);
+  assert.doesNotMatch(entrypoint, /eval\s+.*\$media_file/);
 });
