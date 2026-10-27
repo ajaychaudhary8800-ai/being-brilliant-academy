@@ -63,7 +63,7 @@ async function relationCheck(
   const mismatchedCourseBranch = Boolean(data.courseId && data.branchId && course?.branchId && course.branchId !== data.branchId);
   const mismatchedTeacherBranch = Boolean(data.teacherId && data.branchId && teacher && teacher.branchId !== data.branchId);
   let coachingAllocationOverride = false;
-  // Only the native LiveClass endpoints may relax home-branch checks.
+  // Only the native LiveClass provider may relax home-branch checks.
   // An exact same-tenant active allocation is mandatory, even for super-admin
   // requests. Ordinary LMS resources and school sections retain strict checks.
   if ((mismatchedCourseBranch || mismatchedTeacherBranch)
@@ -1611,7 +1611,8 @@ router.get("/learning/live-classes", async (req: AuthRequest, res) => {
 router.post("/learning/live-classes", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const d = liveInput.parse(req.body);
-  await relationCheck(d, { nativeLiveClassOrganizationId: req.auth!.organizationId });
+  await relationCheck(d, d.provider === LiveClassProvider.NATIVE
+    ? { nativeLiveClassOrganizationId: req.auth!.organizationId } : {});
   assertManagerResourceAccess(actor, d, { teacherOwned: true });
   const conflict = await prisma.liveClass.findFirst({ where: { teacherId: d.teacherId, status: { not: LearningStatus.ARCHIVED }, startsAt: { lt: d.endsAt }, endsAt: { gt: d.startsAt } } });
   if (conflict) throw new AppError(409, "TEACHER_SCHEDULE_CONFLICT", "Teacher already has a live class in this time slot");
@@ -1635,7 +1636,8 @@ router.patch("/learning/live-classes/:id", managers, async (req: AuthRequest, re
   if (!old) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Live class not found");
   const d = liveShape.partial().parse(req.body);
   const target = { branchId: d.branchId ?? old.branchId, courseId: d.courseId ?? old.courseId, batchId: d.batchId ?? old.batchId, subjectId: d.subjectId ?? old.subjectId, teacherId: d.teacherId ?? old.teacherId };
-  await relationCheck(target, { nativeLiveClassOrganizationId: req.auth!.organizationId });
+  await relationCheck(target, (d.provider ?? old.provider) === LiveClassProvider.NATIVE
+    ? { nativeLiveClassOrganizationId: req.auth!.organizationId } : {});
   assertManagerResourceAccess(actor, target, { teacherOwned: true });
   const startsAt = d.startsAt ?? old.startsAt, endsAt = d.endsAt ?? old.endsAt;
   if (endsAt <= startsAt) throw new AppError(422, "INVALID_TIME", "End time must be after start time");
