@@ -51,4 +51,51 @@ if [ "${SCHOOLOS_V5_RAZORPAY_ENV_FILE:-}" = "/run/secrets/schoolos-v5-razorpay-a
   unset secrets_file found_key found_webhook entry key value
 fi
 
+
+# The V5-only API receives private classroom and recording provider settings
+# from a dedicated bind mount. Never source/eval the file: allowlist literals.
+if [ "${SCHOOLOS_V5_LIVEKIT_ENV_FILE:-}" = "/run/secrets/schoolos-v5-livekit-api.env" ]; then
+  media_file="$SCHOOLOS_V5_LIVEKIT_ENV_FILE"
+  if [ ! -f "$media_file" ] || [ ! -r "$media_file" ]; then
+    echo "V5 API media credential file missing/unreadable" >&2
+    exit 1
+  fi
+  seen_media=" "
+  while IFS= read -r entry || [ -n "$entry" ]; do
+    case "$entry" in
+      ""|\#*) continue ;;
+      LIVEKIT_URL=*|LIVEKIT_API_KEY=*|LIVEKIT_API_SECRET=*|\
+      LIVEKIT_RECORDING_PREFIX=*|LIVEKIT_RECORDING_S3_REGION=*|\
+      LIVEKIT_RECORDING_S3_BUCKET=*|LIVEKIT_RECORDING_S3_ENDPOINT=*|\
+      LIVEKIT_RECORDING_S3_ACCESS_KEY_ID=*|LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY=*)
+        key=${entry%%=*}
+        value=${entry#*=}
+        case " $seen_media " in
+          *" $key "*) echo "Duplicate V5 media setting" >&2; exit 1 ;;
+        esac
+        case "$value" in
+          \"*\") value=${value#\"}; value=${value%\"} ;;
+          \'*\') value=${value#\'}; value=${value%\'} ;;
+        esac
+        if [ -z "$value" ]; then
+          echo "Empty V5 media setting" >&2
+          exit 1
+        fi
+        seen_media="$seen_media$key "
+        export "$key=$value"
+        ;;
+      *) echo "Invalid V5 media credential file entry" >&2; exit 1 ;;
+    esac
+  done < "$media_file"
+  for required in LIVEKIT_URL LIVEKIT_API_KEY LIVEKIT_API_SECRET \
+    LIVEKIT_RECORDING_S3_BUCKET LIVEKIT_RECORDING_S3_ENDPOINT \
+    LIVEKIT_RECORDING_S3_ACCESS_KEY_ID LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY; do
+    case " $seen_media " in
+      *" $required "*) ;;
+      *) echo "V5 media credential file incomplete" >&2; exit 1 ;;
+    esac
+  done
+  unset media_file seen_media entry key value required
+fi
+
 exec su-exec app "$@"
