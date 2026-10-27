@@ -28,6 +28,16 @@ const check = (plan, extras={}) => evaluateV5GrowthPrice({
 
 test("V5 target guard accepts only exact isolated QA database and all video finance flags OFF", () => {
   assert.equal(assertV5GrowthStagingTarget(staging), true);
+  // The API config defaults omitted video flags to disabled, so a fresh
+  // isolated staging install must not be blocked just for omitting them.
+  const omitted = {...staging};
+  for (const key of [
+    "SCHOOLOS_VIDEO_ADMISSION_ENABLED",
+    "SCHOOLOS_VIDEO_SETTLEMENT_ENABLED",
+    "SCHOOLOS_VIDEO_WEBHOOK_ENABLED",
+    "SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED",
+  ]) delete omitted[key];
+  assert.equal(assertV5GrowthStagingTarget(omitted), true);
   const bad = [
     { WEB_URL: "https://beingbrilliantedu.com" },
     { WEB_URL: "https://main-staging.beingbrilliantedu.com" },
@@ -40,6 +50,10 @@ test("V5 target guard accepts only exact isolated QA database and all video fina
     { SCHOOLOS_VIDEO_SETTLEMENT_ENABLED: "true" },
     { SCHOOLOS_VIDEO_WEBHOOK_ENABLED: "true" },
     { SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED: "true" },
+    { SCHOOLOS_VIDEO_ADMISSION_ENABLED: "TRUE" },
+    { SCHOOLOS_VIDEO_SETTLEMENT_ENABLED: "1" },
+    { SCHOOLOS_VIDEO_WEBHOOK_ENABLED: "yes" },
+    { SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED: "ON" },
     { SCHOOLOS_VIDEO_ADMISSION_ENABLED: "TRUE" },
     { SCHOOLOS_VIDEO_SETTLEMENT_ENABLED: "1" },
     { SCHOOLOS_VIDEO_WEBHOOK_ENABLED: "yes" },
