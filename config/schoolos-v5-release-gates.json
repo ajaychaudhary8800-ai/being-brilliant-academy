@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "7fca7e0b8cafaafdad1c1d5d8ede617c581e37ef",
+  "releaseCandidateSha": "1b513bd4425beb07081cf9a6446b0dbbe860edc8",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,21 +10,21 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Proposed immutable candidate source 7fca7e0b8cafaafdad1c1d5d8ede617c581e37ef is the V5 development merge of PR #270 (exact tenant+allocation native-class fix) into cumulative Draft #262; its pre-merge four workflows passed. Independently review dependency chain and scope, establish source build log and final PR disposition, and obtain attributed reviewer signoff. V4 main unchanged; this candidate has not been deployed to V5 staging."
+      "nextAction": "Proposed frozen V5 code candidate 1b513bd4425beb07081cf9a6446b0dbbe860edc8 includes merged native coaching teacher allocation fix #270, finance preflight #272, and authenticated disposable-PostgreSQL native classroom HTTP regression #273. Review cumulative V5 PR #262 chain and ensure source/image provenance, independent reviewer and all deployment scopes before VERIFIED. Do not merge into V4 main."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "The cumulative V5 development code source 7fca7e0b8cafaafdad1c1d5d8ede617c581e37ef has all four exact-source GitHub CI workflows SUCCESS after one documented retry of GitHub-runner-only public /login Playwright navigation timeouts (Issue #240). Independently inspect build logs, source provenance, replay/no-retry staging and browser evidence, attribute a reviewer and produce signed gate evidence before marking VERIFIED."
+      "nextAction": "At source 1b513bd4425beb07081cf9a6446b0dbbe860edc8, independently confirm all four exact-source workflows are SUCCESS after merge (#273 isolated Postgres native-coaching class HTTP authorization tests passed at PR head cc39bdbb445ec1e9deee6c6c6fcf330b268f4595). The PR head and merged source SHA are not interchangeable evidence. Obtain independent attributed CI review and reproducible build provenance for VERIFIED."
     },
     {
       "id": "staging_migration_restore",
       "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "On 27 Oct staging ran prior source 2ba8a22fe6c9cd26d97689444440a79b5423fba8 (API and Web image revisions, health 200); V5 migration 114/0 and backup database/files SHA, archive readability and R2 object presence PASS. Following final exact-head CI success, deploy current candidate 7fca7e0b8cafaafdad1c1d5d8ede617c581e37ef V5 staging ONLY, verify image source/build logs, security isolation, rollback and independently perform offsite restore/Vault recovery. No V4 production changes."
+      "nextAction": "Existing V5 isolated staging last owner-verified API/Web image at source 2ba8a22fe6c9cd26d97689444440a79b5423fba8; 114/0 DB migrations and 27 Oct database/files checksum+archive+R2 presence PASS. After exact merged-source all-four workflow PASS, deploy candidate 1b513bd4425beb07081cf9a6446b0dbbe860edc8 only to V5 staging, verify images/guard/mounts and independent isolated offsite restore/Vault recovery. V4 production must remain unchanged."
     },
     {
       "id": "subscription_payment_qa",
@@ -38,21 +38,21 @@
       "name": "Real staging AI Examiner and LiveKit usage, billing, failure and proof reconciliation",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Actual synthetic LiveKit Egress Start/Stop and R2 MP4 validation PASS (egress EG_jWn6cErn65CB, 431800 bytes) with paid-video flags OFF. Still requires authenticated teacher-room and student LMS access with current candidate, cross-tenant negative test, AI Examiner provider, fault/reconnect/webhook/billing proof and independent reviewer."
+      "nextAction": "Provider synthetic LiveKit Egress→R2 MP4 verified (431800 bytes) and new real disposable-PostgreSQL role/tenant native-class HTTP integration passed. Still deploy exact current V5 candidate, conduct authenticated actual QA coaching teacher/student classroom creation, recording R2 to LMS download and cross-tenant deny, verify AI Examiner and fail/settlement lifecycle, and obtain provider reviewer acceptance; paid-video flags OFF."
     },
     {
       "id": "security_privacy_tenant_qa",
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Prior V5 staging network and mounts verified, real Egress object generated; new coding protects coach-only exact allocations. Independently perform authenticated current-code role/IDOR and school-vs-coaching negative QA, secrets/privacy scans, load and independent security approval."
+      "nextAction": "Current source includes HTTP-integrated negative tests for foreign school tenant, school-mode branch policy, external-provider bypass and revoked active coaching allocation, PASS on isolated PostgreSQL at PR #273 head. Independently exercise authenticated staging current source including recording material tenant IDOR, privacy/secrets review, load and signoff; do not equate disposable CI with production security audit."
     },
     {
       "id": "customer_uat",
       "name": "Signed realistic customer UAT and operational onboarding",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Two synthetic QA tenants exist. Coaching tenant Batch 1 has 3 active students, 1 subject and exact active cross-branch teacher allocation; none of the tenants initially had native classroom recordings. After staging candidate deployment perform teacher creation, start/stop, LMS download, parent/student and foreign-tenant denial; obtain a genuine external customer sponsor's dated role-by-role acceptance."
+      "nextAction": "QA coaching Batch 1 has 3 enrolled students, 1 subject and 1 exact active cross-branch teacher allocation. Synthetic PostgreSQL classroom creation+visibility+isolation PASS in PR #273. After actual staging deployment, use those QA records for real teacher/student classroom/recording UAT and obtain genuine external customer sponsor signed acceptance. Do not count synthetic CI as customer signature."
     },
     {
       "id": "operational_support",
@@ -66,7 +66,7 @@
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Source 7fca7e0b8cafaafdad1c1d5d8ede617c581e37ef includes safe read-only Growth pricebook preflight and existing transaction-safe guarded reconciliation (#272 merged; #269 superseded); operator must run actual isolated V5 staging CHECK, reconcile if explicit finance approval, then verify approved Essentials/Growth/Professional pricing, pilot/onboarding/video/AI policies, tax/legal/DPA and authentic signatures. No provider payment or price mutation has been proven."
+      "nextAction": "Source 1b513bd4425beb07081cf9a6446b0dbbe860edc8 includes safe read-only Growth pricebook preflight and existing transaction-safe guarded reconciliation (#272 merged; #269 superseded); operator must run actual isolated V5 staging CHECK, reconcile if explicit finance approval, then verify approved Essentials/Growth/Professional pricing, pilot/onboarding/video/AI policies, tax/legal/DPA and authentic signatures. No provider payment or price mutation has been proven."
     },
     {
       "id": "production_owner_approval",
