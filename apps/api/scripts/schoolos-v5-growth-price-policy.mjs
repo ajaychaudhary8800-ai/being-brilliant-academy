@@ -10,10 +10,12 @@ export const GROWTH_PRICE_APPROVAL = "V5_STAGING_GROWTH_99900_APPROVED";
 export function assertV5GrowthStagingTarget(env) {
   if (env.WEB_URL !== "https://v5-staging.beingbrilliantedu.com"
     || env.RAZORPAY_MODE !== "test"
-    || env.SCHOOLOS_VIDEO_ADMISSION_ENABLED !== "false"
-    || env.SCHOOLOS_VIDEO_SETTLEMENT_ENABLED !== "false"
-    || env.SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED !== "false"
-    || env.SCHOOLOS_VIDEO_WEBHOOK_ENABLED !== "false")
+    // Config defaults missing values to false. Unknown/ambiguous values
+    // deliberately fail closed, rather than assuming absence of the string
+    // "true" proves video finance controls are disabled.
+    || ["SCHOOLOS_VIDEO_ADMISSION_ENABLED", "SCHOOLOS_VIDEO_SETTLEMENT_ENABLED",
+        "SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED", "SCHOOLOS_VIDEO_WEBHOOK_ENABLED"]
+       .some(key => ![undefined, "", "false"].includes(env[key])))
     throw new Error("REFUSED_NON_ISOLATED_V5_STAGING_OR_UNSAFE_BILLING_FLAGS");
   let database;
   try { database = new URL(env.DATABASE_URL); }
