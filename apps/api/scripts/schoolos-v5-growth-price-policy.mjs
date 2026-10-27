@@ -10,9 +10,10 @@ export const GROWTH_PRICE_APPROVAL = "V5_STAGING_GROWTH_99900_APPROVED";
 export function assertV5GrowthStagingTarget(env) {
   if (env.WEB_URL !== "https://v5-staging.beingbrilliantedu.com"
     || env.RAZORPAY_MODE !== "test"
-    || env.SCHOOLOS_VIDEO_ADMISSION_ENABLED === "true"
-    || env.SCHOOLOS_VIDEO_SETTLEMENT_ENABLED === "true"
-    || env.SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED === "true")
+    || env.SCHOOLOS_VIDEO_ADMISSION_ENABLED !== "false"
+    || env.SCHOOLOS_VIDEO_SETTLEMENT_ENABLED !== "false"
+    || env.SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED !== "false"
+    || env.SCHOOLOS_VIDEO_WEBHOOK_ENABLED !== "false")
     throw new Error("REFUSED_NON_ISOLATED_V5_STAGING_OR_UNSAFE_BILLING_FLAGS");
   let database;
   try { database = new URL(env.DATABASE_URL); }
@@ -22,7 +23,9 @@ export function assertV5GrowthStagingTarget(env) {
     || database.pathname !== "/schoolos_v5_staging"
     || database.username !== "schoolos_v5_user"
     || (database.port && database.port !== "5432")
-    || database.hash)
+    || database.hash
+    || [...database.searchParams.keys()].some(key => key !== "schema")
+    || (database.searchParams.has("schema") && database.searchParams.get("schema") !== "public"))
     throw new Error("REFUSED_NON_ISOLATED_V5_DATABASE_TARGET");
   return true;
 }
