@@ -40,6 +40,10 @@ test("V5 target guard accepts only exact isolated QA database and all video fina
     { SCHOOLOS_VIDEO_SETTLEMENT_ENABLED: "true" },
     { SCHOOLOS_VIDEO_WEBHOOK_ENABLED: "true" },
     { SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED: "true" },
+    { SCHOOLOS_VIDEO_ADMISSION_ENABLED: "TRUE" },
+    { SCHOOLOS_VIDEO_SETTLEMENT_ENABLED: "1" },
+    { SCHOOLOS_VIDEO_WEBHOOK_ENABLED: "yes" },
+    { SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED: " ON " },
   ];
   for (const updates of bad) assert.throws(() => assertV5GrowthStagingTarget({...staging,...updates}));
 });
