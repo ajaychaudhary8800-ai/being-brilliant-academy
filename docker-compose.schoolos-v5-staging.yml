@@ -86,20 +86,13 @@ services:
     environment:
       <<: *api-env
       SCHOOLOS_V5_RAZORPAY_ENV_FILE: /run/secrets/schoolos-v5-razorpay-api.env
-      LIVEKIT_URL: ${LIVEKIT_URL:-}
-      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
-      LIVEKIT_RECORDING_PREFIX: ${LIVEKIT_RECORDING_PREFIX:-live-class-recordings}
-      LIVEKIT_RECORDING_S3_REGION: ${LIVEKIT_RECORDING_S3_REGION:-}
-      LIVEKIT_RECORDING_S3_BUCKET: ${LIVEKIT_RECORDING_S3_BUCKET:-}
-      LIVEKIT_RECORDING_S3_ENDPOINT: ${LIVEKIT_RECORDING_S3_ENDPOINT:-}
-      LIVEKIT_RECORDING_S3_ACCESS_KEY_ID: ${LIVEKIT_RECORDING_S3_ACCESS_KEY_ID:-}
-      LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY: ${LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY:-}
+      SCHOOLOS_V5_LIVEKIT_ENV_FILE: /run/secrets/schoolos-v5-livekit-api.env
     # An API-only read-only bind mount avoids Coolify's later, shared .env overrides.
     # Entrypoint reads this as root and exports values solely to the API process.
     volumes:
       - app_storage:/data/storage
       - /etc/schoolos/v5-staging/razorpay-v5-api.env:/run/secrets/schoolos-v5-razorpay-api.env:ro
+      - /etc/schoolos/v5-staging/livekit-v5-api.env:/run/secrets/schoolos-v5-livekit-api.env:ro
     depends_on: { migrate: { condition: service_completed_successfully }, redis: { condition: service_healthy } }
     expose: ["4000"]
     networks: [backend, frontend]
