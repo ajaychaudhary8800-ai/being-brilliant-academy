@@ -147,6 +147,8 @@ jobs:
           if [ "$applied" != "114" ]; then echo "::error::Expected 114 migrations, got $applied"; exit 1; fi
       - name: Real PostgreSQL coaching and cross-tenant HTTP regression
         run: pnpm --filter @bba/api exec tsx --test src/integration/academic-placement-concurrency.integration.test.ts
+      - name: Native LMS classroom coaching and school authorization on disposable PostgreSQL
+        run: pnpm --filter @bba/api exec tsx --test src/integration/native-coaching-live-class.integration.test.ts
       - name: Preserve V5 commercial HOLD
         run: |
           node --input-type=module -e '
