@@ -9,10 +9,12 @@ const names = ["postgres", "redis", "api", "web", "nginx", "backup"];
 function container(service) {
   const env = service === "api"
     ? ["DATABASE_URL=postgresql://secret-user:secret-pass@postgres:5432/schoolos_v5_staging",
-      "WEB_URL=https://v5-staging.beingbrilliantedu.com", "RAZORPAY_MODE=test"]
+      "WEB_URL=https://v5-staging.beingbrilliantedu.com", "RAZORPAY_MODE=test",
+      "SCHOOLOS_V5_LIVEKIT_ENV_FILE=/run/secrets/schoolos-v5-livekit-api.env"]
     : [];
   const mounts = service === "api"
-    ? [{ Destination: "/run/secrets/schoolos-v5-razorpay-api.env", Source: "/etc/schoolos/v5-staging/razorpay-v5-api.env", Type: "bind", RW: false }]
+    ? [{ Destination: "/run/secrets/schoolos-v5-razorpay-api.env", Source: "/etc/schoolos/v5-staging/razorpay-v5-api.env", Type: "bind", RW: false },
+      { Destination: "/run/secrets/schoolos-v5-livekit-api.env", Source: "/etc/schoolos/v5-staging/livekit-v5-api.env", Type: "bind", RW: false }]
     : service === "backup"
       ? [{ Destination: "/run/secrets/schoolos-v5-r2-credentials", Source: "/etc/schoolos/v5-staging/r2-aws-credentials", Type: "bind", RW: false }]
       : [];
@@ -148,6 +150,18 @@ test("read-only V5 runtime audit rejects backup key leakage and secret mount dri
   assert.ok(result.reasons.includes("R2_MOUNT_ISOLATION_BACKUP"));
   assert.ok(!JSON.stringify(result).includes("do-not-print"));
   assert.ok(!JSON.stringify(result).includes("secret-pass"));
+});
+
+test("media secret file mount must be API only and read-only", () => {
+  const entries = fixtures();
+  const api = entries.find(x => x.Config.Labels["com.docker.compose.service"] === "api");
+  const mount = api.Mounts.find(x => x.Destination === "/run/secrets/schoolos-v5-livekit-api.env");
+  mount.RW = true;
+  assert.ok(check(entries).reasons.includes("MEDIA_MOUNT_ISOLATION_API"));
+  mount.RW = false;
+  const web = entries.find(x => x.Config.Labels["com.docker.compose.service"] === "web");
+  web.Mounts.push({ ...mount });
+  assert.ok(check(entries).reasons.includes("MEDIA_MOUNT_ISOLATION_WEB"));
 });
 
 test("read-only V5 runtime audit confines nonempty LiveKit keys to the API", () => {
