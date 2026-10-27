@@ -19,6 +19,19 @@ const fixture = [
   "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY=fixture-storage-secret",
 ].join("\n") + "\n";
 
+test("isolated V5 Compose pins pre-existing Coolify volumes without recreation", async () => {
+  const compose = await readFile(composeUrl, "utf8");
+  for (const [key, actual] of Object.entries({
+    postgres_data: "postgres-data",
+    redis_data: "redis-data",
+    app_storage: "app-storage",
+    backups: "backups",
+  })) {
+    const statement = key + ": { external: true, name: 96ffcu0jinuwlnaqxpltln4p_" + actual + " }";
+    assert.ok(compose.includes(statement), "missing exact existing volume pin: " + key);
+  }
+});
+
 test("only V5 staging API has the private provider mount", async () => {
   const compose = await readFile(composeUrl, "utf8");
   assert.equal(compose.split(hostFile).length - 1, 1);
