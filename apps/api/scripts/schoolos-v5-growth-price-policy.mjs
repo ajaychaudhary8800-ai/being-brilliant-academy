@@ -12,7 +12,7 @@ export function assertV5GrowthStagingTarget(env) {
     || env.RAZORPAY_MODE !== "test"
     || ["SCHOOLOS_VIDEO_ADMISSION_ENABLED", "SCHOOLOS_VIDEO_SETTLEMENT_ENABLED",
         "SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED", "SCHOOLOS_VIDEO_WEBHOOK_ENABLED"]
-       .some(key => env[key] === "true"))
+       .some(key => /^(true|1|yes|on)$/i.test(String(env[key] ?? "").trim())))
     throw new Error("REFUSED_NON_ISOLATED_V5_STAGING_OR_UNSAFE_BILLING_FLAGS");
   let database;
   try { database = new URL(env.DATABASE_URL); }
