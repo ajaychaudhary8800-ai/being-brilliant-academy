@@ -107,7 +107,9 @@ test("native coaching classroom enforces exact branch allocation, student access
         dateOfBirth: new Date("2011-01-01"), fatherName: "Test Parent",
         motherName: "Test Parent", className: "Class 6", parentMobile: "9999999999",
         address: "Ephemeral QA only", branchId: coaching.allocated.id,
-        batchId: coaching.batch.id, academicSession: "CURRENT",
+        batchId: coaching.batch.id, academicSession: (await systemPrisma.academicSession.findFirst({
+          where: { organizationId: coachingId, isCurrent: true }, select: { name: true },
+        }))!.name,
         academicSessionId: (await systemPrisma.academicSession.findFirst({
           where: { organizationId: coachingId, isCurrent: true }, select: { id: true },
         }))!.id, admissionDate: new Date("2026-04-01") },
