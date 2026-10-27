@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "6294bb163a31149600956fb91597115277749282",
+  "releaseCandidateSha": "7fca7e0b8cafaafdad1c1d5d8ede617c581e37ef",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,21 +10,21 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Proposed immutable candidate source 6294bb163a31149600956fb91597115277749282 is the V5 development merge of PR #270 (exact tenant+allocation native-class fix) into cumulative Draft #262; its pre-merge four workflows passed. Independently review dependency chain and scope, establish source build log and final PR disposition, and obtain attributed reviewer signoff. V4 main unchanged; this candidate has not been deployed to V5 staging."
+      "nextAction": "Proposed immutable candidate source 7fca7e0b8cafaafdad1c1d5d8ede617c581e37ef is the V5 development merge of PR #270 (exact tenant+allocation native-class fix) into cumulative Draft #262; its pre-merge four workflows passed. Independently review dependency chain and scope, establish source build log and final PR disposition, and obtain attributed reviewer signoff. V4 main unchanged; this candidate has not been deployed to V5 staging."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Record all four GitHub Actions run conclusions at exact candidate source 6294bb163a31149600956fb91597115277749282 after squash merge, including API/Web build, migrations, upgrade and browser tests. Independently inspect CI logs and final source/artifact provenance before signed gate evidence; PR #270 green CI on different SHA is supporting, not substitute."
+      "nextAction": "The cumulative V5 development code source 7fca7e0b8cafaafdad1c1d5d8ede617c581e37ef has all four exact-source GitHub CI workflows SUCCESS after one documented retry of GitHub-runner-only public /login Playwright navigation timeouts (Issue #240). Independently inspect build logs, source provenance, replay/no-retry staging and browser evidence, attribute a reviewer and produce signed gate evidence before marking VERIFIED."
     },
     {
       "id": "staging_migration_restore",
       "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Operator evidence on isolated V5 staging: API/Web OCI revision PASS at prior 2ba8a22f; 114 migrations applied, 0 failed; 20261027T020001Z database/files checksum and archive readability plus R2 object existence PASS. Deploy new candidate 6294bb1 V5-only after source/compose/volume preview, independently attest build, rerun minimal current-head tests and isolated offsite restore plus Vault-key recovery. Preserve V4."
+      "nextAction": "On 27 Oct staging ran prior source 2ba8a22fe6c9cd26d97689444440a79b5423fba8 (API and Web image revisions, health 200); V5 migration 114/0 and backup database/files SHA, archive readability and R2 object presence PASS. Following final exact-head CI success, deploy current candidate 7fca7e0b8cafaafdad1c1d5d8ede617c581e37ef V5 staging ONLY, verify image source/build logs, security isolation, rollback and independently perform offsite restore/Vault recovery. No V4 production changes."
     },
     {
       "id": "subscription_payment_qa",
@@ -66,7 +66,7 @@
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Owner reference Essentials INR 49,900 Growth INR 99,900 Professional INR 149,990 plus Enterprise custom; separate Draft PR #269 Growth price read-only/staging approval controls still not merged. Independently verify actual V5 ratebook, reconcile onboarding vs included, 60-day INR 14,999+GST pilot, AI/video tariffs, statutory tax/legal/DPA and signed finance/legal approvals."
+      "nextAction": "Source 7fca7e0b8cafaafdad1c1d5d8ede617c581e37ef includes safe read-only Growth pricebook preflight and existing transaction-safe guarded reconciliation (#272 merged; #269 superseded); operator must run actual isolated V5 staging CHECK, reconcile if explicit finance approval, then verify approved Essentials/Growth/Professional pricing, pilot/onboarding/video/AI policies, tax/legal/DPA and authentic signatures. No provider payment or price mutation has been proven."
     },
     {
       "id": "production_owner_approval",
