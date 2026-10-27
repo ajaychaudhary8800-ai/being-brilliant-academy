@@ -37,6 +37,7 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
 
   const reasons = [];
   const matched = containers.filter(c => c?.Config?.Labels?.[labels.project] === project);
+  const dataVolumes = new Map();
   const detail = services.map(service => {
     const found = matched.filter(c => c?.Config?.Labels?.[labels.service] === service && c?.State?.Running === true);
     const container = [...found].sort((a, b) => String(b.Created ?? "").localeCompare(String(a.Created ?? "")))[0];
@@ -46,6 +47,22 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
     const health = container.State?.Health?.Status ?? "NOT_CONFIGURED";
     if (health !== "healthy") reasons.push("SERVICE_NOT_HEALTHY_" + service.toUpperCase());
     const actualRevision = container.Config?.Labels?.[appRevisionKey];
+    // The reviewed Compose uses project-scoped named volumes. Unexpected
+    // names require operator review, never automatic recreation or migration.
+    const requiredMounts = {
+      postgres: [["postgres_data", "/var/lib/postgresql/data", true]],
+      redis: [["redis_data", "/data", true]],
+      api: [["app_storage", "/data/storage", true]],
+      backup: [["backups", "/backups", true], ["app_storage", "/data/storage", false]],
+    }[service] ?? [];
+    for (const [name, destination, writable] of requiredMounts) {
+      const mounts = (container.Mounts ?? []).filter(m => m.Destination === destination);
+      const mount = mounts[0];
+      if (mounts.length !== 1 || mount.Type !== "volume"
+        || mount.Name !== project + "_" + name || (writable && mount.RW !== true))
+        reasons.push("PERSISTENT_VOLUME_" + service.toUpperCase() + "_" + name.toUpperCase());
+      dataVolumes.set(service + ":" + destination, mount?.Name);
+    }
     const labelMatchesPinnedSource = service === "api" || service === "web"
       ? actualRevision === sourceSha : null;
     if (labelMatchesPinnedSource === false) reasons.push("UNATTESTED_SOURCE_" + service.toUpperCase());
@@ -56,6 +73,9 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
       labelMatchesPinnedSource,
     };
   });
+  const uploadVolume = dataVolumes.get("api:/data/storage");
+  if (!uploadVolume || uploadVolume !== dataVolumes.get("backup:/data/storage"))
+    reasons.push("APP_STORAGE_BACKUP_VOLUME_MISMATCH");
 
   for (const container of matched) {
     const service = container.Config?.Labels?.[labels.service] ?? "";
@@ -96,6 +116,14 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
     ].some(key => Boolean(env.get(key))))
       reasons.push("MEDIA_SECRET_EXPOSURE_" + String(service).toUpperCase());
     if (service === "api") {
+      for (const flag of ["SCHOOLOS_VIDEO_ADMISSION_ENABLED",
+        "SCHOOLOS_VIDEO_SETTLEMENT_ENABLED", "SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED"]) {
+        // Missing means false in config.ts. Reject unexpected values too.
+        if (env.has(flag) && env.get(flag) !== "false")
+          reasons.push("PAID_VIDEO_FLAG_NOT_DISABLED");
+      }
+      if (env.has("LOCAL_STORAGE_PATH") && env.get("LOCAL_STORAGE_PATH") !== "/data/storage")
+        reasons.push("API_STORAGE_PATH_OUTSIDE_REVIEWED_VOLUME");
       let dbSafe = false;
       try {
         const db = new URL(env.get("DATABASE_URL") ?? "");
@@ -108,6 +136,10 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
       if (env.get("RAZORPAY_MODE") !== "test")
         reasons.push("API_RAZORPAY_NOT_TEST_MODE");
     }
+    if (service === "postgres" && env.has("PGDATA")
+      && env.get("PGDATA") !== "/var/lib/postgresql/data"
+      && !/^\/var\/lib\/postgresql\/data\/(?!.*(?:^|\/)\.\.(?:\/|$))[a-zA-Z0-9_/-]+$/.test(env.get("PGDATA")))
+      reasons.push("POSTGRES_DATA_PATH_OUTSIDE_REVIEWED_VOLUME");
   }
 
   // These checks prove only what running Docker containers claim. A matching
