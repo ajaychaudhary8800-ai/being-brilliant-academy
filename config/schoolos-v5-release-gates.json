@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "d4a393a4e7d15b5b82c708a07618ca59a342e4c3",
+  "releaseCandidateSha": "6294bb163a31149600956fb91597115277749282",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,70 +10,70 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Candidate source d4a393a4e7d15b5b82c708a07618ca59a342e4c3 includes cumulative Coolify staging provenance #261 plus local browser demo Playwright, with precise validation error selector corrected after first actual browser run. Remains Draft; no external staging deployment or commercial GO."
+      "nextAction": "Proposed immutable candidate source 6294bb163a31149600956fb91597115277749282 is the V5 development merge of PR #270 (exact tenant+allocation native-class fix) into cumulative Draft #262; its pre-merge four workflows passed. Independently review dependency chain and scope, establish source build log and final PR disposition, and obtain attributed reviewer signoff. V4 main unchanged; this candidate has not been deployed to V5 staging."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Playwright detected real rendered Next.js global live region alert overlapping generic getByRole('alert') from the form. Regression narrowed to the #request-demo section without weakening expected client error. Re-run exact-head all four workflows including local desktop/mobile browser on application source d4a393a4e7d15b5b82c708a07618ca59a342e4c3. Do not count 2/5 earlier test pass as acceptance."
+      "nextAction": "Record all four GitHub Actions run conclusions at exact candidate source 6294bb163a31149600956fb91597115277749282 after squash merge, including API/Web build, migrations, upgrade and browser tests. Independently inspect CI logs and final source/artifact provenance before signed gate evidence; PR #270 green CI on different SHA is supporting, not substitute."
     },
     {
       "id": "staging_migration_restore",
       "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Before an owner-approved V5-only Coolify deployment, preserve existing V5 staging image IDs, source build log, 114 migration state, backup SHA and rollback; avoid reused V4 shared staging and any volume or database reset. Post-deployment run strictly read-only scripts/schoolos-v5-staging-provenance.mjs on the actual isolated Docker project. Source-label match is claimed revision only, not independently attested provenance; offsite restore and Vault key decryption still pending."
+      "nextAction": "Operator evidence on isolated V5 staging: API/Web OCI revision PASS at prior 2ba8a22f; 114 migrations applied, 0 failed; 20261027T020001Z database/files checksum and archive readability plus R2 object existence PASS. Deploy new candidate 6294bb1 V5-only after source/compose/volume preview, independently attest build, rerun minimal current-head tests and isolated offsite restore plus Vault-key recovery. Preserve V4."
     },
     {
       "id": "subscription_payment_qa",
       "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Synthetic provider-shaped HMAC-signed HTTP integration now covers unsigned/forged capture, concurrent valid replay, conflicting identities/amounts, failed payment, delayed failure, partial refund active finance hold, idempotent refund and over-refund rejection. Actual Razorpay TEST provider, genuine independently verified Order Form, real refund/dispute/renewal and finance acceptance remain PENDING."
+      "nextAction": "Synthetic Razorpay/webhook tests exist. Finance independently witnesses a genuine signed commercial contract and actual Razorpay TEST capture, duplicate/forged callback, refund, dispute, renewal and ledger/tenant reconciliation; do not count staging approved quote without signed contract or actual payment as verified."
     },
     {
       "id": "ai_video_provider_qa",
       "name": "Real staging AI Examiner and LiveKit usage, billing, failure and proof reconciliation",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Prove real provider retry, reconnection, provider disconnect, delayed/lost webhooks, payment admission, quota exhaustion, two-person settlement and refund-protection end-to-end."
+      "nextAction": "Actual synthetic LiveKit Egress Start/Stop and R2 MP4 validation PASS (egress EG_jWn6cErn65CB, 431800 bytes) with paid-video flags OFF. Still requires authenticated teacher-room and student LMS access with current candidate, cross-tenant negative test, AI Examiner provider, fault/reconnect/webhook/billing proof and independent reviewer."
     },
     {
       "id": "security_privacy_tenant_qa",
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "New staging-only read-only inventory verifies 6 healthy core V5 services, DB name/host and HTTPS origin, Razorpay TEST mode, exact API-only Razorpay and backup-only R2 read-only host file bind mounts, no backup/payment secret environment leakage, and two image source labels. No real deployed-code security verification, authenticated school/guardian UAT, or third-party provider proof yet."
+      "nextAction": "Prior V5 staging network and mounts verified, real Egress object generated; new coding protects coach-only exact allocations. Independently perform authenticated current-code role/IDOR and school-vs-coaching negative QA, secrets/privacy scans, load and independent security approval."
     },
     {
       "id": "customer_uat",
       "name": "Signed realistic customer UAT and operational onboarding",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Local browser-only synthetic private demo flow now has Playwright submission success/validation/error/mobile coverage, with all lead API calls intercepted and no real CRM mutation. This does NOT evidence an authorized institution submitted a live lead on V5 staging, nor parent/teacher/student/accountant UAT. Need reviewed V5-only staging rollout and signed authentic role-based UAT acceptance."
+      "nextAction": "Two synthetic QA tenants exist. Coaching tenant Batch 1 has 3 active students, 1 subject and exact active cross-branch teacher allocation; none of the tenants initially had native classroom recordings. After staging candidate deployment perform teacher creation, start/stop, LMS download, parent/student and foreign-tenant denial; obtain a genuine external customer sponsor's dated role-by-role acceptance."
     },
     {
       "id": "operational_support",
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Strict external staging GET failures now trigger informational sanitized DNS/TLS IPv4/IPv6 probes only when staging_readonly_smoke.outcome == failure, not unrelated step failure. Issue #240 remains unresolved without RCA. Require monitoring, DR/rollback and 14-day R2 recovery signoffs."
+      "nextAction": "V5 staging services previously healthy; 27 Oct local checksum, pg_restore list, tar and R2 object HEAD checks PASS (not full independent restore). Sign off on isolated offsite restore, R2 14-day retention, Vault recovery, incident #240 root cause, alerting, rollback and on-call/SLA."
     },
     {
       "id": "commercial_legal_finance",
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Stage-A demo marketing page is explicitly noindex/private-preview with no checkout and CRM frontend mock-only browser acceptance. Staging Essentials/Growth price drift, onboarding-included-vs-estimate decision, pilot commercial terms, verified TEST provider/contract, live video/AI tariffs and legal/finance approval remain PENDING."
+      "nextAction": "Owner reference Essentials INR 49,900 Growth INR 99,900 Professional INR 149,990 plus Enterprise custom; separate Draft PR #269 Growth price read-only/staging approval controls still not merged. Independently verify actual V5 ratebook, reconcile onboarding vs included, 60-day INR 14,999+GST pilot, AI/video tariffs, statutory tax/legal/DPA and signed finance/legal approvals."
     },
     {
       "id": "production_owner_approval",
       "name": "Final signed owner authorization to promote V5 to production",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Do not infer commercial GO from a Docker image label or green synthetic CI. V5 owner-controlled operator staging promotion must remain separate from V4 production and requires independent image/backup/rollback evidence. Production readiness only after 10/10 signed release gates, verified providers/payments, legal/finance/real customer UAT and written owner authorization."
+      "nextAction": "PRODUCTION HOLD. Only after 9 other gates have independent authentic SHA-pinned file-based signoffs, validated production tag, all contracts/providers/customer UAT and rollback readiness, request a separate explicit written production GO from owner. Do not infer from this user request or staging authorization."
     }
   ]
 }
