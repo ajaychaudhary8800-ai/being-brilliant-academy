@@ -42,6 +42,14 @@ function container(service) {
 const fixtures = () => names.map(container);
 const check = list => inspectV5StagingContainers(list, { project, sourceSha: sha });
 
+test("hyphenated Coolify volumes work", () => {
+  const list = fixtures();
+  for (const c of list)
+    for (const m of c.Mounts)
+      if (m.Name) m.Name = m.Name.replaceAll("_data", "-data").replaceAll("_storage", "-storage");
+  assert.equal(check(list).status, "PASS_TECHNICAL_SNAPSHOT_ONLY");
+});
+
 test("missing, ephemeral, foreign or read-only data mounts fail closed", () => {
   for (const service of ["postgres", "redis", "api", "backup"]) {
     for (const mode of ["missing", "tmpfs", "foreign", "readonly"]) {
