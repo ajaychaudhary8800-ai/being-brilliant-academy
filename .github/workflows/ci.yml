@@ -44,11 +44,14 @@ jobs:
         run: |
           node --test scripts/check-schoolos-v5-r2-file-credentials.test.mjs
           node --test scripts/check-schoolos-v5-api-file-credentials.test.mjs
+          node --test scripts/check-schoolos-v5-media-file-credentials.test.mjs
           # A CI runner has no access to the staging host's protected secrets.
           # Use disposable placeholders ONLY for Compose interpolation checks.
           sudo install -d -m 0700 /etc/schoolos/v5-staging
           printf 'RAZORPAY_KEY_SECRET=ci-disposable-test-only\nRAZORPAY_WEBHOOK_SECRET=ci-disposable-test-only\n' | sudo tee /etc/schoolos/v5-staging/razorpay-v5-api.env >/dev/null
           sudo chmod 0600 /etc/schoolos/v5-staging/razorpay-v5-api.env
+          # Only synthetic test credentials on disposable CI runner, never real values.
+          sudo install -m 0600 /dev/null /etc/schoolos/v5-staging/livekit-v5-api.env
           # Compose reads the root-only synthetic fixture as root; deployed staging requires a privileged Compose runner too.
           sudo -E docker compose -f docker-compose.schoolos-v5-staging.yml config --quiet
       - name: Validate V5-only Coolify staging source provenance and no-secret runtime inventory
