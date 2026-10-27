@@ -6,9 +6,6 @@
  * change subscriptions/invoices, deploy V5 or alter V4 production.
  */
 import {
-  assertV5StagingBootstrapTarget,
-} from "./schoolos-v5-qa-guard.mjs";
-import {
   GROWTH_OLD_PAISE, GROWTH_APPROVED_PAISE,
   assertV5GrowthStagingTarget, assertV5GrowthPriceApplyApproval,
   evaluateV5GrowthPrice,
@@ -17,10 +14,6 @@ import {
 export async function reconcileV5GrowthStaging(prisma, {apply = false, env = process.env} = {}) {
   // Both guards run before ANY database read or write.
   assertV5GrowthStagingTarget(env);
-  // This existing guard independently pins the isolated V5 staging database and web origin.
-  // It also requires the staging-only QA bootstrap approval marker; the marker
-  // authorizes target identification, NOT a commercial release or price change.
-  assertV5StagingBootstrapTarget({...env, SCHOOLOS_V5_QA_BOOTSTRAP_APPROVED: "ISOLATED_STAGING_ONLY"});
   if (apply) assertV5GrowthPriceApplyApproval(env);
 
   return prisma.$transaction(async tx => {
