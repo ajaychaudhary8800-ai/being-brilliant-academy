@@ -48,6 +48,7 @@ jobs:
           node --test scripts/schoolos-v5-external-staging-smoke.test.mjs
           node --test scripts/schoolos-v5-network-diagnostics.test.mjs
           node --test apps/api/scripts/schoolos-v5-qa-guard.test.mjs
+          node --test apps/api/scripts/schoolos-v5-growth-price-reconcile.test.mjs
           node --test scripts/schoolos-v5-trusted-staging-auth-qa.test.mjs
       - name: Test external staging (GET-only except optional staging QA login)
         id: staging_readonly_smoke
