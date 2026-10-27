@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import {
   assertV5GrowthStagingTarget,
   assertV5GrowthPriceApplyApproval,
@@ -71,4 +72,15 @@ test("future mutation must have explicit identified external finance authorizati
     SCHOOLOS_V5_GROWTH_APPROVER_EMAIL: "finance@example.test",
     SCHOOLOS_V5_GROWTH_APPROVAL_REFERENCE: "V5-APPROVAL-TEST-20261027",
   }),true);
+});
+
+test("read-only staging report never executes database or provider writes", async () => {
+  const source = await readFile(new URL("./schoolos-v5-growth-price-dry-run.mjs", import.meta.url), "utf8");
+  assert.match(source, /assertV5GrowthStagingTarget\(process\.env\)/);
+  assert.ok(source.indexOf("assertV5GrowthStagingTarget(process.env)") < source.indexOf('import("../dist/src/lib/prisma.js")'));
+  for (const operation of ["update", "upsert", "create", "delete", "executeRaw", "queryRaw", "transaction"]) {
+    assert.doesNotMatch(source, new RegExp("\\." + operation + "(?:\\s*\\(|\\s*\\`)", "g"));
+  }
+  assert.match(source, /CHANGES_MADE=NO/);
+  assert.match(source, /COMMERCIAL_RELEASE_AUTHORIZED=NO/);
 });
