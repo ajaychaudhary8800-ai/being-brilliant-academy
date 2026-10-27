@@ -127,3 +127,30 @@ test("classroom direct recordings and LMS recordings share pending-object handli
     assert.match(segment, /throw error/);
   }
 });
+
+test("coaching native class creation checks exact active allocation without loosening other LMS or school paths", async () => {
+  const source = await readFile(route, "utf8");
+  const helper = source.slice(source.indexOf("async function relationCheck("),
+    source.indexOf('router.get("/learning/options"'));
+  assert.match(helper, /options\.nativeLiveClassOrganizationId/);
+  assert.match(helper, /status: TeacherAllocationStatus\.ACTIVE/);
+  assert.match(helper, /effectiveFrom: \{ lte: now \}/);
+  assert.match(helper, /effectiveTo: \{ gte: now \}/);
+  assert.match(helper, /organizationId: options\.nativeLiveClassOrganizationId/);
+  for (const key of ["branchId", "courseId", "batchId", "subjectId", "teacherId"])
+    assert.match(helper, new RegExp(key + ": data\\." + key));
+  assert.match(helper, /coachingLiveClassBranchOverride/);
+  assert.match(helper, /mismatchedCourseBranch && !coachingAllocationOverride/);
+  assert.match(helper, /mismatchedTeacherBranch && !coachingAllocationOverride/);
+
+  const create = source.slice(source.indexOf('router.post("/learning/live-classes"'),
+    source.indexOf('router.patch("/learning/live-classes/:id"'));
+  const update = source.slice(source.indexOf('router.patch("/learning/live-classes/:id"'),
+    source.indexOf('router.post("/learning/live-classes/:id/join"'));
+  for (const block of [create, update]) {
+    assert.match(block, /LiveClassProvider\.NATIVE/);
+    assert.match(block, /nativeLiveClassOrganizationId: req\.auth!\.organizationId/);
+  }
+  // Every other resource continues using relationCheck(data) without override.
+  assert.match(source, /await relationCheck\(d\);/);
+});

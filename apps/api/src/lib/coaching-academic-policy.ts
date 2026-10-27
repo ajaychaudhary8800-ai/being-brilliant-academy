@@ -66,3 +66,42 @@ export function teacherAttendanceLeaveTargetAccess(
   return teacher.organizationId === student.organizationId &&
     (teacher.branchId === student.branchId || (isCoaching(groupLabelType) && hasActiveBatchAssignment));
 }
+
+/**
+ * Coaching LMS live classes can use a teacher/course linked to a different
+ * home branch only when an ACTIVE, effective, exact batch-subject allocation
+ * was resolved in the same institution. The caller must verify allocation
+ * status and effective dates before invoking this predicate.
+ *
+ * School sections and unrelated coaching allocations never bypass the normal
+ * course/teacher home-branch checks.
+ */
+export function coachingLiveClassBranchOverride(
+  groupLabelType: string | null | undefined,
+  organizationId: string,
+  target: {
+    branchId?: string | null;
+    courseId?: string | null;
+    batchId?: string | null;
+    subjectId?: string | null;
+    teacherId?: string | null;
+  },
+  allocation: {
+    organizationId: string;
+    branchId: string;
+    courseId: string;
+    batchId: string;
+    subjectId: string;
+    teacherId: string;
+  } | null | undefined,
+): boolean {
+  return isCoaching(groupLabelType)
+    && Boolean(organizationId && target.branchId && target.courseId && target.batchId && target.subjectId && target.teacherId)
+    && Boolean(allocation)
+    && allocation!.organizationId === organizationId
+    && allocation!.branchId === target.branchId
+    && allocation!.courseId === target.courseId
+    && allocation!.batchId === target.batchId
+    && allocation!.subjectId === target.subjectId
+    && allocation!.teacherId === target.teacherId;
+}
