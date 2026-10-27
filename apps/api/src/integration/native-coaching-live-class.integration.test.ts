@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { Gender, GroupLabelType, LearningStatus, LiveClassProvider, Role } from "@prisma/client";
+import "express-async-errors";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { env } from "../config.js";
