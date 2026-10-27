@@ -137,4 +137,10 @@ services:
     logging: *default-logging
 
 networks: { frontend: {}, backend: { internal: true }, backup_egress: {} }
-volumes: { postgres_data: {}, redis_data: {}, app_storage: {}, backups: {} }
+# Staging V5 data was provisioned under Coolify's existing hyphenated names.
+# Reuse exactly these existing volumes; never silently create empty replacements.
+volumes:
+  postgres_data: { external: true, name: 96ffcu0jinuwlnaqxpltln4p_postgres-data }
+  redis_data: { external: true, name: 96ffcu0jinuwlnaqxpltln4p_redis-data }
+  app_storage: { external: true, name: 96ffcu0jinuwlnaqxpltln4p_app-storage }
+  backups: { external: true, name: 96ffcu0jinuwlnaqxpltln4p_backups }
