@@ -28,11 +28,71 @@ function container(service) {
       },
     },
     State: { Running: true, Health: { Status: "healthy" } },
-    Mounts: mounts,
+    Mounts: [...mounts, ...({
+      postgres: [["postgres_data", "/var/lib/postgresql/data"]],
+      redis: [["redis_data", "/data"]],
+      api: [["app_storage", "/data/storage"]],
+      backup: [["backups", "/backups"], ["app_storage", "/data/storage"]],
+    }[service] ?? []).map(([name, destination]) => ({
+      Type: "volume", Name: project + "_" + name,
+      Destination: destination, RW: true,
+    }))],
   };
 }
 const fixtures = () => names.map(container);
 const check = list => inspectV5StagingContainers(list, { project, sourceSha: sha });
+
+test("missing, ephemeral, foreign or read-only data mounts fail closed", () => {
+  for (const service of ["postgres", "redis", "api", "backup"]) {
+    for (const mode of ["missing", "tmpfs", "foreign", "readonly"]) {
+      const entries = fixtures();
+      const target = entries.find(c => c.Config.Labels["com.docker.compose.service"] === service);
+      const mount = target.Mounts.find(m => m.Type === "volume");
+      if (mode === "missing") target.Mounts = target.Mounts.filter(m => m !== mount);
+      if (mode === "tmpfs") mount.Type = "tmpfs";
+      if (mode === "foreign") mount.Name = "bba-production_data";
+      if (mode === "readonly") mount.RW = false;
+      assert.equal(check(entries).status, "FAIL", service + "/" + mode);
+    }
+  }
+});
+
+test("backup must read the API's exact upload volume", () => {
+  const entries = fixtures();
+  entries.find(c => c.Config.Labels["com.docker.compose.service"] === "backup")
+    .Mounts.find(m => m.Destination === "/data/storage").Name = project + "_other_storage";
+  assert.ok(check(entries).reasons.includes("APP_STORAGE_BACKUP_VOLUME_MISMATCH"));
+});
+
+test("paid-video flags cannot be enabled in the staging acceptance snapshot", () => {
+  for (const flag of ["SCHOOLOS_VIDEO_ADMISSION_ENABLED", "SCHOOLOS_VIDEO_SETTLEMENT_ENABLED", "SCHOOLOS_VIDEO_ZERO_RELEASE_ENABLED"]) {
+    const entries = fixtures();
+    entries.find(c => c.Config.Labels["com.docker.compose.service"] === "api").Config.Env.push(flag + "=true");
+    assert.ok(check(entries).reasons.includes("PAID_VIDEO_FLAG_NOT_DISABLED"));
+  }
+});
+
+test("storage overrides and duplicate data mounts cannot hide missing persistence", () => {
+  for (const [service, variable] of [["api", "LOCAL_STORAGE_PATH"], ["postgres", "PGDATA"]]) {
+    for (const value of ["/tmp/ephemeral", "/var/lib/postgresql/data/../outside"]) {
+      const entries = fixtures();
+      entries.find(c => c.Config.Labels["com.docker.compose.service"] === service)
+        .Config.Env.push(variable + "=" + value);
+      assert.equal(check(entries).status, "FAIL", variable + "/" + value);
+    }
+  }
+  const entries = fixtures();
+  entries[0].Mounts.push({ ...entries[0].Mounts[0] });
+  assert.equal(check(entries).status, "FAIL");
+});
+
+test("read-only backup access to shared uploads and nested PGDATA remain valid", () => {
+  const entries = fixtures();
+  entries.find(c => c.Config.Labels["com.docker.compose.service"] === "backup")
+    .Mounts.find(m => m.Destination === "/data/storage").RW = false;
+  entries[0].Config.Env.push("PGDATA=/var/lib/postgresql/data/pgdata");
+  assert.equal(check(entries).status, "PASS_TECHNICAL_SNAPSHOT_ONLY");
+});
 
 test("full isolated V5 inventory is informational and never claims paid commercial GO", () => {
   const result = check(fixtures());
