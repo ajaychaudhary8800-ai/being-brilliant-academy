@@ -59,7 +59,7 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
       const mounts = (container.Mounts ?? []).filter(m => m.Destination === destination);
       const mount = mounts[0];
       if (mounts.length !== 1 || mount.Type !== "volume"
-        || mount.Name !== project + "_" + name || (writable && mount.RW !== true))
+        || ![project + "_" + name, project + "_" + name.replaceAll("_", "-")].includes(mount.Name) || (writable && mount.RW !== true))
         reasons.push("PERSISTENT_VOLUME_" + service.toUpperCase() + "_" + name.toUpperCase());
       dataVolumes.set(service + ":" + destination, mount?.Name);
     }
