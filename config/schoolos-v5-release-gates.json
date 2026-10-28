@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "1b513bd4425beb07081cf9a6446b0dbbe860edc8",
+  "releaseCandidateSha": "c8c80151b6f0919552d60c5cb71af1b92d319ff5",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,70 +10,70 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Proposed frozen V5 code candidate 1b513bd4425beb07081cf9a6446b0dbbe860edc8 includes merged native coaching teacher allocation fix #270, finance preflight #272, and authenticated disposable-PostgreSQL native classroom HTTP regression #273. Review cumulative V5 PR #262 chain and ensure source/image provenance, independent reviewer and all deployment scopes before VERIFIED. Do not merge into V4 main."
+      "nextAction": "Review cumulative PR #262 and merged #276 at c8c80151b6f0919552d60c5cb71af1b92d319ff5; obtain attributed dependency/build provenance acceptance. V5 staging is already deployed per operator evidence. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md. Do not merge into V4 main."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "At source 1b513bd4425beb07081cf9a6446b0dbbe860edc8, independently confirm all four exact-source workflows are SUCCESS after merge (#273 isolated Postgres native-coaching class HTTP authorization tests passed at PR head cc39bdbb445ec1e9deee6c6c6fcf330b268f4595). The PR head and merged source SHA are not interchangeable evidence. Obtain independent attributed CI review and reproducible build provenance for VERIFIED."
+      "nextAction": "All four exact-c8c80151 workflows were verified SUCCESS; reuse runs 40549283311, 40549283373, 40549283315, 40549283325. Obtain independent attributed CI/build review; do not rerun deployed-source workflows without a relevant change or failure. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     },
     {
       "id": "staging_migration_restore",
       "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Existing V5 isolated staging last owner-verified API/Web image at source 2ba8a22fe6c9cd26d97689444440a79b5423fba8; 114/0 DB migrations and 27 Oct database/files checksum+archive+R2 presence PASS. After exact merged-source all-four workflow PASS, deploy candidate 1b513bd4425beb07081cf9a6446b0dbbe860edc8 only to V5 staging, verify images/guard/mounts and independent isolated offsite restore/Vault recovery. V4 production must remain unchanged."
+      "nextAction": "Operator evidence confirms matching API/Web revision labels, migration exit 0, 114 applied/0 unresolved, preserved named volumes and backup healthcheck exit 0 with success marker. Remaining: independent isolated restore from offsite database AND uploads, measured recovery and Vault/key recovery signoff. Do not repeat deployment or migrations. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     },
     {
       "id": "subscription_payment_qa",
       "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Synthetic Razorpay/webhook tests exist. Finance independently witnesses a genuine signed commercial contract and actual Razorpay TEST capture, duplicate/forged callback, refund, dispute, renewal and ledger/tenant reconciliation; do not count staging approved quote without signed contract or actual payment as verified."
+      "nextAction": "Owner confirms Razorpay TEST payment/reconciliation completed. Retrieve existing artifacts and finance reviewer acceptance; map coverage to signed-quote/contract, capture, duplicate/forged callback, refund, dispute, renewal and tenant ledger requirements. Missing detail is an evidence gap, not a failed or unperformed test. Test only an identified uncovered requirement; no live collection. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     },
     {
       "id": "ai_video_provider_qa",
       "name": "Real staging AI Examiner and LiveKit usage, billing, failure and proof reconciliation",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Provider synthetic LiveKit Egress→R2 MP4 verified (431800 bytes) and new real disposable-PostgreSQL role/tenant native-class HTTP integration passed. Still deploy exact current V5 candidate, conduct authenticated actual QA coaching teacher/student classroom creation, recording R2 to LMS download and cross-tenant deny, verify AI Examiner and fail/settlement lifecycle, and obtain provider reviewer acceptance; paid-video flags OFF."
+      "nextAction": "Owner confirms classroom teacher/student access, recording and LMS playback completed; AI Examiner QA completed in V4. Preserve those results and obtain existing provider artifacts/reviewer acceptance. Review V4-to-V5 provider changes before requesting any narrow delta check; do not label V4 evidence as exact-V5 execution. Paid-video flags remain OFF. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     },
     {
       "id": "security_privacy_tenant_qa",
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Current source includes HTTP-integrated negative tests for foreign school tenant, school-mode branch policy, external-provider bypass and revoked active coaching allocation, PASS on isolated PostgreSQL at PR #273 head. Independently exercise authenticated staging current source including recording material tenant IDOR, privacy/secrets review, load and signoff; do not equate disposable CI with production security audit."
+      "nextAction": "Operator post-deploy audit confirms four LiveKit keys absent from Docker environments including stopped migrate, API-only media/payment read-only mounts, backup-only R2 mount and paid-video OFF. #275 remains open for historical credential rotation/revocation and independent security acceptance. Reuse existing tenant tests; reconcile missing staging IDOR/privacy/load evidence without repeating accepted QA. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     },
     {
       "id": "customer_uat",
       "name": "Signed realistic customer UAT and operational onboarding",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "QA coaching Batch 1 has 3 enrolled students, 1 subject and 1 exact active cross-branch teacher allocation. Synthetic PostgreSQL classroom creation+visibility+isolation PASS in PR #273. After actual staging deployment, use those QA records for real teacher/student classroom/recording UAT and obtain genuine external customer sponsor signed acceptance. Do not count synthetic CI as customer signature."
+      "nextAction": "Owner functional QA completion is recorded. Locate existing external customer sponsor acceptance and operational onboarding evidence; obtain only missing signed customer UAT. Do not substitute owner screenshots or synthetic CI for external customer signature. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     },
     {
       "id": "operational_support",
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "V5 staging services previously healthy; 27 Oct local checksum, pg_restore list, tar and R2 object HEAD checks PASS (not full independent restore). Sign off on isolated offsite restore, R2 14-day retention, Vault recovery, incident #240 root cause, alerting, rollback and on-call/SLA."
+      "nextAction": "Backup health script returned 0 and success marker exists; last observed Docker backup health was starting, not a confirmed healthy snapshot. Close independent offsite restore/key recovery, retention, incident #240 disposition, monitoring/on-call/SLA and exact rollback artifact readiness. Preserve all existing volumes. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     },
     {
       "id": "commercial_legal_finance",
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Source 1b513bd4425beb07081cf9a6446b0dbbe860edc8 includes safe read-only Growth pricebook preflight and existing transaction-safe guarded reconciliation (#272 merged; #269 superseded); operator must run actual isolated V5 staging CHECK, reconcile if explicit finance approval, then verify approved Essentials/Growth/Professional pricing, pilot/onboarding/video/AI policies, tax/legal/DPA and authentic signatures. No provider payment or price mutation has been proven."
+      "nextAction": "Reconcile existing finance/legal approvals and actual V5 pricebook with approved Essentials/Growth/Professional pricing, pilot/onboarding/AI/video policies, contracts, DPA/privacy and tax policy. Run existing read-only Growth preflight only if no accepted result exists; do not mutate prices or issue contracts/payments without scope. Obtain accountable signatures, not repeated feature QA. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     },
     {
       "id": "production_owner_approval",
       "name": "Final signed owner authorization to promote V5 to production",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "PRODUCTION HOLD. Only after 9 other gates have independent authentic SHA-pinned file-based signoffs, validated production tag, all contracts/providers/customer UAT and rollback readiness, request a separate explicit written production GO from owner. Do not infer from this user request or staging authorization."
+      "nextAction": "PRODUCTION HOLD. After the other nine gates have authentic attributed SHA-pinned evidence and the production tag/cutover/rollback are reviewable, obtain separate explicit written owner GO. Staging authorization and requests to launch commercially are not production GO. V4 remains unchanged. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     }
   ]
 }
