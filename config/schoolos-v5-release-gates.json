@@ -45,7 +45,7 @@
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Operator post-deploy audit confirms four LiveKit keys absent from Docker environments including stopped migrate, API-only media/payment read-only mounts, backup-only R2 mount and paid-video OFF. #275 remains open for historical credential rotation/revocation and independent security acceptance. Reuse existing tenant tests; reconcile missing staging IDOR/privacy/load evidence without repeating accepted QA. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
+      "nextAction": "Operator evidence confirms API-only credential isolation plus successful replacement LiveKit authentication, R2 write/read/delete and all four running-process credential matches; owner confirms both old credentials revoked. Rotation is completed, not a repeat task. Obtain attributed security review of #275 and reconcile remaining tenant/privacy/load evidence. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     },
     {
       "id": "customer_uat",
