@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "1b513bd4425beb07081cf9a6446b0dbbe860edc8",
+  "releaseCandidateSha": "c8c80151b6f0919552d60c5cb71af1b92d319ff5",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,21 +10,21 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Proposed frozen V5 code candidate 1b513bd4425beb07081cf9a6446b0dbbe860edc8 includes merged native coaching teacher allocation fix #270, finance preflight #272, and authenticated disposable-PostgreSQL native classroom HTTP regression #273. Review cumulative V5 PR #262 chain and ensure source/image provenance, independent reviewer and all deployment scopes before VERIFIED. Do not merge into V4 main."
+      "nextAction": "Proposed code candidate c8c80151b6f0919552d60c5cb71af1b92d319ff5 is 3 commits ahead of prior pin 1b513bd4425beb07081cf9a6446b0dbbe860edc8. Includes merged #270/#272/#273 and subsequent V5-only media credential isolation, persistent-volume safety guards and QA documentation. Independently review these changes and source/build provenance before a frozen release candidate; #262 remains Draft, no V4/main merge."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "At source 1b513bd4425beb07081cf9a6446b0dbbe860edc8, independently confirm all four exact-source workflows are SUCCESS after merge (#273 isolated Postgres native-coaching class HTTP authorization tests passed at PR head cc39bdbb445ec1e9deee6c6c6fcf330b268f4595). The PR head and merged source SHA are not interchangeable evidence. Obtain independent attributed CI review and reproducible build provenance for VERIFIED."
+      "nextAction": "All four exact-head GitHub workflows completed SUCCESS for code candidate c8c80151b6f0919552d60c5cb71af1b92d319ff5 (CI, isolated staging sandbox, isolated V4 upgrade rehearsal, external read-only QA). This is automated evidence, not independent signed review. The manifest-only pin commit requires separate CI; obtain independent build-source/digest verification and attributed engineering review before VERIFIED."
     },
     {
       "id": "staging_migration_restore",
       "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Existing V5 isolated staging last owner-verified API/Web image at source 2ba8a22fe6c9cd26d97689444440a79b5423fba8; 114/0 DB migrations and 27 Oct database/files checksum+archive+R2 presence PASS. After exact merged-source all-four workflow PASS, deploy candidate 1b513bd4425beb07081cf9a6446b0dbbe860edc8 only to V5 staging, verify images/guard/mounts and independent isolated offsite restore/Vault recovery. V4 production must remain unchanged."
+      "nextAction": "Owner-reported prior V5 staging API/Web at 93c2b1d58c4c881f69d74760c3f531049bf686f3; earlier 114/0 migrations and checksum/R2 object presence are not an independent restore. New candidate c8c80151b6f0919552d60c5cb71af1b92d319ff5 introduces API-only media credential file and pins existing hyphenated external named volumes. DO NOT deploy until an operator verifies those exact volumes exist, the protected media file is present, Coolify shared media secret variables are removed, rollback/backup is ready, and staging-only approval covers this new source. Independently restore DB/files and decrypt Vault evidence."
     },
     {
       "id": "subscription_payment_qa",
@@ -38,14 +38,14 @@
       "name": "Real staging AI Examiner and LiveKit usage, billing, failure and proof reconciliation",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Provider synthetic LiveKit Egress→R2 MP4 verified (431800 bytes) and new real disposable-PostgreSQL role/tenant native-class HTTP integration passed. Still deploy exact current V5 candidate, conduct authenticated actual QA coaching teacher/student classroom creation, recording R2 to LMS download and cross-tenant deny, verify AI Examiner and fail/settlement lifecycle, and obtain provider reviewer acceptance; paid-video flags OFF."
+      "nextAction": "Real bounded LiveKit Egress-to-R2 MP4 object was operator-reported (431800 bytes); synthetic PostgreSQL classroom role/tenant tests PASS. New API-only LiveKit credential file migration is NOT yet proven on running staging. After secure staging-only rollout, verify provider key rotation, real teacher/student session, R2-to-LMS playback/download, cross-tenant denial, AI Examiner and provider failure/reconciliation. Keep paid-video admission/settlement OFF."
     },
     {
       "id": "security_privacy_tenant_qa",
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Current source includes HTTP-integrated negative tests for foreign school tenant, school-mode branch policy, external-provider bypass and revoked active coaching allocation, PASS on isolated PostgreSQL at PR #273 head. Independently exercise authenticated staging current source including recording material tenant IDOR, privacy/secrets review, load and signoff; do not equate disposable CI with production security audit."
+      "nextAction": "P0: operator-reported LiveKit API and recording-R2 secret values were present across non-API V5 staging containers; do not infer exfiltration. Candidate c8c80151b6f0919552d60c5cb71af1b92d319ff5 adds API-only protected file and fail-closed isolation checks, exact persistent volumes, and regression tests; four exact-head workflows PASS. Operator must migrate secrets off shared Coolify env, verify running AND stopped containers, rotate old keys, and independently test tenant/role IDOR, privacy and load. No independent security signoff yet."
     },
     {
       "id": "customer_uat",
@@ -59,14 +59,14 @@
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "V5 staging services previously healthy; 27 Oct local checksum, pg_restore list, tar and R2 object HEAD checks PASS (not full independent restore). Sign off on isolated offsite restore, R2 14-day retention, Vault recovery, incident #240 root cause, alerting, rollback and on-call/SLA."
+      "nextAction": "Previous local DB/files archive/checksum and R2 HEAD PASS are not offsite restore. New V5 staging Compose requires pre-existing external volumes and media-secret file; operator must preserve backup and rollback image before change. Independently witness offsite DB/files/Vault restore, retention/alerting, incident #240 RCA and support/on-call SLA. Never recreate volumes."
     },
     {
       "id": "commercial_legal_finance",
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Source 1b513bd4425beb07081cf9a6446b0dbbe860edc8 includes safe read-only Growth pricebook preflight and existing transaction-safe guarded reconciliation (#272 merged; #269 superseded); operator must run actual isolated V5 staging CHECK, reconcile if explicit finance approval, then verify approved Essentials/Growth/Professional pricing, pilot/onboarding/video/AI policies, tax/legal/DPA and authentic signatures. No provider payment or price mutation has been proven."
+      "nextAction": "Candidate c8c80151b6f0919552d60c5cb71af1b92d319ff5 retains safe read-only Growth pricebook check (#272 merged; #269 closed unmerged). Operator must run actual V5 staging CHECK and finance must approve any correction. Confirm Essentials ₹49,900, Growth ₹99,900, Professional ₹149,990, pilot/onboarding/AI/video tariffs, tax/privacy/DPA and genuine legal/finance signatures. No real TEST payment or price mutation is implied."
     },
     {
       "id": "production_owner_approval",
