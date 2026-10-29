@@ -74,7 +74,7 @@ Confirm offsite retention and independently recoverable backup/Vault keys withou
 | Item | Approved planning reference | Closure needed |
 | --- | --- | --- |
 | Essentials annual | INR 49,900 | Accepted current pricebook evidence |
-| Growth annual | INR 99,900 | Prior reports differ (99,990 versus aligned 99,900); retrieve accepted dated preflight before any correction |
+| Growth annual | INR 99,900 | 23 Oct post-correction operator-reported staging dry run shows ₹99,900 ALIGNED; reconcile transaction audit/finance acceptance, not assumed new drift |
 | Professional annual | INR 149,990 | Accepted current pricebook evidence |
 | Enterprise | Custom quotation | Approved scope and quotation |
 | Pilot | 60 days, INR 14,999 + applicable GST | Inclusions, caps, refund/exit and annual conversion terms |
@@ -133,3 +133,11 @@ Remaining for gates 3/8: attributed independent review, separate Vault/key and r
 The owner subsequently provided a HetrixTools screenshot for `SchoolOS V5 Readiness`: **Online**, externally monitored since 29 October 2026, one-minute interval, 10-second timeout, 446.07 ms recent average load and 100% uptime over the monitor's short life (22 minutes online at capture). VPS curl returned readiness HTTP 200, certificate verification code 0 (valid), 0.182195-second total. These are operator-supplied observations; earlier off-host slow samples and unresolved historical #240 are not erased. Full audit: `docs/SCHOOLOS_V5_MONITOR_ACCEPTANCE_20261029.md`.
 
 **Gate 8 adjustment:** External V5 readiness monitoring is evidenced **active**; setup need not be repeated. Owner also reported saving a Chat ID and receiving a Telegram message during the HetrixTools setup sequence; exact sender/contact-list binding and down/recovery event delivery are not independently established. Still missing proved monitor-specific contact routing and failure/recovery alert delivery, worker/operational checks, responsible responders and accountable #240 disposition. Coolify backup Telegram is a separate route. Keep gate 8 PENDING, overall 0/10 independently signed VERIFIED and production HOLD. No live outage test or redeployment is authorized by this evidence.
+
+## Pricebook evidence chronology — 29 October reconciliation
+
+A dated [23 October GitHub issue #258 entry](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/issues/258#issuecomment-6371294472) records **operator-supplied** post-correction staging dry-run evidence: Essentials 4,990,000 paise, Growth 9,990,000 paise, Professional 14,999,000 paise all ALIGNED; `blocked=0`, `changed=0`, no external issuance and no production mutation. The Growth amount 9,999,000 paise was expressly the **prior** drift, not the amount measured in that final 23 October dry run. Later 27 October design/PR commentary referencing ₹99,990 is not a fresh actual staging database reading; do not misclassify it as proof of renewed drift.
+
+Limit: the recorded output lacks the staging apply transaction/audit ID and is operator-attested rather than independently finance-signed. Volume preservation during subsequent redeploy is encouraging, but not a substitute for dated current ratebook acceptance. Do not repeat an already-successful price change or run a new `--apply` without fresh independent drift evidence and explicit finance authorization. Formal finance gate remains PENDING; pilot/onboarding terms, tax, privacy, contracts and finance signature remain open.
+
+A targeted connected Drive/Gmail title/keyword search found no signed SchoolOS UAT/finance acceptance in those returned matches. This is a bounded search result only, not evidence that such documents do not exist elsewhere.
