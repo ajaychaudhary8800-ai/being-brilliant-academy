@@ -1,8 +1,8 @@
 # SchoolOS V5 launch approval packet — 29 October 2026
 
 **Decision: HOLD. Prepared for review; not signed acceptance.**
-Observed development head: `f736e64b0e1b332aabf20557025f10b3b602b97b` (GitHub checked 29 October 2026).
-Operator-reported staging API/Web revision: the same SHA. This session did not independently inspect the server.
+Observed **latest cumulative V5 development head**: `bdad9c62969dd129cf9a8309e7d5bb748ca66f27` (squash merge of Draft #285 into V5-only branch, 29 October 2026). This is **not a staging deployment or approved production release candidate**.
+Operator-reported **existing staging API/Web revision**: `f736e64b0e1b332aabf20557025f10b3b602b97b`. Matching earlier staging checks and their existing CI remain historical evidence for that SHA; this session did not independently inspect the server. The exact-new-development SHA must undergo separate final cumulative workflow and build provenance review.
 Development #262 and release tracking #278 remain OPEN / DRAFT.
 The manifest's `releaseCandidateSha=c8c80151b6f0919552d60c5cb71af1b92d319ff5` is a historical proposed pin, NOT the current development head or an approved production RC. It is intentionally not promoted by this documentation reconciliation. An accountable reviewer must approve the immutable candidate and reconcile the manifest before release.
 Documentation baseline reviewed: `fd1f3c6fc937e022aaf45fc3f3839491e85b8e8a`; subsequent documentation commits are not application image revisions.
@@ -257,3 +257,13 @@ Owner statement: Being Brilliant Academy; Ajay Chaudhary confirms he is authoriz
 - Production, real payments and paid-video activation: **not authorized by this confirmation**.
 
 Next concrete UAT step is an attributed review of the existing coaching evidence against the actual internal-pilot scope, recording accepted workflows, exceptions and decision. No customer onboarding, account creation, test run, signature or production action was performed to record this confirmation.
+
+## Next V5 development checkpoint — 29 October 2026, after PR #285 squash merge
+
+**Development-only:** PR #285 `fix(v5): prevent BBA internal-pilot UAT from satisfying paid customer release gate` was reviewed for scope and passed **both exact-PR-head CI jobs** at `5ef36929d82e1c6dee4024763054ec9cade97dab`; unrelated external workflow was **SKIPPED** because its jobs require a `feature/schoolos-v5-` PR head. This skipped run was not falsely recorded as success. PR #285 was then squash-merged **only into isolated cumulative V5 development** at `bdad9c62969dd129cf9a8309e7d5bb748ca66f27`, not V4 `main`.
+
+This change tightens the paid release `customer_uat` policy: declared `INDEPENDENT_EXTERNAL` institutional relationship plus restricted original signed-acceptance references are mandatory; an owner-operated BBA internal UAT or generic review cannot satisfy it. Three policy-negative regressions were added. It is **metadata validation**, not verification of signature authenticity or reviewer independence. A human must inspect the genuine original record.
+
+Four **cumulative development SHA** GitHub workflows were dispatched by the merged branch's existing PR event: CI `40904313252`, sandbox `40904313286`, external QA `40904312517`, V4 isolated upgrade `40904312589`. At preparation of this checkpoint their final conclusions were not all available; inspect results rather than inheriting PR-head success. Historical f736 evidence need not be rerun to certify unchanged payment/LiveKit code, but new source must pass its current release-control tests.
+
+**No Coolify staging redeploy, production/V4 mutation, user/customer payment, access credential rotation, UAT signature, finance approval or new release candidate pin.** Existing V5 staging remains last operator-evidenced `f736e64b...`; `releaseCandidateSha` remains historical `c8c80151...` with **HOLD / 10 PENDING / 0 VERIFIED** until actual independent release/governance acceptance.
