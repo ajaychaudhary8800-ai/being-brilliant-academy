@@ -43,6 +43,22 @@ test("only V5 staging API has the private provider mount", async () => {
   assert.doesNotMatch(compose, /LIVEKIT_API_SECRET:|LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY:/);
 });
 
+test("one-shot V5 Prisma migration has only database and execution-mode env", async () => {
+  const compose = await readFile(composeUrl, "utf8");
+  const services = compose.split("\nservices:")[1]?.split("\nnetworks:")[0];
+  const migrate = services?.split("\n  migrate:\n")[1]?.split("\n  api:\n")[0];
+  const api = services?.split("\n  api:\n")[1]?.split("\n  web:\n")[0];
+  assert.ok(migrate && api, "expected distinct migration and API service");
+  assert.match(migrate, /command: \["node", "scripts\/prisma-run\.mjs", "migrate", "deploy"\]/);
+  assert.doesNotMatch(migrate, /environment:\s*\*api-env/);
+  const env = migrate.match(/\n    environment:\n((?:      [^\n]+\n)+)/);
+  assert.ok(env, "migration env mapping missing");
+  const keys = [...env[1].matchAll(/^      ([A-Z][A-Z0-9_]*):/gm)].map(match => match[1]);
+  assert.deepEqual(keys, ["NODE_ENV", "DATABASE_URL"]);
+  assert.match(env[1], /DATABASE_URL: \$\{DATABASE_URL\}/);
+  assert.match(api, /<<: \*api-env/, "API must retain complete runtime environment");
+});
+
 async function runEntrypoint(media, changes = {}) {
   const dir = await mkdtemp(join(tmpdir(), "schoolos-v5-media-"));
   const file = join(dir, "media.env");
