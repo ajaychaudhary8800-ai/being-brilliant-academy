@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Current development and operator-reported staging source is f736e64b0e1b332aabf20557025f10b3b602b97b. releaseCandidateSha remains a historical proposed c8c80151 pin, not an approved production candidate. Four intervening commits change five credential-isolation/verification files only. Obtain independent dependency review and immutable candidate/image approval before updating the pin; no V4/main merge. See docs/SCHOOLOS_V5_PROVIDER_EVIDENCE_MAP_20261029.md."
+      "nextAction": "29 Oct isolated V5 development head bdad9c62969dd129cf9a8309e7d5bb748ca66f27 incorporates reviewed security/paid-customer UAT gate-only squash #285 (previous operator-reported V5 staging source remains f736e64b0e1b332aabf20557025f10b3b602b97b). Historical releaseCandidateSha=c8c80151b6f0919552d60c5cb71af1b92d319ff5 is NOT promoted. Exact-source cumulative CI in progress at this checkpoint; independently review dependency delta, source-build/image digests, and approve immutable RC before any staging rollout. Never merge to V4 main. See approval packet and PR #285."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Reuse exact-f736e64b successful runs 40873986354 (CI), 40873986385 (sandbox), 40873986322 (external QA), 40873986313 (upgrade). Sandbox job 123447962031 logs prove quote/webhook test 1 passed/0 skipped, signed LiveKit/cutoff 2 passed/0 skipped and video policy/contract 13 passed/0 skipped. Obtain independent build/image-digest provenance acceptance; do not rerun successful suites solely for signoff."
+      "nextAction": "PR #285 exact-head 5ef36929d82e1c6dee4024763054ec9cade97dab CI verify+containers SUCCESS, while its external QA was SKIPPED by workflow head-branch scope; do not describe skipped jobs as PASS. It was squash-merged V5-development only at bdad9c62969dd129cf9a8309e7d5bb748ca66f27. Four exact-merged-head workflows started: 40904313252 CI, 40904313286 sandbox, 40904312517 external QA, 40904312589 isolated upgrade; inspect final conclusions, then obtain independent checkout-to-image-digest build provenance. Earlier f736 CI was successful but does not certify the new SHA."
     },
     {
       "id": "staging_migration_restore",
@@ -52,7 +52,7 @@
       "name": "Signed realistic customer UAT and operational onboarding",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Being Brilliant Academy confirmed as owner-operated INTERNAL coaching pilot; Ajay Chaudhary confirms UAT signing authority but has not signed or accepted any result. Review prior coaching QA against the genuine BBA tenant/branch/module scope and obtain actual dated internal pilot UAT with protected evidence. Synthetic schoolos-qa-coaching is not assumed to be BBA. Existing Gate 7 still requires independent EXTERNAL customer acceptance for general paid release; do not reclassify internal UAT as external. See docs/SCHOOLOS_V5_BBA_INTERNAL_PILOT_UAT_HANDOFF_20261029.md. No repeated passed tests."
+      "nextAction": "Owner-operated Being Brilliant Academy internal coaching-pilot UAT signatory Ajay Chaudhary authorized but actual UAT decision PENDING. Human review original QA against genuine BBA tenant/branch/modules; QA fixture schoolos-qa-coaching is NOT assumed BBA. V5 development PR #285 merged guard to reject owner-operated internal UAT as external commercial customer gate evidence, requiring genuine independent external institution and restricted signed-reference metadata; this is STRUCTURAL metadata, not signature authenticity. An actual external paid-customer UAT remains REQUIRED for this existing gate. See BBA handoff and docs/SCHOOLOS_V5_RELEASE_CANDIDATE_GATES.md."
     },
     {
       "id": "operational_support",
