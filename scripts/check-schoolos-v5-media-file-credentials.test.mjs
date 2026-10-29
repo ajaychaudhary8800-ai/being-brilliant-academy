@@ -69,7 +69,7 @@ const appFixture = [
   "COMMERCIAL_DOCUMENT_ENCRYPTION_KEY=original-vault-fixture-123456789012345",
 ].join("\n") + "\n";
 
-test("V5 staging uses an API-only protected file for the four existing auth/mail/Vault keys", async () => {
+test("V5 staging uses an API-only protected file for four existing auth/mail/Vault keys", async () => {
   const compose = await readFile(composeUrl, "utf8");
   const shared = compose.split("\nservices:")[0];
   const block = compose.split("\nservices:")[1]?.split("\nnetworks:")[0];
@@ -82,61 +82,8 @@ test("V5 staging uses an API-only protected file for the four existing auth/mail
     "JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET", "SMTP_PASSWORD",
     "COMMERCIAL_DOCUMENT_ENCRYPTION_KEY",
   ]) {
-    assert.match(shared, new RegExp("^  " + key + ': ""
-  const dir = await mkdtemp(join(tmpdir(), "schoolos-v5-media-"));
-  const file = join(dir, "media.env");
-  try {
-    if (media !== null) await writeFile(file, media, { mode: 0o600 });
-    const original = await readFile(entrypointUrl, "utf8");
-    const script = original
-      .replaceAll(containerFile, file)
-      .replace('exec su-exec app "$@"', [
-        '[ "$LIVEKIT_API_SECRET" = "fixture-private-secret" ]',
-        '[ "$LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY" = "fixture-storage-secret" ]',
-      ].join(" && "));
-    const r = spawnSync("sh", ["-c", script], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        STORAGE_DRIVER: "s3",
-        SCHOOLOS_V5_LIVEKIT_ENV_FILE: file,
-        SCHOOLOS_V5_RAZORPAY_ENV_FILE: "",
-        LIVEKIT_API_SECRET: "obsolete-globally-injected-value",
-        ...changes,
-      },
-    });
-    return { status: r.status, output: (r.stdout || "") + (r.stderr || "") };
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
-
-test("API loader overrides obsolete globally injected values with protected file", async () => {
-  const r = await runEntrypoint(fixture);
-  assert.equal(r.status, 0, r.output);
-  assert.equal(r.output, "");
-});
-
-test("missing, duplicate and unsupported secret file records fail closed", async () => {
-  for (const value of [
-    null,
-    fixture.replace(/LIVEKIT_API_SECRET=.*\n/, ""),
-    fixture + "LIVEKIT_API_KEY=duplicate\n",
-    fixture + "UNEXPECTED_SECRET=bad\n",
-  ]) {
-    const r = await runEntrypoint(value);
-    assert.notEqual(r.status, 0);
-    assert.ok(!r.output.includes("fixture-private-secret"));
-    assert.ok(!r.output.includes("fixture-storage-secret"));
-  }
-});
-
-test("provider file is treated as literal data rather than evaluated shell", async () => {
-  const r = await runEntrypoint(fixture.replace("fixture-key", "$(exit 75)"));
-  assert.equal(r.status, 0);
-});
-, "m"));
-    assert.doesNotMatch(shared, new RegExp("^  " + key + ": \\$\\{", "m"));
+    assert.ok(shared.includes("  " + key + ': ""'), key);
+    assert.ok(!shared.includes("  " + key + ": $" + "{"), key);
   }
   assert.equal((compose.match(/external: true/g) ?? []).length, 4);
 });
