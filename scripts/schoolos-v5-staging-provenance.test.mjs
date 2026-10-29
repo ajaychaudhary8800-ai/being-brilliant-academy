@@ -10,11 +10,13 @@ function container(service) {
   const env = service === "api"
     ? ["DATABASE_URL=postgresql://secret-user:secret-pass@postgres:5432/schoolos_v5_staging",
       "WEB_URL=https://v5-staging.beingbrilliantedu.com", "RAZORPAY_MODE=test",
-      "SCHOOLOS_V5_LIVEKIT_ENV_FILE=/run/secrets/schoolos-v5-livekit-api.env"]
+      "SCHOOLOS_V5_LIVEKIT_ENV_FILE=/run/secrets/schoolos-v5-livekit-api.env",
+      "SCHOOLOS_V5_APP_ENV_FILE=/run/secrets/schoolos-v5-app-api.env"]
     : [];
   const mounts = service === "api"
     ? [{ Destination: "/run/secrets/schoolos-v5-razorpay-api.env", Source: "/etc/schoolos/v5-staging/razorpay-v5-api.env", Type: "bind", RW: false },
-      { Destination: "/run/secrets/schoolos-v5-livekit-api.env", Source: "/etc/schoolos/v5-staging/livekit-v5-api.env", Type: "bind", RW: false }]
+      { Destination: "/run/secrets/schoolos-v5-livekit-api.env", Source: "/etc/schoolos/v5-staging/livekit-v5-api.env", Type: "bind", RW: false },
+      { Destination: "/run/secrets/schoolos-v5-app-api.env", Source: "/etc/schoolos/v5-staging/app-v5-api.env", Type: "bind", RW: false }]
     : service === "backup"
       ? [{ Destination: "/run/secrets/schoolos-v5-r2-credentials", Source: "/etc/schoolos/v5-staging/r2-aws-credentials", Type: "bind", RW: false }]
       : [];
@@ -197,6 +199,25 @@ test("empty media placeholders are safe and API-only media secrets are allowed",
   const result = check(entries);
   assert.equal(result.status, "PASS_TECHNICAL_SNAPSHOT_ONLY");
   assert.ok(!JSON.stringify(result).includes("secret-should-not-print"));
+});
+
+test("protected V5 app credential file is mounted API-only, read-only and from exact host source", () => {
+  const c = fixtures();
+  const api = c.find(x => x.Config.Labels["com.docker.compose.service"] === "api");
+  const mount = api.Mounts.find(m => m.Destination === "/run/secrets/schoolos-v5-app-api.env");
+  assert.equal(check(c).status, "PASS_TECHNICAL_SNAPSHOT_ONLY");
+  mount.RW = true;
+  assert.ok(check(c).reasons.includes("APP_MOUNT_ISOLATION_API"));
+  mount.RW = false;
+  mount.Source = "/tmp/misplaced-file.env";
+  assert.ok(check(c).reasons.includes("APP_MOUNT_ISOLATION_API"));
+  mount.Source = "/etc/schoolos/v5-staging/app-v5-api.env";
+  const web = c.find(x => x.Config.Labels["com.docker.compose.service"] === "web");
+  web.Mounts.push({ ...mount });
+  assert.ok(check(c).reasons.includes("APP_MOUNT_ISOLATION_WEB"));
+  web.Mounts.pop();
+  api.Config.Env = api.Config.Env.filter(x => !x.startsWith("SCHOOLOS_V5_APP_ENV_FILE="));
+  assert.ok(check(c).reasons.includes("API_APP_FILE_NOT_CONFIGURED"));
 });
 
 test("stopped migrate and all non-API services reject nonempty application secrets without printing values", () => {
