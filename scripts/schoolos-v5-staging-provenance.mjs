@@ -123,6 +123,23 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
       "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY",
     ].some(key => Boolean(env.get(key))))
       reasons.push("MEDIA_SECRET_EXPOSURE_" + String(service).toUpperCase());
+    // Coolify can inject globally configured values independently of the
+    // reviewed Compose environment block. Inspect stopped migration services
+    // too; presence of nonempty API-only runtime secrets is a release veto.
+    // Never return secret values or the underlying Docker Config.Env array.
+    if (service !== "api" && [
+      "JWT_ACCESS_SECRET",
+      "JWT_REFRESH_SECRET",
+      "AI_API_KEY",
+      "SMTP_PASSWORD",
+      "TWILIO_AUTH_TOKEN",
+      "WHATSAPP_ACCESS_TOKEN",
+      "WEB_PUSH_PRIVATE_KEY",
+      "PAYMENT_CREDENTIAL_ENCRYPTION_KEY",
+      "COMMERCIAL_DOCUMENT_ENCRYPTION_KEY",
+      "AWS_SECRET_ACCESS_KEY",
+    ].some(key => Boolean(env.get(key))))
+      reasons.push("API_RUNTIME_SECRET_EXPOSURE_" + String(service).toUpperCase());
     if (service === "api") {
       if (env.get("SCHOOLOS_V5_LIVEKIT_ENV_FILE") !== mediaMount)
         reasons.push("API_MEDIA_FILE_NOT_CONFIGURED");
