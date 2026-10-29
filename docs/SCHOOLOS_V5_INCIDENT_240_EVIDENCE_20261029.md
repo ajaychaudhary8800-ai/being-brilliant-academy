@@ -25,3 +25,19 @@ Operator screenshots show HetrixTools `SchoolOS V5 Readiness`: Website type, **A
 4. **Disposition:** keep issue #240 OPEN until the responsible operations reviewer records either evidenced root-cause/remediation or an explicit residual-risk decision with observation window, escalation recipient, triggers for recurrence, and review date. A successful rerun alone cannot close the incident.
 
 **No V5/V4 server, payment, tenant, database, or production mutations were made for this investigation.** Release Gate 8 and overall commercial production remain **PENDING/HOLD**; do not manufacture reviewer acceptance.
+
+## VPS historical-log retention and source classification — 29 October
+
+Operator ran **read-only** commands on `root@srv1880999` for the same three UTC incident windows. The current seven V5 Compose containers were all created **28 October 2026**, after the events. Current Nginx uses Docker `json-file` logging and has no explicit persistent log mount, so its current container log cannot contain the original **23/27 October** event streams.
+
+**Historical journal counts, source fields only** (no log MESSAGE content examined or printed):
+
+| UTC window | Journal entries | Exact source metadata |
+| --- | ---: | --- |
+| 23 Oct 07:18–07:23 | 3 | `init.scope`: 3 |
+| 23 Oct 07:45–07:51 | 9 | `cron.service`: 2; `CRON`: 1; `qemu-guest-agent.service`: 3; `init.scope`: 3 |
+| 27 Oct 10:16–10:22 | 6 | `cron.service`: 3; `init.scope`: 3 |
+
+**Conclusion of this specific forensic path:** None of the 18 retained journal entries is attributed through the inspected source metadata to Nginx, Docker, Web/API, or an obvious proxy/TLS event. These sources do not provide an attributable origin root-cause trail. Journal messages were intentionally **not** inspected; some entries could contain indirect evidence, so this finding is **insufficient evidence**, not proof the host was uninvolved. Existing logs from replaced containers remain unverified as externally archived; do not infer their preservation. No additional broad journal queries or healthy endpoint rechecks are warranted without a concrete new hypothesis.
+
+**Incident #240 disposition:** `OPEN — INCONCLUSIVE HISTORICAL ORIGIN LOGS`. A responsible operations reviewer may obtain relevant historical Cloudflare/edge or central logging if actually retained, or issue a documented time-bounded **residual-risk decision** with reviewer identity, observation period, severity triggers, on-call/escalation coverage and explicit acceptance; do **not** automatically accept risk based on green readiness checks or auto-close this issue. Formal Gate 8 and production GO remain HOLD. No server, database, payment, volume or credential changes performed.
