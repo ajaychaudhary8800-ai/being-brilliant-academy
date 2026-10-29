@@ -223,19 +223,35 @@ This section supersedes earlier statements that no reviewers were appointed. Aja
 | --- | --- | --- |
 | Finance/legal review | Madhuri Verma | APPOINTED; review decision and accepted document versions pending. Professional qualification or external legal certification is not inferred |
 | Security/operations review | Ajay Chaudhary | APPOINTED as accountable internal reviewer/operator; independent security acceptance not established |
-| Pilot UAT signatory | Ajay Chaudhary | NOMINATED; pilot institution legal/display name and authority to sign for it still required |
+| Pilot UAT signatory | Ajay Chaudhary | APPOINTED for Being Brilliant Academy; owner confirms signing authority. Actual UAT decision pending |
 | Final production owner | Ajay Chaudhary | Separate production GO remains pending after prerequisites |
 
 Ajay also supplied staging operator evidence and owns the release decision. His appointment can establish internal operational accountability but does not by itself establish independent review of his own execution. The existing independent security requirement remains unresolved; no silent waiver or substituted external reviewer is recorded.
 
-The user named a signatory but did not identify the pilot institution. Do not infer Being Brilliant Academy, Green Shine or any other institution from historical context. If the selected institution is internal/owner-operated, classify its UAT accordingly; do not represent it as external customer acceptance.
+The owner subsequently identified Being Brilliant Academy and expressly confirmed authority to sign its UAT. This is an internal/owner-operated pilot, not independent external customer acceptance.
 
 ### Next review actions
 
 - Madhuri reviews the commercial/finance evidence and exact contract/privacy/pilot/onboarding versions, records findings and accepts or rejects the scope in her own attributed decision. Appointment does not establish payment reconciliation or legal approval.
 - Ajay reviews operations evidence, confirms primary/backup response cover and records the #240 disposition, recovery limitations and rollback references. His internal decision remains distinct from independent security acceptance.
-- Confirm the pilot institution and Ajay's authorization to sign for it, then bind UAT scope and actual acceptance evidence to that institution.
+- Pilot identity and owner-confirmed signing authority are established for Being Brilliant Academy / Ajay Chaudhary. Bind the agreed UAT scope, source/deployment and actual acceptance decision to that institution.
 - Identify how independent security review will be satisfied under the existing release requirements. Any proposed governance change must be explicit and must not relabel self-review as independent.
 - Reuse passed tests. New execution requires an identified material gap; no test, workflow or provider transaction was rerun to record these appointments.
 
 All ten formal gate statuses remain PENDING and commercial release remains HOLD. No message or invitation was sent to any appointee.
+
+## Pilot institution confirmation — 29 October 2026
+
+Owner statement: Being Brilliant Academy; Ajay Chaudhary confirms he is authorized to sign its UAT.
+
+- Institution: **Being Brilliant Academy**.
+- Pilot classification: **internal, owner-operated coaching institution**.
+- Authorized UAT signatory: **Ajay Chaudhary**, authority confirmed by his direct statement; no separate authority document independently examined.
+- Appointment/identity dependency: **RESOLVED for the internal pilot**.
+- UAT execution and signed acceptance: **PENDING**; the statement confirms authority, not acceptance of tested behavior.
+- Scope: prepare coaching-mode acceptance using existing coaching QA. Exact deployed tenant identifier, branches, contracted modules and acceptance evidence must be bound to this pilot; do not assume the synthetic schoolos-qa-coaching tenant is the operational institution.
+- Existing tests: reuse applicable passing results with original provenance; do not rerun them simply because the sponsor is now named.
+- External-customer acceptance: **not established**. The existing Gate 7 requirement for an external institution cannot be marked satisfied by this internal appointment. An internal-pilot versus general commercial-release scope decision must remain explicit.
+- Production, real payments and paid-video activation: **not authorized by this confirmation**.
+
+Next concrete UAT step is an attributed review of the existing coaching evidence against the actual internal-pilot scope, recording accepted workflows, exceptions and decision. No customer onboarding, account creation, test run, signature or production action was performed to record this confirmation.
