@@ -41,7 +41,10 @@ function container(service) {
     }))],
   };
 }
-const fixtures = () => names.map(container);
+const fixtures = () => [
+  ...names.map(container),
+  { ...container("migrate"), State: { Running: false, ExitCode: 0 } },
+];
 const check = list => inspectV5StagingContainers(list, { project, sourceSha: sha });
 
 test("hyphenated Coolify volumes work", () => {
@@ -194,6 +197,38 @@ test("empty media placeholders are safe and API-only media secrets are allowed",
   const result = check(entries);
   assert.equal(result.status, "PASS_TECHNICAL_SNAPSHOT_ONLY");
   assert.ok(!JSON.stringify(result).includes("secret-should-not-print"));
+});
+
+test("stopped migrate and all non-API services reject nonempty application secrets without printing values", () => {
+  const forbidden = [
+    "JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET", "AI_API_KEY", "SMTP_PASSWORD",
+    "TWILIO_AUTH_TOKEN", "WHATSAPP_ACCESS_TOKEN", "WEB_PUSH_PRIVATE_KEY",
+    "PAYMENT_CREDENTIAL_ENCRYPTION_KEY", "COMMERCIAL_DOCUMENT_ENCRYPTION_KEY",
+    "AWS_SECRET_ACCESS_KEY",
+  ];
+  for (const service of [...names.filter(value => value !== "api"), "migrate"]) {
+    for (const key of forbidden) {
+      const entries = fixtures();
+      const target = entries.find(x => x.Config.Labels["com.docker.compose.service"] === service);
+      target.Config.Env.push(key + "=test-sensitive-never-print");
+      const result = check(entries);
+      assert.equal(result.status, "FAIL", service + "/" + key);
+      assert.ok(result.reasons.includes("API_RUNTIME_SECRET_EXPOSURE_" + service.toUpperCase()));
+      assert.ok(!JSON.stringify(result).includes("test-sensitive-never-print"));
+    }
+  }
+});
+
+test("empty optional placeholders and API-specific runtime secrets do not falsely fail", () => {
+  const entries = fixtures();
+  const migrate = entries.find(x => x.Config.Labels["com.docker.compose.service"] === "migrate");
+  migrate.Config.Env.push("JWT_ACCESS_SECRET=", "SMTP_PASSWORD=");
+  const api = entries.find(x => x.Config.Labels["com.docker.compose.service"] === "api");
+  api.Config.Env.push("JWT_ACCESS_SECRET=api-only-opaque-value", "SMTP_PASSWORD=api-only-mail-value");
+  const result = check(entries);
+  assert.equal(result.status, "PASS_TECHNICAL_SNAPSHOT_ONLY");
+  assert.ok(!JSON.stringify(result).includes("api-only-opaque-value"));
+  assert.ok(!JSON.stringify(result).includes("api-only-mail-value"));
 });
 
 test("repository labels cannot identify V4 production or legacy staging as V5", () => {
