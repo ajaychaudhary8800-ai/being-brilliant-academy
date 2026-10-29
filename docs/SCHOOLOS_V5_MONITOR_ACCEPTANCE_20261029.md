@@ -31,3 +31,11 @@ Outstanding: active off-host scheduler, authorized alert recipient and receipt, 
 | /api/health/operational | 200 | 0.022438 | 0.027172 |
 
 This is operator-supplied status/timing evidence, not JSON dependency validation or independent off-host availability. It supports an execution-path-specific explanation for the earlier slow external samples, but does not isolate the cause or resolve historical #240. No more repetition of this successful comparison is required. Active off-host schedule, authorized alert destination, delivered failure/recovery notification and accountable support ownership remain pending. No alert sent or infrastructure configuration changed.
+
+## Recovered Telegram monitoring history — 29 October reconciliation
+
+Prior conversation retrieval establishes an owner confirmation on 21 October that the Telegram test notification was received and Coolify integration enabled. Prior assistant records identify Coolify Scheduled Task `SchoolOS-V5-Backup-Monitor`, running in the backup container on cron `15 4 * * *` (04:15 UTC / 09:45 IST daily), checking backup health/date/checksum/R2 listing. They also record successful Telegram delivery from an intentional scheduled-task failure and subsequent deletion of that temporary test task.
+
+Evidence attribution: notification receipt is an earlier owner confirmation; task configuration and failure-test details are recovered conversation records, not a fresh independent inspection of Coolify. No bot token or chat ID was retrieved or disclosed. Reuse the existing Telegram channel; do not request a new email destination or repeat its successful historical test merely because it was missing from this packet.
+
+This corrects the earlier broad statement that no notification setup/delivery evidence existed. Remaining: current task enabled state and latest execution outcome, whether V5 HTTP/worker failures are routed to that channel, and an off-host outage detector. A backup check hosted on the same VPS cannot alert reliably when the VPS itself is unreachable. Do not equate daily backup monitoring with continuous external uptime monitoring. No new notification was sent or provider setting changed.
