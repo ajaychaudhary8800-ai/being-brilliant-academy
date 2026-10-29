@@ -17,8 +17,9 @@ x-api-env: &api-env
   REDIS_REQUIRED: "true"
   WEB_URL: https://${APP_DOMAIN}
   CORS_ORIGINS: "https://${APP_DOMAIN},https://www.${APP_DOMAIN}"
-  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
-  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+  # API-only values are loaded from a protected 0600 file by the API entrypoint.
+  JWT_ACCESS_SECRET: ""
+  JWT_REFRESH_SECRET: ""
   METRICS_TOKEN: ${METRICS_TOKEN:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-250}
@@ -37,7 +38,7 @@ x-api-env: &api-env
   SMTP_PORT: ${SMTP_PORT:-587}
   SMTP_SECURE: ${SMTP_SECURE:-false}
   SMTP_USER: ${SMTP_USER:-}
-  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_PASSWORD: ""
   EMAIL_FROM: ${EMAIL_FROM:-}
   TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
   TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
@@ -51,7 +52,7 @@ x-api-env: &api-env
   RAZORPAY_MODE: ${RAZORPAY_MODE:-test}
   RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
   PAYMENT_CREDENTIAL_ENCRYPTION_KEY: ${PAYMENT_CREDENTIAL_ENCRYPTION_KEY:-}
-  COMMERCIAL_DOCUMENT_ENCRYPTION_KEY: ${COMMERCIAL_DOCUMENT_ENCRYPTION_KEY:-}
+  COMMERCIAL_DOCUMENT_ENCRYPTION_KEY: ""
 
 services:
   postgres:
@@ -92,12 +93,14 @@ services:
       <<: *api-env
       SCHOOLOS_V5_RAZORPAY_ENV_FILE: /run/secrets/schoolos-v5-razorpay-api.env
       SCHOOLOS_V5_LIVEKIT_ENV_FILE: /run/secrets/schoolos-v5-livekit-api.env
+      SCHOOLOS_V5_APP_ENV_FILE: /run/secrets/schoolos-v5-app-api.env
     # An API-only read-only bind mount avoids Coolify's later, shared .env overrides.
     # Entrypoint reads this as root and exports values solely to the API process.
     volumes:
       - app_storage:/data/storage
       - /etc/schoolos/v5-staging/razorpay-v5-api.env:/run/secrets/schoolos-v5-razorpay-api.env:ro
       - /etc/schoolos/v5-staging/livekit-v5-api.env:/run/secrets/schoolos-v5-livekit-api.env:ro
+      - /etc/schoolos/v5-staging/app-v5-api.env:/run/secrets/schoolos-v5-app-api.env:ro
     depends_on: { migrate: { condition: service_completed_successfully }, redis: { condition: service_healthy } }
     expose: ["4000"]
     networks: [backend, frontend]
