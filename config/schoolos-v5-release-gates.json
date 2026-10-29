@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "c8c80151b6f0919552d60c5cb71af1b92d319ff5",
+  "releaseCandidateSha": "4996eb30bde8547aa275a580e6548d1f49906dc9",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,14 +10,14 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "29 Oct isolated V5 development head bdad9c62969dd129cf9a8309e7d5bb748ca66f27 incorporates reviewed security/paid-customer UAT gate-only squash #285 (previous operator-reported V5 staging source remains f736e64b0e1b332aabf20557025f10b3b602b97b). Historical releaseCandidateSha=c8c80151b6f0919552d60c5cb71af1b92d319ff5 is NOT promoted. Exact-source cumulative CI in progress at this checkpoint; independently review dependency delta, source-build/image digests, and approve immutable RC before any staging rollout. Never merge to V4 main. See approval packet and PR #285."
+      "nextAction": "PROPOSED technical V5 source candidate 4996eb30bde8547aa275a580e6548d1f49906dc9 is pinned for independent reviewer consideration, not approved for promotion. GitHub cumulative V5 Draft #262 has one immutable integrated source commit here; branch includes reviewed paid-customer UAT policy #285 and launch-evidence/safety CI #278. Validate dependency ancestry and verify Docker source-build-to-image digest provenance; secure an actual attributed release-candidate approval. Do not merge into V4/main or deploy merely because the proposal pin matches source."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "PR #285 exact-head 5ef36929d82e1c6dee4024763054ec9cade97dab CI verify+containers SUCCESS, while its external QA was SKIPPED by workflow head-branch scope; do not describe skipped jobs as PASS. It was squash-merged V5-development only at bdad9c62969dd129cf9a8309e7d5bb748ca66f27. Four exact-merged-head workflows started: 40904313252 CI, 40904313286 sandbox, 40904312517 external QA, 40904312589 isolated upgrade; inspect final conclusions, then obtain independent checkout-to-image-digest build provenance. Earlier f736 CI was successful but does not certify the new SHA."
+      "nextAction": "At EXACT proposed source 4996eb30bde8547aa275a580e6548d1f49906dc9, all four GitHub Actions workflows and all eight jobs completed SUCCESS: CI 40909212834 (verify+containers), isolated staging sandbox 40909213287 (isolated-acceptance), external V5 smoke/browser/coaching 40909212655 (4 jobs), isolated V4 upgrade/recovery 40909213039 (1 job). Preserve these checks; do not repeat successful work merely for approval. Still obtain independent exact-source build logs/image IDs/digests and acknowledged staging/runtime parity. Green CI is NOT a signed release gate."
     },
     {
       "id": "staging_migration_restore",
