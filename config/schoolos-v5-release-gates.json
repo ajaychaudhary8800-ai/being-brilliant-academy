@@ -45,35 +45,35 @@
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "29 Oct operator-reported f736e64b staging remediation PASS: all six non-API services core/media credential counts zero; API protected file/mount and persisted Coolify config PASS; login/refresh, SMTP auth and compiled synthetic Vault round-trip/tamper rejection PASS. Ajay Chaudhary is APPOINTED accountable INTERNAL security/operations reviewer but is also the operator; independent security reviewer remains UNAPPOINTED and Gate 6 PENDING. Obtain independent incident #275/#281 historical-exposure disposition, tenant/privacy/load acceptance and applicable stored-document authorization/key-recovery evidence. No repeat credential rotation or blanket CI. See BBA pilot handoff and approval packet."
+      "nextAction": "29 Oct owner explicitly authorized Ajay Chaudhary as accountable INTERNAL owner-led security reviewer with ChatGPT as advisory assistant and reported broad internal approval. Proposed governance amendment allows disclosed OWNER_LED_AI_ASSISTED review only with actual assessment, contract/law audit-applicability decision and signed human risk-acceptance references; not independent certification. GitHub source confirms API-only protected secret mounts and minimal migration env, existing operator reports non-API credential counts zero and synthetic Vault crypto PASS. Obtain actual scoped privacy/tenant/load acceptance, exact-source image provenance, risk findings/#281 historical exposure disposition; do not fabricate signoffs or rotate keys without evidence."
     },
     {
       "id": "customer_uat",
       "name": "Signed realistic customer UAT and operational onboarding",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Owner-operated Being Brilliant Academy internal coaching-pilot UAT signatory Ajay Chaudhary authorized but actual UAT decision PENDING. Human review original QA against genuine BBA tenant/branch/modules; QA fixture schoolos-qa-coaching is NOT assumed BBA. V5 development PR #285 merged guard to reject owner-operated internal UAT as external commercial customer gate evidence, requiring genuine independent external institution and restricted signed-reference metadata; this is STRUCTURAL metadata, not signature authenticity. An actual external paid-customer UAT remains REQUIRED for this existing gate. See BBA handoff and docs/SCHOOLOS_V5_RELEASE_CANDIDATE_GATES.md."
+      "nextAction": "Owner explicitly selected Being Brilliant Academy (BBA) and confirmed Ajay Chaudhary authorized institutional signatory; owner-associated BBA is OWNER_OPERATED_RELATED_PARTY, NOT INDEPENDENT_EXTERNAL. Proposed updated paid-release validator will accept related-party UAT only with truthful relationship disclosure, real BBA tenant + witnessed scenario matrix, dated actual signature and signed conflict/independence waiver references. QA fixture schoolos-qa-coaching is NOT BBA. Owner management approval alone is not observed BBA UAT. Require all other commercial gates; no paid video/money movement."
     },
     {
       "id": "operational_support",
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Ajay Chaudhary is APPOINTED accountable internal operations reviewer, not signed off. Reuse completed isolated DB/empty-upload restore, active 04:15 UTC backup monitor with prior Telegram receipt, active HetrixTools V5 readiness with Default Contact assignment. Remaining: alert-specific failure/recovery acknowledgment without inducing outage, worker coverage, explicitly named PRIMARY/BACKUP duty response, retention/key/nonempty media recovery applicability, immutable rollback reference and accountable #240 residual-risk disposition. Avoid repeated legacy log searches and passing checks. See monitoring/incident documents and BBA pilot handoff."
+      "nextAction": "Owner reported Ajay Chaudhary APPROVED internal operations/security responsibilities. Existing 114-migration offsite restore, Telegram backup-monitor receipt and active off-host HetrixTools readiness may be reused. Record named backup duty owner (none has been identified), authentic incident #240 residual-risk acceptance, non-disruptive failure/recovery alert receipt, worker coverage, nonempty media/Vault recovery applicability and immutable image/rollback original reference. A broad approval does not prove unperformed alert or restore scenarios. No redundant green probe reruns."
     },
     {
       "id": "commercial_legal_finance",
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Madhuri Verma APPOINTED finance/legal reviewer, decision PENDING; no independent legal qualification or signoff presumed. 23 Oct post-correction V5 staging pricebook dry run: Essentials ₹49,900, Growth ₹99,900, Professional ₹149,990 ALIGNED, changed=0; no new price drift established. Obtain actual transaction audit/provider-to-ledger evidence and her attributed decision on pricebook, 60-day ₹14,999+GST commercial pilot, whether internal BBA pilot is non-billable, included onboarding versus additional ₹9,999/₹14,999/₹24,999 implementation, AI/video tariffs, privacy/DPA/tax and terms. Do not reapply correction, invoice BBA or collect payments without approved scope. See BBA pilot handoff and approval packet."
+      "nextAction": "Owner reported Madhuri Verma APPROVED the assigned internal finance/legal decisions, but original dated decision and signed restricted artifact still need recording. Previously verified staging pricebook Essentials ₹49,900, Growth ₹99,900, Professional ₹149,990 ALIGNED; no reapply. Capture original applicable GST, pilot ₹14,999/60 days, onboarding inclusions/options, privacy/DPA/refund and signed terms decisions and map actual Razorpay TEST source-to-contract/invoice/ledger records. Owner report is not external counsel certification; do not invoice BBA by default or collect live payments."
     },
     {
       "id": "production_owner_approval",
       "name": "Final signed owner authorization to promote V5 to production",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "PRODUCTION HOLD. After the other nine gates have authentic attributed SHA-pinned evidence and the production tag/cutover/rollback are reviewable, obtain separate explicit written owner GO. Staging authorization and requests to launch commercially are not production GO. V4 remains unchanged. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
+      "nextAction": "Owner stated 'consider everything approved' on 29 Oct 2026, recording management approval IN PRINCIPLE for owner-led AI-assisted security and BBA related-party UAT model. This is NOT proof that remaining 9 real test/contract/operational evidence gates are complete. Keep production HOLD until signed attributable SHA-pinned original records for each gate, reviewed image provenance, pnpm v5:release:require-ready PASS, explicit production-specific deployment/rollback GO and controlled cutover. Do NOT promote V5 into frozen V4 main or activate paid services based on blanket declaration."
     }
   ]
 }
