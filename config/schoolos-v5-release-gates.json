@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "1b513bd4425beb07081cf9a6446b0dbbe860edc8",
+  "releaseCandidateSha": "c8c80151b6f0919552d60c5cb71af1b92d319ff5",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,70 +10,70 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Proposed frozen V5 code candidate 1b513bd4425beb07081cf9a6446b0dbbe860edc8 includes merged native coaching teacher allocation fix #270, finance preflight #272, and authenticated disposable-PostgreSQL native classroom HTTP regression #273. Review cumulative V5 PR #262 chain and ensure source/image provenance, independent reviewer and all deployment scopes before VERIFIED. Do not merge into V4 main."
+      "nextAction": "29 Oct isolated V5 development head bdad9c62969dd129cf9a8309e7d5bb748ca66f27 incorporates reviewed security/paid-customer UAT gate-only squash #285 (previous operator-reported V5 staging source remains f736e64b0e1b332aabf20557025f10b3b602b97b). Historical releaseCandidateSha=c8c80151b6f0919552d60c5cb71af1b92d319ff5 is NOT promoted. Exact-source cumulative CI in progress at this checkpoint; independently review dependency delta, source-build/image digests, and approve immutable RC before any staging rollout. Never merge to V4 main. See approval packet and PR #285."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "At source 1b513bd4425beb07081cf9a6446b0dbbe860edc8, independently confirm all four exact-source workflows are SUCCESS after merge (#273 isolated Postgres native-coaching class HTTP authorization tests passed at PR head cc39bdbb445ec1e9deee6c6c6fcf330b268f4595). The PR head and merged source SHA are not interchangeable evidence. Obtain independent attributed CI review and reproducible build provenance for VERIFIED."
+      "nextAction": "PR #285 exact-head 5ef36929d82e1c6dee4024763054ec9cade97dab CI verify+containers SUCCESS, while its external QA was SKIPPED by workflow head-branch scope; do not describe skipped jobs as PASS. It was squash-merged V5-development only at bdad9c62969dd129cf9a8309e7d5bb748ca66f27. Four exact-merged-head workflows started: 40904313252 CI, 40904313286 sandbox, 40904312517 external QA, 40904312589 isolated upgrade; inspect final conclusions, then obtain independent checkout-to-image-digest build provenance. Earlier f736 CI was successful but does not certify the new SHA."
     },
     {
       "id": "staging_migration_restore",
       "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Existing V5 isolated staging last owner-verified API/Web image at source 2ba8a22fe6c9cd26d97689444440a79b5423fba8; 114/0 DB migrations and 27 Oct database/files checksum+archive+R2 presence PASS. After exact merged-source all-four workflow PASS, deploy candidate 1b513bd4425beb07081cf9a6446b0dbbe860edc8 only to V5 staging, verify images/guard/mounts and independent isolated offsite restore/Vault recovery. V4 production must remain unchanged."
+      "nextAction": "29 Oct operator recovery PASS: 114/0 migrations, 336 public tables, pg_dump readback and pg_amcheck PASS, zero invalid indexes, empty uploads restored, cleanup YES, total 9.3 seconds. Do not repeat completed restore/download/checksums. Obtain independent acceptance and reconcile nonempty file, Vault/key and external recording recovery scope. See docs/SCHOOLOS_V5_APPROVAL_PACKET_20261029.md. Gate remains PENDING."
     },
     {
       "id": "subscription_payment_qa",
       "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Synthetic Razorpay/webhook tests exist. Finance independently witnesses a genuine signed commercial contract and actual Razorpay TEST capture, duplicate/forged callback, refund, dispute, renewal and ledger/tenant reconciliation; do not count staging approved quote without signed contract or actual payment as verified."
+      "nextAction": "Synthetic exact-f736e64b HTTP/DB checks executed successfully for contracted checkout, tenant isolation, forged/unsigned webhook rejection, concurrent/idempotent capture, failed-payment handling, refund linkage/replay/over-refund and risk holds. Owner separately reports real Razorpay TEST/reconciliation completed. Retrieve that existing provider transaction-to-contract/ledger artifact set and finance acceptance; synthetic local HMAC is not actual provider delivery. Dispute/renewal scope requires separate artifact mapping. No live collection. See docs/SCHOOLOS_V5_PROVIDER_EVIDENCE_MAP_20261029.md."
     },
     {
       "id": "ai_video_provider_qa",
       "name": "Real staging AI Examiner and LiveKit usage, billing, failure and proof reconciliation",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Provider synthetic LiveKit Egress→R2 MP4 verified (431800 bytes) and new real disposable-PostgreSQL role/tenant native-class HTTP integration passed. Still deploy exact current V5 candidate, conduct authenticated actual QA coaching teacher/student classroom creation, recording R2 to LMS download and cross-tenant deny, verify AI Examiner and fail/settlement lifecycle, and obtain provider reviewer acceptance; paid-video flags OFF."
+      "nextAction": "Exact-f736e64b sandbox logs prove signed synthetic LiveKit replay/tamper/tenant/reordering, stale review rejection, cutoff selection and provider-disconnect negative QA executed. Owner separately reports classroom/recording/LMS playback; retrieve source/date-attributed provider artifacts. V4 AI QA cannot be called exact-V5 execution; review material deltas. The c8c80151-to-f736e64b delta has no AI/video business-logic or migration changes. Keep paid-video flags OFF; separate disabled monetization acceptance from classroom operation without waiving required gates."
     },
     {
       "id": "security_privacy_tenant_qa",
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Current source includes HTTP-integrated negative tests for foreign school tenant, school-mode branch policy, external-provider bypass and revoked active coaching allocation, PASS on isolated PostgreSQL at PR #273 head. Independently exercise authenticated staging current source including recording material tenant IDOR, privacy/secrets review, load and signoff; do not equate disposable CI with production security audit."
+      "nextAction": "29 Oct operator-reported f736e64b staging remediation PASS: all six non-API services core/media credential counts zero; API protected file/mount and persisted Coolify config PASS; login/refresh, SMTP auth and compiled synthetic Vault round-trip/tamper rejection PASS. Ajay Chaudhary is APPOINTED accountable INTERNAL security/operations reviewer but is also the operator; independent security reviewer remains UNAPPOINTED and Gate 6 PENDING. Obtain independent incident #275/#281 historical-exposure disposition, tenant/privacy/load acceptance and applicable stored-document authorization/key-recovery evidence. No repeat credential rotation or blanket CI. See BBA pilot handoff and approval packet."
     },
     {
       "id": "customer_uat",
       "name": "Signed realistic customer UAT and operational onboarding",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "QA coaching Batch 1 has 3 enrolled students, 1 subject and 1 exact active cross-branch teacher allocation. Synthetic PostgreSQL classroom creation+visibility+isolation PASS in PR #273. After actual staging deployment, use those QA records for real teacher/student classroom/recording UAT and obtain genuine external customer sponsor signed acceptance. Do not count synthetic CI as customer signature."
+      "nextAction": "Owner-operated Being Brilliant Academy internal coaching-pilot UAT signatory Ajay Chaudhary authorized but actual UAT decision PENDING. Human review original QA against genuine BBA tenant/branch/modules; QA fixture schoolos-qa-coaching is NOT assumed BBA. V5 development PR #285 merged guard to reject owner-operated internal UAT as external commercial customer gate evidence, requiring genuine independent external institution and restricted signed-reference metadata; this is STRUCTURAL metadata, not signature authenticity. An actual external paid-customer UAT remains REQUIRED for this existing gate. See BBA handoff and docs/SCHOOLOS_V5_RELEASE_CANDIDATE_GATES.md."
     },
     {
       "id": "operational_support",
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "V5 staging services previously healthy; 27 Oct local checksum, pg_restore list, tar and R2 object HEAD checks PASS (not full independent restore). Sign off on isolated offsite restore, R2 14-day retention, Vault recovery, incident #240 root cause, alerting, rollback and on-call/SLA."
+      "nextAction": "Ajay Chaudhary is APPOINTED accountable internal operations reviewer, not signed off. Reuse completed isolated DB/empty-upload restore, active 04:15 UTC backup monitor with prior Telegram receipt, active HetrixTools V5 readiness with Default Contact assignment. Remaining: alert-specific failure/recovery acknowledgment without inducing outage, worker coverage, explicitly named PRIMARY/BACKUP duty response, retention/key/nonempty media recovery applicability, immutable rollback reference and accountable #240 residual-risk disposition. Avoid repeated legacy log searches and passing checks. See monitoring/incident documents and BBA pilot handoff."
     },
     {
       "id": "commercial_legal_finance",
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Source 1b513bd4425beb07081cf9a6446b0dbbe860edc8 includes safe read-only Growth pricebook preflight and existing transaction-safe guarded reconciliation (#272 merged; #269 superseded); operator must run actual isolated V5 staging CHECK, reconcile if explicit finance approval, then verify approved Essentials/Growth/Professional pricing, pilot/onboarding/video/AI policies, tax/legal/DPA and authentic signatures. No provider payment or price mutation has been proven."
+      "nextAction": "Madhuri Verma APPOINTED finance/legal reviewer, decision PENDING; no independent legal qualification or signoff presumed. 23 Oct post-correction V5 staging pricebook dry run: Essentials ₹49,900, Growth ₹99,900, Professional ₹149,990 ALIGNED, changed=0; no new price drift established. Obtain actual transaction audit/provider-to-ledger evidence and her attributed decision on pricebook, 60-day ₹14,999+GST commercial pilot, whether internal BBA pilot is non-billable, included onboarding versus additional ₹9,999/₹14,999/₹24,999 implementation, AI/video tariffs, privacy/DPA/tax and terms. Do not reapply correction, invoice BBA or collect payments without approved scope. See BBA pilot handoff and approval packet."
     },
     {
       "id": "production_owner_approval",
       "name": "Final signed owner authorization to promote V5 to production",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "PRODUCTION HOLD. Only after 9 other gates have independent authentic SHA-pinned file-based signoffs, validated production tag, all contracts/providers/customer UAT and rollback readiness, request a separate explicit written production GO from owner. Do not infer from this user request or staging authorization."
+      "nextAction": "PRODUCTION HOLD. After the other nine gates have authentic attributed SHA-pinned evidence and the production tag/cutover/rollback are reviewable, obtain separate explicit written owner GO. Staging authorization and requests to launch commercially are not production GO. V4 remains unchanged. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     }
   ]
 }
