@@ -9,15 +9,9 @@ x-api-build: &api-build
   context: .
   dockerfile: apps/api/Dockerfile
   args: { SCHOOLOS_BUILD_REVISION: "${SCHOOLOS_BUILD_REVISION:-unattested}" }
-# Coolify may add its generated .env to *every* Compose service via env_file.
-# Explicit empty environment values take precedence over env_file entries.
-# This mask keeps the four existing API-only secrets out of all non-API
-# process environments; the API gets original values from its private mount.
-x-v5-core-secret-mask: &v5-core-secret-mask
-  JWT_ACCESS_SECRET: ""
-  JWT_REFRESH_SECRET: ""
-  SMTP_PASSWORD: ""
-  COMMERCIAL_DOCUMENT_ENCRYPTION_KEY: ""
+# Core API credentials live exclusively in the protected API-only bind mount.
+# Do not declare those names in Compose: Coolify's global .env generation can
+# otherwise override even explicit empty values in all deployed services.
 x-api-env: &api-env
   NODE_ENV: production
   PORT: 4000
@@ -26,9 +20,7 @@ x-api-env: &api-env
   REDIS_REQUIRED: "true"
   WEB_URL: https://${APP_DOMAIN}
   CORS_ORIGINS: "https://${APP_DOMAIN},https://www.${APP_DOMAIN}"
-  # API-only values are loaded from a protected 0600 file by the API entrypoint.
-  JWT_ACCESS_SECRET: ""
-  JWT_REFRESH_SECRET: ""
+  # API-only credentials are loaded from a protected 0600 file by the API entrypoint.
   METRICS_TOKEN: ${METRICS_TOKEN:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-250}
@@ -47,7 +39,6 @@ x-api-env: &api-env
   SMTP_PORT: ${SMTP_PORT:-587}
   SMTP_SECURE: ${SMTP_SECURE:-false}
   SMTP_USER: ${SMTP_USER:-}
-  SMTP_PASSWORD: ""
   EMAIL_FROM: ${EMAIL_FROM:-}
   TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
   TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
@@ -61,13 +52,12 @@ x-api-env: &api-env
   RAZORPAY_MODE: ${RAZORPAY_MODE:-test}
   RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
   PAYMENT_CREDENTIAL_ENCRYPTION_KEY: ${PAYMENT_CREDENTIAL_ENCRYPTION_KEY:-}
-  COMMERCIAL_DOCUMENT_ENCRYPTION_KEY: ""
 
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    environment: { <<: *v5-core-secret-mask, POSTGRES_DB: "${POSTGRES_DB:-bba}", POSTGRES_USER: "${POSTGRES_USER:-bba}", POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}" }
+    environment: { POSTGRES_DB: "${POSTGRES_DB:-bba}", POSTGRES_USER: "${POSTGRES_USER:-bba}", POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}" }
     volumes: [postgres_data:/var/lib/postgresql/data]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bba} -d ${POSTGRES_DB:-bba}"], interval: 10s, timeout: 5s, retries: 10 }
     networks: [backend]
@@ -75,7 +65,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    environment: { <<: *v5-core-secret-mask, REDIS_PASSWORD: "${REDIS_PASSWORD}" }
+    environment: { REDIS_PASSWORD: "${REDIS_PASSWORD}" }
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
     volumes: [redis_data:/data]
     healthcheck: { test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"], interval: 10s, timeout: 5s, retries: 10 }
@@ -89,7 +79,6 @@ services:
     # mail, messaging, AI, commerce, Vault or storage provider secrets.
     # Keep API-only runtime credentials in the API service below.
     environment:
-      <<: *v5-core-secret-mask
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL}
     depends_on: { postgres: { condition: service_healthy } }
@@ -120,7 +109,7 @@ services:
     image: ${WEB_IMAGE:-bba-web:local}
     build: { context: ., dockerfile: apps/web/Dockerfile, args: { NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-/api/v1}", SCHOOLOS_BUILD_REVISION: "${SCHOOLOS_BUILD_REVISION:-unattested}" } }
     restart: unless-stopped
-    environment: { <<: *v5-core-secret-mask, NODE_ENV: production, PORT: 3000, HOSTNAME: 0.0.0.0, INTERNAL_API_URL: http://api:4000/api/v1, INTERNAL_API_ORIGIN: http://api:4000, LEGAL_PAGES_PUBLISHED: "${LEGAL_PAGES_PUBLISHED:-false}", LEGAL_EFFECTIVE_DATE: "${LEGAL_EFFECTIVE_DATE:-}" }
+    environment: { NODE_ENV: production, PORT: 3000, HOSTNAME: 0.0.0.0, INTERNAL_API_URL: http://api:4000/api/v1, INTERNAL_API_ORIGIN: http://api:4000, LEGAL_PAGES_PUBLISHED: "${LEGAL_PAGES_PUBLISHED:-false}", LEGAL_EFFECTIVE_DATE: "${LEGAL_EFFECTIVE_DATE:-}" }
     expose: ["3000"]
     networks: [frontend]
     depends_on: { api: { condition: service_healthy } }
@@ -130,7 +119,6 @@ services:
     build:
       context: ./infra/nginx
     restart: unless-stopped
-    environment: *v5-core-secret-mask
     expose: ["80"]
     depends_on:
       web:
@@ -148,7 +136,7 @@ services:
     build: { context: ./infra/backup }
     restart: unless-stopped
     init: true
-    environment: { <<: *v5-core-secret-mask, DATABASE_URL: "${DATABASE_URL}", BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}", BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-14}", BACKUP_MAX_AGE_SECONDS: "${BACKUP_MAX_AGE_SECONDS:-108000}", AWS_S3_BUCKET: "${BACKUP_S3_BUCKET:-}", AWS_ENDPOINT_URL: "${AWS_S3_ENDPOINT:-}", AWS_REGION: "${AWS_REGION:-}", AWS_SHARED_CREDENTIALS_FILE: "/run/secrets/schoolos-v5-r2-credentials" }
+    environment: { DATABASE_URL: "${DATABASE_URL}", BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}", BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-14}", BACKUP_MAX_AGE_SECONDS: "${BACKUP_MAX_AGE_SECONDS:-108000}", AWS_S3_BUCKET: "${BACKUP_S3_BUCKET:-}", AWS_ENDPOINT_URL: "${AWS_S3_ENDPOINT:-}", AWS_REGION: "${AWS_REGION:-}", AWS_SHARED_CREDENTIALS_FILE: "/run/secrets/schoolos-v5-r2-credentials" }
     volumes: [backups:/backups, app_storage:/data/storage, /etc/schoolos/v5-staging/r2-aws-credentials:/run/secrets/schoolos-v5-r2-credentials:ro]
     healthcheck: { test: ["CMD", "/usr/local/bin/healthcheck.sh"], interval: 30m, timeout: 10s, retries: 2 }
     depends_on: { postgres: { condition: service_healthy } }
