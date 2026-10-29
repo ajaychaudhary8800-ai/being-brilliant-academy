@@ -43,35 +43,20 @@ test("only V5 staging API has the private provider mount", async () => {
   assert.doesNotMatch(compose, /LIVEKIT_API_SECRET:|LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY:/);
 });
 
-test("all six non-API services explicitly mask four API-only secrets against Coolify env_file injection", async () => {
+test("V5 Compose never names four API-only core secrets so Coolify cannot preserve global UI variables", async () => {
   const compose = await readFile(composeUrl, "utf8");
-  const maskName = "x-v5-core-secret-mask: &v5-core-secret-mask";
-  assert.equal(compose.split(maskName).length - 1, 1);
-  const maskBlock = compose.split(maskName)[1]?.split("\nx-api-env:")[0];
-  assert.ok(maskBlock, "explicit mask must be declared before API env");
-  const protectedKeys = [
+  const names = [
     "JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET", "SMTP_PASSWORD",
     "COMMERCIAL_DOCUMENT_ENCRYPTION_KEY",
   ];
-  for (const key of protectedKeys)
-    assert.ok(maskBlock.includes("  " + key + ': ""'), key + " must be explicitly blank");
-  const block = compose.split("\nservices:")[1]?.split("\nnetworks:")[0];
-  assert.ok(block);
-  const names = ["postgres", "redis", "migrate", "api", "web", "nginx", "backup"];
-  const sections = Object.fromEntries(names.map((name, index) => {
-    const start = block.indexOf("\n  " + name + ":\n");
-    const end = index + 1 < names.length
-      ? block.indexOf("\n  " + names[index + 1] + ":\n", start + 1)
-      : block.length;
-    assert.ok(start >= 0 && end > start, "missing " + name);
-    return [name, block.slice(start, end)];
-  }));
-  for (const name of names.filter(value => value !== "api")) {
-    assert.ok(sections[name].includes("environment:") && sections[name].includes("*v5-core-secret-mask"),
-      "explicit mask required on " + name);
+  for (const key of names) {
+    assert.ok(!compose.includes(key), "remove residual global Compose declaration of " + key);
   }
-  assert.ok(sections.api.includes("SCHOOLOS_V5_APP_ENV_FILE: /run/secrets/schoolos-v5-app-api.env"));
-  assert.ok(sections.api.includes("app-v5-api.env:/run/secrets/schoolos-v5-app-api.env:ro"));
+  assert.doesNotMatch(compose, /v5-core-secret-mask/, "an empty mask does not remove retained Coolify globals");
+  const servicePart = compose.split("\nservices:")[1]?.split("\nnetworks:")[0];
+  const api = servicePart?.split("\n  api:\n")[1]?.split("\n  web:\n")[0];
+  assert.ok(api?.includes("SCHOOLOS_V5_APP_ENV_FILE: /run/secrets/schoolos-v5-app-api.env"));
+  assert.ok(api?.includes("app-v5-api.env:/run/secrets/schoolos-v5-app-api.env:ro"));
   assert.equal((compose.match(/external: true/g) ?? []).length, 4);
 });
 
@@ -103,7 +88,6 @@ const appFixture = [
 
 test("V5 staging uses an API-only protected file for four existing auth/mail/Vault keys", async () => {
   const compose = await readFile(composeUrl, "utf8");
-  const shared = compose.split("\nservices:")[0];
   const block = compose.split("\nservices:")[1]?.split("\nnetworks:")[0];
   const api = block?.split("\n  api:\n")[1]?.split("\n  web:\n")[0];
   assert.ok(api);
@@ -114,8 +98,7 @@ test("V5 staging uses an API-only protected file for four existing auth/mail/Vau
     "JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET", "SMTP_PASSWORD",
     "COMMERCIAL_DOCUMENT_ENCRYPTION_KEY",
   ]) {
-    assert.ok(shared.includes("  " + key + ': ""'), key);
-    assert.ok(!shared.includes("  " + key + ": $" + "{"), key);
+    assert.ok(!compose.includes(key), key + " must not be a Coolify-managed Compose variable");
   }
   assert.equal((compose.match(/external: true/g) ?? []).length, 4);
 });
