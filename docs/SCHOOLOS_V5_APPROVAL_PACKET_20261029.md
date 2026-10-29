@@ -13,12 +13,12 @@ All ten formal statuses remain PENDING (HOLD). No reviewer identity or signature
 | --- | --- | --- |
 | 1. Integration | Current GitHub #262 head matches candidate; #276 integrated | Attributed dependency and build provenance review |
 | 2. CI | Existing four exact-source successful runs 40549283311 / 40549283373 / 40549283315 / 40549283325; not rerun | Independent CI/build acceptance |
-| 3. Migration/recovery | Operator: 114 applied, zero unresolved; downloaded backup 20261028T020001Z and both checksums PASS | Actual isolated restore output, cleanup, measured recovery; Vault/key recovery |
+| 3. Migration/recovery | Operator: 114 applied, zero unresolved; downloaded backup 20261028T020001Z and both checksums PASS | Restore PASS now operator-reported (see update below); independent acceptance, empty-upload scope and Vault/key recovery remain |
 | 4. Subscription/payments | Owner-confirmed Razorpay TEST completion | Existing artifact mapping for contract, capture, replay/forgery, refunds, disputes, renewal and ledger; finance acceptance |
 | 5. AI/video | Owner-confirmed classroom, recording, LMS playback; AI Examiner evidence from V4 | Attributed provider review and material V4-to-V5 delta coverage |
 | 6. Security/privacy | #275 latest comment records isolation, replacement authentication/runtime matches and owner-confirmed revocations | Independent review, historical exposure disposition, tenant/privacy/load scope |
 | 7. Customer UAT | Owner functional QA retained | External customer sponsor acceptance, school/coaching and role coverage, onboarding handover |
-| 8. Operations | Backup health-script evidence; existing monitoring/support/rollback documents | V5-specific monitor activation and delivered alert, named duty cover, #240 disposition, offsite/key recovery, rollback digests |
+| 8. Operations | Backup health-script evidence; existing monitoring/support/rollback documents | V5-specific monitor activation and delivered alert, named duty cover, #240 disposition, independent recovery acceptance/key recovery, rollback digests |
 | 9. Commercial/legal | Approved pricing reference below | Current accepted pricebook evidence, onboarding/pilot terms, legal/privacy/DPA/tax and finance signatures |
 | 10. Production owner | No production GO | Separate explicit approval after gates 1–9 and exact cutover packet completion |
 
@@ -43,10 +43,10 @@ Replacement:
 - Cleans labelled disposable container and extracted temporary files independently; never removes Docker volumes or original downloads.
 - Emits aggregate counts/timing only. Final PASS requires cleanup success.
 
-Local validation: Python compilation PASS; four archive/digest unit tests PASS (including unsafe entry subcases). **No Docker/VPS runtime execution occurred.** pg_amcheck must exist in the existing PostgreSQL image; missing utilities or tmpfs capacity failure are FAIL, not grounds to weaken checks.
+Local validation: Python compilation PASS; four archive/digest unit tests PASS (including unsafe entry subcases). **Initial local validation did not execute Docker/VPS; operator subsequently executed the script successfully (see update below).** pg_amcheck must exist in the existing PostgreSQL image; missing utilities or tmpfs capacity failure are FAIL, not grounds to weaken checks.
 If stopped by SIGKILL or host loss, finally cannot run: operator must inspect only the unique recovery-labelled container and its temporary extraction directory before removal. Never use volume prune.
 
-Execution dependency: this session's SSH connection to the supplied VPS IP returned “Network is unreachable”; Cloud Browser inventory contained no existing tabs or authenticated infrastructure session. An authorized reachable VPS terminal is required.
+Execution dependency: this session's SSH connection to the supplied VPS IP returned “Network is unreachable”; Cloud Browser inventory contained no existing tabs or authenticated infrastructure session. The owner subsequently executed the utility through their VPS terminal; assistant infrastructure access remains unavailable.
 After copying the reviewed utility to the VPS, execute:
 ```sh
 python3 /root/schoolos_v5_isolated_restore_20261029.py
@@ -99,3 +99,31 @@ Sequence after separate explicit production authorization only:
 
 Abort/rollback: any tenant leakage, data-integrity failure, failed migrations/readiness or broad login failure triggers incident command and write freeze. Preserve evidence. Application-only rollback is allowed only when DB backward compatibility is established. Otherwise restore a coordinated database+uploads checkpoint into an isolated target, validate, then switch only under explicit recovery authorization. Never blindly run old images over incompatible migrations. Preserve failed state and reconcile external callbacks/payments before resuming writers.
 No immutable production rollback identifiers have been independently collected in this session; rollback readiness remains HOLD.
+
+## Operator recovery result — 29 October 2026
+
+Ajay supplied terminal output from `root@srv1880999` executing `python3 /root/schoolos_v5_isolated_restore_20261029.py`. This is operator-supplied runtime evidence, not an independently observed execution or signed gate review. Intended backup: `20261028T020001Z` in the already-verified download directory. No repeat download or checksum run requested.
+
+```text
+OFFSITE_DATABASE_RESTORE=PASS
+RESTORED_MIGRATIONS=114
+RESTORED_UNRESOLVED_MIGRATIONS=0
+DATABASE_READBACK=PASS
+DATABASE_AMCHECK=PASS
+INVALID_INDEXES=0
+RESTORED_PUBLIC_TABLES=336
+OFFSITE_UPLOADS_RESTORE=PASS
+RESTORED_FILE_COUNT=0
+RESTORED_FILE_BYTES=0
+RECOVERY_DATA_SECONDS=8.9
+TEMPORARY_RESOURCES_CLEANED=YES
+RESTORE_TOTAL_SECONDS=9.3
+RESTORE_TEST=PASS
+LIVE_DATABASE_CONNECTIONS=NONE
+EXISTING_VOLUMES_CHANGED=NO
+CREDENTIAL_VALUES_PRINTED=NO
+```
+
+This closes the pending execution of this isolated database/empty-uploads recovery rehearsal. Do not rerun it solely for signoff. 9.3 seconds is local rehearsal elapsed time, not contractual or end-to-end disaster RTO. Zero files means empty-archive handling passed; no nonempty uploads, encrypted Vault documents or external LiveKit recordings were restored by this run. The output does not establish whether those separate stores should contain data; reconcile storage scope before claiming complete document/media recovery.
+
+Remaining for gates 3/8: attributed independent review, separate Vault/key and recording-storage recovery scope, monitoring/alert delivery, retention, incident #240 disposition and immutable rollback references. All ten formal statuses remain PENDING/HOLD; no approvals invented. Planning estimate stays 80% because no calibrated weighting supports a numerical increase.
