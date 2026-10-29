@@ -267,3 +267,13 @@ This change tightens the paid release `customer_uat` policy: declared `INDEPENDE
 Four **cumulative development SHA** GitHub workflows were dispatched by the merged branch's existing PR event: CI `40904313252`, sandbox `40904313286`, external QA `40904312517`, V4 isolated upgrade `40904312589`. At preparation of this checkpoint their final conclusions were not all available; inspect results rather than inheriting PR-head success. Historical f736 evidence need not be rerun to certify unchanged payment/LiveKit code, but new source must pass its current release-control tests.
 
 **No Coolify staging redeploy, production/V4 mutation, user/customer payment, access credential rotation, UAT signature, finance approval or new release candidate pin.** Existing V5 staging remains last operator-evidenced `f736e64b...`; `releaseCandidateSha` remains historical `c8c80151...` with **HOLD / 10 PENDING / 0 VERIFIED** until actual independent release/governance acceptance.
+
+### GitHub source delta attestation: staging evidence reuse boundary
+
+A direct GitHub comparison of last operator-reported V5 staging source `f736e64b0e1b332aabf20557025f10b3b602b97b` against cumulative V5 development `bdad9c62969dd129cf9a8309e7d5bb748ca66f27` returned **ahead 1, behind 0, exactly 3 changed files**:
+
+- `scripts/check-schoolos-v5-release.mjs` — 16 lines added: *release evidence metadata policy only*.
+- `scripts/check-schoolos-v5-release.test.mjs` — 51 lines added: isolated Node policy regressions only.
+- `docs/SCHOOLOS_V5_RELEASE_CANDIDATE_GATES.md` — 18 lines added: documentation only.
+
+**No API/Web application source, container build file, Compose definition, Prisma migration, tenant logic, payments, provider integration or database schema changed in this bounded commit.** This supports carrying forward existing `f736...` runtime functionality and credentials/mounts evidence without repeating already passed SMTP, Vault, migration or restore tests **solely because of this policy-only merge**. It is a source-tree comparison, not proof that the new `bdad...` Docker labels/image digests have been deployed. Full launch still requires an independently approved immutable candidate and provenance/compatibility assessment. Historical staging label must not be falsified or re-stamped onto an old build; defer any V5 staging redeploy until the release reviewer identifies a genuine necessity. V4/main remains untouched.
