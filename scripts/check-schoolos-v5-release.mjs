@@ -101,6 +101,22 @@ export async function verifySchoolOSV5ReleaseManifest(manifest,root) {
       throw new Error("Evidence metadata, independent reviewer or release SHA invalid");
     if(record.verifiedBy==="ChatGPT"||record.verifiedBy==="automated")
      throw new Error("Unattributed AI/tool-generated release proof is not sufficient");
+    // Gate 7 of the PAID commercial release requires real external institution
+    // acceptance. Owner-operated BBA internal pilot UAT has its own handoff,
+    // but must never silently satisfy the independent customer acceptance gate.
+    // This is structural metadata validation, NOT signature verification:
+    // human reviewers must still inspect the restricted signed source record.
+    if(gate.id==="customer_uat"){
+     const uat=record.customerUat;
+     const validRef=value=>typeof value==="string" &&
+      /^[A-Za-z0-9][A-Za-z0-9:/._-]{11,199}$/.test(value) &&
+      !value.includes("..") && !value.includes("//");
+     if(!uat||typeof uat!=="object"||Array.isArray(uat)||
+        uat.institutionRelationship!=="INDEPENDENT_EXTERNAL"||
+        !validRef(uat.institutionReference)||
+        !validRef(uat.signedAcceptanceReference))
+      throw new Error("Customer UAT requires independent external institution and signed acceptance references");
+    }
    }catch(error){
     errors.push(label+" invalid: "+(error instanceof Error?error.message:String(error)));
    }

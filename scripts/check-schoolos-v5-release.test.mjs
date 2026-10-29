@@ -25,6 +25,15 @@ async function fixture(mutator){
     gateId:gate.id,releaseCandidateSha:sha,result:"PASS",
     verifiedBy:"independent-qa@example.test",verifiedAt:"2026-10-19T12:00:00Z",
     summary:"Independent staged acceptance for "+gate.id+" with provenance."};
+   if(gate.id==="customer_uat"){
+    // Restricted signed records live outside Git. These are NON-SECRET
+    // synthetic references used only to exercise the metadata gate.
+    evidence.customerUat={
+     institutionRelationship:"INDEPENDENT_EXTERNAL",
+     institutionReference:"restricted-external-institution-001",
+     signedAcceptanceReference:"restricted-signed-customer-uat-001",
+    };
+   }
    const raw=JSON.stringify(evidence);
    await writeFile(join(root,relative),raw);
    gate.evidence.push({path:relative,sha256:createHash("sha256").update(raw).digest("hex")});
@@ -93,4 +102,46 @@ test("path traversal, duplicate IDs, unverifiable signoff and missing gates cann
  });
  assert.equal(fakeSignoff.status,"INVALID");
  assert.match(fakeSignoff.errors.join(" "),/not sufficient/);
+});
+
+test("owner-operated BBA pilot UAT cannot be used to declare paid commercial release READY",async()=>{
+ const result=await fixture(async(m,root)=>{
+  const gate=m.gates.find(g=>g.id==="customer_uat");
+  const path=join(root,gate.evidence[0].path);
+  const record=JSON.parse(await readFile(path,"utf8"));
+  record.customerUat.institutionRelationship="OWNER_OPERATED_INTERNAL";
+  const raw=JSON.stringify(record);
+  await writeFile(path,raw);
+  gate.evidence[0].sha256=createHash("sha256").update(raw).digest("hex");
+ });
+ assert.equal(result.status,"INVALID");
+ assert.match(result.errors.join(" "),/independent external institution/);
+});
+
+test("missing customer UAT signed-acceptance reference remains a release veto",async()=>{
+ const result=await fixture(async(m,root)=>{
+  const gate=m.gates.find(g=>g.id==="customer_uat");
+  const path=join(root,gate.evidence[0].path);
+  const record=JSON.parse(await readFile(path,"utf8"));
+  delete record.customerUat.signedAcceptanceReference;
+  const raw=JSON.stringify(record);
+  await writeFile(path,raw);
+  gate.evidence[0].sha256=createHash("sha256").update(raw).digest("hex");
+ });
+ assert.equal(result.status,"INVALID");
+ assert.match(result.errors.join(" "),/signed acceptance references/);
+});
+
+test("generic reviewer signature without external-customer UAT metadata cannot mark READY",async()=>{
+ const result=await fixture(async(m,root)=>{
+  const gate=m.gates.find(g=>g.id==="customer_uat");
+  const path=join(root,gate.evidence[0].path);
+  const record=JSON.parse(await readFile(path,"utf8"));
+  delete record.customerUat;
+  const raw=JSON.stringify(record);
+  await writeFile(path,raw);
+  gate.evidence[0].sha256=createHash("sha256").update(raw).digest("hex");
+ });
+ assert.equal(result.status,"INVALID");
+ assert.match(result.errors.join(" "),/independent external institution/);
 });

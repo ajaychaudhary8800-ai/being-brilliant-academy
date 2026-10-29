@@ -31,6 +31,24 @@ Each gate starts PENDING. A reviewer may change it to VERIFIED **only** after in
 }
 ```
 
+### External customer acceptance is mandatory for the PAID release
+
+Gate `customer_uat` has an additional fail-closed **structural** constraint: the signed human-approved evidence JSON must include a `customerUat` metadata object:
+
+```json
+{
+  "customerUat": {
+    "institutionRelationship": "INDEPENDENT_EXTERNAL",
+    "institutionReference": "restricted-external-institution-ref-001",
+    "signedAcceptanceReference": "restricted-signed-uat-record-ref-001"
+  }
+}
+```
+
+The references are **non-secret, non-PII locators** into approved restricted evidence storage, not arbitrary fabricated names, proof of signing or publicly accessible URLs. Both must be meaningful references (minimum 12 characters, restricted characters, no traversal). A genuine reviewer must inspect the protected signed original and certify signatory authority, actual contracted institutional UAT, exact application SHA and exceptions. This metadata check does **not** cryptographically authenticate signatures or validate the institution's corporate independence. It reduces the risk of accidentally declaring a paid release READY from generic CI or BBA owner-operated internal-pilot UAT.
+
+**Being Brilliant Academy is an INTERNAL pilot**, with Ajay Chaudhary as its authorized UAT signatory. Internal acceptance belongs in the private pilot record, **not** in the paid-release `customer_uat` evidence object. If management wishes to launch a narrowly scoped internal pilot without any independent external institution, use a separately reviewed scope/authorization process; do not falsify `INDEPENDENT_EXTERNAL` or weaken the ten-gate paid-release checker. The current manifest stays **HOLD**, and the external-customer gate remains PENDING.
+
 Record the **actual** SHA-256 of each evidence JSON file in the corresponding gate's `evidence` array as `{"path":"release-evidence/v5/staging_migration_restore.json","sha256":"<actual 64-digit digest>"}`. Put detailed test logs, restore checksums and signed records in protected internal storage according to the organization's retention/security policy; avoid embedding credentials, student PII or financial secrets in Git.
 
 This checker establishes traceable file integrity and revision pinning, **not the truth of a manually authored PASS statement**. A second party must inspect the underlying logs and verify signing/approval. CI cannot self-approve those business decisions.
