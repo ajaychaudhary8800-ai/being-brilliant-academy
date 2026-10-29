@@ -8,7 +8,7 @@ Run `python3 scripts/schoolos_v5_monitor.py` on a trusted Linux monitor host. Ex
 
 ## Observations, 29 Oct
 
-Assistant egress: homepage/ready/operational HTTP 200 at 8.999/8.935/8.970s, policy FAIL. Follow-up curl readiness HTTP 200, total 5.956022s, TLS complete 5.624046s. This execution path may include a proxy. The observations do not prove origin failure or incident #240 root cause. VPS comparison pending. Retain both failed and later healthy observations.
+Assistant egress: homepage/ready/operational HTTP 200 at 8.999/8.935/8.970s, policy FAIL. Follow-up curl readiness HTTP 200, total 5.956022s, TLS complete 5.624046s. This execution path may include a proxy. The observations do not prove origin failure or incident #240 root cause. VPS comparison subsequently supplied by operator; see below. Retain both failed and later healthy observations.
 
 ## Activation requirements
 
@@ -18,4 +18,16 @@ Use an authorized off-host scheduler so VPS loss cannot suppress checks. Select 
 
 Verify alert routing using a separate synthetic failure test in the monitor platform, never by interrupting the real application or weakening TLS. Record received/acknowledged alert, actual recipient, UTC time, test reference and recovery notification. A healthy probe alone does not close monitoring readiness. Same-host probes are useful diagnostics but cannot independently prove external availability.
 
-Outstanding: same-VPS timings, active off-host scheduler, authorized alert recipient and receipt, primary/backup ownership, #240 root-cause evidence or accountable residual-risk disposition. All formal gates remain HOLD.
+Outstanding: active off-host scheduler, authorized alert recipient and receipt, primary/backup ownership, #240 root-cause evidence or accountable residual-risk disposition. All formal gates remain HOLD.
+
+## VPS comparison supplied by operator
+
+29 October: Ajay supplied curl output from srv1880999. All three status/timing checks passed the 8s ceiling:
+
+| Route | HTTP | TLS complete (s) | Total (s) |
+| --- | --- | --- | --- |
+| / | 200 | 0.250707 | 0.310903 |
+| /api/health/ready | 200 | 0.025901 | 0.032904 |
+| /api/health/operational | 200 | 0.022438 | 0.027172 |
+
+This is operator-supplied status/timing evidence, not JSON dependency validation or independent off-host availability. It supports an execution-path-specific explanation for the earlier slow external samples, but does not isolate the cause or resolve historical #240. No more repetition of this successful comparison is required. Active off-host schedule, authorized alert destination, delivered failure/recovery notification and accountable support ownership remain pending. No alert sent or infrastructure configuration changed.
