@@ -45,28 +45,28 @@
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "29 Oct operator-reported f736e64b staging remediation PASS: all six non-API services core/media credential counts zero, API-only protected file/mount 0600 and persisted Coolify core entries empty, original JWT/Vault values preserved. Login/refresh, SMTP auth (no mail sent), actual compiled synthetic Vault encrypt/decrypt/tamper rejection and backup health PASS. Do not repeat cutover or rotate keys solely for documentation. Issues #281/#275 remain OPEN pending independent historical exposure disposition, tenant/privacy/load review and any applicable stored-document authorization/key-recovery acceptance. See approval packet and provider evidence map."
+      "nextAction": "29 Oct operator-reported f736e64b staging remediation PASS: all six non-API services core/media credential counts zero; API protected file/mount and persisted Coolify config PASS; login/refresh, SMTP auth and compiled synthetic Vault round-trip/tamper rejection PASS. Ajay Chaudhary is APPOINTED accountable INTERNAL security/operations reviewer but is also the operator; independent security reviewer remains UNAPPOINTED and Gate 6 PENDING. Obtain independent incident #275/#281 historical-exposure disposition, tenant/privacy/load acceptance and applicable stored-document authorization/key-recovery evidence. No repeat credential rotation or blanket CI. See BBA pilot handoff and approval packet."
     },
     {
       "id": "customer_uat",
       "name": "Signed realistic customer UAT and operational onboarding",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Owner functional QA completion is recorded. Locate existing external customer sponsor acceptance and operational onboarding evidence; obtain only missing signed customer UAT. Do not substitute owner screenshots or synthetic CI for external customer signature. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
+      "nextAction": "Being Brilliant Academy confirmed as owner-operated INTERNAL coaching pilot; Ajay Chaudhary confirms UAT signing authority but has not signed or accepted any result. Review prior coaching QA against the genuine BBA tenant/branch/module scope and obtain actual dated internal pilot UAT with protected evidence. Synthetic schoolos-qa-coaching is not assumed to be BBA. Existing Gate 7 still requires independent EXTERNAL customer acceptance for general paid release; do not reclassify internal UAT as external. See docs/SCHOOLOS_V5_BBA_INTERNAL_PILOT_UAT_HANDOFF_20261029.md. No repeated passed tests."
     },
     {
       "id": "operational_support",
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Reuse completed offsite DB/empty-upload restore, active 04:15 UTC backup monitor with prior Telegram receipt, active one-minute HetrixTools readiness monitor with Default Contact assignment and setup receipt. Remaining: monitor-specific failure/recovery receipt and acknowledgment, worker coverage, named duty cover, retention/key/recording recovery scope and immutable rollback references. #240 historical source-metadata review is exhausted; seek retained external archives if available or accountable residual-risk disposition, not repeated current-container log searches. No induced live outage. See monitoring/incident documents and approval packet."
+      "nextAction": "Ajay Chaudhary is APPOINTED accountable internal operations reviewer, not signed off. Reuse completed isolated DB/empty-upload restore, active 04:15 UTC backup monitor with prior Telegram receipt, active HetrixTools V5 readiness with Default Contact assignment. Remaining: alert-specific failure/recovery acknowledgment without inducing outage, worker coverage, explicitly named PRIMARY/BACKUP duty response, retention/key/nonempty media recovery applicability, immutable rollback reference and accountable #240 residual-risk disposition. Avoid repeated legacy log searches and passing checks. See monitoring/incident documents and BBA pilot handoff."
     },
     {
       "id": "commercial_legal_finance",
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "23 Oct operator-reported post-correction V5 staging pricebook dry run: Essentials ₹49,900, Growth ₹99,900, Professional ₹149,990 ALIGNED, blocked=0 changed=0; earlier ₹99,990 Growth reference is historical drift, not confirmed reoccurrence. See GitHub issue #258 comment 6371294472. Obtain dated independent current pricebook/finance acceptance and missing apply audit reference, pilot/onboarding/AI/video contract/DPA/privacy/tax policy and signatures. Do not reapply correction or issue contracts/payments merely because later design notes cite historical drift; read-only preflight only if material evidence gap remains. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
+      "nextAction": "Madhuri Verma APPOINTED finance/legal reviewer, decision PENDING; no independent legal qualification or signoff presumed. 23 Oct post-correction V5 staging pricebook dry run: Essentials ₹49,900, Growth ₹99,900, Professional ₹149,990 ALIGNED, changed=0; no new price drift established. Obtain actual transaction audit/provider-to-ledger evidence and her attributed decision on pricebook, 60-day ₹14,999+GST commercial pilot, whether internal BBA pilot is non-billable, included onboarding versus additional ₹9,999/₹14,999/₹24,999 implementation, AI/video tariffs, privacy/DPA/tax and terms. Do not reapply correction, invoice BBA or collect payments without approved scope. See BBA pilot handoff and approval packet."
     },
     {
       "id": "production_owner_approval",
