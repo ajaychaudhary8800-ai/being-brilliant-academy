@@ -1,28 +1,33 @@
 # SchoolOS V5 launch approval packet — 29 October 2026
 
 **Decision: HOLD. Prepared for review; not signed acceptance.**
-Application candidate: `c8c80151b6f0919552d60c5cb71af1b92d319ff5`.
-Development #262 remains draft at that SHA. Release tracking #278 remains draft.
+Observed development head: `f736e64b0e1b332aabf20557025f10b3b602b97b` (GitHub checked 29 October 2026).
+Operator-reported staging API/Web revision: the same SHA. This session did not independently inspect the server.
+Development #262 and release tracking #278 remain OPEN / DRAFT.
+The manifest's `releaseCandidateSha=c8c80151b6f0919552d60c5cb71af1b92d319ff5` is a historical proposed pin, NOT the current development head or an approved production RC. It is intentionally not promoted by this documentation reconciliation. An accountable reviewer must approve the immutable candidate and reconcile the manifest before release.
+Documentation baseline reviewed: `fd1f3c6fc937e022aaf45fc3f3839491e85b8e8a`; subsequent documentation commits are not application image revisions.
 This packet and recovery utility do not change deployed application source.
 
 ## Ten-gate register
 
 All ten formal statuses remain PENDING (HOLD). No reviewer identity or signature is supplied by this packet.
 
-| Gate | Evidence carried forward | Specific missing acceptance |
-| --- | --- | --- |
-| 1. Integration | Current GitHub #262 head matches candidate; #276 integrated | Attributed dependency and build provenance review |
-| 2. CI | Existing four exact-source successful runs 40549283311 / 40549283373 / 40549283315 / 40549283325; not rerun | Independent CI/build acceptance |
-| 3. Migration/recovery | Operator: 114 applied, zero unresolved; downloaded backup 20261028T020001Z and both checksums PASS | Restore PASS now operator-reported (see update below); independent acceptance, empty-upload scope and Vault/key recovery remain |
-| 4. Subscription/payments | Owner-confirmed Razorpay TEST completion | Existing artifact mapping for contract, capture, replay/forgery, refunds, disputes, renewal and ledger; finance acceptance |
-| 5. AI/video | Owner-confirmed classroom, recording, LMS playback; AI Examiner evidence from V4 | Attributed provider review and material V4-to-V5 delta coverage |
-| 6. Security/privacy | #275 latest comment records isolation, replacement authentication/runtime matches and owner-confirmed revocations | Independent review, historical exposure disposition, tenant/privacy/load scope |
-| 7. Customer UAT | Owner functional QA retained | External customer sponsor acceptance, school/coaching and role coverage, onboarding handover |
-| 8. Operations | Backup health-script evidence; existing monitoring/support/rollback documents | V5-specific monitor activation and delivered alert, named duty cover, #240 disposition, independent recovery acceptance/key recovery, rollback digests |
-| 9. Commercial/legal | Approved pricing reference below | Current accepted pricebook evidence, onboarding/pilot terms, legal/privacy/DPA/tax and finance signatures |
-| 10. Production owner | No production GO | Separate explicit approval after gates 1–9 and exact cutover packet completion |
+| Gate | Required criterion and existing evidence | Source SHA / evidence date / owner | Missing evidence and next action | Sign-off authority / disposition |
+| --- | --- | --- | --- | --- |
+| 1. Integration | Review cumulative dependencies and approve immutable RC; #262 remains draft | f736e64b… / GitHub checked 29 Oct / repository automation | Reconcile historical manifest c8c80151… with reviewed current application; record production candidate and dependency decision | Release reviewer, identity unassigned / PENDING |
+| 2. CI/provenance | Four workflows SUCCESS: [CI](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/actions/runs/40873986354), [sandbox](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/actions/runs/40873986385), [external QA](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/actions/runs/40873986322), [upgrade](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/actions/runs/40873986313) | All fetched for f736e64b… / 29 Oct / GitHub Actions | Independent run review and checkout-to-immutable-image provenance; no repeat runs solely for paperwork | Build/release reviewer, unassigned / PENDING |
+| 3. Migration/DR | 114/0 migrations, 336 tables, readback/amcheck PASS, zero invalid indexes; empty-upload restore and cleanup PASS | Backup 20261028T020001Z; restore source revision not bound by terminal output / 29 Oct / Ajay operator | Review existing rehearsal; identify nonempty uploads, Vault/key and recording stores, applicability and recovery evidence | Recovery reviewer, unassigned / PENDING |
+| 4. Subscription/TEST | Owner-reported Razorpay TEST and reconciliation completed | Exact transaction/source binding absent / carried forward 29 Oct / owner | Index existing contract, capture, callback forgery/replay, refund, dispute, renewal and ledger artifacts; test only uncovered applicable cases | Finance/payment reviewer, unassigned / PENDING |
+| 5. AI/video | Owner reports classroom, recording, LMS playback; AI Examiner QA from V4 | V5 execution SHA/date not established for all artifacts / owner | Retrieve provider evidence and review material V4-to-V5 changes; paid-video controls remain OFF | Product/provider reviewer, unassigned / PENDING |
+| 6. Security/privacy | Six non-API services core/media counts zero; protected API file/mount and persisted Coolify configuration PASS; login, SMTP auth and synthetic compiled Vault PASS; issue #281 | f736e64b… reported staging / 29 Oct / Ajay operator | Independent incident review, exposure decision, tenant/privacy/load evidence; distinguish synthetic crypto from historical document recovery/authorization | Independent security reviewer, unassigned / PENDING |
+| 7. Customer UAT | Internal coaching/school/browser QA available; no customer signature in reviewed evidence | Mixed historical source revisions; artifact mapping required / owner and CI | Sponsor identifies institution, role coverage, onboarding handover and exceptions; obtain genuine signed acceptance | Authorized external customer sponsor, unassigned / PENDING |
+| 8. Operations | Backup monitor active with prior Telegram delivery; HetrixTools readiness active and Default Contact assigned; setup Telegram receipt reported | Service configuration evidence, not image provenance / 29 Oct / operator | Monitor-specific failure/recovery receipt, worker coverage, named duty cover, retention/rollback and #240 risk disposition | Operations accountable reviewer, unassigned / PENDING |
+| 9. Commercial/legal | 23 Oct dry run: 49,900 / 99,900 / 149,990 ALIGNED; Enterprise custom; pilot planning 14,999 + GST | Runtime SHA and apply audit ID absent / 23 Oct operator, reconciled 29 Oct | Accept pricebook; resolve onboarding inclusions/fees, pilot caps/exit/conversion, tax/privacy/DPA and signatures | Finance and legal accountable reviewers, unassigned / PENDING |
+| 10. Production GO | No production authorization | No approved production RC / current record | After gates 1–9, approve named target, immutable images, compatible rollback and separate written GO | Ajay / authorized production owner / PENDING |
 
-Formal validator run against the current #278 manifest: HOLD, 0/10 VERIFIED, zero validation errors.
+All source abbreviations above refer to the full development SHA at the top only where explicitly attributed; historical/operator evidence is not silently rebound to that SHA.
+
+Prior recorded validator result: HOLD, 0/10 VERIFIED, zero validation errors. This reconciliation does not claim a new validator execution or alter gate statuses.
 Planning estimate: unchanged 80% complete / 20% remaining. Not a measured gate score.
 
 ## Recovery utility review and execution handoff
@@ -64,7 +69,7 @@ Required evidence: correlate failure UTC windows from runs 39916966876, 39919943
 ## Monitoring, support and recovery readiness
 
 Directly fetched candidate `.github/workflows/uptime-monitor.yml` targets `beingbrilliantedu.com` and `main-staging.beingbrilliantedu.com`; **it does not target V5 staging**. Existing external V5 QA is not proof of continuous monitoring.
-Prepare a V5-only monitor in the authorized operations platform targeting homepage, ready and operational endpoints. Require exact HTTPS target, bounded connect/response time, redacted failures, persistent incident and human notification. Prove alert delivery using an isolated synthetic monitor test; do not cause a live outage. GitHub scheduled workflows on a non-default draft branch are not evidence of an active schedule. Do not alter main to activate monitoring in this task.
+The V5 HetrixTools readiness monitor is now active with Default Contact assigned; do not repeat its setup. Review remaining homepage/operational/worker coverage in the existing monitoring platform. Require exact HTTPS target, bounded connect/response time, redacted failures, persistent incident and human notification. Prove alert delivery using an isolated synthetic monitor test; do not cause a live outage. GitHub scheduled workflows on a non-default draft branch are not evidence of an active schedule. Do not alter main to activate monitoring in this task.
 
 Existing support policy documents 99.5% availability objective, P1/P2 response of 2/4 business hours, Mon–Sat 09:00–18:00 IST and critical escalation. Those document statements do not prove staffed coverage or delivered messages. Confirm published contact ownership, primary/backup duty persons, escalation availability and actual delivery before contractual reliance.
 Confirm offsite retention and independently recoverable backup/Vault keys without revealing values. Do not present a generic production-path restore claim as this V5 backup's completed recovery.
@@ -132,7 +137,7 @@ Remaining for gates 3/8: attributed independent review, separate Vault/key and r
 
 The owner subsequently provided a HetrixTools screenshot for `SchoolOS V5 Readiness`: **Online**, externally monitored since 29 October 2026, one-minute interval, 10-second timeout, 446.07 ms recent average load and 100% uptime over the monitor's short life (22 minutes online at capture). VPS curl returned readiness HTTP 200, certificate verification code 0 (valid), 0.182195-second total. These are operator-supplied observations; earlier off-host slow samples and unresolved historical #240 are not erased. Full audit: `docs/SCHOOLOS_V5_MONITOR_ACCEPTANCE_20261029.md`.
 
-**Gate 8 adjustment:** External V5 readiness monitoring is evidenced **active**; setup need not be repeated. Owner also reported saving a Chat ID and receiving a Telegram message during the HetrixTools setup sequence; exact sender/contact-list binding and down/recovery event delivery are not independently established. Still missing proved monitor-specific contact routing and failure/recovery alert delivery, worker/operational checks, responsible responders and accountable #240 disposition. Coolify backup Telegram is a separate route. Keep gate 8 PENDING, overall 0/10 independently signed VERIFIED and production HOLD. No live outage test or redeployment is authorized by this evidence.
+**Gate 8 adjustment:** External V5 readiness monitoring is evidenced **active**; setup need not be repeated. Owner also reported saving a Chat ID and receiving a Telegram message during the HetrixTools setup sequence; exact sender/contact-list binding and down/recovery event delivery are not independently established. Default Contact assignment is now evidenced. Still missing monitor-specific failure/recovery alert delivery, worker/operational checks, responsible responders and accountable #240 disposition. Coolify backup Telegram is a separate route. Keep gate 8 PENDING, overall 0/10 independently signed VERIFIED and production HOLD. No live outage test or redeployment is authorized by this evidence.
 
 ## Pricebook evidence chronology — 29 October reconciliation
 
@@ -141,3 +146,25 @@ A dated [23 October GitHub issue #258 entry](https://github.com/ajaychaudhary880
 Limit: the recorded output lacks the staging apply transaction/audit ID and is operator-attested rather than independently finance-signed. Volume preservation during subsequent redeploy is encouraging, but not a substitute for dated current ratebook acceptance. Do not repeat an already-successful price change or run a new `--apply` without fresh independent drift evidence and explicit finance authorization. Formal finance gate remains PENDING; pilot/onboarding terms, tax, privacy, contracts and finance signature remain open.
 
 A targeted connected Drive/Gmail title/keyword search found no signed SchoolOS UAT/finance acceptance in those returned matches. This is a bounded search result only, not evidence that such documents do not exist elsewhere.
+
+## Security acceptance dossier and bounded remaining actions
+
+Technical remediation is operator-verified, not independently signed. Latest positive evidence supersedes intermediate process-discovery failures in #281:
+- [Login and page-refresh acceptance](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/issues/281#issuecomment-6497535028): does not prove token revocation or full multi-role acceptance.
+- [SMTP authentication](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/issues/281#issuecomment-6497585664): EMAIL_SENT=NO; retrieve previous delivery evidence before proposing another send.
+- [Compiled Vault encryption/decryption/tamper rejection](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/issues/281#issuecomment-6497797717): synthetic data only, no existing records changed; does not establish historical document readability, admin authorization or offsite key recovery.
+- [Consolidated runtime/source checkpoint](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/issues/258#issuecomment-6497890364): records source, isolation, stored configuration and backup checks.
+
+Security reviewer decision record remains blank: reviewer identity/role; review timestamp; exact artifact and source references; exposure window and access scope; evidence of exploitation or explicit absence of evidence (not proof of absence); reasoned key-preservation/rotation decision; residual risks; acceptance/rejection; signature reference. Do not rotate preserved JWT/Vault keys or close #281/#275 merely to fill the record.
+
+For #240, [final bounded journal assessment](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/issues/240#issuecomment-6488883401) already found only init/cron/guest-agent source metadata in 18 retained entries. Current container logs postdate failures. Do not repeat that search. Review external archives if available; otherwise operations must explicitly decide residual risk, observation period, browser checks, alert recipient/acknowledgment, recurrence response and review date. Root cause remains unproven.
+
+## Customer and commercial acceptance handoff
+
+Reuse successful QA; each reviewer records only uncovered requirements or material changes. The acceptance record must identify institution, authorized sponsor, deployment/source, actual test dates and evidence, school/coaching scope and applicable admin/teacher/student/parent roles, onboarding handover, accepted exceptions and signed decision. Internal QA is not an external customer signature.
+
+Finance must map existing TEST transaction IDs to contract/quote version, subscription state, capture/refund/webhook event and ledger result without placing secrets or customer legal documents in repository files. Mark nonapplicable cases with reason and accountable approval, not fabricated PASS.
+
+Commercial decisions still required: whether standard remote onboarding is included and when the 9,999/14,999/24,999 implementation fees apply; pilot module/student/branch caps, support and migration inclusions, refund/exit and annual-conversion rules; approved tax and privacy/DPA terms. Prices here are planning references, not binding offers. Keep paid-video monetization disabled.
+
+Next executable work depends on existing evidence access: locate private provider/customer/commercial artifacts, map them to the rows above, then obtain accountable acceptance. No additional credentials, customer signatures, reviewer identities, financial transactions or production approval were inferred by this reconciliation.
