@@ -2,6 +2,8 @@
 
 **Prepared: 29 October 2026. Status: PREPARED / NOT EXECUTED OR SIGNED. Commercial production: HOLD.**
 
+**Owner-selected governance option, 29 October:** Ajay Chaudhary has expressly authorized **Being Brilliant Academy as a related-party institutional UAT sponsor** and the **owner-led, ChatGPT-assisted security assessment model**. Ajay and Madhuri's broad internal approval was owner-reported. This selection establishes their **roles and approval in principle**, not successful observed UAT, a stored signed original, a BBA-specific staging tenant, an unrelated external customer or release READY. When original BBA UAT and signed conflict waiver actually exist, the proposed paid-release policy may accept `OWNER_OPERATED_RELATED_PARTY` **with truthful disclosure**, instead of falsely declaring BBA `INDEPENDENT_EXTERNAL`. The pre-existing blanket prohibition below is superseded by the revised [release candidate protocol](SCHOOLOS_V5_RELEASE_CANDIDATE_GATES.md) *after that proposed policy is merged*; until then the currently deployed validator still rejects BBA for paid release. A genuine external customer review remains advisable when contractual or risk conditions require it. No signed original has been produced here.
+
 ## Fixed scope and decision boundaries
 
 | Field | Confirmed / current | Qualification |
@@ -14,7 +16,7 @@
 | Approved working environment | `https://v5-staging.beingbrilliantedu.com` | No BBA live tenant mapping confirmed; `schoolos-qa-coaching` is a synthetic QA tenant, **not** assumed to be BBA |
 | Release status | **HOLD**, all 10 formal gates **PENDING** | This file does not create signatures, transaction proof, evidence-array entries or production GO |
 
-**Two distinct launch decisions:** (A) an **internal, non-billable, controlled BBA pilot** can be evaluated against an explicitly narrowed approved scope, with separate safety and production authorizations if applicable; (B) an **external, commercially paid release** retains the existing independent external-customer UAT requirement and every other release gate. BBA owner-signature must **not** be relabeled external-customer acceptance or used to bypass the release validator.
+**Two distinct launch decisions:** (A) a controlled non-billable BBA pilot can be evaluated against an approved scope; (B) a paid commercial release may adopt a transparently labeled **owner-operated related-party acceptance alternative only after the release-policy change is approved and genuine BBA test observations, a dated signed acceptance and a documented related-party conflict waiver are preserved**. BBA must never be represented as an unrelated independent customer. All other release gates, privacy and contractual requirements remain in effect.
 
 No real customer invoices, provider charges, signed agreements, credentials, student PII, production deployments, paid-video admission/settlement or credential rotations are authorized by this handoff.
 
@@ -62,7 +64,7 @@ Do not publish credentials, child/student personal data, tokens, provider transa
 
 **Ajay Chaudhary, operations:** designate both primary and backup responders (if no backup is appointed, explicitly record the staffing gap rather than invent coverage); document monitor alert reception, #240 residual-risk decision, immutable image rollback and nonempty file/Vault/media recovery applicability. His own assessment is **internal**; find a distinct qualified reviewer for the independent security acceptance in Gate 6.
 
-**Independent security reviewer: UNAPPOINTED.** Must review #275/#281 historical exposure disposition and the source-to-running-image/tenant/privacy evidence. The owner cannot satisfy the independent-review requirement merely by signing the same work he operated.
+**Security governance:** Owner selected an **internal owner-led AI-assisted review**, accountable to Ajay Chaudhary, with explicit conflict disclosure and real signed risk-acceptance/reference records required before Gate 6. It is not independent certification. A separate qualified reviewer remains required wherever an applicable external obligation demands it. Source/provenance, privacy, #275/#281 and residual risk still require actual assessment records.
 
 ## Review decision records — deliberately blank
 
@@ -71,8 +73,8 @@ Do not publish credentials, child/student personal data, tokens, provider transa
 | BBA internal-pilot UAT | Ajay Chaudhary | **PENDING — no decision supplied** |
 | Finance/legal scope | Madhuri Verma | **PENDING — no decision supplied** |
 | Operations/support risk | Ajay Chaudhary | **PENDING — no decision supplied** |
-| Independent security | **Unappointed** | **PENDING — no reviewer or decision** |
-| External commercial customer UAT | **External institution not identified** | **PENDING — BBA does not substitute** |
+| Security review model | Ajay Chaudhary (owner), ChatGPT (assistant only) | **OWNER MODEL AUTHORIZED — referenced assessment and signed human risk acceptance not supplied** |
+| Paid customer UAT | BBA, Ajay authorized; **owner-associated related party** | **SPONSOR SELECTED — actual witnessed BBA UAT, signed original and conflict waiver not supplied; policy update pending** |
 | V5 production GO | Ajay Chaudhary | **PENDING — separate written authorization after gates** |
 
-**Gate 7 remains PENDING.** The next executable action is to reconcile the **existing** coaching QA artifacts to the real BBA pilot tenant/module scope and obtain actual signed internal acceptance; do not rerun completed synthetic CI or assert the BBA tenant exists solely because a QA coaching tenant exists. The external commercial-release gate and all other gates remain HOLD.
+**Gate 7 remains PENDING.** Next: identify the genuine BBA tenant/module scope; reconcile already passing QA; record actual BBA witness outcomes and signatory acceptance plus related-party disclosure/waiver in protected storage. This is not permission to fabricate results, relax tenant/child-data safeguards or deploy without the release decision. Existing QA coaching tenant is not assumed to be BBA.
