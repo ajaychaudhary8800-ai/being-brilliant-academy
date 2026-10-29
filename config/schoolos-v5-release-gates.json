@@ -45,7 +45,7 @@
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Operator evidence confirms API-only credential isolation plus successful replacement LiveKit authentication, R2 write/read/delete and all four running-process credential matches; owner confirms both old credentials revoked. Rotation is completed, not a repeat task. Obtain attributed security review of #275 and reconcile remaining tenant/privacy/load evidence. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
+      "nextAction": "28 Oct operator evidence confirms media API-only credential isolation, replacement LiveKit auth/R2 write-read-delete and four actual API process-key matches; owner confirmed revocation of both old media credentials. Do not repeat media rotation. 29 Oct exact-source security review identified a distinct potential least-privilege gap: V5 staging `migrate` still inherits the full API env anchor, including non-media secrets, although Prisma migration appears to need only DATABASE_URL. Not proof of nonempty current credential leakage; obtain independent reviewer decision and safe key-presence evidence and, if warranted, V5-only minimal-env source fix with tests before staging rollout. Obtain source/image provenance, historical exposure disposition and tenant/privacy/load acceptance. See docs/SCHOOLOS_V5_SECURITY_SOURCE_REVIEW_20261029.md. Gate stays PENDING."
     },
     {
       "id": "customer_uat",
