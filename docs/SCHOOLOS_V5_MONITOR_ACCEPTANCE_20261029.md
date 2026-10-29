@@ -45,3 +45,19 @@ This corrects the earlier broad statement that no notification setup/delivery ev
 Read-only Coolify query returned exactly one SchoolOS-V5-Backup-Monitor: task id 1, enabled true, frequency 15 4 * * *, container backup, application_id 14, service_id null. Latest execution id 10 succeeded from 2026-10-29 04:15:07 to 04:15:10 UTC (09:45:07–09:45:10 IST). Telegram settings present and telegram_enabled true. No changes or credentials printed. Raw task command and logs were intentionally not retrieved.
 
 Together with the earlier owner-confirmed Telegram delivery, this closes the missing current backup-task enabled/latest-success evidence. It is not a new Telegram delivery test, does not verify every event-specific notification flag or link application_id 14 independently to the V5 UUID, and does not prove off-host HTTP uptime detection. Do not repeat backup monitor setup or successful execution. Remaining monitoring work is specifically external availability/worker coverage and failure routing, not whether a Telegram channel exists.
+
+## External uptime monitor activated — owner screenshot and VPS check, 29 October 2026
+
+Owner supplied a HetrixTools **SchoolOS V5 Readiness (Recent History)** screenshot. The panel reports **Online**, monitored since 29 October 2026, current uptime **100% since monitoring began** (Online for 22 minutes at screenshot time), recent average load **446.07 ms**, check frequency **1 minute**, timeout **10 seconds**, with checks visible from New York and Singapore. The screenshot shows last overall check one minute earlier. The 24-hour, seven-day and 30-day 100% percentages do **not** establish coverage over those periods because the monitor had only recently been created. This is owner-supplied configuration/availability evidence, not an independent authenticated platform inspection or a synthetic outage test.
+
+From `root@srv1880999`, owner also supplied an HTTPS readiness probe:
+
+```text
+HTTP_STATUS=200
+SSL_VERIFY=0
+RESPONSE_TIME=0.182195
+```
+
+The successful VPS probe and external monitor's green status reconcile the earlier UI report of `DOWN` as **no longer current**. They do not prove the cause of that earlier transient state or close historical incident #240. `SSL_VERIFY=0` is the successful libcurl certificate verification result; it does not mean SSL verification was turned off. No application restart or deployment was required.
+
+**New monitoring state:** off-host 1-minute website monitor targeting V5 readiness is operator-evidenced active, with present uptime detection. **Still unverified:** HetrixTools contact assignment and an actually delivered **HetrixTools** failure/recovery alert to the approved destination; operational-worker-specific alerting; primary/backup response owner and escalation; independent #240 disposition. A Telegram notification previously received through Coolify is **not** evidence of HetrixTools alert routing. Test the notification channel by a monitor-platform synthetic/test alert, never by taking down the real service. Preserve all formal release gates PENDING and production HOLD until signed reviews.
