@@ -98,4 +98,52 @@ if [ "${SCHOOLOS_V5_LIVEKIT_ENV_FILE:-}" = "/run/secrets/schoolos-v5-livekit-api
   unset media_file seen_media entry key value required
 fi
 
+
+# Isolated SchoolOS V5 staging-only: preserve the exact four existing API
+# authentication/mail/Vault values without injecting them into other services.
+# Do not source/eval; treat the root-owned read-only file as literal data.
+# The setting is absent on frozen V4, which retains its existing startup path.
+if [ -n "${SCHOOLOS_V5_APP_ENV_FILE:-}" ]; then
+  if [ "$SCHOOLOS_V5_APP_ENV_FILE" != "/run/secrets/schoolos-v5-app-api.env" ]; then
+    echo "Invalid V5 app credential file path" >&2
+    exit 1
+  fi
+  app_file="$SCHOOLOS_V5_APP_ENV_FILE"
+  if [ ! -f "$app_file" ] || [ ! -r "$app_file" ]; then
+    echo "V5 API app credential file missing/unreadable" >&2
+    exit 1
+  fi
+  seen_app=" "
+  while IFS= read -r entry || [ -n "$entry" ]; do
+    case "$entry" in
+      ""|\#*) continue ;;
+      JWT_ACCESS_SECRET=*|JWT_REFRESH_SECRET=*|SMTP_PASSWORD=*|COMMERCIAL_DOCUMENT_ENCRYPTION_KEY=*)
+        key=${entry%%=*}
+        value=${entry#*=}
+        case " $seen_app " in
+          *" $key "*) echo "Duplicate V5 app credential entry" >&2; exit 1 ;;
+        esac
+        case "$value" in
+          \"*\") value=${value#\"}; value=${value%\"} ;;
+          \'*\') value=${value#\'}; value=${value%\'} ;;
+        esac
+        if [ -z "$value" ]; then
+          echo "Empty V5 app credential entry" >&2
+          exit 1
+        fi
+        seen_app="$seen_app$key "
+        export "$key=$value"
+        ;;
+      *) echo "Invalid V5 app credential entry" >&2; exit 1 ;;
+    esac
+  done < "$app_file"
+  for required in JWT_ACCESS_SECRET JWT_REFRESH_SECRET SMTP_PASSWORD COMMERCIAL_DOCUMENT_ENCRYPTION_KEY; do
+    case " $seen_app " in
+      *" $required "*) ;;
+      *) echo "V5 app credential file incomplete" >&2; exit 1 ;;
+    esac
+  done
+  unset app_file seen_app entry key value required
+fi
+
 exec su-exec app "$@"
