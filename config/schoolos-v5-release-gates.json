@@ -66,7 +66,7 @@
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Reconcile existing finance/legal approvals and actual V5 pricebook with approved Essentials/Growth/Professional pricing, pilot/onboarding/AI/video policies, contracts, DPA/privacy and tax policy. Run existing read-only Growth preflight only if no accepted result exists; do not mutate prices or issue contracts/payments without scope. Obtain accountable signatures, not repeated feature QA. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
+      "nextAction": "23 Oct operator-reported post-correction V5 staging pricebook dry run: Essentials ₹49,900, Growth ₹99,900, Professional ₹149,990 ALIGNED, blocked=0 changed=0; earlier ₹99,990 Growth reference is historical drift, not confirmed reoccurrence. See GitHub issue #258 comment 6371294472. Obtain dated independent current pricebook/finance acceptance and missing apply audit reference, pilot/onboarding/AI/video contract/DPA/privacy/tax policy and signatures. Do not reapply correction or issue contracts/payments merely because later design notes cite historical drift; read-only preflight only if material evidence gap remains. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
     },
     {
       "id": "production_owner_approval",
