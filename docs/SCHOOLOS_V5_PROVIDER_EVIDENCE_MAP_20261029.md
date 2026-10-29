@@ -45,7 +45,7 @@ The executed test covers authenticated synthetic event ingestion, reverse delive
 Separate passing policy/contract cases cover provider disconnect refusal and unavailable room verification. These are not proof of real cloud delivery or historical provider costs.
 
 Owner-reported teacher/student classroom, recording and LMS playback remain useful positive evidence. Obtain their original date/source/room/recording references and reviewer acceptance; never expose signed playback URLs or credentials in public records.
-AI Examiner evidence is from V4 unless an artifact explicitly establishes V5 execution. This review does not establish the complete V4-to-V5 delta. Required AI review remains open.
+AI Examiner evidence is from V4 unless an artifact explicitly establishes V5 execution. The subsequent AI delta review below narrows the source changes against the exact repository main baseline; it does not attest the deployed V4 image. Independent provider acceptance remains open.
 Paid-video admission/settlement/monetization remain OFF. An accountable release reviewer must explicitly decide the scope of disabled monetization evidence; this document neither waives a gate nor requires activation to test it.
 
 ## Exact source delta and reuse limits
@@ -83,3 +83,40 @@ No request has been sent to these parties. Identities are unassigned unless inde
 Only `nextAction` prose was reconciled; historical candidate pin, HOLD, all ten PENDING statuses and empty verified-evidence arrays were preserved.
 Local Node v24.22.1: existing release-policy suite **6/6 passed, zero skipped**; manifest checker **HOLD, 0/10, no validation errors**; `--require-ready` exited **1** as intended.
 This validates the documentation/register change, not the application's Node 22 runtime or an independent release signature.
+
+## AI Examiner source delta review — no tests rerun
+
+Repository baseline: `50dfdeb4f99c5cdbaf1d5a9502c709fbbf2798f6` (main resolved during this review).
+V5 source: `f736e64b0e1b332aabf20557025f10b3b602b97b`.
+The GitHub comparison returned 270 changed files, 537 commits ahead and zero behind; this is a repository comparison, not proof of which V4 image is deployed. Directly compared both revisions of the AI worker and API route.
+
+| Material V5 change | Source inspection | Existing acceptance evidence |
+| --- | --- | --- |
+| Entitlement checks | AI route adds ai_examiner to existing examinations gate; worker checks entitlement before provider invocation/reservation | CI cases 495–496: inherited examinations entitlement and parent denial; source inspection establishes worker call ordering |
+| Optional metering | Exact tenant allowlist; reservation precedes provider call; prior reserved/settled evaluation blocks another call | CI 475–476: exact allowlist and settlement policy; integration case 12 verifies tenant-bound reservation, replay, concurrent capacity and exactly-once ledger behavior |
+| Persisted-result settlement | Credit settlement follows result persistence; settlement exception retains result and reconciliation state | Worker source ordering inspected; policy case 476 verifies decision rule. No full worker-to-real-provider failure-path execution is claimed |
+| Ambiguous failure | Reserved credits remain for reconciliation; no automatic refund inferred from timeout/failure | CI 472–474: valid persisted outcome, finance/foreign/incomplete denial, unknown provider state cannot auto-release |
+| Manual reconciliation | Platform-only route, persisted provider proof and audit required | CI 954–955 passed; reservation integration case 12 rejects manual commit when persisted evidence is absent |
+
+Evidence: [existing exact-source CI job 123447963320](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/actions/runs/40873986354/job/123447963320). Relevant positive case lines are at 12:32:43 UTC, 12:33:02 UTC and 12:33:24 UTC on 29 October. These cases have passing lines without skip markers. Overall API suite in those logs: **1,173 tests; 1,172 passed; 0 failed; 1 skipped**. Do not describe the entire suite as zero-skipped.
+
+The reviewed worker diff leaves the existing provider evaluation/scoring, second-pass, teacher-review persistence and checked-copy sequence in place around the added commercial controls. This limited observation does not certify all dependencies or provider behavior.
+
+### Narrow remaining AI acceptance
+
+1. Reuse prior V4 functional provider/grading evidence with its original source/date attribution; do not relabel it as V5 execution.
+2. Retrieve existing V5 provider evidence, if any, for the changed entitlement and configured metering path. Current staging allowlist state was not inspected in this session.
+3. If metering is in launch scope, the accountable provider/finance reviewer must map actual evaluation result and credit state for success and ambiguous failure/settlement. Existing policy/service tests do not by themselves prove the complete worker/cloud sequence. Only an uncovered material path warrants a new targeted test.
+4. If metering is excluded, record that approved scope and prove the configuration exclusion through existing deployment evidence where available. Do not activate it to manufacture acceptance.
+5. Keep Gate 5 PENDING until attributed review is supplied. This source review is completed; provider acceptance is not.
+
+### Additional payment evidence located in the same existing CI log
+
+- Integration case 18: signed payment failures idempotent, paid-state safe and isolated.
+- Integration case 21: processed partial refund suspends paid modules/AI credits with durable replay protection.
+- Integration case 22: renewal provenance uses paid invoices, tenant ownership, newest term and hold state.
+- Policy cases 518–519 and 522: no overlapping paid terms, expired terms require fresh signed quote, latest tenant contract provenance.
+
+These close previously unmapped automated failure/renewal coverage. They remain synthetic/disposable-DB evidence and do not establish real provider dispute/renewal acceptance.
+
+**Execution record for this review:** repository/source comparisons and reads of already completed logs only; no test reruns, workflow dispatches, provider calls, server changes or release-state changes.
