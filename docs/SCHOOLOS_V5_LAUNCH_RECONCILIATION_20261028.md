@@ -49,6 +49,10 @@ Suggested accountable roles are assignments to confirm, not claims of actual app
 - No merge into main, production mutation, real payment activation or paid-video activation is authorized.
 - Planning estimate remains 80% complete, 20% remaining; not a measured acceptance score.
 
+## Pricing chronology correction — 29 October 2026
+
+The 23 October owner-supplied staging dry-run **after the approved Growth correction** recorded all three annual tiers aligned: Essentials ₹49,900, Growth ₹99,900 and Professional ₹149,990; `blocked=0`, `changed=0`, no external issuance and no production mutation. Primary record: [Issue #258, comment 6371294472](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/issues/258#issuecomment-6371294472). The ₹99,990 Growth value quoted by later 27 October *development* notes describes earlier drift, not a confirmed newer staging price measurement. The original operator excerpt does not include apply audit ID; finance signature, current-ratebook independent acceptance and pilot/onboarding/tax/legal review remain open. Do not reapply the same correction without independently documented renewed drift. This is an evidence reconciliation, not a fresh staging DB inspection or finance GO.
+
 ## Next operational sequence
 
 1. Review this reconciliation and gather existing acceptance artifacts using their original references.
