@@ -149,7 +149,7 @@ test("generic reviewer signature without external-customer UAT metadata cannot m
   gate.evidence[0].sha256=createHash("sha256").update(raw).digest("hex");
  });
  assert.equal(result.status,"INVALID");
- assert.match(result.errors.join(" "),/independent external institution/);
+ assert.match(result.errors.join(" "),/institutional identity and signed acceptance references/);
 });
 
 
