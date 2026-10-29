@@ -168,3 +168,49 @@ Finance must map existing TEST transaction IDs to contract/quote version, subscr
 Commercial decisions still required: whether standard remote onboarding is included and when the 9,999/14,999/24,999 implementation fees apply; pilot module/student/branch caps, support and migration inclusions, refund/exit and annual-conversion rules; approved tax and privacy/DPA terms. Prices here are planning references, not binding offers. Keep paid-video monetization disabled.
 
 Next executable work depends on existing evidence access: locate private provider/customer/commercial artifacts, map them to the rows above, then obtain accountable acceptance. No additional credentials, customer signatures, reviewer identities, financial transactions or production approval were inferred by this reconciliation.
+
+## Owner-confirmed appointment blocker and reviewer handoff
+
+On 29 October 2026, Ajay confirmed that the requested reviewers and pilot institution have **not been appointed yet**. Status: AWAITING_APPOINTMENTS. This is an explicit owner statement, not merely an unsuccessful document search. No appointment, engagement, fee commitment or external communication has been made by this packet.
+
+### Appointment scopes ready for use
+
+| Role | Review scope | Existing material to start with | Required output |
+| --- | --- | --- | --- |
+| Independent security reviewer | Credential exposure #275/#281, current isolation evidence, tenant/role/privacy controls, key custody and historical-document access | This packet; security source review; provider evidence map; dated operator results | Attributed accept/reject decision, exposure assessment, exceptions and any narrowly justified missing test |
+| Operations/recovery reviewer | Restore scope, nonempty uploads/Vault/recordings where applicable, monitor delivery, duty cover, #240, image provenance and compatible rollback | Recovery result; monitor acceptance; incident #240 evidence; existing CI and source references | Recovery/operations decision, named primary/backup responder, alert proof, immutable rollback references and incident risk disposition |
+| Finance reviewer | Existing Razorpay TEST capture/refund/reconciliation, subscription/renewal scope, pricebook and onboarding/pilot commercial terms | Provider evidence map and existing transaction records supplied privately | Transaction-to-ledger reconciliation and approved commercial scope with dated exceptions |
+| Legal/privacy reviewer | Applicable V5 changes to existing controlled contracts, pilot terms, data processing/privacy, liability/support and approved tax wording | Existing legal-sales pack plus commercial decisions in this packet | Exact accepted document versions, exclusions/changes and attributable review decision |
+| External institution sponsor | Contracted school/coaching workflows, roles, onboarding and operational handover | Existing functional QA plus institution-specific acceptance scope | Authorized sponsor identity, actual UAT record, exceptions and signed customer acceptance |
+
+One qualified person may cover compatible roles; do not represent self-review or an AI-produced packet as independent acceptance. No qualification, authority or conflict-of-interest assessment has yet been completed for any prospective reviewer.
+
+### Review procedure that avoids repeated testing
+
+1. Reviewer reads the indexed evidence before requesting execution. Start with [provider evidence mapping](SCHOOLOS_V5_PROVIDER_EVIDENCE_MAP_20261029.md), which now includes the AI source delta and existing payment/renewal coverage.
+2. Classify each criterion as supported by existing evidence, missing artifact, material uncovered behavior, or explicitly nonapplicable subject to the accountable reviewer decision.
+3. For missing artifacts, retrieve the original record first. A missing document does not prove a test failed or must be repeated.
+4. Request a targeted test only for material changed behavior, invalid evidence or an uncovered requirement, documenting why existing evidence is insufficient. No blanket rerun, repeat key rotation, repeated restore or outage simulation.
+5. Record review identity, role, UTC date, exact source and artifact references, acceptance/rejection, exceptions and signature reference. Leave these fields blank until supplied by the actual reviewer.
+6. Technical acceptance does not authorize production. Keep all ten gates PENDING until their individual criteria and authentic approval are satisfied; separate owner GO remains last.
+
+### Customer UAT scope to finalize with the appointed sponsor
+
+| Area | Scope decision and evidence needed |
+| --- | --- |
+| Institution | Legal institution identity, authorized sponsor and agreed school or coaching mode; internal BBA QA is not an external signature |
+| Roles | Applicable admin, teacher, student/parent and accountant access; use existing role/tenant QA for technical evidence |
+| Contracted workflows | Admissions/placement, timetable, attendance, fees, examinations/report cards, LMS/classroom only as contracted |
+| Onboarding | Approved migration scope, training attendees, support handover and access ownership |
+| Acceptance | Dated observed outcomes, unresolved defects, accepted exceptions, authorized signature and release/source reference |
+
+Use synthetic or explicitly authorized institution data; do not enroll a prospect or issue credentials/contracts merely to fill this table. Do not promise disabled monetization, unsupported service levels or an unapproved launch date.
+
+### Remaining owner decisions
+
+- Name the reviewers and pilot institution, then provide their authorized scope. This packet is ready; no one has been contacted.
+- Resolve standard onboarding included versus separately scoped implementation fees.
+- Confirm pilot inclusions, capacity, support, exit/refund and annual-conversion terms with finance/legal.
+- After evidence acceptance and an immutable cutover/rollback plan, provide separate explicit production authorization.
+
+Further copies of this checklist cannot close these dependencies. Source review and evidence preparation can be reused; next gate closure requires appointments, existing external records or actual accountable decisions. No completed tests were rerun for this handoff.
