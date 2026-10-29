@@ -24,7 +24,7 @@
       "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Operator evidence confirms matching API/Web revision labels, migration exit 0, 114 applied/0 unresolved, preserved named volumes and backup healthcheck exit 0 with success marker. Remaining: independent isolated restore from offsite database AND uploads, measured recovery and Vault/key recovery signoff. Do not repeat deployment or migrations. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
+      "nextAction": "29 Oct operator recovery PASS: 114/0 migrations, 336 public tables, pg_dump readback and pg_amcheck PASS, zero invalid indexes, empty uploads restored, cleanup YES, total 9.3 seconds. Do not repeat completed restore/download/checksums. Obtain independent acceptance and reconcile nonempty file, Vault/key and external recording recovery scope. See docs/SCHOOLOS_V5_APPROVAL_PACKET_20261029.md. Gate remains PENDING."
     },
     {
       "id": "subscription_payment_qa",
@@ -59,7 +59,7 @@
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Backup health script returned 0 and success marker exists; last observed Docker backup health was starting, not a confirmed healthy snapshot. Close independent offsite restore/key recovery, retention, incident #240 disposition, monitoring/on-call/SLA and exact rollback artifact readiness. Preserve all existing volumes. See docs/SCHOOLOS_V5_LAUNCH_RECONCILIATION_20261028.md."
+      "nextAction": "Isolated offsite database and empty-uploads restore now operator-reported PASS with cleanup (9.3 seconds). Complete independent recovery/key review, retention, V5-specific active monitoring and delivered alerts, named support cover, #240 disposition and immutable rollback references. Candidate uptime workflow excludes V5 staging. Preserve existing volumes. See docs/SCHOOLOS_V5_APPROVAL_PACKET_20261029.md."
     },
     {
       "id": "commercial_legal_finance",
