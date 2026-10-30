@@ -39,6 +39,16 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
 
   const reasons = [];
   const matched = containers.filter(c => c?.Config?.Labels?.[labels.project] === project);
+  // The one-shot migration is deliberately stopped after a successful deploy.
+  // It must still be present in Docker's all-container inventory for the
+  // secret-scope audit; otherwise 6/6 running services could falsely pass.
+  const migrations = matched.filter(c => c?.Config?.Labels?.[labels.service] === "migrate");
+  if (migrations.length !== 1) reasons.push("MIGRATION_CONTAINER_COUNT");
+  const migration = migrations.length === 1 ? migrations[0] : null;
+  const migrationExitedSuccessfully = Boolean(migration
+    && migration.State?.Running === false && migration.State?.ExitCode === 0);
+  if (migration && !migrationExitedSuccessfully)
+    reasons.push("MIGRATION_NOT_SUCCESSFULLY_STOPPED");
   const dataVolumes = new Map();
   const detail = services.map(service => {
     const found = matched.filter(c => c?.Config?.Labels?.[labels.service] === service && c?.State?.Running === true);
@@ -186,6 +196,7 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
     status: reasons.length === 0 ? "PASS_TECHNICAL_SNAPSHOT_ONLY" : "FAIL",
     project, pinnedApplicationSource: sourceSha,
     reasons: [...new Set(reasons)].sort(), services: detail,
+    migration: { count: migrations.length, exitedSuccessfully: migrationExitedSuccessfully },
     revisionLabelIsSelfReported: true, sourceBuildProvenanceIndependentlyVerified: false,
     actualOffsiteRestoreVerified: false, realProviderTested: false,
     authenticatedCustomerUATVerified: false, commercialReleaseAuthorized: false,
