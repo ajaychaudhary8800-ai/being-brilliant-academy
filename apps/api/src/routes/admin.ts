@@ -170,7 +170,29 @@ router.patch("/users/:id/role", async (req: AuthRequest, res) => {
 
 const branchSelect = { id: true, branchCode: true, branchName: true, address: true, city: true, state: true, pincode: true, phone: true, email: true, managerName: true, openingDate: true, isActive: true, createdAt: true, updatedAt: true, users: { where: { user: { role: Role.BRANCH_ADMIN, isActive: true } }, select: { user: { select: { id: true, email: true } } }, take: 1 }, _count: { select: { students: true, teachers: true, batches: true } } } as const;
 const branchInput = z.object({ branchCode: z.string().trim().min(2).max(30).regex(/^[A-Z0-9-]+$/i, "Use letters, numbers and hyphens only"), branchName: z.string().trim().min(2).max(120), address: z.string().trim().min(5).max(500), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().trim().regex(/^\d{6}$/, "Enter a valid 6-digit pincode"), phone: z.string().trim().regex(/^\+?[0-9 -]{7,20}$/, "Enter a valid phone number"), email: z.string().trim().toLowerCase().email(), managerName: z.string().trim().min(2).max(100), openingDate: z.coerce.date(), isActive: z.boolean().optional() });
-const branchCreateInput = branchInput.extend({ managerEmail: z.string().trim().toLowerCase().email() });
+// A branch may be configured before a human manager is appointed. This must
+// be explicit; the default path retains atomic manager-account provisioning.
+const branchCreateInput = branchInput.omit({ managerName: true }).extend({
+  managerName: z.string().trim().min(2).max(100).optional(),
+  managerEmail: z.string().trim().toLowerCase().email().optional(),
+  deferManagerProvisioning: z.boolean().default(false),
+}).superRefine((value, ctx) => {
+  if (value.deferManagerProvisioning) {
+    if (value.managerName || value.managerEmail) ctx.addIssue({
+      code: z.ZodIssueCode.custom, path: ["managerEmail"],
+      message: "Manager details must be blank when provisioning is deferred",
+    });
+    return;
+  }
+  if (!value.managerName) ctx.addIssue({
+    code: z.ZodIssueCode.custom, path: ["managerName"],
+    message: "Branch manager name is required",
+  });
+  if (!value.managerEmail) ctx.addIssue({
+    code: z.ZodIssueCode.custom, path: ["managerEmail"],
+    message: "Branch manager login email is required",
+  });
+});
 const branchQuery = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(10), search: z.string().trim().optional(), status: z.enum(["active", "inactive"]).optional(), sortBy: z.enum(["branchCode", "branchName", "city", "createdAt", "openingDate"]).default("createdAt"), sortOrder: z.enum(["asc", "desc"]).default("desc") });
 
 router.get("/branches", async (req: AuthRequest, res) => {
@@ -182,17 +204,17 @@ router.get("/branches", async (req: AuthRequest, res) => {
 router.get("/branches/:id", async (req: AuthRequest, res) => { const data = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: branchSelect }); if (!data) throw new AppError(404, "BRANCH_NOT_FOUND", "Branch not found"); await requireBranchAccess(req, data.id); res.json({ data: branchWithLegacyLabels(data) }); });
 router.post("/branches", async (req: AuthRequest, res) => {
   if (req.auth!.role !== Role.SUPER_ADMIN) throw new AppError(403, "SUPER_ADMIN_REQUIRED", "Only a Super Admin can create a branch");
-  const input = branchCreateInput.parse(req.body), { managerEmail, ...branchData } = input;
+  const input = branchCreateInput.parse(req.body), { managerEmail, deferManagerProvisioning, ...branchData } = input;
   // Precompute secrets outside the serializable transaction: no external
   // side effects are ever retried. Manager eligibility is checked *inside*
   // each attempt so a P2034 retry cannot reuse a stale account snapshot.
-  const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12);
+  const passwordHash = managerEmail ? await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12) : null;
   try {
     const provisioned = await retrySerializableWrite(() => prisma.$transaction(async tx => {
-      const existingManager = await tx.user.findFirst({
+      const existingManager = managerEmail ? await tx.user.findFirst({
         where: { email: managerEmail },
         select: { id: true, organizationId: true, name: true, email: true, role: true, isActive: true },
-      });
+      }) : null;
       if (existingManager && (existingManager.organizationId !== req.auth!.organizationId ||
           existingManager.role !== Role.BRANCH_ADMIN)) {
         throw new AppError(409, "MANAGER_EMAIL_EXISTS", "Manager email already belongs to another account");
@@ -204,12 +226,22 @@ router.post("/branches", async (req: AuthRequest, res) => {
         data: { ...branchData, organizationId: req.auth!.organizationId, isActive: branchData.isActive ?? true },
         select: { id: true },
       });
+      if (deferManagerProvisioning) {
+        await tx.auditLog.create({
+          data: {
+            organizationId: req.auth!.organizationId, actorId: req.auth!.userId,
+            action: "BRANCH_CREATED", entity: "Branch", entityId: created.id,
+            metadata: { managerProvisioningDeferred: true },
+          },
+        });
+        return { branchId: created.id, manager: null, managerCreated: false, managerDeferred: true };
+      }
       const manager = existingManager ?? await tx.user.create({
         data: {
           organizationId: req.auth!.organizationId,
-          name: branchData.managerName,
-          email: managerEmail,
-          passwordHash,
+          name: branchData.managerName!,
+          email: managerEmail!,
+          passwordHash: passwordHash!,
           role: Role.BRANCH_ADMIN,
           isActive: true,
         },
@@ -226,10 +258,12 @@ router.post("/branches", async (req: AuthRequest, res) => {
       await tx.auditLog.create({
         data: { organizationId: req.auth!.organizationId, actorId: req.auth!.userId, action: "BRANCH_CREATED", entity: "Branch", entityId: created.id, metadata: { managerUserId: manager.id, managerEmail } },
       });
-      return { branchId: created.id, manager, managerCreated: !existingManager };
+      return { branchId: created.id, manager, managerCreated: !existingManager, managerDeferred: false };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { conflictCode: "BRANCH_PROVISIONING_CONFLICT" });
-    let setup: unknown = provisioned.managerCreated ? null : { skipped: true, reason: "EXISTING_MANAGER_ACCOUNT" };
-    if (provisioned.managerCreated) {
+    let setup: unknown = provisioned.managerDeferred
+      ? { skipped: true, reason: "MANAGER_PROVISIONING_DEFERRED" }
+      : provisioned.managerCreated ? null : { skipped: true, reason: "EXISTING_MANAGER_ACCOUNT" };
+    if (provisioned.managerCreated && provisioned.manager) {
       try {
         setup = await issueAccountSetup(provisioned.manager);
         await prisma.auditLog.create({
