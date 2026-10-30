@@ -28,4 +28,5 @@ test("manager-deferred branch setup is explicit and does not fake a manager acco
   assert.match(source, /MANAGER_PROVISIONING_DEFERRED/);
   assert.match(source, /key !== "deferManagerProvisioning"/);
   assert.match(source, /required=\{!form\.deferManagerProvisioning\}/);
+  assert.match(source, /mode === "edit" && !branch\?\.managerEmail/);
 });
