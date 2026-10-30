@@ -44,7 +44,27 @@ Native regression tests cover missing/duplicate/running/failed/unknown-exit migr
 - **Abort criteria:** credential reappearance in *any* of six non-API containers, failed migration, image ID/digest mismatch, tenant boundary failure, loss of protected file read access, 5xx readiness, failed login, data integrity or provider callback drift. Freeze writes where needed, retain evidence, and activate approved incident/rollback authority; an image-only rollback is permitted **only** after schema/state compatibility is demonstrated. Otherwise rehearse isolated restore and recover coordinated DB+uploads+keys under separately authorized incident command.
 - **Coordination:** Phase 2 uses the same V5 staging service. No Phase 1 staging deploy, image replacement, source/pin modification in cumulative V5 or production merge unless Phase 2 explicitly releases the staging lock through #258 and the exact target/digests/deploy have owner approval.
 
-## 5. Accountable decision record — deliberately unsigned
+## 5. New read-only local-image and rollback availability collector
+
+New source: `scripts/schoolos-v5-image-rollback-inventory.mjs`. This is an **inventory collector, not a redeployer or independent build attestation**. It runs only Docker `ps -aq`, `inspect` and `image inspect` against a strictly named isolated V5 Compose project; there are no shell invocations, restarts, pulls, builds, DB requests, mounts, container removals, credential content output or staging traffic. It calls the strengthened full seven-container security audit first. Its native isolated fixtures verify correct current API/Web image availability/workdir/revision metadata, incorrect/missing/duplicate current images, optional previous pair identity, false rollback claims, malformed target/source and redaction of image Env, image tags, repository names and other metadata.
+
+**Authorized operator run, whenever a consistent staging snapshot can be captured without interrupting Phase 2:**
+
+```sh
+node scripts/schoolos-v5-image-rollback-inventory.mjs \
+  --project=96ffcu0jinuwlnaqxpltln4p \
+  --source=b54dca5ae36a948f83012faa4a37354198fba083
+```
+
+The default (no selected previous-image pair) **intentionally reports `CHECK_REQUIRED` and exits nonzero**, because it cannot invent a safe rollback pair. Running this script from a checked-out Phase 1 review copy is read-only; it does **not** require changing the deployed V5 Git branch, Build Revision, Coolify configuration or service images.
+
+**Only after an authorized operator identifies a previously approved compatible API+Web rollback pair** may the operator add all three optional arguments, with actual exact local IDs, `--rollback-api=sha256:<64hex>`, `--rollback-web=sha256:<64hex>`, `--rollback-source=<40hex>`. The script verifies both images still exist locally, carry the expected revision *label* and match API vs Web image workdirs; it rejects current-image aliases, missing old images, wrong-role images and incomplete triples. Prior historical image IDs found in issue comments are **not auto-approved rollback candidates**. A successful local inventory is still **not** proof of source→image attestation, compatible database rollback, recoverability, signed acceptance or deployment GO.
+
+Output includes only fixed, allowlisted metadata: project, source SHA, per-service local Docker image IDs, boolean metadata matches, registry *digest suffixes* if Docker has them, explicit provenance/rollback acceptance booleans fixed to false, and security reason codes. It never prints `Config.Env`, raw image tags, repository names, host secrets, DSNs or customer data. **`RepoDigests` observed in metadata are not sufficient to prove a trusted signed supply-chain mapping.**
+
+Unreviewed merge/deployment remain prohibited while concurrent Phase 2 owns shared staging. Native tests must complete successfully on the exact changed head. Owner/operations still must archive a trusted build+registry mapping and a signed rollback/state-compatibility decision.
+
+## 6. Accountable decision record — deliberately unsigned
 
 | Decision field | Present evidence | Pending human/immutable artifact |
 | --- | --- | --- |
