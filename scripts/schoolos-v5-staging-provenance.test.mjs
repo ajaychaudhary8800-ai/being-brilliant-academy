@@ -122,6 +122,20 @@ test("full isolated V5 inventory is informational and never claims paid commerci
   assert.ok(result.services.every(x => x.health === "healthy" && x.imageId));
 });
 
+test("unexpected sidecar or missing project service labels veto staging trust-boundary acceptance", () => {
+  for (const service of ["unreviewed-sidecar", null]) {
+    const entries = fixtures();
+    const extraContainer = structuredClone(entries.find(c =>
+      c.Config.Labels["com.docker.compose.service"] === "web"));
+    if (service === null) delete extraContainer.Config.Labels["com.docker.compose.service"];
+    else extraContainer.Config.Labels["com.docker.compose.service"] = service;
+    entries.push(extraContainer);
+    const audit = check(entries);
+    assert.equal(audit.status, "FAIL");
+    assert.ok(audit.reasons.includes("UNEXPECTED_STAGING_SERVICE"));
+  }
+});
+
 test("stopped V5 migration must be present exactly once and have succeeded", () => {
   const withoutMigration = fixtures().filter(x => x.Config.Labels["com.docker.compose.service"] !== "migrate");
   const missing = check(withoutMigration);
