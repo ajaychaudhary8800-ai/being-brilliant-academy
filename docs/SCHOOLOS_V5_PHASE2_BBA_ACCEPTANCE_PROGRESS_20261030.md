@@ -24,8 +24,8 @@
 | Examinations and report cards | 0.65 | Three exams, statuses, negative validations; five generated/published synthetic results and report-card PDFs | 0.65 | 0 |
 | Teacher homework and student LMS workflow | 0.40 | Corrected V2 operator run PASS: existing published NDG homework, teacher/2 student logins, own-student submission and readback, evaluation 8/10, cross-branch 422, impersonation 403, spoof 422, duplicate evaluate/re-submit 409 | 0.40 | 0 |
 | Branch-admin authorization and branch isolation | 0.40 | Deferred manager provisioning left no BRANCH_ADMIN; UAT not executed | 0 | 0.40 |
-| BBA LiveKit classroom and recording playback | 0.50 | Prior isolated provider egress/R2 checks reusable; no witnessed BBA-tenant classroom/role test yet | 0 | 0.50 |
-| BBA AI Examiner workflow and evidence | 0.45 | Prior synthetic/contract work reusable; no witnessed BBA-tenant examiner trace yet | 0 | 0.45 |
+| BBA LiveKit classroom and recording playback | 0.50 | BBA-specific entitlement/discovery PASS (30 Oct); 3 branch options, zero staff Meetings (not proof of absent LMS classes); native LMS classroom and provider media/recording acceptance not executed. Operator test script prepared. | 0 | 0.50 |
+| BBA AI Examiner workflow and evidence | 0.45 | BBA entitlement and 3 existing synthetic exam/readiness GETs PASS; **AI_PROVIDER_CONFIGURED=NO / AI_EVALUATION_EXECUTION_AVAILABLE=NO**. No live evaluation; source/readiness only. | 0 | 0.45 |
 | Dated human institutional review, exception list, related-party waiver and signoff | 0.45 | Owner approval intent reported; original reviewed/signed evidence not recorded | 0 | 0.45 |
 | **Phase 2 total** | **5.00** | **Operator-observed technical coverage only** | **3.20** | **1.80** |
 
@@ -43,6 +43,14 @@
 6. Teacher/student homework LMS (corrected V2 script): owner-executed BBA test with NDG published homework, synthetic NDG student submit and teacher readback/evaluation 8/10 PASS, student ID spoof blocked HTTP 422, cross-branch RNE submission rejected HTTP 422 due academic-history context mismatch, max marks exceeded HTTP 422, duplicate evaluation HTTP 409 and post-evaluation resubmission HTTP 409. Result `BBA_HOMEWORK_LMS_UAT=OBSERVED_REQUIRES_HUMAN_REVIEW`. The initial script's invalid local due date format and wrong expected cross-branch HTTP status were corrected in UAT input/expectation only, no application or infrastructure change.
 
 **Known functional defect:** On 30 October, the `POST /admin/timetables/weekly/preview` preflight originally omitted the effective allocation check used by `POST /admin/timetables`. An upcoming allocation start date caused the single save to fail with HTTP 422 `TEACHER_SUBJECT_NOT_ALLOCATED` while preview showed no conflict. The operator changed **only synthetic** allocation effective dates to 2026-10-30 and confirmed the BBA single-slot save and all three timetable+attendance scenarios PASS. This *did not* fix the preview/save parity in code. Draft PR #290 on the isolated Phase 2 branch adds the existing effective-allocation guard to shared weekly preview/save and a static contract regression. Exact-head GitHub CI was observed SUCCESS at commit `dd44785f34470e6dc6f4072d292d68491738a7de`; V4 rehearsal/sandbox/external QA were SKIPPED for the PR branch and must not be described as PASS. Coordinated staging proof still required; **do not deploy during Phase 1**.
+
+### BBA read-only LiveKit and AI preflight (operator observed 30 October 2026)
+
+Validated deployed V5 API/Web image revision `b54dca5...` and real BBA admin `org_default`. Three synthetic BBA branches visible; `meetings/options` included all three, participants readable, `GET /meetings` returned zero records. **Meetings are staff-only**; zero Meetings does not establish absence of LMS native LiveClass records. `GET /ai-examiner/capabilities` available, provider **NOT configured** and evaluation execution **NOT available**. Three prior published synthetic BBA exams appear in AI Examiner read-only list and all three readiness GET endpoints returned objects. No video, provider egress, AI grading, production or deployment action occurred. This is discovery evidence, not LiveKit/AI final acceptance.
+
+The subsequent native classroom UAT is a **separate operator-executed synthetic script** `schoolos_v5_bba_native_live_class_uat_20261030.py` to create/reuse three native LMS LiveClasses, exercise teacher/student token issuance and join/leave without media, verify cross-branch student isolation and teacher role protection. Its output is **pending**; no credit is allocated for a prepared script. Full LiveKit media connectivity/recording playback and human witness are still needed.
+
+**AI dependency:** Because the actual BBA staging capability reports `AI_PROVIDER_CONFIGURED=NO`, do not run evaluations or claim AI Examiner functional PASS. Provider enablement would need a separately coordinated, secured configuration review in Issue #258 after Phase 1 safety ownership; no credential changes by Phase 2.
 
 ### Outstanding scenarios and acceptance criteria
 
