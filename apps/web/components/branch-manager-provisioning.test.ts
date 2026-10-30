@@ -10,7 +10,7 @@ test("branch creation UI matches the RC1 manager provisioning contract", () => {
   assert.match(source, /label="Manager Login Email"/);
   assert.match(source, /user\?\.role === "SUPER_ADMIN"/);
   assert.match(source, /Branch and manager account created/);
-  assert.match(source, /mode === "add" \? form/);
+  assert.match(source, /mode === "add" \? \(form\.deferManagerProvisioning/);
   assert.match(source, /key !== "managerEmail"/);
 });
 
