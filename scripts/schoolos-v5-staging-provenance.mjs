@@ -63,6 +63,39 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
     && migration.State?.Running === false && migration.State?.ExitCode === 0);
   if (migration && !migrationExitedSuccessfully)
     reasons.push("MIGRATION_NOT_SUCCESSFULLY_STOPPED");
+  // Protect the database boundary for every service capable of changing or
+  // exporting data. An API-only target check is insufficient: a Coolify
+  // override on migrate/backup could target a different (even production) DB.
+  // Compare exact strings in memory; never return URLs or their credentials.
+  const dbServices = ["api", "migrate", "backup"];
+  const databaseConnections = new Map();
+  for (const service of dbServices) {
+    const selected = matched.filter(c => c?.Config?.Labels?.[labels.service] === service);
+    const connectionEntries = selected.length === 1
+      ? (selected[0].Config?.Env ?? []).filter(e =>
+          typeof e === "string" && e.startsWith("DATABASE_URL="))
+      : [];
+    if (connectionEntries.length !== 1) {
+      reasons.push("DATABASE_URL_COUNT_" + service.toUpperCase());
+      continue;
+    }
+    const value = connectionEntries[0].slice("DATABASE_URL=".length);
+    let valid = false;
+    try {
+      const parsed = new URL(value);
+      valid = ["postgres:", "postgresql:"].includes(parsed.protocol)
+        && parsed.hostname === "postgres"
+        && parsed.pathname === "/schoolos_v5_staging";
+    } catch { /* Do not emit connection strings. */ }
+    if (!valid) reasons.push("DATABASE_TARGET_NOT_ISOLATED_" + service.toUpperCase());
+    databaseConnections.set(service, value);
+  }
+  const apiDatabase = databaseConnections.get("api");
+  for (const service of ["migrate", "backup"]) {
+    const candidate = databaseConnections.get(service);
+    if (apiDatabase && candidate && candidate !== apiDatabase)
+      reasons.push("DATABASE_URL_PARITY_" + service.toUpperCase());
+  }
   const dataVolumes = new Map();
   const detail = services.map(service => {
     const found = matched.filter(c => c?.Config?.Labels?.[labels.service] === service && c?.State?.Running === true);
