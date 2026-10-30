@@ -48,6 +48,11 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
 
   const reasons = [];
   const matched = containers.filter(c => c?.Config?.Labels?.[labels.project] === project);
+  // A newly introduced sidecar within this isolated Compose trust boundary
+  // is not reviewed by the seven-service deployment contract. Fail closed.
+  const allowedServices = new Set([...services, "migrate"]);
+  if (matched.some(c => !allowedServices.has(c?.Config?.Labels?.[labels.service])))
+    reasons.push("UNEXPECTED_STAGING_SERVICE");
   // The one-shot migration is deliberately stopped after a successful deploy.
   // It must still be present in Docker's all-container inventory for the
   // secret-scope audit; otherwise 6/6 running services could falsely pass.
