@@ -24,12 +24,13 @@
 
 ## 3. New Phase 1 source-level hardening on isolated branch
 
-Existing `scripts/schoolos-v5-staging-provenance.mjs` already reads all project containers via `docker ps -aq` and `docker inspect`, prohibits non-API protected media/core secrets and checks mount scope, volumes, API/Web labels, TEST payments and disabled paid-video. Two remaining **false-PASS conditions** were identified in the source:
+Existing `scripts/schoolos-v5-staging-provenance.mjs` already reads all project containers via `docker ps -aq` and `docker inspect`, prohibits non-API protected media/core secrets and checks mount scope, volumes, API/Web labels, TEST payments and disabled paid-video. Three remaining **false-PASS conditions** were identified in the source:
 
 1. It inspected a stopped `migrate` container **if present**, but could return technical PASS when that container was **missing, duplicated, running or exited nonzero**. Phase 1 now requires **exactly one stopped migration container with exit code 0** and emits only count/success markers. This verifies it was included in the seven-container audit boundary.
 2. The `entryEnvironment()` Map previously kept only the **last occurrence** of an environment key. A nonempty secret followed by an empty duplicate could be hidden from the security-key scan. Phase 1 now checks **every Env entry** for nonempty protected core/media values, still emitting no secret values.
+3. A project-labeled **unreviewed sidecar** or service with a missing Compose service label could pass without explicit inventory validation. Phase 1 now rejects every unexpected service label in the isolated V5 project; no new service is implicitly trusted.
 
-Native regression tests cover missing/duplicate/running/failed/unknown-exit migration plus all **six** non-API services with shadowed nonempty secrets. The new implementation does not read or modify secrets, Docker state, database, files, uploads, config, deployment or provider services. **Await exact-branch CI; do not claim a test pass before GitHub returns success.**
+Native regression tests cover missing/duplicate/running/failed/unknown-exit migration, unreviewed sidecar/absent service label, and all **six** non-API services with shadowed nonempty secrets. The new implementation does not read or modify secrets, Docker state, database, files, uploads, config, deployment or provider services. **Await exact-branch CI; do not claim a test pass before GitHub returns success.**
 
 **Boundary:** This audit only verifies the Docker metadata snapshot. It does **not** prove that actual running API environment contains necessary keys, that OCI labels are authentic build attestations, that backup contents are restorable, or that no host-level credential access occurred. Stopped container disappearance should fail closed; an operator can document intentional cleanup and refer to independent archived migration proof instead of silently counting it.
 
