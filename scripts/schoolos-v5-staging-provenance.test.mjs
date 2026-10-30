@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { approvedStagingProject, inspectV5StagingContainers } from "./schoolos-v5-staging-provenance.mjs";
+import { assessV5ImageInventory } from "./schoolos-v5-image-rollback-inventory.mjs";
 
 const sha = "a".repeat(40);
 const project = "96ffcu0jinuwlnaqxpltln4p";
@@ -328,4 +329,92 @@ test("only isolated V5 compose receives pinned build-arg, script is read-only", 
   assert.match(audit, /\["inspect", \.\.\.ids\]/);
   assert.doesNotMatch(audit, /spawnSync\(["'](?:bash|sh|sudo)["']/);
   assert.doesNotMatch(audit, /docker\s+(?:build|run|compose|exec|restart|rm|pull)/);
+});
+
+function imageInventoryFixtures() {
+  const current = fixtures();
+  const api = current.find(x => x.Config.Labels["com.docker.compose.service"] === "api");
+  const web = current.find(x => x.Config.Labels["com.docker.compose.service"] === "web");
+  const currentApiId = "sha256:" + "1".repeat(64);
+  const currentWebId = "sha256:" + "2".repeat(64);
+  const rollbackApiId = "sha256:" + "3".repeat(64);
+  const rollbackWebId = "sha256:" + "4".repeat(64);
+  const rollbackSourceSha = "c".repeat(40);
+  api.Image = currentApiId;
+  web.Image = currentWebId;
+  const make = (id, role, revision) => ({
+    Id: id,
+    Config: {
+      WorkingDir: role === "api" ? "/workspace/apps/api" : "/app",
+      Labels: { "org.opencontainers.image.revision": revision },
+      Env: ["NOT_FOR_PUBLIC_REPORT=very-secret-test-only"],
+    },
+    RepoDigests: ["internal.example.invalid/test@" + "sha256:" + "5".repeat(64)],
+    RepoTags: ["sensitive.example.invalid/private-repo:private-tag"],
+  });
+  return {
+    current, currentApiId, currentWebId, rollbackApiId, rollbackWebId, rollbackSourceSha,
+    images: [
+      make(currentApiId, "api", sha), make(currentWebId, "web", sha),
+      make(rollbackApiId, "api", rollbackSourceSha),
+      make(rollbackWebId, "web", rollbackSourceSha),
+    ],
+    options: { project, sourceSha: sha, rollbackApiId, rollbackWebId, rollbackSourceSha },
+  };
+}
+
+test("read-only V5 image inventory preserves self-reported versus attested provenance boundary", () => {
+  const f = imageInventoryFixtures();
+  const result = assessV5ImageInventory(f.current, f.images, f.options);
+  assert.equal(result.status, "LOCAL_IMAGE_INVENTORY_PASS_REVIEW_REQUIRED");
+  assert.equal(result.currentPairLocallyAvailableAndLabeled, true);
+  assert.equal(result.rollbackPairLocallyAvailableAndLabeled, true);
+  assert.equal(result.authenticatedImageProvenanceVerified, false);
+  assert.equal(result.rollbackCompatibilityVerified, false);
+  assert.equal(result.approvedRollbackProcedure, false);
+  assert.equal(result.productionDeploymentAuthorized, false);
+  assert.equal(result.changesMade, false);
+  assert.deepEqual(result.current.api.registryManifestDigestsObserved,
+    ["sha256:" + "5".repeat(64)]);
+  assert.ok(!JSON.stringify(result).includes("very-secret-test-only"));
+  assert.ok(!JSON.stringify(result).includes("sensitive.example.invalid"));
+});
+
+test("rollback identity is never guessed when previous image IDs and source are absent", () => {
+  const f = imageInventoryFixtures();
+  const result = assessV5ImageInventory(f.current, f.images,
+    { project, sourceSha: sha });
+  assert.equal(result.status, "CHECK_REQUIRED");
+  assert.equal(result.rollback, null);
+  assert.equal(result.rollbackPairLocallyAvailableAndLabeled, false);
+  assert.equal(result.currentPairLocallyAvailableAndLabeled, true);
+});
+
+test("missing, mislabelled, wrong-role or active-image rollback candidates cannot pass", () => {
+  const f = imageInventoryFixtures();
+  for (const mutation of [
+    x => { x.images.pop(); },
+    x => { x.images[3].Config.Labels["org.opencontainers.image.revision"] = sha; },
+    x => { x.images[2].Config.WorkingDir = "/app"; },
+    x => { x.options.rollbackApiId = x.currentApiId; },
+    x => { x.current.find(y => y.Config.Labels["com.docker.compose.service"] === "web").Image =
+      "sha256:" + "9".repeat(64); },
+    x => { x.current.push({ ...x.current.find(y =>
+      y.Config.Labels["com.docker.compose.service"] === "api") }); },
+  ]) {
+    const copy = structuredClone(f);
+    mutation(copy);
+    const result = assessV5ImageInventory(copy.current, copy.images, copy.options);
+    assert.equal(result.status, "CHECK_REQUIRED");
+  }
+});
+
+test("invalid V5 project or incomplete rollback ID triple is rejected before Docker IO", () => {
+  const f = imageInventoryFixtures();
+  assert.throws(() => assessV5ImageInventory(f.current, f.images,
+    { ...f.options, project: "bba-production" }), /INVALID_ISOLATED_TARGET_OR_SOURCE/);
+  assert.throws(() => assessV5ImageInventory(f.current, f.images,
+    { ...f.options, rollbackSourceSha: null }), /INCOMPLETE_PINNED_ROLLBACK_TRIPLE/);
+  assert.throws(() => assessV5ImageInventory(f.current, f.images,
+    { ...f.options, rollbackApiId: "rc7" }), /INCOMPLETE_PINNED_ROLLBACK_TRIPLE/);
 });
