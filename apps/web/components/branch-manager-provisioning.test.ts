@@ -17,5 +17,15 @@ test("branch creation UI matches the RC1 manager provisioning contract", () => {
 test("manager login email is creation-only in the RC1 branch UI", () => {
   const source = page();
   assert.match(source, /managerEditable=\{mode === "add" && user\?\.role === "SUPER_ADMIN"\}/);
-  assert.match(source, /disabled=\{view \|\| !managerEditable\}/);
+  assert.match(source, /disabled=\{view \|\| !managerEditable \|\| form\.deferManagerProvisioning\}/);
+});
+
+test("manager-deferred branch setup is explicit and does not fake a manager account", () => {
+  const source = page();
+  assert.match(source, /deferManagerProvisioning: boolean/);
+  assert.match(source, /deferManagerProvisioning: false/);
+  assert.match(source, /Create branch now; assign Branch Admin later/);
+  assert.match(source, /MANAGER_PROVISIONING_DEFERRED/);
+  assert.match(source, /key !== "deferManagerProvisioning"/);
+  assert.match(source, /required=\{!form\.deferManagerProvisioning\}/);
 });
