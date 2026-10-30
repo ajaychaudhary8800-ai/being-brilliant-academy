@@ -13,7 +13,9 @@ function container(service) {
       "WEB_URL=https://v5-staging.beingbrilliantedu.com", "RAZORPAY_MODE=test",
       "SCHOOLOS_V5_LIVEKIT_ENV_FILE=/run/secrets/schoolos-v5-livekit-api.env",
       "SCHOOLOS_V5_APP_ENV_FILE=/run/secrets/schoolos-v5-app-api.env"]
-    : [];
+    : ["backup", "migrate"].includes(service)
+      ? ["DATABASE_URL=postgresql://secret-user:secret-pass@postgres:5432/schoolos_v5_staging"]
+      : [];
   const mounts = service === "api"
     ? [{ Destination: "/run/secrets/schoolos-v5-razorpay-api.env", Source: "/etc/schoolos/v5-staging/razorpay-v5-api.env", Type: "bind", RW: false },
       { Destination: "/run/secrets/schoolos-v5-livekit-api.env", Source: "/etc/schoolos/v5-staging/livekit-v5-api.env", Type: "bind", RW: false },
@@ -134,6 +136,44 @@ test("unexpected sidecar or missing project service labels veto staging trust-bo
     assert.equal(audit.status, "FAIL");
     assert.ok(audit.reasons.includes("UNEXPECTED_STAGING_SERVICE"));
   }
+});
+
+test("migration and backup database targets must match the V5 API exactly without leaking credentials", () => {
+  for (const service of ["migrate", "backup"]) {
+    for (const mutatedUrl of [
+      "postgresql://secret-user:secret-pass@production-db:5432/bba",
+      "postgresql://secret-user:secret-pass@postgres:5432/production",
+      "postgresql://other-user:other-pass@postgres:5432/schoolos_v5_staging",
+      "not-a-postgres-url",
+    ]) {
+      const entries = fixtures();
+      const target = entries.find(x => x.Config.Labels["com.docker.compose.service"] === service);
+      target.Config.Env = target.Config.Env.filter(x => !x.startsWith("DATABASE_URL="));
+      target.Config.Env.push("DATABASE_URL=" + mutatedUrl);
+      const result = check(entries);
+      assert.equal(result.status, "FAIL", service);
+      assert.ok(result.reasons.some(r => r === "DATABASE_TARGET_NOT_ISOLATED_" + service.toUpperCase()
+        || r === "DATABASE_URL_PARITY_" + service.toUpperCase()), service);
+      assert.ok(!JSON.stringify(result).includes("secret-pass"));
+      assert.ok(!JSON.stringify(result).includes("other-pass"));
+    }
+  }
+});
+test("duplicate or absent DATABASE_URL for API migration and backup must fail closed", () => {
+  for (const service of ["api", "migrate", "backup"]) {
+    for (const mode of ["absent", "duplicate"]) {
+      const entries = fixtures();
+      const target = entries.find(x => x.Config.Labels["com.docker.compose.service"] === service);
+      const url = target.Config.Env.find(x => x.startsWith("DATABASE_URL="));
+      if (mode === "absent") target.Config.Env = target.Config.Env.filter(x => !x.startsWith("DATABASE_URL="));
+      else target.Config.Env.push(url);
+      const audit = check(entries);
+      assert.equal(audit.status, "FAIL");
+      assert.ok(audit.reasons.includes("DATABASE_URL_COUNT_" + service.toUpperCase()));
+      assert.ok(!JSON.stringify(audit).includes("secret-pass"));
+    }
+  }
+  assert.equal(check(fixtures()).status, "PASS_TECHNICAL_SNAPSHOT_ONLY");
 });
 
 test("stopped V5 migration must be present exactly once and have succeeded", () => {
