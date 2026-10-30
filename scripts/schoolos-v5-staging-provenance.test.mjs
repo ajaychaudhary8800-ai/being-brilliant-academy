@@ -121,6 +121,35 @@ test("full isolated V5 inventory is informational and never claims paid commerci
   assert.ok(result.services.every(x => x.health === "healthy" && x.imageId));
 });
 
+test("stopped V5 migration must be present exactly once and have succeeded", () => {
+  const withoutMigration = fixtures().filter(x => x.Config.Labels["com.docker.compose.service"] !== "migrate");
+  const missing = check(withoutMigration);
+  assert.equal(missing.status, "FAIL");
+  assert.ok(missing.reasons.includes("MIGRATION_CONTAINER_COUNT"));
+  assert.deepEqual(missing.migration, { count: 0, exitedSuccessfully: false });
+
+  const duplicated = fixtures();
+  duplicated.push({ ...duplicated.find(x => x.Config.Labels["com.docker.compose.service"] === "migrate") });
+  assert.ok(check(duplicated).reasons.includes("MIGRATION_CONTAINER_COUNT"));
+
+  for (const state of [
+    { Running: true, ExitCode: 0 },
+    { Running: false, ExitCode: 1 },
+    { Running: false },
+  ]) {
+    const containers = fixtures();
+    containers.find(x => x.Config.Labels["com.docker.compose.service"] === "migrate").State = state;
+    const result = check(containers);
+    assert.equal(result.status, "FAIL");
+    assert.ok(result.reasons.includes("MIGRATION_NOT_SUCCESSFULLY_STOPPED"));
+    assert.equal(result.migration.exitedSuccessfully, false);
+  }
+
+  const successful = check(fixtures());
+  assert.equal(successful.status, "PASS_TECHNICAL_SNAPSHOT_ONLY");
+  assert.deepEqual(successful.migration, { count: 1, exitedSuccessfully: true });
+});
+
 test("any unlabelled or mislabelled API/web image blocks staging parity", () => {
   const entries = fixtures();
   entries.find(x => x.Config.Labels["com.docker.compose.service"] === "web")
