@@ -24,6 +24,15 @@ function entryEnvironment(container) {
   return values;
 }
 
+// Test every Docker Env entry, not just the last duplicate key in the
+// convenience Map. A nonempty key shadowed by a later empty placeholder
+// must still veto staging security acceptance.
+function hasNonemptyEnvironmentValue(container, key) {
+  return (container?.Config?.Env ?? []).some(entry =>
+    typeof entry === "string" && entry.startsWith(key + "=")
+      && entry.length > key.length + 1);
+}
+
 export function approvedStagingProject(project) {
   return typeof project === "string"
     && /^[a-z0-9][a-z0-9_-]{4,63}$/.test(project)
@@ -139,7 +148,7 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
       "LIVEKIT_API_KEY",
       "LIVEKIT_RECORDING_S3_ACCESS_KEY_ID",
       "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY",
-    ].some(key => Boolean(env.get(key))))
+    ].some(key => hasNonemptyEnvironmentValue(container, key)))
       reasons.push("MEDIA_SECRET_EXPOSURE_" + String(service).toUpperCase());
     // Coolify can inject globally configured values independently of the
     // reviewed Compose environment block. Inspect stopped migration services
@@ -156,7 +165,7 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
       "PAYMENT_CREDENTIAL_ENCRYPTION_KEY",
       "COMMERCIAL_DOCUMENT_ENCRYPTION_KEY",
       "AWS_SECRET_ACCESS_KEY",
-    ].some(key => Boolean(env.get(key))))
+    ].some(key => hasNonemptyEnvironmentValue(container, key)))
       reasons.push("API_RUNTIME_SECRET_EXPOSURE_" + String(service).toUpperCase());
     if (service === "api") {
       if (env.get("SCHOOLOS_V5_APP_ENV_FILE") !== appMount)
