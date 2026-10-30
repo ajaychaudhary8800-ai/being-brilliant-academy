@@ -281,6 +281,27 @@ test("empty optional placeholders and API-specific runtime secrets do not falsel
   assert.ok(!JSON.stringify(result).includes("api-only-mail-value"));
 });
 
+test("duplicate empty Docker Env entries cannot conceal nonempty API-only secrets", () => {
+  for (const [service, key] of [
+    ["migrate", "JWT_ACCESS_SECRET"],
+    ["web", "SMTP_PASSWORD"],
+    ["backup", "COMMERCIAL_DOCUMENT_ENCRYPTION_KEY"],
+    ["nginx", "LIVEKIT_API_SECRET"],
+    ["postgres", "AI_API_KEY"],
+    ["redis", "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY"],
+  ]) {
+    const entries = fixtures();
+    const target = entries.find(x => x.Config.Labels["com.docker.compose.service"] === service);
+    target.Config.Env.push(key + "=never-print-shadowed-secret", key + "=");
+    const audit = check(entries);
+    assert.equal(audit.status, "FAIL", service);
+    const expected = key.startsWith("LIVEKIT_")
+      ? "MEDIA_SECRET_EXPOSURE_" : "API_RUNTIME_SECRET_EXPOSURE_";
+    assert.ok(audit.reasons.includes(expected + service.toUpperCase()));
+    assert.ok(!JSON.stringify(audit).includes("never-print-shadowed-secret"));
+  }
+});
+
 test("repository labels cannot identify V4 production or legacy staging as V5", () => {
   assert.equal(approvedStagingProject("bba-production"), false);
   assert.equal(approvedStagingProject("bba-staging"), false);
