@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertBatchCoachingGrades, assertStudentCoachingGrade, teacherAllocationReadScope, teacherAssignable, teacherLmsBranchScope, teacherAttendanceLeaveTargetAccess } from "./coaching-academic-policy.js";
+import { assertBatchCoachingGrades, assertStudentCoachingGrade, teacherAllocationReadScope, teacherAssignable, teacherLmsBranchScope, teacherAttendanceLeaveTargetAccess, coachingLiveClassBranchOverride } from "./coaching-academic-policy.js";
 
 test("one same-tenant teacher can teach multiple coaching branches", () => {
   const teacher = { organizationId: "tenant-a", branchId: "branch-1" };
@@ -55,4 +55,28 @@ test("attendance leave checks preserve coaching cross-branch rights only for all
   assert.equal(teacherAttendanceLeaveTargetAccess("SECTION", teacher, branchBStudent, true), false);
   assert.equal(teacherAttendanceLeaveTargetAccess("GROUP", teacher, branchBStudent, true), false);
   assert.equal(teacherAttendanceLeaveTargetAccess("BATCH", teacher, foreignStudent, true), false);
+});
+
+test("native coaching live-class branch overrides require exact same-tenant teacher allocations", () => {
+  const target = {
+    branchId: "branch-b",
+    courseId: "course-shared",
+    batchId: "batch-b",
+    subjectId: "subject-x",
+    teacherId: "teacher-a",
+  };
+  const allocation = { organizationId: "coaching-a", ...target };
+
+  assert.equal(coachingLiveClassBranchOverride("BATCH", "coaching-a", target, allocation), true);
+  assert.equal(coachingLiveClassBranchOverride("SECTION", "coaching-a", target, allocation), false);
+  assert.equal(coachingLiveClassBranchOverride("GROUP", "coaching-a", target, allocation), false);
+  assert.equal(coachingLiveClassBranchOverride("BATCH", "coaching-b", target, allocation), false);
+  assert.equal(coachingLiveClassBranchOverride("BATCH", "coaching-a", target, null), false);
+  assert.equal(coachingLiveClassBranchOverride("BATCH", "coaching-a", target, { ...allocation, branchId: "branch-a" }), false);
+  assert.equal(coachingLiveClassBranchOverride("BATCH", "coaching-a", target, { ...allocation, subjectId: "subject-y" }), false);
+  assert.equal(coachingLiveClassBranchOverride("BATCH", "coaching-a", target, { ...allocation, teacherId: "teacher-b" }), false);
+  assert.equal(coachingLiveClassBranchOverride("BATCH", "coaching-a", target, { ...allocation, batchId: "batch-other" }), false);
+  assert.equal(coachingLiveClassBranchOverride("BATCH", "coaching-a", target, { ...allocation, courseId: "course-other" }), false);
+  assert.equal(coachingLiveClassBranchOverride("BATCH", "coaching-a", { ...target, batchId: null }, allocation), false);
+  assert.equal(coachingLiveClassBranchOverride("BATCH", "coaching-a", { ...target, subjectId: undefined }, allocation), false);
 });

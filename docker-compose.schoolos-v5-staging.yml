@@ -9,6 +9,9 @@ x-api-build: &api-build
   context: .
   dockerfile: apps/api/Dockerfile
   args: { SCHOOLOS_BUILD_REVISION: "${SCHOOLOS_BUILD_REVISION:-unattested}" }
+# Core API credentials live exclusively in the protected API-only bind mount.
+# Do not declare those names in Compose: Coolify's global .env generation can
+# otherwise override even explicit empty values in all deployed services.
 x-api-env: &api-env
   NODE_ENV: production
   PORT: 4000
@@ -17,8 +20,7 @@ x-api-env: &api-env
   REDIS_REQUIRED: "true"
   WEB_URL: https://${APP_DOMAIN}
   CORS_ORIGINS: "https://${APP_DOMAIN},https://www.${APP_DOMAIN}"
-  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
-  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+  # API-only credentials are loaded from a protected 0600 file by the API entrypoint.
   METRICS_TOKEN: ${METRICS_TOKEN:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-250}
@@ -26,15 +28,6 @@ x-api-env: &api-env
   AI_PROVIDER_URL: ${AI_PROVIDER_URL:-}
   AI_API_KEY: ${AI_API_KEY:-}
   AI_MODEL: ${AI_MODEL:-learning-assistant}
-  LIVEKIT_URL: ${LIVEKIT_URL:-}
-  LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
-  LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
-  LIVEKIT_RECORDING_PREFIX: ${LIVEKIT_RECORDING_PREFIX:-live-class-recordings}
-  LIVEKIT_RECORDING_S3_REGION: ${LIVEKIT_RECORDING_S3_REGION:-}
-  LIVEKIT_RECORDING_S3_BUCKET: ${LIVEKIT_RECORDING_S3_BUCKET:-}
-  LIVEKIT_RECORDING_S3_ENDPOINT: ${LIVEKIT_RECORDING_S3_ENDPOINT:-}
-  LIVEKIT_RECORDING_S3_ACCESS_KEY_ID: ${LIVEKIT_RECORDING_S3_ACCESS_KEY_ID:-}
-  LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY: ${LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY:-}
   STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
   LOCAL_STORAGE_PATH: /data/storage
   AWS_REGION: ${AWS_REGION:-}
@@ -46,7 +39,6 @@ x-api-env: &api-env
   SMTP_PORT: ${SMTP_PORT:-587}
   SMTP_SECURE: ${SMTP_SECURE:-false}
   SMTP_USER: ${SMTP_USER:-}
-  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   EMAIL_FROM: ${EMAIL_FROM:-}
   TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
   TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
@@ -60,7 +52,6 @@ x-api-env: &api-env
   RAZORPAY_MODE: ${RAZORPAY_MODE:-test}
   RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
   PAYMENT_CREDENTIAL_ENCRYPTION_KEY: ${PAYMENT_CREDENTIAL_ENCRYPTION_KEY:-}
-  COMMERCIAL_DOCUMENT_ENCRYPTION_KEY: ${COMMERCIAL_DOCUMENT_ENCRYPTION_KEY:-}
 
 services:
   postgres:
@@ -84,7 +75,12 @@ services:
     image: ${API_IMAGE:-bba-api:local}
     build: *api-build
     command: ["node", "scripts/prisma-run.mjs", "migrate", "deploy"]
-    environment: *api-env
+    # A one-shot Prisma migration needs database access, not application JWT,
+    # mail, messaging, AI, commerce, Vault or storage provider secrets.
+    # Keep API-only runtime credentials in the API service below.
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
     depends_on: { postgres: { condition: service_healthy } }
     networks: [backend]
     restart: "no"
@@ -95,11 +91,15 @@ services:
     environment:
       <<: *api-env
       SCHOOLOS_V5_RAZORPAY_ENV_FILE: /run/secrets/schoolos-v5-razorpay-api.env
+      SCHOOLOS_V5_LIVEKIT_ENV_FILE: /run/secrets/schoolos-v5-livekit-api.env
+      SCHOOLOS_V5_APP_ENV_FILE: /run/secrets/schoolos-v5-app-api.env
     # An API-only read-only bind mount avoids Coolify's later, shared .env overrides.
     # Entrypoint reads this as root and exports values solely to the API process.
     volumes:
       - app_storage:/data/storage
       - /etc/schoolos/v5-staging/razorpay-v5-api.env:/run/secrets/schoolos-v5-razorpay-api.env:ro
+      - /etc/schoolos/v5-staging/livekit-v5-api.env:/run/secrets/schoolos-v5-livekit-api.env:ro
+      - /etc/schoolos/v5-staging/app-v5-api.env:/run/secrets/schoolos-v5-app-api.env:ro
     depends_on: { migrate: { condition: service_completed_successfully }, redis: { condition: service_healthy } }
     expose: ["4000"]
     networks: [backend, frontend]
@@ -144,4 +144,10 @@ services:
     logging: *default-logging
 
 networks: { frontend: {}, backend: { internal: true }, backup_egress: {} }
-volumes: { postgres_data: {}, redis_data: {}, app_storage: {}, backups: {} }
+# Staging V5 data was provisioned under Coolify's existing hyphenated names.
+# Reuse exactly these existing volumes; never silently create empty replacements.
+volumes:
+  postgres_data: { external: true, name: 96ffcu0jinuwlnaqxpltln4p_postgres-data }
+  redis_data: { external: true, name: 96ffcu0jinuwlnaqxpltln4p_redis-data }
+  app_storage: { external: true, name: 96ffcu0jinuwlnaqxpltln4p_app-storage }
+  backups: { external: true, name: 96ffcu0jinuwlnaqxpltln4p_backups }

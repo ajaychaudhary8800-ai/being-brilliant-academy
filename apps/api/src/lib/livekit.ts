@@ -44,6 +44,15 @@ export function livekitRecordingStorage() {
   };
 }
 
+/** Distinguish an Egress upload that has not reached the recording bucket
+ * from provider/auth/network faults. Do not translate 403/5xx into processing. */
+export function livekitRecordingObjectMissing(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const provider = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return provider.name === "NoSuchKey" || provider.name === "NotFound"
+    || provider.$metadata?.httpStatusCode === 404;
+}
+
 export async function getLiveKitRecordingObject(key: string) {
   const storage = livekitRecordingStorage();
   const client = new S3Client({

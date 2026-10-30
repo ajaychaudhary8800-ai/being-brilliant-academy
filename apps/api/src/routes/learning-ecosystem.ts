@@ -20,6 +20,7 @@ import {
   type LearningResource,
 } from "../lib/learning-ecosystem-access.js";
 import { AppError } from "../lib/http.js";
+import { coachingLiveClassBranchOverride } from "../lib/coaching-academic-policy.js";
 import { calculateLearningTestPsychometrics } from "../lib/learning-item-analysis.js";
 import { generateLearningQuestions, LearningQuestionGenerationError, learningQuestionGeneratorConfigured } from "../lib/learning-question-generator.js";
 import { resolveHistoricalAcademicEnrollment } from "../lib/academic-placement.js";
@@ -37,7 +38,7 @@ import {
 } from "../lib/learning-test-delivery-policy.js";
 import { prisma } from "../lib/prisma.js";
 import { getObject } from "../lib/storage.js";
-import { createLiveKitToken, getLiveKitRecordingObject, livekitClientUrl, livekitConfigured, livekitEgress, livekitRecordingConfigured, livekitRecordingStorage, livekitRoomService } from "../lib/livekit.js";
+import { createLiveKitToken, getLiveKitRecordingObject, livekitClientUrl, livekitConfigured, livekitEgress, livekitRecordingConfigured, livekitRecordingObjectMissing, livekitRecordingStorage, livekitRoomService } from "../lib/livekit.js";
 import { assertSchoolOSNativeLiveClassAdmissionAllowed } from "../lib/schoolos-video-admission.js";
 import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { requireCommercialFeature } from "../middleware/commercial-entitlement.js";
@@ -53,14 +54,54 @@ const questionTypes = z.nativeEnum(QuestionType);
 const audit = (req: AuthRequest, action: string, entity: string, entityId?: string, metadata?: unknown) => prisma.auditLog.create({ data: { actorId: req.auth!.userId, action, entity, entityId, metadata: metadata as object | undefined } });
 const notify = (userId: string, title: string, body: string, sourceModule = "LEARNING_ECOSYSTEM", sourceEntityId?: string, actionUrl = "/learning-hub") => prisma.notification.create({ data: { userId, title, body, sourceModule, sourceEntityId, actionUrl, channels: ["IN_APP"] } });
 function decodeFile(file: z.infer<typeof fileInput>, max = 10 * 1024 * 1024, types?: string[]) { const data = Buffer.from(file.base64.replace(/^data:[^;]+;base64,/, ""), "base64"); if (!data.length || data.length > max) throw new AppError(422, "INVALID_FILE_SIZE", `File must be smaller than ${Math.round(max / 1048576)} MB`); if (types && !types.includes(file.mimeType)) throw new AppError(422, "INVALID_FILE_TYPE", "File type is not allowed"); return data; }
-async function relationCheck(data: { courseId?: string | null; batchId?: string | null; subjectId?: string | null; branchId?: string | null; teacherId?: string | null }) {
+async function relationCheck(
+  data: { courseId?: string | null; batchId?: string | null; subjectId?: string | null; branchId?: string | null; teacherId?: string | null },
+  options: { nativeLiveClassOrganizationId?: string } = {},
+) {
   const [course, batch, subject, teacher] = await Promise.all([data.courseId ? prisma.course.findUnique({ where: { id: data.courseId }, select: { id: true, branchId: true } }) : null, data.batchId ? prisma.batch.findUnique({ where: { id: data.batchId }, select: { id: true, courseId: true, branchId: true } }) : null, data.subjectId ? prisma.subject.findUnique({ where: { id: data.subjectId }, select: { id: true } }) : null, data.teacherId ? prisma.teacherProfile.findUnique({ where: { id: data.teacherId }, select: { id: true, userId: true, branchId: true } }) : null]);
   if (data.courseId && !course) throw new AppError(422, "INVALID_COURSE", "Course does not exist");
-  if (data.courseId && data.branchId && course?.branchId && course.branchId !== data.branchId) throw new AppError(422, "INVALID_COURSE_RELATION", "Course must match Branch");
+  const mismatchedCourseBranch = Boolean(data.courseId && data.branchId && course?.branchId && course.branchId !== data.branchId);
+  const mismatchedTeacherBranch = Boolean(data.teacherId && data.branchId && teacher && teacher.branchId !== data.branchId);
+  let coachingAllocationOverride = false;
+  // Only the native LiveClass provider may relax home-branch checks.
+  // An exact same-tenant active allocation is mandatory, even for super-admin
+  // requests. Ordinary LMS resources and school sections retain strict checks.
+  if ((mismatchedCourseBranch || mismatchedTeacherBranch)
+    && options.nativeLiveClassOrganizationId
+    && data.branchId && data.courseId && data.batchId && data.subjectId && data.teacherId) {
+    const now = new Date();
+    const [organization, allocation] = await Promise.all([
+      prisma.organization.findUnique({
+        where: { id: options.nativeLiveClassOrganizationId },
+        select: { groupLabelType: true },
+      }),
+      prisma.teacherAllocation.findFirst({
+        where: {
+          organizationId: options.nativeLiveClassOrganizationId,
+          branchId: data.branchId,
+          courseId: data.courseId,
+          batchId: data.batchId,
+          subjectId: data.subjectId,
+          teacherId: data.teacherId,
+          status: TeacherAllocationStatus.ACTIVE,
+          effectiveFrom: { lte: now },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+        },
+        select: { organizationId: true, branchId: true, courseId: true, batchId: true, subjectId: true, teacherId: true },
+      }),
+    ]);
+    coachingAllocationOverride = coachingLiveClassBranchOverride(
+      organization?.groupLabelType, options.nativeLiveClassOrganizationId, data, allocation,
+    );
+  }
+  if (mismatchedCourseBranch && !coachingAllocationOverride)
+    throw new AppError(422, "INVALID_COURSE_RELATION", "Course must match Branch");
   if (data.batchId && (!batch || (data.courseId && batch.courseId !== data.courseId) || (data.branchId && batch.branchId !== data.branchId))) throw new AppError(422, "INVALID_BATCH_RELATION", "Batch must match Course and Branch");
   if (data.subjectId && !subject) throw new AppError(422, "INVALID_SUBJECT", "Subject does not exist");
-  if (data.teacherId && (!teacher || (data.branchId && teacher.branchId !== data.branchId))) throw new AppError(422, "INVALID_TEACHER", "Teacher must match Branch");
-  if (data.courseId && data.subjectId && !await prisma.courseSubject.findUnique({ where: { courseId_subjectId: { courseId: data.courseId, subjectId: data.subjectId } } })) throw new AppError(422, "INVALID_SUBJECT_RELATION", "Subject is not assigned to Course");
+  if (data.teacherId && (!teacher || (mismatchedTeacherBranch && !coachingAllocationOverride)))
+    throw new AppError(422, "INVALID_TEACHER", "Teacher must match Branch");
+  if (data.courseId && data.subjectId && !await prisma.courseSubject.findUnique({ where: { courseId_subjectId: { courseId: data.courseId, subjectId: data.subjectId } } }))
+    throw new AppError(422, "INVALID_SUBJECT_RELATION", "Subject is not assigned to Course");
   return { course, batch, subject, teacher, teacherUserId: teacher?.userId };
 }
 
@@ -1413,18 +1454,47 @@ router.get("/learning/materials/:id/download", async (req: AuthRequest, res) => 
   const actor = await learningActorForRequest(req);
   const row = await prisma.studyMaterial.findFirst({ where: { id: String(req.params.id), ...learningResourceWhere(actor), isArchived: false } });
   if (!row) throw new AppError(404, "MATERIAL_NOT_FOUND", "Material not found");
-  await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
   if (row.fileData) {
+    await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
     return res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"`, "Content-Length": String(row.fileData.length) }).send(Buffer.from(row.fileData));
   }
   if (row.storageKey) {
-    const object = await getObject(row.storageKey);
+    // LiveKit writes native classroom recordings to a dedicated R2 bucket.
+    // The ordinary LMS object store may be local or a completely different S3
+    // bucket. Never route a LiveKit recording through the general getObject().
+    const isRecording = Boolean(row.sourceLiveClassId);
+    if (isRecording) {
+      const source = await prisma.liveClass.findFirst({
+        where: {
+          id: row.sourceLiveClassId!,
+          organizationId: row.organizationId,
+          provider: LiveClassProvider.NATIVE,
+          recordingObjectKey: row.storageKey,
+        },
+        select: { id: true },
+      });
+      if (!source) throw new AppError(404, "RECORDING_NOT_FOUND", "Class recording is no longer available");
+    }
+    let object: Awaited<ReturnType<typeof getLiveKitRecordingObject>> | Awaited<ReturnType<typeof getObject>>;
+    try {
+      object = isRecording
+        ? await getLiveKitRecordingObject(row.storageKey)
+        : await getObject(row.storageKey);
+    } catch (error) {
+      if (isRecording && livekitRecordingObjectMissing(error))
+        throw new AppError(409, "RECORDING_PROCESSING", "Class recording is still processing");
+      throw error;
+    }
     if (!object || !(Symbol.asyncIterator in Object(object))) throw new AppError(404, "FILE_NOT_FOUND", "Material file not found");
+    await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
     res.set({ "Content-Type": row.mimeType ?? "application/octet-stream", "Content-Disposition": `attachment; filename="${(row.fileName ?? "material").replace(/["\r\n]/g, "")}"` });
     for await (const chunk of object as AsyncIterable<Uint8Array | string>) res.write(chunk);
     return res.end();
   }
-  if (row.externalUrl) return res.redirect(row.externalUrl);
+  if (row.externalUrl) {
+    await prisma.studyMaterial.update({ where: { id: row.id }, data: { downloadCount: { increment: 1 } } });
+    return res.redirect(row.externalUrl);
+  }
   throw new AppError(404, "FILE_NOT_FOUND", "Material file not found");
 });
 
@@ -1541,7 +1611,8 @@ router.get("/learning/live-classes", async (req: AuthRequest, res) => {
 router.post("/learning/live-classes", managers, async (req: AuthRequest, res) => {
   const actor = await learningActorForRequest(req);
   const d = liveInput.parse(req.body);
-  await relationCheck(d);
+  await relationCheck(d, d.provider === LiveClassProvider.NATIVE
+    ? { nativeLiveClassOrganizationId: req.auth!.organizationId } : {});
   assertManagerResourceAccess(actor, d, { teacherOwned: true });
   const conflict = await prisma.liveClass.findFirst({ where: { teacherId: d.teacherId, status: { not: LearningStatus.ARCHIVED }, startsAt: { lt: d.endsAt }, endsAt: { gt: d.startsAt } } });
   if (conflict) throw new AppError(409, "TEACHER_SCHEDULE_CONFLICT", "Teacher already has a live class in this time slot");
@@ -1565,7 +1636,8 @@ router.patch("/learning/live-classes/:id", managers, async (req: AuthRequest, re
   if (!old) throw new AppError(404, "LIVE_CLASS_NOT_FOUND", "Live class not found");
   const d = liveShape.partial().parse(req.body);
   const target = { branchId: d.branchId ?? old.branchId, courseId: d.courseId ?? old.courseId, batchId: d.batchId ?? old.batchId, subjectId: d.subjectId ?? old.subjectId, teacherId: d.teacherId ?? old.teacherId };
-  await relationCheck(target);
+  await relationCheck(target, (d.provider ?? old.provider) === LiveClassProvider.NATIVE
+    ? { nativeLiveClassOrganizationId: req.auth!.organizationId } : {});
   assertManagerResourceAccess(actor, target, { teacherOwned: true });
   const startsAt = d.startsAt ?? old.startsAt, endsAt = d.endsAt ?? old.endsAt;
   if (endsAt <= startsAt) throw new AppError(422, "INVALID_TIME", "End time must be after start time");
@@ -1759,8 +1831,16 @@ router.get("/learning/live-classes/native/:room/recording", async (req: AuthRequ
   const room = z.string().min(10).max(120).parse(req.params.room);
   const { live } = await nativeClassForActor(actor, room);
   if (!live.recordingObjectKey) throw new AppError(404, "RECORDING_NOT_FOUND", "No recording is available for this class");
-  const object = await getLiveKitRecordingObject(live.recordingObjectKey);
-  if (!object || !(Symbol.asyncIterator in Object(object))) throw new AppError(404, "RECORDING_NOT_FOUND", "Class recording is not available yet");
+  let object: Awaited<ReturnType<typeof getLiveKitRecordingObject>>;
+  try {
+    object = await getLiveKitRecordingObject(live.recordingObjectKey);
+  } catch (error) {
+    if (livekitRecordingObjectMissing(error))
+      throw new AppError(409, "RECORDING_PROCESSING", "Class recording is still processing");
+    throw error;
+  }
+  if (!object || !(Symbol.asyncIterator in Object(object)))
+    throw new AppError(409, "RECORDING_PROCESSING", "Class recording is still processing");
   res.setHeader("Content-Type", "video/mp4");
   res.setHeader("Content-Disposition", `attachment; filename="live-class-${live.id}.mp4"`);
   for await (const chunk of object as AsyncIterable<Uint8Array | string>) res.write(chunk);

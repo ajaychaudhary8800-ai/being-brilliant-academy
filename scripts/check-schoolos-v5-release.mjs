@@ -101,6 +101,52 @@ export async function verifySchoolOSV5ReleaseManifest(manifest,root) {
       throw new Error("Evidence metadata, independent reviewer or release SHA invalid");
     if(record.verifiedBy==="ChatGPT"||record.verifiedBy==="automated")
      throw new Error("Unattributed AI/tool-generated release proof is not sufficient");
+    // Human decisions are not cryptographically authenticated by JSON.
+    // References resolve to restricted originals; neither ChatGPT nor the
+    // evidence-file author becomes an independent certification authority.
+    const validRef=value=>typeof value==="string" &&
+     /^[A-Za-z0-9][A-Za-z0-9:/._-]{11,199}$/.test(value) &&
+     !value.includes("..") && !value.includes("//");
+    if(gate.id==="security_privacy_tenant_qa"){
+     const review=record.securityReview;
+     const baseValid=review && typeof review==="object" &&
+      !Array.isArray(review) && validRef(review.assessmentReference);
+     if(!baseValid)throw new Error("Security gate requires a referenced actual assessment");
+     if(review.model==="OWNER_LED_AI_ASSISTED"){
+      if(typeof review.accountableHuman!=="string"||
+         review.accountableHuman.trim().length<3||
+         record.verifiedBy!==review.accountableHuman ||
+         review.aiRole!=="ASSISTIVE_ONLY" ||
+         review.conflictOfInterestDisclosed!==true ||
+         review.independentCertificationClaimed!==false ||
+         review.externalAuditApplicabilityReviewed!==true ||
+         !validRef(review.applicabilityDecisionReference) ||
+         !validRef(review.signedRiskAcceptanceReference))
+       throw new Error("Owner-led security review requires human accountability, disclosed conflict, audit-applicability decision and signed risk-acceptance references");
+     }else if(review.model!=="INDEPENDENT_HUMAN"){
+      throw new Error("Security review model must be accountable independent human or disclosed owner-led");
+     }
+    }
+    if(gate.id==="customer_uat"){
+     const uat=record.customerUat;
+     if(!uat||typeof uat!=="object"||Array.isArray(uat)||
+        !validRef(uat.institutionReference)||
+        !validRef(uat.signedAcceptanceReference))
+      throw new Error("Customer UAT requires institutional identity and signed acceptance references");
+     if(uat.institutionRelationship==="INDEPENDENT_EXTERNAL"){
+      if(uat.relatedPartyDisclosure===true)
+       throw new Error("Independent external UAT cannot simultaneously be declared a related-party institution");
+     }else if(uat.institutionRelationship==="OWNER_OPERATED_RELATED_PARTY"){
+      if(uat.relatedPartyDisclosure!==true ||
+         typeof uat.authorizedHumanSignatory!=="string" ||
+         uat.authorizedHumanSignatory.trim().length<3 ||
+         !validRef(uat.relatedPartyWaiverReference) ||
+         !validRef(uat.observedScenarioEvidenceReference))
+       throw new Error("Owner-operated related-party customer UAT requires truthful disclosure, authorized signer, waiver and observed scenario evidence");
+     }else{
+      throw new Error("Customer UAT requires independent external institution or disclosed owner-operated related-party acceptance");
+     }
+    }
    }catch(error){
     errors.push(label+" invalid: "+(error instanceof Error?error.message:String(error)));
    }

@@ -9,6 +9,7 @@ on:
       - "apps/api/**"
       - "apps/web/**"
       - "e2e/schoolos-v5-external-staging-public.spec.ts"
+      - "e2e/schoolos-v5-private-demo-local.spec.ts"
       - "config/schoolos-v5-release-gates.json"
       - ".github/workflows/schoolos-v5-*.yml"
       - "docs/SCHOOLOS_V5_*.md"
@@ -47,6 +48,7 @@ jobs:
           node --test scripts/schoolos-v5-external-staging-smoke.test.mjs
           node --test scripts/schoolos-v5-network-diagnostics.test.mjs
           node --test apps/api/scripts/schoolos-v5-qa-guard.test.mjs
+          node --test apps/api/scripts/schoolos-v5-growth-price-reconcile.test.mjs
           node --test scripts/schoolos-v5-trusted-staging-auth-qa.test.mjs
       - name: Test external staging (GET-only except optional staging QA login)
         id: staging_readonly_smoke
@@ -145,6 +147,8 @@ jobs:
           if [ "$applied" != "114" ]; then echo "::error::Expected 114 migrations, got $applied"; exit 1; fi
       - name: Real PostgreSQL coaching and cross-tenant HTTP regression
         run: pnpm --filter @bba/api exec tsx --test src/integration/academic-placement-concurrency.integration.test.ts
+      - name: Native LMS classroom coaching and school authorization on disposable PostgreSQL
+        run: pnpm --filter @bba/api exec tsx --test src/integration/native-coaching-live-class.integration.test.ts
       - name: Preserve V5 commercial HOLD
         run: |
           node --input-type=module -e '
@@ -160,6 +164,66 @@ jobs:
           echo "## Disposable PostgreSQL regression" >> "$GITHUB_STEP_SUMMARY"
           echo "Tested only GitHub-hosted ephemeral infrastructure; no customer or production database contacted." >> "$GITHUB_STEP_SUMMARY"
           echo "This cannot replace authenticated live-staging coaching UAT or owner approval." >> "$GITHUB_STEP_SUMMARY"
+
+
+  local-private-demo-browser:
+    # No staging or production secrets: this runs a locally built Next.js
+    # preview and intercepts every SchoolOS CRM POST in Playwright.
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: { contents: read }
+    env:
+      CI: "true"
+      # Do not set NODE_ENV=production before pnpm install: pnpm would omit
+      # devDependencies such as TypeScript/Playwright needed by this CI job.
+      # Next.js itself sets production mode for build/start.
+      QA_BASE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_API_URL: /api/v1
+      LEGAL_PAGES_PUBLISHED: "false"
+    steps:
+      - name: Pin immutable V5 PR source
+        uses: actions/checkout@v4
+        with:
+          ref: "${{ github.event.pull_request.head.sha || github.sha }}"
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Build local private-demo Next.js preview
+        run: pnpm --filter @bba/web build
+      - name: Install disposable Chromium for desktop/mobile
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Browser acceptance with ALL CRM writes mocked (no real customer)
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @bba/web exec next start --hostname 127.0.0.1 >/tmp/schoolos-v5-demo-local.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$web_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 45); do
+            if curl --fail --silent --show-error http://127.0.0.1:3000/schoolos >/dev/null 2>&1; then ready=1; break; fi
+            sleep 2
+          done
+          if [[ "$ready" != 1 ]]; then
+            echo "::error::Local SchoolOS page failed health preparation"
+            exit 1
+          fi
+          pnpm exec playwright test e2e/schoolos-v5-private-demo-local.spec.ts --workers=1 --retries=0
+      - name: Preserve local UI failure-only browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schoolos-v5-local-demo-browser-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results/e2e-junit.xml
+            test-results/e2e-artifacts
+          if-no-files-found: warn
+          retention-days: 14
 
   external-browser-ui:
     if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'

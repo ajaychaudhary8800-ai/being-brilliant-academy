@@ -25,6 +25,21 @@ async function fixture(mutator){
     gateId:gate.id,releaseCandidateSha:sha,result:"PASS",
     verifiedBy:"independent-qa@example.test",verifiedAt:"2026-10-19T12:00:00Z",
     summary:"Independent staged acceptance for "+gate.id+" with provenance."};
+   if(gate.id==="security_privacy_tenant_qa"){
+    evidence.securityReview={
+     model:"INDEPENDENT_HUMAN",
+     assessmentReference:"restricted-independent-security-audit-001",
+    };
+   }
+   if(gate.id==="customer_uat"){
+    // Restricted signed records live outside Git. These are NON-SECRET
+    // synthetic references used only to exercise the metadata gate.
+    evidence.customerUat={
+     institutionRelationship:"INDEPENDENT_EXTERNAL",
+     institutionReference:"restricted-external-institution-001",
+     signedAcceptanceReference:"restricted-signed-customer-uat-001",
+    };
+   }
    const raw=JSON.stringify(evidence);
    await writeFile(join(root,relative),raw);
    gate.evidence.push({path:relative,sha256:createHash("sha256").update(raw).digest("hex")});
@@ -93,4 +108,151 @@ test("path traversal, duplicate IDs, unverifiable signoff and missing gates cann
  });
  assert.equal(fakeSignoff.status,"INVALID");
  assert.match(fakeSignoff.errors.join(" "),/not sufficient/);
+});
+
+test("unqualified owner-operated BBA UAT cannot be used to declare paid commercial release READY",async()=>{
+ const result=await fixture(async(m,root)=>{
+  const gate=m.gates.find(g=>g.id==="customer_uat");
+  const path=join(root,gate.evidence[0].path);
+  const record=JSON.parse(await readFile(path,"utf8"));
+  record.customerUat.institutionRelationship="OWNER_OPERATED_INTERNAL";
+  const raw=JSON.stringify(record);
+  await writeFile(path,raw);
+  gate.evidence[0].sha256=createHash("sha256").update(raw).digest("hex");
+ });
+ assert.equal(result.status,"INVALID");
+ assert.match(result.errors.join(" "),/independent external institution/);
+});
+
+test("missing customer UAT signed-acceptance reference remains a release veto",async()=>{
+ const result=await fixture(async(m,root)=>{
+  const gate=m.gates.find(g=>g.id==="customer_uat");
+  const path=join(root,gate.evidence[0].path);
+  const record=JSON.parse(await readFile(path,"utf8"));
+  delete record.customerUat.signedAcceptanceReference;
+  const raw=JSON.stringify(record);
+  await writeFile(path,raw);
+  gate.evidence[0].sha256=createHash("sha256").update(raw).digest("hex");
+ });
+ assert.equal(result.status,"INVALID");
+ assert.match(result.errors.join(" "),/signed acceptance references/);
+});
+
+test("generic reviewer signature without external-customer UAT metadata cannot mark READY",async()=>{
+ const result=await fixture(async(m,root)=>{
+  const gate=m.gates.find(g=>g.id==="customer_uat");
+  const path=join(root,gate.evidence[0].path);
+  const record=JSON.parse(await readFile(path,"utf8"));
+  delete record.customerUat;
+  const raw=JSON.stringify(record);
+  await writeFile(path,raw);
+  gate.evidence[0].sha256=createHash("sha256").update(raw).digest("hex");
+ });
+ assert.equal(result.status,"INVALID");
+ assert.match(result.errors.join(" "),/institutional identity and signed acceptance references/);
+});
+
+
+test("truthfully disclosed owner-led security review is structurally allowed with real human risk references",async()=>{
+ const result=await fixture(async(m,root)=>{
+  const gate=m.gates.find(g=>g.id==="security_privacy_tenant_qa");
+  const path=join(root,gate.evidence[0].path);
+  const record=JSON.parse(await readFile(path,"utf8"));
+  record.verifiedBy="Ajay Chaudhary";
+  record.securityReview={
+   model:"OWNER_LED_AI_ASSISTED",
+   accountableHuman:"Ajay Chaudhary",
+   aiRole:"ASSISTIVE_ONLY",
+   conflictOfInterestDisclosed:true,
+   independentCertificationClaimed:false,
+   externalAuditApplicabilityReviewed:true,
+   assessmentReference:"restricted-internal-technical-review-001",
+   applicabilityDecisionReference:"restricted-contractual-audit-review-001",
+   signedRiskAcceptanceReference:"restricted-signed-human-risk-acceptance-001",
+  };
+  const raw=JSON.stringify(record);
+  await writeFile(path,raw);
+  gate.evidence[0].sha256=createHash("sha256").update(raw).digest("hex");
+ });
+ assert.equal(result.status,"READY");
+ assert.deepEqual(result.errors,[]);
+});
+
+test("owner-led security declaration without genuine human review attestation fails closed",async()=>{
+ for(const defect of ["conflictOfInterestDisclosed","externalAuditApplicabilityReviewed","signedRiskAcceptanceReference","independentCertificationClaimed"]){
+  const result=await fixture(async(m,root)=>{
+   const gate=m.gates.find(g=>g.id==="security_privacy_tenant_qa");
+   const path=join(root,gate.evidence[0].path);
+   const record=JSON.parse(await readFile(path,"utf8"));
+   record.verifiedBy="Ajay Chaudhary";
+   record.securityReview={
+    model:"OWNER_LED_AI_ASSISTED",
+    accountableHuman:"Ajay Chaudhary",
+    aiRole:"ASSISTIVE_ONLY",
+    conflictOfInterestDisclosed:true,
+    independentCertificationClaimed:false,
+    externalAuditApplicabilityReviewed:true,
+    assessmentReference:"restricted-internal-review-001",
+    applicabilityDecisionReference:"restricted-audit-applicability-review-001",
+    signedRiskAcceptanceReference:"restricted-human-risk-acceptance-001",
+   };
+   if(defect==="signedRiskAcceptanceReference")delete record.securityReview[defect];
+   else if(defect==="independentCertificationClaimed")record.securityReview[defect]=true;
+   else record.securityReview[defect]=false;
+   const raw=JSON.stringify(record);
+   await writeFile(path,raw);
+   gate.evidence[0].sha256=createHash("sha256").update(raw).digest("hex");
+  });
+  assert.equal(result.status,"INVALID",defect);
+  assert.match(result.errors.join(" "),/Owner-led security review requires/);
+ }
+});
+
+test("related-party BBA can be considered only with disclosure, actual scenario evidence and waiver",async()=>{
+ const result=await fixture(async(m,root)=>{
+  const gate=m.gates.find(g=>g.id==="customer_uat");
+  const path=join(root,gate.evidence[0].path);
+  const record=JSON.parse(await readFile(path,"utf8"));
+  record.verifiedBy="Ajay Chaudhary";
+  record.customerUat={
+   institutionRelationship:"OWNER_OPERATED_RELATED_PARTY",
+   institutionReference:"restricted-bba-institution-001",
+   signedAcceptanceReference:"restricted-bba-signed-uat-001",
+   authorizedHumanSignatory:"Ajay Chaudhary",
+   relatedPartyDisclosure:true,
+   relatedPartyWaiverReference:"restricted-bba-conflict-waiver-001",
+   observedScenarioEvidenceReference:"restricted-bba-observed-uat-matrix-001",
+  };
+  const raw=JSON.stringify(record);
+  await writeFile(path,raw);
+  gate.evidence[0].sha256=createHash("sha256").update(raw).digest("hex");
+ });
+ assert.equal(result.status,"READY");
+ assert.deepEqual(result.errors,[]);
+});
+
+test("related-party declaration cannot masquerade as independence or omit real UAT",async()=>{
+ for(const defect of ["relatedPartyDisclosure","relatedPartyWaiverReference","observedScenarioEvidenceReference"]){
+  const result=await fixture(async(m,root)=>{
+   const gate=m.gates.find(g=>g.id==="customer_uat");
+   const path=join(root,gate.evidence[0].path);
+   const record=JSON.parse(await readFile(path,"utf8"));
+   record.customerUat={
+    institutionRelationship:"OWNER_OPERATED_RELATED_PARTY",
+    institutionReference:"restricted-bba-institution-001",
+    signedAcceptanceReference:"restricted-bba-signed-uat-001",
+    authorizedHumanSignatory:"Ajay Chaudhary",
+    relatedPartyDisclosure:true,
+    relatedPartyWaiverReference:"restricted-bba-conflict-waiver-001",
+    observedScenarioEvidenceReference:"restricted-bba-real-observed-uat-001",
+   };
+   if(defect==="relatedPartyDisclosure")record.customerUat[defect]=false;
+   else delete record.customerUat[defect];
+   const raw=JSON.stringify(record);
+   await writeFile(path,raw);
+   gate.evidence[0].sha256=createHash("sha256").update(raw).digest("hex");
+  });
+  assert.equal(result.status,"INVALID",defect);
+  assert.match(result.errors.join(" "),/related-party customer UAT requires/);
+ }
 });

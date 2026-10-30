@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Adhyay SchoolOS",
   "version": "5.0",
-  "releaseCandidateSha": "435af0991d491a9511b8309121892633be2a2e82",
+  "releaseCandidateSha": "dd1315f6a0b572019bcb9bf565cf79452c95dd37",
   "declaredStatus": "HOLD",
   "gates": [
     {
@@ -10,70 +10,70 @@
       "name": "Consolidated V5 branch dependency review and release-candidate commit",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Candidate source 435af0991d491a9511b8309121892633be2a2e82 stacks on #260 successful CRM/commercial QA and now adds V5-only Docker source revision labels, no-secret isolated Coolify host inventory and protected bind-source validation. Independently inspect source ancestry/build logs and exact Coolify application ID before any owner-approved V5 staging promotion. Frozen V4 main untouched; release HOLD."
+      "nextAction": "OWNER-APPROVED V5 policy code candidate proposed: dd1315f6a0b572019bcb9bf565cf79452c95dd37 (V5 dev-only squash #287) includes disclosed owner-led security and BBA related-party acceptance policy with positive and fail-closed negative regressions; no API/Web/DB/migration/Compose runtime changes from operator-observed staging f736e64b. Review exact source diff, immutable image digest-to-source attestation, and independent contractual audit applicability before accepting the RC. This pin is proposed and not a signed authorization. Do not merge V5 into V4/main or deploy solely because tests pass."
     },
     {
       "id": "release_candidate_ci",
       "name": "Full build, PostgreSQL regression, container provenance and release-candidate CI",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Run all FOUR exact-head workflows on source 435af0991d491a9511b8309121892633be2a2e82: full CI including no-secret staging-provenance unit tests and image build, disposable PostgreSQL V5 sandbox, external GET-only staging QA and synthetic V4→V5 upgrade/restore. Earlier PR #260 green checks cannot certify the revised Dockerfiles/compose source."
+      "nextAction": "PR #287 exact-head 3af6d1adb91e181c617374fc88bf84a4142aa8cf: isolated V4 upgrade, external V5 QA 4/4, sandbox SUCCESS; CI verify including revised release-policy suite SUCCESS; CI containers was in progress before squash merge. New V5 development exact-source dd1315f6a0b572019bcb9bf565cf79452c95dd37 automatic checks triggered as CI 40927935287, isolated sandbox 40927935255, external staging QA 40927935299, upgrade 40927935264. Review final conclusions and image/source provenance, retain originals, never treat skipped/ongoing jobs as PASS or self-approve Gate 2."
     },
     {
       "id": "staging_migration_restore",
       "name": "Staging upgrade, backup, migration and disaster recovery rehearsal",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Before an owner-approved V5-only Coolify deployment, preserve existing V5 staging image IDs, source build log, 114 migration state, backup SHA and rollback; avoid reused V4 shared staging and any volume or database reset. Post-deployment run strictly read-only scripts/schoolos-v5-staging-provenance.mjs on the actual isolated Docker project. Source-label match is claimed revision only, not independently attested provenance; offsite restore and Vault key decryption still pending."
+      "nextAction": "29 Oct operator recovery PASS: 114/0 migrations, 336 public tables, pg_dump readback and pg_amcheck PASS, zero invalid indexes, empty uploads restored, cleanup YES, total 9.3 seconds. Do not repeat completed restore/download/checksums. Obtain independent acceptance and reconcile nonempty file, Vault/key and external recording recovery scope. See docs/SCHOOLOS_V5_APPROVAL_PACKET_20261029.md. Gate remains PENDING."
     },
     {
       "id": "subscription_payment_qa",
       "name": "Verified signed-quote subscription and Razorpay TEST payment lifecycle",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Synthetic provider-shaped HMAC-signed HTTP integration now covers unsigned/forged capture, concurrent valid replay, conflicting identities/amounts, failed payment, delayed failure, partial refund active finance hold, idempotent refund and over-refund rejection. Actual Razorpay TEST provider, genuine independently verified Order Form, real refund/dispute/renewal and finance acceptance remain PENDING."
+      "nextAction": "Synthetic exact-f736e64b HTTP/DB checks executed successfully for contracted checkout, tenant isolation, forged/unsigned webhook rejection, concurrent/idempotent capture, failed-payment handling, refund linkage/replay/over-refund and risk holds. Owner separately reports real Razorpay TEST/reconciliation completed. Retrieve that existing provider transaction-to-contract/ledger artifact set and finance acceptance; synthetic local HMAC is not actual provider delivery. Dispute/renewal scope requires separate artifact mapping. No live collection. See docs/SCHOOLOS_V5_PROVIDER_EVIDENCE_MAP_20261029.md."
     },
     {
       "id": "ai_video_provider_qa",
       "name": "Real staging AI Examiner and LiveKit usage, billing, failure and proof reconciliation",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Prove real provider retry, reconnection, provider disconnect, delayed/lost webhooks, payment admission, quota exhaustion, two-person settlement and refund-protection end-to-end."
+      "nextAction": "Exact-f736e64b sandbox logs prove signed synthetic LiveKit replay/tamper/tenant/reordering, stale review rejection, cutoff selection and provider-disconnect negative QA executed. Owner separately reports classroom/recording/LMS playback; retrieve source/date-attributed provider artifacts. V4 AI QA cannot be called exact-V5 execution; review material deltas. The c8c80151-to-f736e64b delta has no AI/video business-logic or migration changes. Keep paid-video flags OFF; separate disabled monetization acceptance from classroom operation without waiving required gates."
     },
     {
       "id": "security_privacy_tenant_qa",
       "name": "Multi-tenant security, authorization, privacy and load testing",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "New staging-only read-only inventory verifies 6 healthy core V5 services, DB name/host and HTTPS origin, Razorpay TEST mode, exact API-only Razorpay and backup-only R2 read-only host file bind mounts, no backup/payment secret environment leakage, and two image source labels. No real deployed-code security verification, authenticated school/guardian UAT, or third-party provider proof yet."
+      "nextAction": "29 Oct owner explicitly authorized Ajay Chaudhary as accountable INTERNAL owner-led security reviewer with ChatGPT as advisory assistant and reported broad internal approval. Proposed governance amendment allows disclosed OWNER_LED_AI_ASSISTED review only with actual assessment, contract/law audit-applicability decision and signed human risk-acceptance references; not independent certification. GitHub source confirms API-only protected secret mounts and minimal migration env, existing operator reports non-API credential counts zero and synthetic Vault crypto PASS. Obtain actual scoped privacy/tenant/load acceptance, exact-source image provenance, risk findings/#281 historical exposure disposition; do not fabricate signoffs or rotate keys without evidence."
     },
     {
       "id": "customer_uat",
       "name": "Signed realistic customer UAT and operational onboarding",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Source-level SchoolOS demo funnel now enforces website-only public source, declared lead contact permission, atomic multi-replica public deduplication and platform-authenticated sales handoff. Real PostgreSQL HTTP acceptance must pass before staging; CRM response still not a booking/contract/payment or real institution UAT. Need approved staging operator/browser/mobile customer validation."
+      "nextAction": "Owner explicitly selected Being Brilliant Academy (BBA) and confirmed Ajay Chaudhary authorized institutional signatory; owner-associated BBA is OWNER_OPERATED_RELATED_PARTY, NOT INDEPENDENT_EXTERNAL. Proposed updated paid-release validator will accept related-party UAT only with truthful relationship disclosure, real BBA tenant + witnessed scenario matrix, dated actual signature and signed conflict/independence waiver references. QA fixture schoolos-qa-coaching is NOT BBA. Owner management approval alone is not observed BBA UAT. Require all other commercial gates; no paid video/money movement."
     },
     {
       "id": "operational_support",
       "name": "Production operations, monitoring, incident response and recovery",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Strict external staging GET failures now trigger informational sanitized DNS/TLS IPv4/IPv6 probes only when staging_readonly_smoke.outcome == failure, not unrelated step failure. Issue #240 remains unresolved without RCA. Require monitoring, DR/rollback and 14-day R2 recovery signoffs."
+      "nextAction": "Owner reported Ajay Chaudhary APPROVED internal operations/security responsibilities. Existing 114-migration offsite restore, Telegram backup-monitor receipt and active off-host HetrixTools readiness may be reused. Record named backup duty owner (none has been identified), authentic incident #240 residual-risk acceptance, non-disruptive failure/recovery alert receipt, worker coverage, nonempty media/Vault recovery applicability and immutable image/rollback original reference. A broad approval does not prove unperformed alert or restore scenarios. No redundant green probe reruns."
     },
     {
       "id": "commercial_legal_finance",
       "name": "Approved service pricing, billable metrics, contract, privacy and tax policy",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Private demo marketing submission records a server timestamp for consent assertion (NOT cryptographic signed consent) and preserves SchoolOS sales attribution; signed contract/provider TEST receipts and finance, privacy policy, onboarding fee vs included scope, taxes and 60-day pilot approval remain separate unsigned commercial launch blockers."
+      "nextAction": "Owner reported Madhuri Verma APPROVED the assigned internal finance/legal decisions, but original dated decision and signed restricted artifact still need recording. Previously verified staging pricebook Essentials ₹49,900, Growth ₹99,900, Professional ₹149,990 ALIGNED; no reapply. Capture original applicable GST, pilot ₹14,999/60 days, onboarding inclusions/options, privacy/DPA/refund and signed terms decisions and map actual Razorpay TEST source-to-contract/invoice/ledger records. Owner report is not external counsel certification; do not invoice BBA by default or collect live payments."
     },
     {
       "id": "production_owner_approval",
       "name": "Final signed owner authorization to promote V5 to production",
       "status": "PENDING",
       "evidence": [],
-      "nextAction": "Do not infer commercial GO from a Docker image label or green synthetic CI. V5 owner-controlled operator staging promotion must remain separate from V4 production and requires independent image/backup/rollback evidence. Production readiness only after 10/10 signed release gates, verified providers/payments, legal/finance/real customer UAT and written owner authorization."
+      "nextAction": "Owner stated 'consider everything approved' on 29 Oct 2026, recording management approval IN PRINCIPLE for owner-led AI-assisted security and BBA related-party UAT model. This is NOT proof that remaining 9 real test/contract/operational evidence gates are complete. Keep production HOLD until signed attributable SHA-pinned original records for each gate, reviewed image provenance, pnpm v5:release:require-ready PASS, explicit production-specific deployment/rollback GO and controlled cutover. Do NOT promote V5 into frozen V4 main or activate paid services based on blanket declaration."
     }
   ]
 }
