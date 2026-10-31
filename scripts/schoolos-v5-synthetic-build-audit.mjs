@@ -3,7 +3,7 @@
  * history, Docker stderr, environment variable values, or secret content.
  * Requires a disposable CI runner; does not deploy or run containers. */
 import { spawnSync } from "node:child_process";
-import { sensitiveAssignments } from "./schoolos-v5-image-build-history-audit.mjs";
+import { sensitiveAssignments, reviewSupportingImage } from "./schoolos-v5-image-build-history-audit.mjs";
 
 const KEYS = ["POSTGRES_PASSWORD","REDIS_PASSWORD","DATABASE_URL","REDIS_URL",
   "JWT_ACCESS_SECRET","JWT_REFRESH_SECRET","AI_API_KEY","SMTP_PASSWORD",
@@ -51,6 +51,28 @@ function main() {
       .trim().split("\n").map(line=>JSON.parse(line));
     return reviewFreshBuild({image:images?.[0],history,role,source});
   });
+  // Nginx and backup are custom-built too. Earlier live observations
+  // confirmed a nonempty DB/Redis history assignment in both, so CI must
+  // test independent no-secret builds for both supporting images as well.
+  // These two upstream-based Dockerfiles have no source revision OCI label;
+  // this is a metadata check, NOT authenticated image provenance.
+  for (const [role,tag] of [
+    ["NGINX","schoolos-v5-ci-nginx:verification"],
+    ["BACKUP","schoolos-v5-ci-backup:verification"],
+  ]) {
+    const images=JSON.parse(docker(["image","inspect",tag]));
+    if(!Array.isArray(images) || images.length!==1)
+      throw new Error("SUPPORT_IMAGE_NOT_FOUND");
+    const history=docker(["history","--no-trunc","--format","{{json .CreatedBy}}",tag])
+      .trim().split("\n").map(line=>JSON.parse(line));
+    const result=reviewSupportingImage({
+      image:images[0],id:images[0]?.Id,role,history
+    });
+    reports.push({
+      role:result.role,status:result.status,reasons:result.reasons,
+      signedImageProvenance:false,layerContentSecretScan:false
+    });
+  }
   const status=reports.every(r=>r.status==="PASS_METADATA_ONLY")?"PASS_METADATA_ONLY":"FAIL";
   console.log("SCHOOLOS_V5_SYNTHETIC_IMAGE_AUDIT "+JSON.stringify({
     status,reports,realCredentialsUsed:false,
