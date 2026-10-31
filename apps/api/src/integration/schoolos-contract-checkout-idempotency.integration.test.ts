@@ -314,6 +314,21 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     }
     // An overdue collectible invoice remains eligible for verified settlement.
     await systemPrisma.saaSInvoice.update({ where: { id: invoice.id }, data: { status: SaaSInvoiceStatus.OVERDUE } });
+    // A provider failure notification on an OVERDUE but still collectible order
+    // must be recorded as an unsuccessful attempt, not rejected or settled.
+    const overdueFailureId = "pay_" + unique + "overdue";
+    const overdueFailure = { ...failure, payload: { payment: { entity: {
+      ...failure.payload.payment.entity, id: overdueFailureId,
+    } } } };
+    assert.equal((await postWebhook(overdueFailure, signatureFor(overdueFailure))).status, 200);
+    assert.equal((await postWebhook(overdueFailure, signatureFor(overdueFailure))).status, 200);
+    assert.equal(await systemPrisma.saaSPayment.count({
+      where: { invoiceId, providerPaymentId: overdueFailureId, status: "FAILED" },
+    }), 1);
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "OVERDUE");
+    console.log("SYNTHETIC_OVERDUE_FAILURE_REPLAY=PASS");
 
     // Real PostgreSQL transaction race: three signed HTTP deliveries for the
     // same provider capture arrive before the first one has committed.
@@ -441,7 +456,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     assert.equal(finance.totals.capturedPaise, totalPaise);
     assert.equal(finance.totals.processedRefundPaise, refundAmountPaise);
     assert.equal(finance.totals.capturedLessRefundsPaise, totalPaise - refundAmountPaise);
-    assert.equal(finance.counts.failedAttempts, 1);
+    assert.equal(finance.counts.failedAttempts, 2);
     assert.equal("payments" in finance, false, "Raw payment records must not be returned");
     assert.deepEqual(await systemPrisma.saaSInvoice.findUniqueOrThrow({
       where: { id: invoice.id }, include: { payments: true, schoolOSPaymentAdjustments: true, schoolOSPaymentRiskHold: true },
@@ -502,6 +517,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
       where: { provider: "RAZORPAY", eventKey: { in: [
         "payment.captured:pay_" + unique,
         "payment.failed:pay_" + unique + "failed",
+        "payment.failed:pay_" + unique + "overdue",
         "refund.processed:rfnd_" + unique,
         "refund.processed:rfnd_" + unique + "final",
       ] } },
