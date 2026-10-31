@@ -78,3 +78,61 @@ Unreviewed merge/deployment remain prohibited while concurrent Phase 2 owns shar
 | Human acceptance | Owner has reported internal approval **in principle** | Actual signed scoped acceptance original and exact protected reference; approval intent alone is not a signed gate record |
 
 **Governance:** Do not place a name in a signature line or mark Gate 6/2/3/8 verified without source-attributed evidence. Production promotion and paid-video/live payment collection remain HOLD. This is Phase 1 technical engineering evidence, not a quantified partial gate pass.
+
+
+## 7. 31 October P0 — sensitive credential values in BOTH staging application image histories
+
+**Owner-run, read-only evidence:** API and Web Docker build-history audits each returned
+`POSTGRES_PASSWORD_EXPOSED=YES`, `REDIS_PASSWORD_EXPOSED=YES`, and
+`DATABASE_URL_EXPOSED=YES`. The checked Razorpay secret names and AWS secret
+access key name returned `NO` on both, within the limited history-name check
+only. The operator confirmed `CREDENTIAL_VALUES_PRINTED=NO` and
+`CHANGES_MADE=NO`. **Do not publish or reprint original image histories or
+configuration JSON:** a prior diagnostic error contained the plaintext
+database/Redis credential values. Restrict access to existing image archives
+and image registry/build logs. See P0 incident #293.
+
+**Material interpretation:** Earlier six non-API container `Config.Env`
+isolation and database target-parity PASS remain true but **do not prove that
+Docker image build history is free of secrets**. A matching OCI source
+revision label is not authenticated provenance. The reviewed source Web
+Dockerfile declares only its narrow required build arguments, while the
+operator's deployed Web image history included a generated BuildKit RUN
+invocation with dozens of build-time environment assignments; actual
+Coolify/build-configuration injection mechanism has NOT been independently
+resolved. API build history also contains exposed values.
+
+**Phase 1 fail-closed remediation, source-only, NOT deployed:**
+- New `scripts/schoolos-v5-image-build-history-audit.mjs` reads pinned
+  image metadata and Docker history with no secret output; sensitive names
+  or image-level sensitive Env assignments veto the result. It does not
+  claim a full layer-content secret scan, registry signing, or an approved
+  old-image rollback.
+- The isolated V5 provenance audit calls that image-history audit for both
+  running API and Web image IDs and changes the technical status to FAIL
+  when either has exposed history, unreadable history or bad identity.
+- CI tests exercise injected BuildKit credentials using **synthetic fixture
+  strings only**. A CI unit-test PASS does not mean the currently deployed
+  Coolify-built image is clean. The live image audit is expected to fail
+  until a safe clean rebuild and independently approved staging rollout.
+
+**Remediation dependencies:** secure the restricted evidence and artifacts,
+trace exactly which environment/build args Coolify supplied to each image,
+remove protected secrets from build-time inputs, create content-scanned new
+images, prove authenticated source→build→registry→running image mapping,
+perform a coordinated PostgreSQL/Redis credential rotation with compatibility
+and backup/restore plan, verify staging and offsite recovery, then obtain
+the owner-led attributable restricted security/risk decision. Do **not**
+rotate Vault encryption keys, blindly change live DB passwords, change V4
+production, or deploy to shared V5 staging during Phase 2 UAT without a
+recorded lock handoff and reviewed rollback/recovery strategy.
+
+The Windows recovery archive of the **current, credential-exposed images**
+passed a matching transfer checksum and its Docker layer-content validation,
+but its possession increases the need for careful access control. It does
+not represent a clean release artifact. The interrupted Windows image-import
+script showed PowerShell manifest parsing errors; later prints of
+`ARCHIVE_PREFLIGHT=PASS` after exceptions are not valid evidence of
+successful isolated restore. Prior missing older rollback images remain
+unavailable. Neither full P0 resolution nor formal commercial gates can be
+credited from this source-only change; **commercial GO HOLD**.
