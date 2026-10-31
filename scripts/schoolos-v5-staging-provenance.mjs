@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
  * Read-only Coolify/Docker V5 staging acceptance PRECHECK, not a release GO.
- * Invokes only Docker ps/inspect. Never invokes compose, pull, build, restart,
- * database CLI, payment provider, or network write. Emits no secrets/URL users.
+ * Invokes only Docker ps/inspect plus pinned image inspect/history metadata.
+ * Never invokes compose, pull, build, restart, database CLI, payment provider,
+ * or network write. Emits no Docker history, configuration or credential values.
  */
 import { spawnSync } from "node:child_process";
+import { auditImage } from "./schoolos-v5-image-build-history-audit.mjs";
 
 const services = ["postgres", "redis", "api", "web", "nginx", "backup"];
 const appRevisionKey = "org.opencontainers.image.revision";
@@ -267,7 +269,37 @@ export function runReadOnlyDockerAudit({ project, sourceSha }) {
   let containers;
   try { containers = JSON.parse(inspection.stdout); } catch { throw new Error("DOCKER_INSPECT_FORMAT_INVALID"); }
   if (!Array.isArray(containers)) throw new Error("DOCKER_INSPECT_FORMAT_INVALID");
-  return inspectV5StagingContainers(containers, { project, sourceSha });
+  const snapshot = inspectV5StagingContainers(containers, { project, sourceSha });
+  // Runtime Env containment alone does not protect credentials baked into
+  // OCI image build-history RUN instructions. Audit both pinned image IDs,
+  // fail closed on missing/unreadable history, and NEVER echo Docker output.
+  const imageHistory = [];
+  for (const role of ["API", "WEB"]) {
+    const service = snapshot.services.find(s => s.service === role.toLowerCase());
+    if (!service?.imageId) {
+      snapshot.reasons.push("IMAGE_HISTORY_PIN_MISSING_" + role);
+      continue;
+    }
+    try {
+      const result = auditImage({ id: service.imageId, role, sha: sourceSha });
+      imageHistory.push(result);
+      if (result.status !== "PASS_METADATA_ONLY")
+        snapshot.reasons.push("IMAGE_HISTORY_SECURITY_VETO_" + role);
+    } catch {
+      snapshot.reasons.push("IMAGE_HISTORY_UNREADABLE_" + role);
+    }
+  }
+  snapshot.imageBuildHistory = {
+    reviewed: imageHistory.map(r => ({
+      role: r.role, status: r.status, reasons: r.reasons,
+      sensitiveKeyNames: r.sensitiveKeyNames,
+      imageEnvKeyNames: r.imageEnvKeyNames,
+    })),
+    registryProvenanceVerified: false, layersSecretScanned: false,
+  };
+  snapshot.reasons = [...new Set(snapshot.reasons)].sort();
+  if (snapshot.reasons.length) snapshot.status = "FAIL";
+  return snapshot;
 }
 
 if (process.argv[1]?.endsWith("schoolos-v5-staging-provenance.mjs")) {
