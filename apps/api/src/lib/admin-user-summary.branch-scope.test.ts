@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import { Role } from "@prisma/client";
 import { summarizeAdminUser } from "./admin-user-summary.js";
 
@@ -35,13 +36,16 @@ test("BBA branch filtering never leaks neighboring campus through shared teacher
   const teacher = {
     ...record,
     role: Role.TEACHER,
+    studentProfile: null,
+    employee: null,
+    parentChildren: [],
     branchAssignments: [{ branch: NDG }, { branch: RNE }, { branch: SHN }],
     teacherProfile: { id: "teacher-rne", employeeNo: "RNE_SECRET_EMPLOYEE", branch: RNE },
   };
   const scoped = summarizeAdminUser(teacher, [NDG.id]);
   assert.deepEqual(scoped.branchAssignments.map((x: any) => x.branch.id), [NDG.id]);
   assert.equal(scoped.teacherProfile, null);
-  assert.equal(scoped.linkedProfile, "STUDENT"); // legacy linkedProfile precedence retained for malformed composite profile fixtures
+  assert.equal(scoped.linkedProfile, "TEACHER");
   assert.equal(JSON.stringify(scoped).includes("RNE_SECRET_EMPLOYEE"), false);
   assert.equal(JSON.stringify(scoped).includes('"id":"shn"'), false);
 });
@@ -58,4 +62,11 @@ test("explicit branch filter scopes nested data even when requested by SUPER_ADM
   assert.deepEqual(one.branches.map((b: any) => b.id), [RNE.id]);
   assert.deepEqual(one.parentChildren.map((child: any) => child.id), ["rne-student"]);
   assert.deepEqual(one.branchAssignments, []);
+});
+
+test("admin users-list always supplies the authorized branch filter to the serializer", async () => {
+  const file = new URL("../routes/admin-users.ts", import.meta.url);
+  const source = await readFile(file, "utf8");
+  assert.match(source, /branchFilter = q\.branchId \? \[q\.branchId\] : allowed/);
+  assert.match(source, /data\.map\(user => summarizeAdminUser\(user, branchFilter\)\)/);
 });
