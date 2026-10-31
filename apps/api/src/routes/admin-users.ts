@@ -58,7 +58,7 @@ router.get("/users", async (req: AuthRequest, res) => {
   if (q.search) filters.push({ OR: [{ name: { contains: q.search, mode: "insensitive" as const } }, { email: { contains: q.search, mode: "insensitive" as const } }, { phone: { contains: q.search, mode: "insensitive" as const } }] });
   const where = { ...(filters.length ? { AND: filters } : {}), ...(q.role ? { role: q.role } : {}), ...(q.status ? { isActive: q.status === "active" } : {}) };
   const [total, data] = await prisma.$transaction([prisma.user.count({ where }), prisma.user.findMany({ where, select: userSelect, orderBy: { createdAt: "desc" }, skip: (q.page - 1) * q.limit, take: q.limit })]);
-  res.json({ data: data.map(summarizeAdminUser), meta: { total, page: q.page, limit: q.limit, totalPages: Math.max(1, Math.ceil(total / q.limit)) } });
+  res.json({ data: data.map(user => summarizeAdminUser(user, branchFilter)), meta: { total, page: q.page, limit: q.limit, totalPages: Math.max(1, Math.ceil(total / q.limit)) } });
 });
 
 router.get("/users/students", async (req: AuthRequest, res) => {
