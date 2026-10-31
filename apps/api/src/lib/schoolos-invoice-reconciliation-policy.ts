@@ -1,3 +1,5 @@
+import { schoolOSDisputeReleasePolicy } from "./schoolos-dispute-release-policy.js";
+
 /** Internal ledger arithmetic only. Never certifies provider/bank settlement or tax compliance. */
 export type SchoolOSInvoiceLedger = {
   id: string; organizationId: string; schoolOSQuoteId: string | null;
@@ -40,6 +42,13 @@ export function reconcileSchoolOSInvoiceLedger(invoice: SchoolOSInvoiceLedger) {
     findings.add("RISK_HOLD_TENANT_OR_STATE_INVALID");
   if (invoice.schoolOSPaymentAdjustments.length > 0 && !invoice.schoolOSPaymentRiskHold)
     findings.add("RISK_HOLD_MISSING_FOR_ADJUSTMENTS");
+  // Release is permitted only for independently reviewed, matching won disputes.
+  // A resolved hold with a refund, lost/unresolved dispute or no eligible source
+  // event contradicts the actual maker-checker risk-release policy. Do not show
+  // it as financially reconciled even when the arithmetic itself balances.
+  if (invoice.schoolOSPaymentRiskHold?.status === "RESOLVED" &&
+      !schoolOSDisputeReleasePolicy(invoice.schoolOSPaymentAdjustments).allowed)
+    findings.add("RISK_HOLD_RELEASE_EVIDENCE_INVALID");
   if (invoice.payments.length > SCHOOL_OS_RECONCILIATION_ROW_LIMIT
     || invoice.schoolOSPaymentAdjustments.length > SCHOOL_OS_RECONCILIATION_ROW_LIMIT)
     findings.add("LEDGER_ROW_LIMIT_EXCEEDED");

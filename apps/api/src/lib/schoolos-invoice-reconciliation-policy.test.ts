@@ -62,21 +62,28 @@ test("dispute lifecycle callbacks are not added to refund cash totals", () => {
   assert.equal(result.disputeReviewRequired, true);
   assert.equal(result.providerSettlement, "NOT_VERIFIED");
 });
-test("resolved finance hold is visible without asserting bank settlement", () => {
+test("resolved finance hold requires matching won dispute and does not verify provider settlement", () => {
   const l = ledger();
   l.schoolOSPaymentRiskHold = { organizationId: "tenant-test", status: "RESOLVED" };
-  l.schoolOSPaymentAdjustments = [adjustment()];
+  l.schoolOSPaymentAdjustments = [
+    adjustment("payment.dispute.created", "disp_won", 11800),
+    adjustment("payment.dispute.won", "disp_won", 11800),
+  ];
   const result = reconcile(l);
   assert.equal(result.status, "INTERNAL_AMOUNTS_CONSISTENT");
   assert.equal(result.financeHoldStatus, "RESOLVED");
-  assert.equal(result.financeReviewRequired, false);
-  assert.equal(result.totals?.processedRefundPaise, 1800);
+  assert.equal(result.disputeReviewRequired, true);
+  assert.equal(result.totals?.processedRefundPaise, 0);
   assert.equal(result.providerSettlement, "NOT_VERIFIED");
 });
 const invalid: Array<[string, (l: SchoolOSInvoiceLedger) => void, string]> = [
   ["foreign payment", l => { l.payments[0].organizationId = "foreign"; }, "PAYMENT_TENANT_OR_INVOICE_MISMATCH"],
   ["orphan refund without finance hold", l => { l.schoolOSPaymentAdjustments = [adjustment()]; }, "RISK_HOLD_MISSING_FOR_ADJUSTMENTS"],
   ["foreign finance hold", l => { l.schoolOSPaymentRiskHold = { organizationId: "foreign", status: "ACTIVE" }; }, "RISK_HOLD_TENANT_OR_STATE_INVALID"],
+  ["resolved hold without source dispute", l => { l.schoolOSPaymentRiskHold = { organizationId: "tenant-test", status: "RESOLVED" }; }, "RISK_HOLD_RELEASE_EVIDENCE_INVALID"],
+  ["resolved hold after a processed refund", l => { l.schoolOSPaymentRiskHold = { organizationId: "tenant-test", status: "RESOLVED" }; l.schoolOSPaymentAdjustments = [adjustment()]; }, "RISK_HOLD_RELEASE_EVIDENCE_INVALID"],
+  ["resolved hold with an unresolved dispute", l => { l.schoolOSPaymentRiskHold = { organizationId: "tenant-test", status: "RESOLVED" }; l.schoolOSPaymentAdjustments = [adjustment("payment.dispute.created", "disp_test", 11800)]; }, "RISK_HOLD_RELEASE_EVIDENCE_INVALID"],
+  ["resolved hold after a lost dispute", l => { l.schoolOSPaymentRiskHold = { organizationId: "tenant-test", status: "RESOLVED" }; l.schoolOSPaymentAdjustments = [adjustment("payment.dispute.created", "disp_test", 11800), adjustment("payment.dispute.lost", "disp_test", 11800)]; }, "RISK_HOLD_RELEASE_EVIDENCE_INVALID"],
   ["foreign refund", l => { l.schoolOSPaymentAdjustments = [{ ...adjustment(), organizationId: "foreign" }]; }, "ADJUSTMENT_TENANT_OR_INVOICE_MISMATCH"],
   ["foreign quote", l => { l.schoolOSQuote!.organizationId = "foreign"; }, "QUOTE_LINK_MISMATCH"],
   ["paid invoice with pending quote", l => { l.schoolOSQuote!.status = "PAYMENT_PENDING"; }, "INVOICE_QUOTE_SETTLEMENT_STATE_CONFLICT"],
