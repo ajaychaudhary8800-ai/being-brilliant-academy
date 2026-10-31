@@ -55,6 +55,12 @@ test("existing BBA deferred branch manager appointment rejects privilege escalat
     assert.equal(options.isolationLevel, "Serializable");
     transactions++;
     return fn({
+      $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        assert.ok(strings.join("?").includes('FOR UPDATE'), "Manager appointment must lock target branch row");
+        assert.equal(values[0], BRANCH);
+        assert.equal(values[1], ORG);
+        return foundBranch ? [{ id: BRANCH }] : [];
+      },
       branch: {
         findFirst: async ({ where }: any) => {
           assert.equal(where.organizationId, ORG);
