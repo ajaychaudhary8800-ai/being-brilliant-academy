@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {reviewImage,sensitiveAssignments} from "./schoolos-v5-image-build-history-audit.mjs";
+import {reviewImage,reviewSupportingImage,sensitiveAssignments} from "./schoolos-v5-image-build-history-audit.mjs";
 
 const id="sha256:"+"a".repeat(64), sha="b".repeat(40);
 function fake(role="WEB") {
@@ -39,4 +39,30 @@ test("wrong project, source revision and unreadable history fail closed",()=>{
   x.Config.Labels["com.docker.compose.project"]="unknown";
   const y=review(x,[]);
   assert.deepEqual(y.reasons,["PROJECT_MISMATCH","REVISION_MISMATCH","UNREADABLE_HISTORY"]);
+});
+
+test("backup and proxy image histories are independently scanned",()=>{
+  for(const role of ["BACKUP","NGINX"]){
+    const image={Id:id,Config:{Env:["PATH=/usr/bin"]}};
+    const r=reviewSupportingImage({image,id,role,history:["RUN |57 DATABASE_URL=postgresql://u:sensitive-fixture@db /bin/sh -c true"]});
+    assert.equal(r.status,"FAIL");
+    assert.deepEqual(r.sensitiveKeyNames,["DATABASE_URL"]);
+    assert.ok(!JSON.stringify(r).includes("sensitive-fixture"));
+  }
+});
+test("support images reject unexpected Config.Env secret and ID mismatch",()=>{
+ const image={Id:"sha256:"+"c".repeat(64),Config:{Env:["REDIS_PASSWORD=synthetic-private"]}};
+ const r=reviewSupportingImage({image,id,role:"NGINX",history:["RUN chmod 0755 /etc/nginx/nginx.conf"]});
+ assert.equal(r.status,"FAIL");
+ assert.ok(r.reasons.includes("SUPPORT_IMAGE_ID_MISMATCH"));
+ assert.ok(r.reasons.includes("SENSITIVE_IMAGE_CONFIG_ENV"));
+ assert.deepEqual(r.imageEnvKeyNames,["REDIS_PASSWORD"]);
+ assert.equal(JSON.stringify(r).includes("synthetic-private"),false);
+});
+test("benign supporting image metadata passes without claiming signed provenance",()=>{
+ const image={Id:id,Config:{Env:["PATH=/usr/bin"]}};
+ const r=reviewSupportingImage({image,id,role:"BACKUP",history:["RUN apk add --no-cache dcron"]});
+ assert.equal(r.status,"PASS_METADATA_ONLY");
+ assert.equal(r.sourceImageProvenanceVerified,false);
+ assert.equal(r.layersInspected,false);
 });
