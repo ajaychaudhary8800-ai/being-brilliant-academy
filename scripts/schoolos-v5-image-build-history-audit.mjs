@@ -50,11 +50,49 @@ export function reviewImage({image, id, role, sha, history}) {
     imageEnvKeyNames:[...new Set(bakedKeys)].sort(), credentialsPrinted:false,
     layersInspected:false, signedProvenanceVerified:false, launchAuthorized:false};
 }
+/** Scan the other locally-built images; these need not carry the API/Web
+ * revision label or role workdir. The pinned container Image ID identifies
+ * their service, so missing standalone image build labels are not excused
+ * as a proof of provenance. Do not print or hash credentials. */
+export function reviewSupportingImage({image,id,role,history}) {
+  const failures=[];
+  if (!["NGINX","BACKUP"].includes(role)) failures.push("UNEXPECTED_SUPPORT_ROLE");
+  if (image?.Id !== id) failures.push("SUPPORT_IMAGE_ID_MISMATCH");
+  if (!Array.isArray(history) || !history.length ||
+      history.some(x=>typeof x!=="string")) failures.push("UNREADABLE_HISTORY");
+  const keys=sensitiveAssignments(history);
+  if (keys.length) failures.push("SENSITIVE_BUILD_HISTORY_ASSIGNMENT");
+  const bakedKeys=(image?.Config?.Env??[]).filter(e=>typeof e==="string")
+    .map(e=>e.split("=",1)[0]).filter(k=>KEYS.includes(k));
+  if (bakedKeys.length) failures.push("SENSITIVE_IMAGE_CONFIG_ENV");
+  return {
+    role, status:failures.length?"FAIL":"PASS_METADATA_ONLY",
+    reasons:[...new Set(failures)].sort(),sensitiveKeyNames:keys,
+    imageEnvKeyNames:[...new Set(bakedKeys)].sort(),credentialsPrinted:false,
+    sourceImageProvenanceVerified:false,layersInspected:false,
+    signedProvenanceVerified:false,launchAuthorized:false
+  };
+}
+
 function docker(args) {
   const r=spawnSync("docker",args,{encoding:"utf8",timeout:20000,maxBuffer:16*1024*1024});
   if (r.error || r.status!==0) throw new Error("DOCKER_READ_FAILED");
   return r.stdout;
 }
+export function auditSupportingImage({id,role}) {
+  if (!/^sha256:[a-f0-9]{64}$/.test(id??"") ||
+      !["NGINX","BACKUP"].includes(role)) throw new Error("INVALID_SUPPORT_PIN");
+  let image,history;
+  try {
+    const images=JSON.parse(docker(["image","inspect",id]));
+    if (!Array.isArray(images) || images.length!==1) throw new Error("INVALID_SUPPORT_IMAGE");
+    image=images[0];
+    history=docker(["history","--no-trunc","--format","{{json .CreatedBy}}",id])
+      .trim().split("\n").map(row=>JSON.parse(row));
+  } catch { throw new Error("SUPPORT_IMAGE_METADATA_READ_FAILED"); }
+  return reviewSupportingImage({image,id,role,history});
+}
+
 export function auditImage({id,role,sha}) {
   if (!/^sha256:[a-f0-9]{64}$/.test(id??"") || !/^[a-f0-9]{40}$/.test(sha??"")
       || !["API","WEB"].includes(role)) throw new Error("INVALID_PIN");
