@@ -135,17 +135,11 @@ jobs:
             --cap-drop ALL --security-opt no-new-privileges \
             --entrypoint /bin/sh schoolos-v5-ci-lf-check:ephemeral \
             -n /usr/local/bin/bba-api-entrypoint
-          set +e
           docker run --rm --pull=never --network none --read-only \
             --cap-drop ALL --security-opt no-new-privileges \
-            --entrypoint /bin/grep schoolos-v5-ci-lf-check:ephemeral \
-            -q "$(printf '\\r')" /usr/local/bin/bba-api-entrypoint
-          grep_rc=$?
-          set -e
-          if [ "$grep_rc" -ne 1 ]; then
-            echo "V5_API_ENTRYPOINT_LINE_ENDINGS=FAIL"
-            exit 1
-          fi
+            --entrypoint /bin/cat schoolos-v5-ci-lf-check:ephemeral \
+            /usr/local/bin/bba-api-entrypoint \
+            | python3 -c 'import sys; b=sys.stdin.buffer.read(); sys.exit(0 if b and bytes([13]) not in b else 1)'
           echo "V5_API_CLEAN_IMAGE_ENTRYPOINT_SYNTAX=PASS"
           echo "V5_API_CLEAN_IMAGE_ENTRYPOINT_LF=PASS"
           echo "REAL_STAGING_IMAGE_ATTESTED=NO"
