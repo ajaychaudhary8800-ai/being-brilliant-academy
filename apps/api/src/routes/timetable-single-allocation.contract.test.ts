@@ -20,7 +20,7 @@ test("single-period validator rejects non-effective allocations for live timetab
   assert.match(single, /status:"ACTIVE",legacyReviewStatus:"CONFIRMED"/);
   assert.match(single, /if\(!allocation\|\|!teacherSubject\|\|!activeSubject\)/);
   assert.match(single, /TEACHER_SUBJECT_NOT_ALLOCATED/);
-  assert.match(single, /teacher:\s*true/); // teacher profile continues to be read for base eligibility
+  assert.match(single, /teacherAssignable\(org\?\.groupLabelType,teacher,d\.branchId,batch\.organizationId\)/);
 });
 
 test("all individual timetable entry creation, edit and archive reactivation reuse guarded validator", () => {
