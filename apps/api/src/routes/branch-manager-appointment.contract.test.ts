@@ -23,6 +23,8 @@ test("appointment is serializable, tenant-local, idempotent and does not silentl
   const handler = source.slice(start, end);
   assert.match(handler, /retrySerializableWrite\(/);
   assert.match(handler, /Prisma\.TransactionIsolationLevel\.Serializable/);
+  assert.match(handler, /FOR UPDATE/);
+  assert.match(handler, /"organizationId" =/);
   assert.match(handler, /where: \{ id: branchId, organizationId: req\.auth!\.organizationId \}/);
   assert.match(handler, /where: \{ branchId, organizationId: req\.auth!\.organizationId \}/);
   assert.match(handler, /decision === "ALREADY_ASSIGNED"/);
