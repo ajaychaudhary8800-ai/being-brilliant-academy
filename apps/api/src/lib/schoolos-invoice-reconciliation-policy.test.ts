@@ -107,6 +107,16 @@ const invalid: Array<[string, (l: SchoolOSInvoiceLedger) => void, string]> = [
   ["foreign quote", l => { l.schoolOSQuote!.organizationId = "foreign"; }, "QUOTE_LINK_MISMATCH"],
   ["paid invoice with pending quote", l => { l.schoolOSQuote!.status = "PAYMENT_PENDING"; }, "INVOICE_QUOTE_SETTLEMENT_STATE_CONFLICT"],
   ["unpaid collectible invoice with paid quote", l => { l.status = "OVERDUE"; l.payments = []; }, "INVOICE_QUOTE_SETTLEMENT_STATE_CONFLICT"],
+  ["void invoice still linked to paid quotation", l => {
+    l.status = "VOID"; l.payments = [];
+  }, "INVOICE_QUOTE_SETTLEMENT_STATE_CONFLICT"],
+  ["draft invoice still linked to paid quotation", l => {
+    l.status = "DRAFT"; l.payments = [];
+  }, "INVOICE_QUOTE_SETTLEMENT_STATE_CONFLICT"],
+  ["unpaid invoice cannot carry previously active paid-payment hold", l => {
+    l.status = "OPEN"; l.schoolOSQuote!.status = "PAYMENT_PENDING";
+    l.payments = []; l.schoolOSPaymentRiskHold = { organizationId: "tenant-test", status: "ACTIVE" };
+  }, "RISK_HOLD_INVOICE_NOT_PAID"],
   ["invoice arithmetic", l => { l.taxPaise++; }, "INVOICE_TOTAL_MISMATCH"],
   ["unsafe integer", l => { l.amountPaise = Number.MAX_SAFE_INTEGER + 1; }, "INVOICE_TOTAL_MISMATCH"],
   ["missing capture", l => { l.payments = []; }, "PAID_INVOICE_CAPTURE_MISMATCH"],

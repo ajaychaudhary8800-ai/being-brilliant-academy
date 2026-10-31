@@ -34,12 +34,17 @@ export function reconcileSchoolOSInvoiceLedger(invoice: SchoolOSInvoiceLedger) {
   // The signed-quotation checkout moves PAYMENT_PENDING -> PAID atomically
   // with the invoice. Report state drift instead of showing reconciled cash.
   if (invoice.schoolOSQuote && ((invoice.status === "PAID" && invoice.schoolOSQuote.status !== "PAID")
-    || (["OPEN", "OVERDUE"].includes(invoice.status) && invoice.schoolOSQuote.status !== "PAYMENT_PENDING")))
+    || (["OPEN", "OVERDUE"].includes(invoice.status) && invoice.schoolOSQuote.status !== "PAYMENT_PENDING")
+    || (["DRAFT", "VOID"].includes(invoice.status) && invoice.schoolOSQuote.status === "PAID")))
     findings.add("INVOICE_QUOTE_SETTLEMENT_STATE_CONFLICT");
   if (invoice.schoolOSPaymentRiskHold &&
     (invoice.schoolOSPaymentRiskHold.organizationId !== invoice.organizationId ||
       !["ACTIVE", "RESOLVED"].includes(invoice.schoolOSPaymentRiskHold.status)))
     findings.add("RISK_HOLD_TENANT_OR_STATE_INVALID");
+  // Risk holds are created only by verified adjustments against a PAID
+  // quotation. A hold on an unpaid/void invoice is not reconciled cash.
+  if (invoice.schoolOSPaymentRiskHold && invoice.status !== "PAID")
+    findings.add("RISK_HOLD_INVOICE_NOT_PAID");
   if (invoice.schoolOSPaymentAdjustments.length > 0 && !invoice.schoolOSPaymentRiskHold)
     findings.add("RISK_HOLD_MISSING_FOR_ADJUSTMENTS");
   // Release is permitted only for independently reviewed, matching won disputes.
