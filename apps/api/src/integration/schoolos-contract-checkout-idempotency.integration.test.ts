@@ -446,6 +446,35 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     assert.deepEqual(await systemPrisma.saaSInvoice.findUniqueOrThrow({
       where: { id: invoice.id }, include: { payments: true, schoolOSPaymentAdjustments: true, schoolOSPaymentRiskHold: true },
     }), beforeReconciliation);
+    // Full refund from an additional signed provider callback must cap exactly
+    // at the captured amount and remain idempotent, without unreviewed hold release.
+    const remainingRefundId = "rfnd_" + unique + "final";
+    const remainingRefund = { ...refund, payload: { ...refund.payload, refund: { entity: {
+      ...refund.payload.refund.entity, id: remainingRefundId,
+      amount: totalPaise - refundAmountPaise,
+    } } } };
+    assert.equal((await postWebhook(remainingRefund, signatureFor(remainingRefund))).status, 200);
+    assert.equal((await postWebhook(remainingRefund, signatureFor(remainingRefund))).status, 200);
+    assert.equal(await systemPrisma.schoolOSPaymentAdjustment.count({
+      where: { invoiceId, eventType: "refund.processed" },
+    }), 2, "Second signed refund replay must not create duplicate adjustments");
+    const fullRefundFinanceResponse = await fetch(reconciliationUrl, {
+      headers: { Authorization: authorize(reviewer.id, "org_default") },
+    });
+    assert.equal(fullRefundFinanceResponse.status, 200);
+    const fullRefundFinance = (await fullRefundFinanceResponse.json()).data;
+    assert.equal(fullRefundFinance.status, "INTERNAL_AMOUNTS_CONSISTENT");
+    assert.equal(fullRefundFinance.totals.processedRefundPaise, totalPaise);
+    assert.equal(fullRefundFinance.totals.capturedLessRefundsPaise, 0);
+    assert.equal(fullRefundFinance.financeHoldStatus, "ACTIVE");
+    assert.equal(fullRefundFinance.financeReviewRequired, true);
+    assert.equal((await systemPrisma.schoolOSPaymentRiskHold.findUniqueOrThrow({
+      where: { invoiceId },
+    })).revision, 2);
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "PAID");
+    console.log("SYNTHETIC_FULL_REFUND_RECEIPT_REPLAY=PASS");
     console.log("SYNTHETIC_FINANCE_RECONCILIATION_READ_ONLY=PASS");
     console.log("SYNTHETIC_SIGNED_FAILURE_REPLAY=PASS");
     console.log("SYNTHETIC_LATE_FAILURE_AFTER_CAPTURE=PASS");
@@ -474,6 +503,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
         "payment.captured:pay_" + unique,
         "payment.failed:pay_" + unique + "failed",
         "refund.processed:rfnd_" + unique,
+        "refund.processed:rfnd_" + unique + "final",
       ] } },
     });
     await systemPrisma.saaSPayment.deleteMany({ where: { organizationId: customerId } });
