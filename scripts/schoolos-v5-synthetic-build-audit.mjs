@@ -3,7 +3,7 @@
  * history, Docker stderr, environment variable values, or secret content.
  * Requires a disposable CI runner; does not deploy or run containers. */
 import { spawnSync } from "node:child_process";
-import { sensitiveAssignments, reviewSupportingImage } from "./schoolos-v5-image-build-history-audit.mjs";
+import { sensitiveAssignments, reviewImage, reviewSupportingImage } from "./schoolos-v5-image-build-history-audit.mjs";
 
 const KEYS = ["POSTGRES_PASSWORD","REDIS_PASSWORD","DATABASE_URL","REDIS_URL",
   "JWT_ACCESS_SECRET","JWT_REFRESH_SECRET","AI_API_KEY","SMTP_PASSWORD",
@@ -49,7 +49,16 @@ function main() {
     const images=JSON.parse(docker(["image","inspect",tag]));
     const history=docker(["history","--no-trunc","--format","{{json .CreatedBy}}",tag])
       .trim().split("\n").map(line=>JSON.parse(line));
-    return reviewFreshBuild({image:images?.[0],history,role,source});
+    const staticResult=reviewFreshBuild({image:images?.[0],history,role,source});
+    const liveGuardResult=reviewImage({image:images?.[0],id:images?.[0]?.Id,
+      role,sha:source,history});
+    // Exercise the exact deployed-image metadata gate against real, disposable
+    // Docker images. Compose project/service labels exist on CONTAINERS, not
+    // immutable IMAGE Config.Labels, so a clean image must pass both.
+    return {role,status:staticResult.status==="PASS_METADATA_ONLY"
+        && liveGuardResult.status==="PASS_METADATA_ONLY"?"PASS_METADATA_ONLY":"FAIL",
+      reasons:[...new Set([...staticResult.reasons,...liveGuardResult.reasons])].sort(),
+      signedImageProvenance:false,layerContentSecretScan:false};
   });
   // Nginx and backup are custom-built too. Earlier live observations
   // confirmed a nonempty DB/Redis history assignment in both, so CI must
