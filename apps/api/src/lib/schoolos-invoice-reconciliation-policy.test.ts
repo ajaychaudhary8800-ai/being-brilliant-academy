@@ -97,5 +97,6 @@ for (const [name, mutate, finding] of invalid) test(`${name} requires review and
   const result = reconcile(l);
   assert.equal(result.status, "REVIEW_REQUIRED");
   assert.ok(result.findings.includes(finding));
+  assert.equal(result.financeReviewRequired, true);
   assert.equal(result.totals, null);
 });

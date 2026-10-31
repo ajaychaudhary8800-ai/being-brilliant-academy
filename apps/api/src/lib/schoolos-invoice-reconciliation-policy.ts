@@ -97,7 +97,8 @@ export function reconcileSchoolOSInvoiceLedger(invoice: SchoolOSInvoiceLedger) {
     invoiceId: invoice.id,
     invoiceStatus: invoice.status,
     financeHoldStatus: invoice.schoolOSPaymentRiskHold?.status ?? null,
-    financeReviewRequired: invoice.schoolOSPaymentRiskHold?.status === "ACTIVE" || disputeEvents > 0,
+    // An inconsistent ledger MUST never signal that finance review is unnecessary.
+    financeReviewRequired: !consistent || invoice.schoolOSPaymentRiskHold?.status === "ACTIVE" || disputeEvents > 0,
     status: consistent ? "INTERNAL_AMOUNTS_CONSISTENT" : "REVIEW_REQUIRED",
     findings: [...findings].sort(),
     providerSettlement: "NOT_VERIFIED", taxCompliance: "NOT_VERIFIED",
