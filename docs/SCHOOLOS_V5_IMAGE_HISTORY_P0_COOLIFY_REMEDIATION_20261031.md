@@ -72,3 +72,113 @@ Docker history output has been observed yet**. Reuse the current security
 audit without repeating previous successful backup or LiveKit/UAT checks.
 Only report secret-key NAMES and YES/NO flags — never Config, image history,
 service environment, generated `.env`, URL credentials or raw Docker logs.
+
+
+## 31 Oct V2 operator audit — actual literal/empty classification in all four images
+
+The owner successfully executed the live staging V5 **read-only** V2
+history-classification script. The seven-container project inventory passed,
+and API, Web, Nginx and Backup histories were all readable and classified.
+**Each of the four custom image build histories contains nonempty literal
+or expression assignments for exactly these three relevant key names**:
+`DATABASE_URL`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`. Each image also
+contains nine **explicitly empty** assignments for the narrower checked
+credentials: `AI_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+`PAYMENT_CREDENTIAL_ENCRYPTION_KEY`, `RAZORPAY_KEY_SECRET`,
+`RAZORPAY_WEBHOOK_SECRET`, `TWILIO_AUTH_TOKEN`,
+`WEB_PUSH_PRIVATE_KEY`, `WHATSAPP_ACCESS_TOKEN`.
+Each image-level `Config.Env` had no nonempty protected names observed.
+Large BuildKit argument expansion: API YES, Web YES, Nginx NO, Backup YES.
+Unknown reference-classified values: NONE in this checked key set.
+The script printed no values, made no changes, and did **not** scan complete
+filesystem layers. See incident #293 for the sanitized source evidence.
+
+**Precision:** This is an image build-history *assignment format*
+classification, not independent proof the bytes are valid/current runtime
+credentials. PostgreSQL and Redis credential families warrant controlled
+rotation regardless because the earlier raw Web metadata diagnostic
+inadvertently displayed credential-like plaintext. Empty history values for
+the other nine names do not prove those services have no exposure elsewhere.
+Nginx and Backup are now **confirmed in scope** for the clean-image rebuild.
+
+## Post-clean-image controlled maintenance protocol — NOT approved to execute
+
+### A. Immutable preconditions
+1. Identify the **exact** shared V5 staging Coolify resource and record
+   the approved Git SHA, Compose digest, four custom image IDs, six
+   persistent service identities, named volumes, protected runtime-file
+   mounts and existing API/Web revision. No guessed values.
+2. Phase 2 explicitly releases the shared-staging lock on #258. Record
+   an owner-approved change window, operator, recovery strategy and
+   abort criteria. PR #291 remains isolated until the change is reviewed.
+3. New clean build must use **only the nonsecret allowlisted** Dockerfile
+   inputs. Inspect Docker history, final image `Config.Env`, labels and
+   evidence of image-layer content where feasible for **all four images**,
+   with no secret values in logs. Publish immutable private registry
+   digests/source build chain only after review. Retain the four known
+   current-image digests as **restricted emergency forensics**, not clean
+   rollback evidence.
+4. Preserve a current verified offsite DB backup with migration/version
+   manifest, uploads/recordings scope and protected encryption-key custody.
+   The 29 October isolated restore proves historical snapshot recovery,
+   **not** a new just-before-change checkpoint; do not repeat expensive
+   historic tests without necessity, but verify the new checkpoint.
+5. Review all actual PostgreSQL and Redis consumers before changing
+   credentials: postgres role/password, `POSTGRES_PASSWORD` service
+   bootstrap setting, API and migrate `DATABASE_URL`, backup
+   `DATABASE_URL`, Redis `--requirepass`, Redis container environment,
+   API `REDIS_URL`, Redis healthcheck, and any remaining jobs or
+   sidecars. Runtime and protected file mounts are a separate trust
+   boundary from image build args.
+6. Never store new raw credential values in GitHub issues, CI environment,
+   build args, shell history, Docker labels, Dockerfile `ENV`, README,
+   local downloaded logs or exported recovery tar.
+
+### B. Coherent staging rotation + clean rollout
+1. Announce a V5-only synthetic-staging maintenance window and pause
+   test writes/scheduled jobs **only under explicit owner control**. V4
+   production must remain untouched.
+2. Apply V5-only reviewed Coolify Build arguments = **Managed manually
+   in Dockerfile** and build-time access disabled for secrets, without
+   suppressing Compose/runtime interpolation needed for services.
+3. Build and verify all four clean images from an exact pinned source
+   under restricted access, ensuring **no forwarded secret values**.
+4. Prepare new PostgreSQL and Redis passwords in protected local secret
+   custody; coordinate a controlled transition of existing PostgreSQL
+   role authentication with the service environment and all connection
+   URLs. Merely changing the `POSTGRES_PASSWORD` Compose value does
+   **not** update the password of an existing persisted PostgreSQL role.
+   Avoid passwords in terminal arguments or shell history.
+5. Coordinate Redis authentication change with `--requirepass`,
+   runtime Redis/healthcheck clients, API `REDIS_URL` and restart in
+   a reviewed service order. Plan for Redis client session reconnections
+   and short maintenance; do not blindly change only one side.
+6. Recreate only the V5 application/service containers required by the
+   exact approved Compose and newly signed/checked image pins; preserve
+   all named volumes and protected-file mounts. No `down -v`, pruning,
+   irreversible migrations, rollbacks to unreviewed older application
+   schemas, or changes to V4 production.
+7. Verify staging readiness and operational endpoints, DB/Redis actual
+   login with the **new** credentials, rejected use of the **old**
+   credentials, backup/restore integrity for the latest checkpoint,
+   application logs without plaintext, the existing BBA UAT fixture
+   integrity and the two parallel Phase 2/3 acceptance routes.
+8. Rollback/abort if new images contain sensitive history, any credential
+   consumer mismatches, wrong tenant/database, readiness 5xx, application
+   session failures, Vault file-mount loss, backup monitor failure, or
+   schema/volume compatibility uncertainty. **Rollback needs a written
+   state-compatible plan**, not automatic use of the former contaminated
+   images; restore coordinated DB/volumes/keys only under incident command.
+9. After validated cutover, explicitly review and deauthorize old exposed
+   credentials and legacy image access/registry history as applicable,
+   documenting evidence of acceptance, exception scope, expiry and
+   human security/risk signoff. Distinguish existing owner authorization
+   from attributable signed signoff and independent review.
+
+### C. Go/no-go boundaries
+Clean synthetic CI on #291 and saved Coolify settings do **not** authorize
+automatic staging redeployment or live password rotation, even if the owner
+previously approved general engineering continuation. Do not close P0
+incident #293 or any of the ten release gates until the relevant live
+post-change evidence is independently checked and accepted. Commercial
+release remains **HOLD**.
