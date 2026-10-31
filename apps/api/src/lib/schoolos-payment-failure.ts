@@ -68,7 +68,7 @@ export async function recordSchoolOSFailedPayment(evidence: SchoolOSFailedPaymen
 
     if (invoice.status==="PAID" || priorPayment?.status===SaaSPaymentStatus.CAPTURED ||
         priorPayment?.status===SaaSPaymentStatus.REFUNDED) return;
-    if (![SaaSInvoiceStatus.OPEN, SaaSInvoiceStatus.OVERDUE].includes(invoice.status) ||
+    if ((invoice.status!==SaaSInvoiceStatus.OPEN && invoice.status!==SaaSInvoiceStatus.OVERDUE) ||
         invoice.schoolOSQuote?.status!=="PAYMENT_PENDING")
       throw new AppError(409,"SCHOOLOS_PAYMENT_FAILURE_STATE_CONFLICT",
         "This signed SchoolOS order is not accepting new payment attempts");
