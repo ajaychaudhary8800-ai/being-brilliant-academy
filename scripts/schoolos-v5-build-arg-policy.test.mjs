@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {checkComposeBuildArgumentPolicy} from "./schoolos-v5-build-arg-policy.mjs";
+import {checkComposeBuildArgumentPolicy,checkSourceDockerfileArgs} from "./schoolos-v5-build-arg-policy.mjs";
 
 function fixture() {
   return {services:{
@@ -39,4 +39,24 @@ test("never print malformed environment or raw document",()=>{
  const r=checkComposeBuildArgumentPolicy(x);
  assert.equal(r.status,"FAIL");
  assert.equal(JSON.stringify(r).includes("secret"),false);
+});
+
+test("Dockerfile ARG declarations match exactly expected non-secret inputs",()=>{
+ const api="FROM node:22-alpine AS runtime\\nARG SCHOOLOS_BUILD_REVISION=unattested\\n";
+ const web="ARG NEXT_PUBLIC_API_URL=/api/v1\\nFROM node:22-alpine\\nARG SCHOOLOS_BUILD_REVISION=unattested\\n";
+ assert.equal(checkSourceDockerfileArgs(api,["SCHOOLOS_BUILD_REVISION"]).status,
+   "PASS_SOURCE_DOCKERFILE_ARGS_ONLY");
+ assert.equal(checkSourceDockerfileArgs(web,["NEXT_PUBLIC_API_URL","SCHOOLOS_BUILD_REVISION"]).status,
+   "PASS_SOURCE_DOCKERFILE_ARGS_ONLY");
+});
+test("Dockerfile secret ARG declaration vetoes without exposing values",()=>{
+ const s="ARG SCHOOLOS_BUILD_REVISION=unattested\\nARG POSTGRES_PASSWORD=secret-fixture\\n";
+ const r=checkSourceDockerfileArgs(s,["SCHOOLOS_BUILD_REVISION"]);
+ assert.equal(r.status,"FAIL");
+ assert.equal(JSON.stringify(r).includes("secret-fixture"),false);
+});
+test("malformed and missing Dockerfile ARGs fail closed",()=>{
+ assert.equal(checkSourceDockerfileArgs("",["SCHOOLOS_BUILD_REVISION"]).status,"FAIL");
+ assert.equal(checkSourceDockerfileArgs("ARG SECRET BROKEN",[]).status,"FAIL");
+ assert.equal(checkSourceDockerfileArgs("FROM node:22-alpine",["SCHOOLOS_BUILD_REVISION"]).status,"FAIL");
 });
