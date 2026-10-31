@@ -14,6 +14,7 @@ import { allow, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { assertCanChangeUserRole, managedUserBranchIds } from "../lib/user-administration-policy.js";
 import { issueAccountSetup } from "../lib/account-setup.js";
 import { branchCodeConflict, isBranchCodeConflict } from "../lib/branch-uniqueness.js";
+import { validateExistingBranchManagerAssignment } from "../lib/branch-manager-assignment.js";
 import { retrySerializableWrite } from "../lib/serializable-retry.js";
 
 const router = Router();
@@ -280,6 +281,102 @@ router.post("/branches", async (req: AuthRequest, res) => {
     throw error;
   }
 });
+// Appoint a manager to an existing branch that was created with
+// deferManagerProvisioning. Never change an existing manager implicitly or
+// convert existing student/teacher/admin roles to BRANCH_ADMIN.
+const existingBranchManagerInput = z.object({
+  managerName: z.string().trim().min(2).max(100),
+  managerEmail: z.string().trim().toLowerCase().email(),
+}).strict();
+
+router.post("/branches/:id/manager", async (req: AuthRequest, res) => {
+  if (req.auth!.role !== Role.SUPER_ADMIN)
+    throw new AppError(403, "SUPER_ADMIN_REQUIRED", "Only a Super Admin can appoint a branch manager");
+  const branchId = z.string().cuid().parse(req.params.id);
+  const { managerName, managerEmail } = existingBranchManagerInput.parse(req.body);
+  // Generate the initial unguessable credential outside the retryable
+  // transaction. New managers must use the emailed one-time setup link.
+  const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12);
+  const result = await retrySerializableWrite(() => prisma.$transaction(async tx => {
+    const branch = await tx.branch.findFirst({
+      where: { id: branchId, organizationId: req.auth!.organizationId },
+      select: { id: true, organizationId: true, isActive: true },
+    });
+    const users = branch ? await tx.branchUser.findMany({
+      where: { branchId, organizationId: req.auth!.organizationId },
+      include: { user: { select: { id: true, organizationId: true, email: true, role: true, isActive: true } } },
+    }) : [];
+    const currentManagers = users.filter(row => row.user.role === Role.BRANCH_ADMIN).map(row => row.user);
+    // The email is globally unique in the deployed schema, so inspect even
+    // users in another tenant and reject collisions without exposing them.
+    const candidate = await tx.user.findFirst({
+      where: { email: managerEmail },
+      select: { id: true, organizationId: true, email: true, role: true, isActive: true },
+    });
+    const decision = validateExistingBranchManagerAssignment({
+      organizationId: req.auth!.organizationId, branch, requestedEmail: managerEmail,
+      currentManagers, candidate,
+    });
+    if (decision === "ALREADY_ASSIGNED") {
+      return { manager: currentManagers[0]!, managerCreated: false, alreadyAssigned: true };
+    }
+    const manager = decision === "ASSIGN_EXISTING" ? candidate! : await tx.user.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        name: managerName,
+        email: managerEmail,
+        passwordHash,
+        role: Role.BRANCH_ADMIN,
+        isActive: true,
+      },
+      select: { id: true, organizationId: true, email: true, role: true, isActive: true },
+    });
+    await tx.branchUser.create({
+      data: { organizationId: req.auth!.organizationId, branchId, userId: manager.id },
+    });
+    await tx.branch.update({
+      where: { id: branchId }, data: { managerName },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: req.auth!.organizationId,
+        actorId: req.auth!.userId,
+        action: "BRANCH_MANAGER_APPOINTED",
+        entity: "Branch",
+        entityId: branchId,
+        metadata: { managerUserId: manager.id, managerCreated: decision === "CREATE_NEW" },
+      },
+    });
+    return { manager, managerCreated: decision === "CREATE_NEW", alreadyAssigned: false };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { conflictCode: "BRANCH_MANAGER_APPOINTMENT_CONFLICT" })
+    .catch(error => {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+        throw new AppError(409, "MANAGER_ACCOUNT_CONFLICT", "Branch manager account or assignment changed concurrently");
+      throw error;
+    });
+  let setup: unknown = result.alreadyAssigned
+    ? { skipped: true, reason: "ALREADY_ASSIGNED" }
+    : result.managerCreated ? null : { skipped: true, reason: "EXISTING_MANAGER_ACCOUNT" };
+  if (result.managerCreated) {
+    try {
+      setup = await issueAccountSetup({
+        id: result.manager.id, organizationId: req.auth!.organizationId,
+        email: result.manager.email, name: managerName,
+      });
+    } catch {
+      setup = { skipped: true, reason: "EMAIL_DELIVERY_FAILED" };
+    }
+  }
+  const branch = await prisma.branch.findFirst({
+    where: { id: branchId, organizationId: req.auth!.organizationId },
+    select: branchSelect,
+  });
+  if (!branch) throw new AppError(500, "BRANCH_MANAGER_APPOINTMENT_FAILED", "Branch manager appointed but branch reload failed");
+  res.status(result.alreadyAssigned ? 200 : 201).json({
+    data: { ...branchWithLegacyLabels(branch), managerCreated: result.managerCreated, managerAlreadyAssigned: result.alreadyAssigned, setup },
+  });
+});
+
 router.put("/branches/:id", async (req: AuthRequest, res) => {
   const input = branchInput.partial().parse(req.body);
   const existing = await prisma.branch.findUnique({ where: { id: String(req.params.id) }, select: { id: true } });
