@@ -32,6 +32,7 @@ import {
 import { assertExaminationManager, evaluationStatus, examinationResultFor } from "../lib/examination-policy.js";
 import { analyzeAIExaminerOriginality } from "../lib/ai-examiner-originality.js";
 import { aiExaminerEvidenceMimeTypes, assertAIExaminerEvidenceKindMatchesMime, decodeAIExaminerEvidenceUpload, normalizeAIExaminerEvidenceUrl } from "../lib/ai-examiner-evidence-upload.js";
+import { lockMutableEvidenceAnswerSheet } from "../lib/ai-examiner-evidence-write.js";
 import { renderAIExaminerCheckedCopy } from "../lib/ai-examiner-checked-copy.js";
 import { buildAIExaminerCheckedCopyDraft } from "../lib/ai-examiner-checked-copy-state.js";
 import { ensureAIExaminerCheckedCopyDraft } from "../lib/ai-examiner-checked-copy-draft.js";
@@ -258,32 +259,6 @@ async function answerSheetForManager(req: AuthRequest, answerSheetId: string) {
   return { sheet, exam };
 }
 
-
-/**
- * Serializes evidence mutations against human finalization of the same
- * answer sheet. A preflight read is insufficient: an approval can commit
- * while a large evidence upload or status review is in progress.
- * Locking this sheet row makes either operation complete BEFORE final
- * approval, or fail closed AFTER final approval; no external effects here.
- */
-async function lockMutableEvidenceAnswerSheet(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  answerSheetId: string,
-) {
-  const locked = await tx.$queryRaw<Array<{ id: string }>>`
-    SELECT "id" FROM "ExaminationAnswerSheet"
-    WHERE "id" = ${answerSheetId} AND "organizationId" = ${organizationId}
-    FOR UPDATE
-  `;
-  if (locked.length !== 1) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
-  const sheet = await tx.examinationAnswerSheet.findFirst({
-    where: { id: answerSheetId, organizationId },
-    select: { finalizedAt: true },
-  });
-  if (!sheet) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
-  assertAIExaminerEvidenceMutable(sheet.finalizedAt);
-}
 
 async function recomputePublishedRanks(tx: Prisma.TransactionClient, organizationId: string, examinationId: string) {
   const rows = await tx.examinationResult.findMany({
