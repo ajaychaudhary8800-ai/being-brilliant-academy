@@ -210,11 +210,7 @@ class IsolatedRecoveryTests(unittest.TestCase):
                          "cannot delete unverified container ownership")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
-    def test_report_inside_checkpoint_copy_is_refused(self):
+def test_report_inside_checkpoint_copy_is_refused(self):
         report = self.folder / "should-not-be-created.json"
         argv = [
             "runner", "--checkpoint-dir", str(self.folder),
@@ -251,3 +247,7 @@ if __name__ == "__main__":
         self.assertEqual(rc, 2)
         docker.assert_not_called()
         self.assertIn("ISOLATED_FILE_TMPFS_CAPACITY_TOO_SMALL", out.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()
