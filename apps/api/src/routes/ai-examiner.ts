@@ -21,7 +21,7 @@ import {
   hashAIExaminerScanToken,
   validateAIExaminerOmrIngestion,
 } from "../lib/ai-examiner-scan-ingestion.js";
-import { aiExaminerLifecycleBlocker, assertAIExaminerEvaluationReady, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
+import { aiExaminerLifecycleBlocker, assertAIExaminerEvaluationReady, assertAIExaminerEvidenceMutable, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
 import { assessAIExaminerReviewCompletion, reviewPolicyFromExamSnapshot } from "../lib/ai-examiner-review-policy.js";
 import {
   aiExaminerRegradeWindow,
@@ -256,6 +256,33 @@ async function answerSheetForManager(req: AuthRequest, answerSheetId: string) {
   if (!sheet) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
   const exam = await examinationForManager(req, sheet.examinationId);
   return { sheet, exam };
+}
+
+
+/**
+ * Serializes evidence mutations against human finalization of the same
+ * answer sheet. A preflight read is insufficient: an approval can commit
+ * while a large evidence upload or status review is in progress.
+ * Locking this sheet row makes either operation complete BEFORE final
+ * approval, or fail closed AFTER final approval; no external effects here.
+ */
+async function lockMutableEvidenceAnswerSheet(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  answerSheetId: string,
+) {
+  const locked = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "ExaminationAnswerSheet"
+    WHERE "id" = ${answerSheetId} AND "organizationId" = ${organizationId}
+    FOR UPDATE
+  `;
+  if (locked.length !== 1) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
+  const sheet = await tx.examinationAnswerSheet.findFirst({
+    where: { id: answerSheetId, organizationId },
+    select: { finalizedAt: true },
+  });
+  if (!sheet) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
+  assertAIExaminerEvidenceMutable(sheet.finalizedAt);
 }
 
 async function recomputePublishedRanks(tx: Prisma.TransactionClient, organizationId: string, examinationId: string) {
@@ -1463,7 +1490,9 @@ router.post("/answer-sheets/:answerSheetId/evidence", async (req: AuthRequest, r
     externalUrl = normalizeAIExaminerEvidenceUrl(body.externalUrl);
   }
 
-  const evidence = await prisma.aIExaminerEvidenceAttachment.create({
+  const evidence = await prisma.$transaction(async tx => {
+    await lockMutableEvidenceAnswerSheet(tx, req.auth!.organizationId, sheet.id);
+    return tx.aIExaminerEvidenceAttachment.create({
     data: {
       organizationId: req.auth!.organizationId,
       answerSheetId: sheet.id,
@@ -1488,6 +1517,7 @@ router.post("/answer-sheets/:answerSheetId/evidence", async (req: AuthRequest, r
       externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true, identityMasked: true,
       uploadedById: true, reviewedById: true, reviewNotes: true, reviewedAt: true, createdAt: true, updatedAt: true,
     },
+    });
   });
   await prisma.auditLog.create({
     data: {
@@ -1568,7 +1598,9 @@ router.patch("/evidence/:evidenceId/review", async (req: AuthRequest, res) => {
   });
   if (!evidence) throw new AppError(404, "AI_EXAMINER_EVIDENCE_NOT_FOUND", "Evidence attachment not found");
   await answerSheetForManager(req, evidence.answerSheetId);
-  const updated = await prisma.aIExaminerEvidenceAttachment.update({
+  const updated = await prisma.$transaction(async tx => {
+    await lockMutableEvidenceAnswerSheet(tx, req.auth!.organizationId, evidence.answerSheetId);
+    return tx.aIExaminerEvidenceAttachment.update({
     where: { id: evidence.id },
     data: {
       status: body.status,
@@ -1581,6 +1613,7 @@ router.patch("/evidence/:evidenceId/review", async (req: AuthRequest, res) => {
       externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true, identityMasked: true,
       uploadedById: true, reviewedById: true, reviewNotes: true, reviewedAt: true, createdAt: true, updatedAt: true,
     },
+    });
   });
   await prisma.auditLog.create({
     data: {
