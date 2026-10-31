@@ -455,6 +455,41 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
       data: { periodStart: termStart, periodEnd: termEnd } });
     console.log("SYNTHETIC_FUTURE_TERM_CAPTURE_DENIAL=PASS");
 
+    // A real signed gateway capture must not override an administrative hold
+    // set after checkout. No provider network requests are used in this test.
+    await systemPrisma.organization.update({ where: { id: customerId }, data: {
+      subscriptionStatus: OrganizationSubscriptionStatus.SUSPENDED,
+    } });
+    const suspended = await postWebhook(event, signatureFor(event));
+    assert.equal(suspended.status, 409);
+    assert.equal((await suspended.json()).error.code,
+      "SCHOOLOS_CAPTURE_ORGANIZATION_SUSPENDED");
+    await systemPrisma.organization.update({ where: { id: customerId }, data: {
+      subscriptionStatus: OrganizationSubscriptionStatus.ACTIVE, isActive: false,
+    } });
+    const inactive = await postWebhook(event, signatureFor(event));
+    assert.equal(inactive.status, 409);
+    assert.equal((await inactive.json()).error.code,
+      "SCHOOLOS_CAPTURE_ORGANIZATION_SUSPENDED");
+    await systemPrisma.organization.update({ where: { id: customerId }, data: { isActive: true } });
+    await systemPrisma.saaSSubscription.update({ where: { id: subscription.id }, data: {
+      status: OrganizationSubscriptionStatus.SUSPENDED,
+    } });
+    const suspendedSubscription = await postWebhook(event, signatureFor(event));
+    assert.equal(suspendedSubscription.status, 409);
+    assert.equal((await suspendedSubscription.json()).error.code,
+      "SCHOOLOS_CAPTURE_ORGANIZATION_SUSPENDED");
+    assert.equal(await systemPrisma.saaSPayment.count({
+      where: { invoiceId, providerPaymentId: payment.id },
+    }), 0, "Suspended customer must not be activated by late signed capture");
+    assert.equal((await systemPrisma.schoolOSQuotation.findUniqueOrThrow({
+      where: { id: quote.id },
+    })).status, "PAYMENT_PENDING");
+    await systemPrisma.saaSSubscription.update({ where: { id: subscription.id }, data: {
+      status: OrganizationSubscriptionStatus.ACTIVE,
+    } });
+    console.log("SYNTHETIC_SUSPENDED_TENANT_CAPTURE_DENIAL=PASS");
+
     // Real PostgreSQL transaction race: three signed HTTP deliveries for the
     // same provider capture arrive before the first one has committed.
     // Replays must serialize before invoice status reads and all return 200.

@@ -5,6 +5,7 @@ import { readSchoolOSFeatureOverrides, schoolOSFeatureAccess, schoolOSEffectiveO
 import { validateSchoolOSAddonCheckout, type SchoolOSApprovedAddonLine } from "./schoolos-addon-checkout-policy.js";
 import { applySchoolOSPaidAddonSettlement } from "./schoolos-addon-settlement.js";
 import { assertSchoolOSRenewalSource, readSchoolOSRenewalContext } from "./schoolos-renewal-quote-policy.js";
+import { assertSchoolOSCaptureOrganizationEligible } from "./schoolos-capture-org-policy.js";
 
 type JsonRecord = Record<string, unknown>;
 type CapturedPayment = { id: string; order_id: string; amount: number; currency: string };
@@ -287,8 +288,29 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
         }
         // Lock tenant settings against concurrent platform licensing edits.
         await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-features:" + invoice.organizationId}))`;
-        const org = await tx.organization.findUnique({ where: { id: invoice.organizationId }, select: { settings: true } });
-        if (!org) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Customer tenant not found");
+        const [org, sourceSubscription] = await Promise.all([
+          tx.organization.findUnique({ where: { id: invoice.organizationId }, select: {
+            settings: true, isActive: true, deletedAt: true, subscriptionStatus: true,
+          } }),
+          tx.saaSSubscription.findUnique({ where: { id: invoice.subscriptionId }, select: {
+            organizationId: true, status: true,
+          } }),
+        ]);
+        if (!org || !sourceSubscription)
+          throw new AppError(409, "SCHOOLOS_CAPTURE_ORGANIZATION_UNAVAILABLE",
+            "Signed payment references missing subscription or customer; finance reconciliation required");
+        // The provider may capture an order after staff have administratively
+        // suspended/deactivated the institution. That cannot override a safety
+        // hold or activate a foreign subscription. Evaluate after settlement
+        // and platform licensing locks, before any ledger/entitlement mutation.
+        assertSchoolOSCaptureOrganizationEligible({
+          invoiceOrganizationId: invoice.organizationId,
+          subscriptionOrganizationId: sourceSubscription.organizationId,
+          organizationStatus: org.subscriptionStatus,
+          subscriptionStatus: sourceSubscription.status,
+          isActive: org.isActive,
+          deletedAt: org.deletedAt,
+        });
         const settings = record(org.settings);
         const commercial = record(settings.commercialEntitlements);
         quotedSettings = { ...settings, commercialEntitlements: { ...commercial, enforce: true } } as Prisma.InputJsonValue;
