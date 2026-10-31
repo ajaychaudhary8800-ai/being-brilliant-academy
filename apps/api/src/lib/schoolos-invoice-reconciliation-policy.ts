@@ -3,7 +3,7 @@ export type SchoolOSInvoiceLedger = {
   id: string; organizationId: string; schoolOSQuoteId: string | null;
   provider: string | null; providerOrderId: string | null; status: string;
   amountPaise: number; taxPaise: number; totalPaise: number; currency: string;
-  schoolOSQuote: { id: string; organizationId: string | null; totalPaise: number } | null;
+  schoolOSQuote: { id: string; organizationId: string | null; status: string; totalPaise: number } | null;
   schoolOSPaymentRiskHold: { organizationId: string; status: string } | null;
   payments: Array<{
     invoiceId: string; organizationId: string; provider: string; providerPaymentId: string | null;
@@ -29,6 +29,11 @@ export function reconcileSchoolOSInvoiceLedger(invoice: SchoolOSInvoiceLedger) {
     || invoice.schoolOSQuote.organizationId !== invoice.organizationId
     || invoice.schoolOSQuote.totalPaise !== invoice.totalPaise) findings.add("QUOTE_LINK_MISMATCH");
   if (!["DRAFT", "OPEN", "OVERDUE", "PAID", "VOID"].includes(invoice.status)) findings.add("INVOICE_STATE_INVALID");
+  // The signed-quotation checkout moves PAYMENT_PENDING -> PAID atomically
+  // with the invoice. Report state drift instead of showing reconciled cash.
+  if (invoice.schoolOSQuote && ((invoice.status === "PAID" && invoice.schoolOSQuote.status !== "PAID")
+    || (["OPEN", "OVERDUE"].includes(invoice.status) && invoice.schoolOSQuote.status !== "PAYMENT_PENDING")))
+    findings.add("INVOICE_QUOTE_SETTLEMENT_STATE_CONFLICT");
   if (invoice.schoolOSPaymentRiskHold &&
     (invoice.schoolOSPaymentRiskHold.organizationId !== invoice.organizationId ||
       !["ACTIVE", "RESOLVED"].includes(invoice.schoolOSPaymentRiskHold.status)))

@@ -9,7 +9,7 @@ export async function readSchoolOSInvoiceReconciliation(invoiceId: string) {
     const invoice = await tx.saaSInvoice.findUnique({ where: { id: invoiceId }, select: {
       id: true, organizationId: true, schoolOSQuoteId: true, status: true,
       provider: true, providerOrderId: true, amountPaise: true, taxPaise: true, totalPaise: true, currency: true,
-      schoolOSQuote: { select: { id: true, organizationId: true, totalPaise: true } },
+      schoolOSQuote: { select: { id: true, organizationId: true, status: true, totalPaise: true } },
       schoolOSPaymentRiskHold: { select: { organizationId: true, status: true } },
       payments: { take: SCHOOL_OS_RECONCILIATION_ROW_LIMIT + 1, orderBy: { id: "asc" }, select: {
         invoiceId: true, organizationId: true, provider: true, providerPaymentId: true,

@@ -7,7 +7,7 @@ function ledger(): SchoolOSInvoiceLedger {
     id: "invoice-test", organizationId: "tenant-test", schoolOSQuoteId: "quote-test",
     provider: "RAZORPAY", providerOrderId: "order_test", status: "PAID",
     amountPaise: 10000, taxPaise: 1800, totalPaise: 11800, currency: "INR",
-    schoolOSQuote: { id: "quote-test", organizationId: "tenant-test", totalPaise: 11800 },
+    schoolOSQuote: { id: "quote-test", organizationId: "tenant-test", status: "PAID", totalPaise: 11800 },
     schoolOSPaymentRiskHold: null,
     payments: [{ invoiceId: "invoice-test", organizationId: "tenant-test", provider: "RAZORPAY",
       providerPaymentId: "pay_test", status: "CAPTURED", amountPaise: 11800, currency: "INR" }],
@@ -45,7 +45,8 @@ test("failed attempts do not inflate cash and partial/full refunds are summed on
 test("unpaid collectible invoices expose outstanding amount, draft/void do not", () => {
   const l = ledger(); l.payments = [];
   for (const status of ["OPEN", "OVERDUE"]) {
-    l.status = status; assert.equal(reconcile(l).totals?.outstandingPaise, 11800);
+    l.status = status; l.schoolOSQuote!.status = "PAYMENT_PENDING";
+    assert.equal(reconcile(l).totals?.outstandingPaise, 11800);
   }
   for (const status of ["DRAFT", "VOID"]) {
     l.status = status; assert.equal(reconcile(l).totals?.outstandingPaise, null);
@@ -78,6 +79,8 @@ const invalid: Array<[string, (l: SchoolOSInvoiceLedger) => void, string]> = [
   ["foreign finance hold", l => { l.schoolOSPaymentRiskHold = { organizationId: "foreign", status: "ACTIVE" }; }, "RISK_HOLD_TENANT_OR_STATE_INVALID"],
   ["foreign refund", l => { l.schoolOSPaymentAdjustments = [{ ...adjustment(), organizationId: "foreign" }]; }, "ADJUSTMENT_TENANT_OR_INVOICE_MISMATCH"],
   ["foreign quote", l => { l.schoolOSQuote!.organizationId = "foreign"; }, "QUOTE_LINK_MISMATCH"],
+  ["paid invoice with pending quote", l => { l.schoolOSQuote!.status = "PAYMENT_PENDING"; }, "INVOICE_QUOTE_SETTLEMENT_STATE_CONFLICT"],
+  ["unpaid collectible invoice with paid quote", l => { l.status = "OVERDUE"; l.payments = []; }, "INVOICE_QUOTE_SETTLEMENT_STATE_CONFLICT"],
   ["invoice arithmetic", l => { l.taxPaise++; }, "INVOICE_TOTAL_MISMATCH"],
   ["unsafe integer", l => { l.amountPaise = Number.MAX_SAFE_INTEGER + 1; }, "INVOICE_TOTAL_MISMATCH"],
   ["missing capture", l => { l.payments = []; }, "PAID_INVOICE_CAPTURE_MISMATCH"],
