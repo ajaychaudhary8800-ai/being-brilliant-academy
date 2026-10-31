@@ -64,6 +64,7 @@ jobs:
           node --test scripts/schoolos-v5-image-build-history-audit.test.mjs
           node --test scripts/schoolos-v5-build-arg-policy.test.mjs
           node --test scripts/schoolos-v5-synthetic-build-audit.test.mjs
+          node --test scripts/schoolos-v5-synthetic-image-restore.test.mjs
       - name: Test V5-only Growth approved ratebook check and strict staging guard
         run: node --test apps/api/scripts/schoolos-v5-growth-price-policy.test.mjs
       - name: Validate V5 read-only monitor and isolated restore utility safety
@@ -142,4 +143,8 @@ jobs:
           # No actual staging/provider credentials are available to this job.
           # Compose build context is an ephemeral GitHub runner; nothing deploys.
           docker compose -f docker-compose.schoolos-v5-staging.yml build --pull api web
+          node scripts/schoolos-v5-synthetic-build-audit.mjs
+          # Save/remove/reload ONLY isolated GitHub runner test tags, proving
+          # archive importability; no staging or live registry access.
+          node scripts/schoolos-v5-synthetic-image-restore.mjs
           node scripts/schoolos-v5-synthetic-build-audit.mjs
