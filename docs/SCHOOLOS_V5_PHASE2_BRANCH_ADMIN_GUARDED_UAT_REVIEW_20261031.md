@@ -33,3 +33,19 @@ The artifact refuses to start without `--external-gates-cleared` (a human operat
 The executable has not been run against live staging. The user-designated Gmail is not copied into this repository. Do not publish bearer tokens, password links, raw API errors or private student data. An owner-operated, signed BBA institutional acceptance and related-party waiver are **separate** from any technical PASS.
 
 **Planning ledger unchanged:** Phase 2 3.70/5.00pp = **74% complete**, 1.30pp = **26% pending**: Branch Admin UAT 0.40pp, AI Examiner 0.45pp (provider disabled last observed), institution witness/signoff 0.45pp. Provisional overall original backlog 14.30pp, not risk-weighted. Formal release gates **0/10 VERIFIED**; commercial GO **HOLD**. Production unchanged.
+
+
+## 31 Oct guarded package v2 — false-positive cross-branch denial prevention (offline only)
+
+**Supersedes v1 operator package for future UAT; v1 hashes above are historical evidence only.** A code review of the first guarded script exposed a possible *false-positive acceptance*: a caller could pass arbitrary syntactically valid CUIDs rather than the actual RNE/SHN fixture IDs, and their HTTP 404 replies would count as cross-branch denial. This would not demonstrate that an actual student/branch object belonging to Rajnagar Extension or Shastri Nagar was inaccessible.
+
+**Correction:** Before running BRANCH_ADMIN negative authorization probes, accept phase now performs a separate actual BBA SUPER_ADMIN authenticated read of the three synthetic branch records, verifies the operator-provided RNE and SHN identifiers match exactly the existing source records in the intended order, and enforces all three IDs are distinct. Both sessions are explicitly logged out. An invented-but-valid CUID, swapped branch IDs, or NDG substituted for RNE fails closed.
+
+- Updated operator package (private ChatGPT conversation download; not committed executable source): `schoolos_v5_phase2_branch_admin_guarded_package_v2_20261031.zip`
+- Package SHA-256: `0c89047f63aa0d324237e5f5b330eb4ce552266fac2d088226ff76856fc514f7`.
+- Script SHA-256: `b38725113f52bbd9b0d564d1913019ece619e63e00d85569b7a96ed21b1e4c95`.
+- Python compilation **PASS**; **9/9 offline mock safety tests PASS** (three new actual-fixture-identity negative/positive cases). Guard default without explicit external clearance **FAIL-CLOSED** before contacting Docker or staging.
+- **No authenticated staging execution; no account or mail created**. V2 has not verified real RNE/SHN branch IDs or performed a live UAT.
+- Gate dependencies in #292, #293, #258, exact deployed Phase 2 API/Web image and independently validated controlled inbox remain unchanged.
+- This is evidence-quality hardening. Do not add Phase 2 UAT credit or declare commercial readiness.
+
