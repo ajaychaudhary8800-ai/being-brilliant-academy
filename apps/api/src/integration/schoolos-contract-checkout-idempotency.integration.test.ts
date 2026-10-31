@@ -614,6 +614,34 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
       where: { id: invoiceId },
     })).status, "PAID");
+    // Newly uncovered: HMAC verifies event origin but cannot establish
+    // matching financial evidence when won amount differs from raised amount.
+    const disputeId = "disp_" + unique;
+    const disputeCreated = { event: "payment.dispute.created", payload: {
+      payment: { entity: payment }, dispute: { entity: {
+        id: disputeId, payment_id: payment.id, amount: totalPaise, currency: "INR",
+      } },
+    } };
+    assert.equal((await postWebhook(disputeCreated, signatureFor(disputeCreated))).status, 200);
+    const priorHoldRevision = (await systemPrisma.schoolOSPaymentRiskHold.findUniqueOrThrow({
+      where: { invoiceId },
+    })).revision;
+    const mismatchedWon = { event: "payment.dispute.won", payload: {
+      payment: { entity: payment }, dispute: { entity: {
+        id: disputeId, payment_id: payment.id, amount: totalPaise - 1, currency: "INR",
+      } },
+    } };
+    const deniedWon = await postWebhook(mismatchedWon, signatureFor(mismatchedWon));
+    assert.equal(deniedWon.status, 409);
+    assert.equal((await deniedWon.json()).error.code,
+      "SCHOOLOS_RISK_DISPUTE_SOURCE_MISMATCH");
+    assert.equal(await systemPrisma.schoolOSPaymentAdjustment.count({
+      where: { invoiceId, eventKey: "payment.dispute.won:" + disputeId },
+    }), 0);
+    assert.equal((await systemPrisma.schoolOSPaymentRiskHold.findUniqueOrThrow({
+      where: { invoiceId },
+    })).revision, priorHoldRevision);
+    console.log("SYNTHETIC_MISMATCHED_WON_DISPUTE_DENIAL=PASS");
     console.log("SYNTHETIC_FULL_REFUND_RECEIPT_REPLAY=PASS");
     console.log("SYNTHETIC_FINANCE_RECONCILIATION_READ_ONLY=PASS");
     console.log("SYNTHETIC_SIGNED_FAILURE_REPLAY=PASS");
@@ -645,6 +673,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
         "payment.failed:pay_" + unique + "overdue",
         "refund.processed:rfnd_" + unique,
         "refund.processed:rfnd_" + unique + "final",
+        "payment.dispute.created:disp_" + unique,
       ] } },
     });
     await systemPrisma.saaSPayment.deleteMany({ where: { organizationId: customerId } });
