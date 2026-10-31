@@ -99,6 +99,26 @@ export function reconcileSchoolOSInvoiceLedger(invoice: SchoolOSInvoiceLedger) {
     } else findings.add("ADJUSTMENT_TYPE_UNSUPPORTED");
   }
   if (!Number.isSafeInteger(refunds)) findings.add("AMOUNT_OVERFLOW");
+  // A lost/won notification records the disposition of a previously raised
+  // dispute; it is not independent proof of a new dispute. Even an ACTIVE
+  // finance hold must not be labelled internally consistent when the source
+  // dispute is missing/mismatched or both contradictory outcomes are present.
+  // Unresolved created-only disputes remain review-required via the hold.
+  const raisedDisputes = invoice.schoolOSPaymentAdjustments.filter(a =>
+    a.eventType === "payment.dispute.created");
+  const disputeOutcomes = invoice.schoolOSPaymentAdjustments.filter(a =>
+    a.eventType === "payment.dispute.won" || a.eventType === "payment.dispute.lost");
+  for (const outcome of disputeOutcomes) {
+    if (!raisedDisputes.some(source =>
+      source.providerEntityId === outcome.providerEntityId &&
+      source.providerPaymentId === outcome.providerPaymentId &&
+      source.amountPaise === outcome.amountPaise))
+      findings.add("DISPUTE_OUTCOME_SOURCE_MISMATCH");
+    if (disputeOutcomes.some(other =>
+      other !== outcome && other.providerEntityId === outcome.providerEntityId &&
+      other.eventType !== outcome.eventType))
+      findings.add("DISPUTE_OUTCOME_CONFLICT");
+  }
   for (const [id, amount] of refundByPayment) {
     if (!Number.isSafeInteger(amount) || amount > (captured.get(id) ?? 0)) findings.add("REFUNDS_EXCEED_CAPTURE");
   }

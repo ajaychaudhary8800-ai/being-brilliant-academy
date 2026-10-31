@@ -85,6 +85,25 @@ const invalid: Array<[string, (l: SchoolOSInvoiceLedger) => void, string]> = [
   ["resolved hold with an unresolved dispute", l => { l.schoolOSPaymentRiskHold = { organizationId: "tenant-test", status: "RESOLVED" }; l.schoolOSPaymentAdjustments = [adjustment("payment.dispute.created", "disp_test", 11800)]; }, "RISK_HOLD_RELEASE_EVIDENCE_INVALID"],
   ["resolved hold after a lost dispute", l => { l.schoolOSPaymentRiskHold = { organizationId: "tenant-test", status: "RESOLVED" }; l.schoolOSPaymentAdjustments = [adjustment("payment.dispute.created", "disp_test", 11800), adjustment("payment.dispute.lost", "disp_test", 11800)]; }, "RISK_HOLD_RELEASE_EVIDENCE_INVALID"],
   ["foreign refund", l => { l.schoolOSPaymentAdjustments = [{ ...adjustment(), organizationId: "foreign" }]; }, "ADJUSTMENT_TENANT_OR_INVOICE_MISMATCH"],
+  ["orphan won disposition while finance held", l => {
+    l.schoolOSPaymentRiskHold = { organizationId: "tenant-test", status: "ACTIVE" };
+    l.schoolOSPaymentAdjustments = [adjustment("payment.dispute.won", "disp_orphan", 11800)];
+  }, "DISPUTE_OUTCOME_SOURCE_MISMATCH"],
+  ["dispute outcome changes original raised amount", l => {
+    l.schoolOSPaymentRiskHold = { organizationId: "tenant-test", status: "ACTIVE" };
+    l.schoolOSPaymentAdjustments = [
+      adjustment("payment.dispute.created", "disp_changed", 6000),
+      adjustment("payment.dispute.won", "disp_changed", 5000),
+    ];
+  }, "DISPUTE_OUTCOME_SOURCE_MISMATCH"],
+  ["contradictory won and lost for same raised dispute", l => {
+    l.schoolOSPaymentRiskHold = { organizationId: "tenant-test", status: "ACTIVE" };
+    l.schoolOSPaymentAdjustments = [
+      adjustment("payment.dispute.created", "disp_conflict", 11800),
+      adjustment("payment.dispute.won", "disp_conflict", 11800),
+      adjustment("payment.dispute.lost", "disp_conflict", 11800),
+    ];
+  }, "DISPUTE_OUTCOME_CONFLICT"],
   ["foreign quote", l => { l.schoolOSQuote!.organizationId = "foreign"; }, "QUOTE_LINK_MISMATCH"],
   ["paid invoice with pending quote", l => { l.schoolOSQuote!.status = "PAYMENT_PENDING"; }, "INVOICE_QUOTE_SETTLEMENT_STATE_CONFLICT"],
   ["unpaid collectible invoice with paid quote", l => { l.status = "OVERDUE"; l.payments = []; }, "INVOICE_QUOTE_SETTLEMENT_STATE_CONFLICT"],
