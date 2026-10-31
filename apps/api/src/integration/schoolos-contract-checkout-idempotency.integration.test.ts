@@ -59,6 +59,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
   let server: ReturnType<ReturnType<typeof express>["listen"]> | undefined;
   let leadId: string | undefined;
   let documentId: string | undefined;
+  let secondDocumentId: string | undefined;
   let invoiceId: string | undefined;
   let originalEssentialsPricePaise: number | undefined;
   let platformReviewerId: string | undefined;
@@ -330,6 +331,45 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     })).status, "OVERDUE");
     console.log("SYNTHETIC_OVERDUE_FAILURE_REPLAY=PASS");
 
+    // New coverage only: a second valid contracted quote must not open a
+    // separate provider order while an earlier signed invoice is OVERDUE.
+    // The first overdue order can still receive a valid signed capture.
+    const nextQuoteNo = quoteNo + "-NEXT";
+    const nextDocument = await systemPrisma.saaSCommercialDocument.create({ data: {
+      leadId: lead.id, organizationId: customerId, documentType: "SIGNED_ORDER_FORM",
+      documentReference: nextQuoteNo, signedAt: new Date(),
+      fileName: "synthetic-second-contract-not-evidence.pdf", mimeType: "application/pdf",
+      fileSize: 18, encryptedFileData: Buffer.from("synthetic-local-second"),
+      contentSha256: crypto.createHash("sha256").update("synthetic-local-second").digest("hex"),
+      verificationStatus: "VERIFIED", verifiedAt: new Date(),
+      uploadedById: "synthetic-fixture-maker", verifiedById: "synthetic-fixture-checker",
+    } });
+    secondDocumentId = nextDocument.id;
+    const nextQuote = await systemPrisma.schoolOSQuotation.create({ data: {
+      quoteNo: nextQuoteNo, organizationId: customerId,
+      clientName: "Synthetic second pending quote", planCode: plan.code,
+      billingCycle: SaaSBillingCycle.ANNUAL, status: "CONTRACTED",
+      validUntil, contractDocumentId: nextDocument.id, items: [],
+      pricingSnapshot: { pricing: { totalPaise }, rateCardSnapshot: {
+        planId: plan.id, planCode: plan.code, currency: "INR",
+        billingCycle: "ANNUAL", basePricePaise: plan.annualPricePaise,
+        taxRateBps: plan.taxRateBps,
+      } },
+      subtotalPaise: plan.annualPricePaise, discountBps: 0,
+      discountPaise: 0, taxRateBps: plan.taxRateBps, taxPaise, totalPaise,
+      createdBy: owner.id, updatedBy: owner.id,
+    } });
+    const competingCheckout = await postCheckout(ownToken, nextQuote.id);
+    assert.equal(competingCheckout.status, 409);
+    assert.equal(competingCheckout.body.error?.code, "SCHOOLOS_TENANT_CHECKOUT_PENDING");
+    assert.equal(await systemPrisma.saaSInvoice.count({
+      where: { organizationId: customerId },
+    }), 1, "Overdue order must remain the sole unresolved quoted invoice");
+    assert.equal((await systemPrisma.schoolOSQuotation.findUniqueOrThrow({
+      where: { id: nextQuote.id },
+    })).status, "CONTRACTED");
+    console.log("SYNTHETIC_OVERDUE_SECOND_QUOTE_DENIAL=PASS");
+
     // Real PostgreSQL transaction race: three signed HTTP deliveries for the
     // same provider capture arrive before the first one has committed.
     // Replays must serialize before invoice status reads and all return 200.
@@ -527,6 +567,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     if (invoiceId) await systemPrisma.saaSInvoice.deleteMany({ where: { organizationId: customerId } });
     await systemPrisma.schoolOSQuotationRevision.deleteMany({ where: { quote: { organizationId: customerId } } });
     await systemPrisma.schoolOSQuotation.deleteMany({ where: { organizationId: customerId } });
+    if (secondDocumentId) await systemPrisma.saaSCommercialDocument.deleteMany({ where: { id: secondDocumentId } });
     if (documentId) await systemPrisma.saaSCommercialDocument.deleteMany({ where: { id: documentId } });
     if (leadId) await systemPrisma.saaSSalesLead.deleteMany({ where: { id: leadId } });
     await systemPrisma.saaSSubscription.deleteMany({ where: { organizationId: customerId } });
