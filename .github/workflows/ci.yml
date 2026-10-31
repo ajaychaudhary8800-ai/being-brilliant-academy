@@ -128,7 +128,7 @@ jobs:
         env:
           DOCKER_BUILDKIT: "1"
         run: docker compose build --pull api migrate web nginx backup
-      - name: Build isolated V5 API and Web using synthetic-only CI settings
+      - name: Build and audit all four custom V5 images using synthetic-only CI settings
         env:
           CI: "true"
           BBA_SYNTHETIC_BUILD: "true"
@@ -143,6 +143,10 @@ jobs:
           # No actual staging/provider credentials are available to this job.
           # Compose build context is an ephemeral GitHub runner; nothing deploys.
           docker compose -f docker-compose.schoolos-v5-staging.yml build --pull api web
+          # Supporting images are built directly with no build arguments and
+          # distinct ephemeral tags. They are never published or deployed.
+          docker build --pull -t schoolos-v5-ci-nginx:verification -f infra/nginx/Dockerfile infra/nginx
+          docker build --pull -t schoolos-v5-ci-backup:verification -f infra/backup/Dockerfile infra/backup
           node scripts/schoolos-v5-synthetic-build-audit.mjs
           # Save/remove/reload ONLY isolated GitHub runner test tags, proving
           # archive importability; no staging or live registry access.
