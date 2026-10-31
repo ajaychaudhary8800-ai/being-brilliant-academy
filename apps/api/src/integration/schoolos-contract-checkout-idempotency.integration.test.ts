@@ -13,6 +13,7 @@ import { captureSaaSRazorpayPayment } from "../lib/saas-commercial.js";
 import contractRouter from "../routes/schoolos-contract-checkout.js";
 import paymentsRouter from "../routes/payments.js";
 import paymentRiskRouter from "../routes/schoolos-payment-risk-review.js";
+import saasCommercialRouter from "../routes/saas-commercial.js";
 
 /**
  * Disposable PostgreSQL HTTP integration. Only tests reuse of an existing
@@ -157,6 +158,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     // The webhook must be reachable without the subscription router's auth middleware.
     app.use("/api/v1/payments", paymentsRouter);
     app.use("/api/v1", paymentRiskRouter);
+    app.use("/api/v1", saasCommercialRouter);
     app.use("/api/v1", contractRouter);
     app.use(errorHandler);
     server = await new Promise<ReturnType<ReturnType<typeof express>["listen"]>>((resolve, reject) => {
@@ -180,6 +182,40 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
 
     const ownToken = authorize(owner.id, customerId);
     const foreignToken = authorize(foreign.id, otherId);
+
+    // Newly uncovered V5-only platform billing bypass: even a platform
+    // SUPER_ADMIN cannot convert a signed-quote customer into an unlimited
+    // legacy trial or disable paid feature enforcement.
+    const platformToken = authorize(reviewer.id, "org_default");
+    const adminPatch = async (status: "TRIAL" | "PAST_DUE", enforce: boolean) => {
+      const reply = await fetch(origin + "/api/v1/platform/saas/organizations/" +
+        customerId + "/subscription", {
+        method: "PATCH", headers: {
+          Authorization: platformToken, "Content-Type": "application/json",
+        }, body: JSON.stringify({
+          planCode: plan.code, status, billingCycle: "ANNUAL",
+          currentPeriodStart: termStart.toISOString(),
+          currentPeriodEnd: termEnd.toISOString(),
+          enforcementEnabled: enforce,
+        }),
+      });
+      return { code: reply.status, result: await reply.json() };
+    };
+    const trialBypass = await adminPatch("TRIAL", false);
+    assert.equal(trialBypass.code, 409);
+    assert.equal(trialBypass.result.error.code,
+      "SCHOOLOS_SIGNED_QUOTE_TRIAL_BYPASS_DENIED");
+    const licensingBypass = await adminPatch("PAST_DUE", false);
+    assert.equal(licensingBypass.code, 409);
+    assert.equal(licensingBypass.result.error.code,
+      "SCHOOLOS_SIGNED_QUOTE_ENFORCEMENT_REQUIRED");
+    assert.equal((await systemPrisma.organization.findUniqueOrThrow({
+      where: { id: customerId },
+    })).subscriptionStatus, OrganizationSubscriptionStatus.ACTIVE);
+    assert.equal((await systemPrisma.saaSSubscription.findUniqueOrThrow({
+      where: { id: subscription.id },
+    })).status, OrganizationSubscriptionStatus.ACTIVE);
+    console.log("SYNTHETIC_QUOTED_PLATFORM_BILLING_BYPASS_DENIAL=PASS");
     const foreignAttempt = await postCheckout(foreignToken, quote.id);
     assert.equal(foreignAttempt.status, 404);
     assert.equal(foreignAttempt.body.error?.code, "SCHOOLOS_QUOTE_NOT_FOUND");

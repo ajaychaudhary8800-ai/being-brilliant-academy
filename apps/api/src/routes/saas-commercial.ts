@@ -11,6 +11,7 @@ import { assertCommercialPlanFitsUsage, commercialAccessSnapshot, commercialEnti
 import { AppError } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { assertSchoolOSQuotedBillingAdminGuard } from "../lib/schoolos-quoted-admin-billing-policy.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -269,14 +270,46 @@ router.patch("/platform/saas/organizations/:organizationId/subscription", async 
     immutablePaidPeriod = { start: current.currentPeriodStart, end: current.currentPeriodEnd };
   }
 
-  const settings = record(organization.settings);
-  const commercialEntitlements = {
-    ...record(settings.commercialEntitlements),
-    ...(data.enforcementEnabled === undefined ? {} : { enforce: data.enforcementEnabled }),
-  };
-  if (commercialEntitlements.enforce === true) await assertCommercialPlanFitsUsage(organizationId, plan.limits);
-
   const subscription = await systemPrisma.$transaction(async tx => {
+    // Checkout, provider settlement, and feature licensing all share these
+    // lock keys. Observe source quote/payment state and settings AFTER locks
+    // to prevent an admin override racing a signed capture.
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-organization-checkout:" + organizationId}))`;
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-renewal-settlement:" + organizationId}))`;
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-features:" + organizationId}))`;
+    const [currentOrganization, quotedInvoice] = await Promise.all([
+      tx.organization.findUnique({ where: { id: organizationId },
+        select: { subscriptionStatus: true, subscriptionPlan: true,
+          subscriptionEndsAt: true, settings: true, deletedAt: true } }),
+      tx.saaSInvoice.findFirst({ where: { organizationId, schoolOSQuoteId: { not: null } },
+        select: { id: true } }),
+    ]);
+    if (!currentOrganization || currentOrganization.deletedAt ||
+        currentOrganization.subscriptionStatus !== organization.subscriptionStatus ||
+        currentOrganization.subscriptionPlan !== organization.subscriptionPlan ||
+        (currentOrganization.subscriptionEndsAt?.getTime() ?? null) !==
+          (organization.subscriptionEndsAt?.getTime() ?? null))
+      throw new AppError(409, "SCHOOLOS_BILLING_STATE_CHANGED",
+        "Billing changed during review; reload before updating");
+    if (immutablePaidPeriod) {
+      const currentPaid = await tx.saaSSubscription.findUnique({
+        where: { organizationId },
+        select: { currentPeriodStart: true, currentPeriodEnd: true },
+      });
+      if (currentPaid?.currentPeriodStart?.getTime() !== immutablePaidPeriod.start.getTime() ||
+          currentPaid?.currentPeriodEnd?.getTime() !== immutablePaidPeriod.end.getTime())
+        throw new AppError(409, "SCHOOLOS_BILLING_STATE_CHANGED",
+          "Paid subscription changed during review; reload before updating");
+    }
+    const settings = record(currentOrganization.settings);
+    const commercialEntitlements = {
+      ...record(settings.commercialEntitlements),
+      ...(data.enforcementEnabled === undefined ? {} : { enforce: data.enforcementEnabled }),
+    };
+    assertSchoolOSQuotedBillingAdminGuard(Boolean(quotedInvoice),
+      data.status, commercialEntitlements.enforce === true);
+    if (commercialEntitlements.enforce === true)
+      await assertCommercialPlanFitsUsage(organizationId, plan.limits);
     const saved = await tx.saaSSubscription.upsert({
       where: { organizationId },
       create: {
