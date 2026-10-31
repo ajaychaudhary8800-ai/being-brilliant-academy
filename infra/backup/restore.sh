@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 backup_dir="${1:?Usage: restore.sh /backups/TIMESTAMP}"
-sha256sum -c "$backup_dir/SHA256SUMS"
+# Verify copied historical and current checkpoints by content, not original path.
+/usr/local/bin/verify-checksums.sh "$backup_dir"
 # Match backup.sh: Prisma's ?schema= selector is not accepted by libpq.
 # Retain other query parameters; never echo the URL or its credentials.
 pg_restore_url="$(printf '%s\n' "$DATABASE_URL" | sed \
