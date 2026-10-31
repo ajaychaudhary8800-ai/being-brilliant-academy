@@ -43,6 +43,23 @@
 
 **Never infer RC-06 or RC-07 PASS from a database-only restore.** If the checkpoint legitimately has no media/files/Vault documents, record exact applicable scope with attributable N/A disposition. If keys are missing or inconsistent, mark BLOCKED and **do not rotate/replace them to force decryption**.
 
+### Read-only checkpoint preflight (prepared, **not run on real data**)
+
+A guarded Python preflight is committed at `scripts/schoolos-v5-private-checkpoint-preflight.py`. It requires a **copy already located on the restricted isolated host** and examines only `SHA256SUMS`, `database.dump` and `files.tar.gz`. It does **not** import archives, start containers, execute SQL, decrypt documents, contact Cloudflare R2 or connect to any host. Its independent digest parameter must come from an **out-of-band trusted manifest record**, not simply a hash computed from the same untrusted copy.
+
+Example on the **isolated private host only** (replace locally; never paste real paths into chat):
+
+```sh
+python3 scripts/schoolos-v5-private-checkpoint-preflight.py \
+  --checkpoint-dir /PRIVATE_ISOLATED_COPY/checkpoint \
+  --checkpoint-id 20261031T073407Z \
+  --report /PRIVATE_PROTECTED_REPORT_DIR/preflight-unique.json
+```
+
+If an authenticated original SHA-256 of the `SHA256SUMS` manifest is available from the owner-controlled protected register, include `--trusted-manifest-sha256 <64-hex>` to verify it independently. Otherwise `MANIFEST_AUTHENTICITY=NOT_ATTESTED` is the correct result despite internal checksum PASS. The report is created exclusively with `0600` on Unix and cannot overwrite an existing file.
+
+**The preflight is a read-only structural and consistency gate**, not a real DB restore, media/Vault recovery, authentic source chain or cryptographic signature. It rejects tar traversal, links and special entries; legitimate archives containing links will require documented manual review rather than automatically extracting. No copied real checkpoint should be committed, uploaded or attached to GitHub issues.
+
 ### Restricted operator workflow (no staging changes)
 
 1. Keep existing #258 lock. Verify the isolated recovery engine/host has no shared V5 production/staging volumes, remote Docker context, routed provider access or published ports. Record host/isolation attestation privately.
