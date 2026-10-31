@@ -20,8 +20,16 @@ export async function retrySerializableWrite<T>(
     try {
       return await transaction();
     } catch (error) {
-      const conflict = Boolean(error && typeof error === "object"
-        && "code" in error && (error as { code?: string }).code === "P2034");
+      // Prisma interactive transactions emit P2034. PostgreSQL conflicts
+      // raised by raw SELECT ... FOR UPDATE can surface instead as P2010
+      // carrying the SQLSTATE in meta.code (40001 serialization, 40P01 deadlock).
+      // Do not retry arbitrary SQL errors, constraint violations or network I/O.
+      const candidate = error && typeof error === "object"
+        ? error as { code?: unknown; meta?: { code?: unknown } }
+        : null;
+      const conflict = candidate?.code === "P2034"
+        || (candidate?.code === "P2010"
+          && (candidate.meta?.code === "40001" || candidate.meta?.code === "40P01"));
       if (!conflict) throw error;
       if (attempt === attempts) {
         throw new AppError(
