@@ -73,7 +73,7 @@ test("single period edits and archived reactivation are serializable and recheck
 test("weekly preview and save use the effective teacher-subject allocation guard", () => {
   const weeklyHandler = route.split("async function checkWeek(")[1]?.split("// Class-first school planner:")[0];
   assert.ok(weeklyHandler, "Shared weekly preflight must exist");
-  assert.match(route, /import \{ effectiveDateForSession, requireAllocatedSubject \} from "\.\.\/lib\/subject-resolution\.js"/);
+  assert.match(route, /import \{ allocationWhere, effectiveDateForSession, requireAllocatedSubject \} from "\.\.\/lib\/subject-resolution\.js"/);
   assert.match(weeklyHandler, /await requireAllocatedSubject\(/);
   assert.match(weeklyHandler, /effectiveAt: effectiveDateForSession\(batch\.session\.startsAt, batch\.session\.endsAt\)/);
   assert.match(weeklyHandler, /teacherId: entry\.teacherId, subjectId: entry\.subjectId/);
