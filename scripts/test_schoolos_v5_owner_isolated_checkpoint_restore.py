@@ -186,18 +186,16 @@ class IsolatedRecoveryTests(unittest.TestCase):
         self.assertEqual(data["cleanup"], "PASS")
         self.assertIn("VAULT_AND_MEDIA_RESTORED=NO", out.getvalue())
 
-    def test_disposable_container_cleanup_on_restore_failure(self):
+    def test_unowned_container_id_is_never_automatically_removed(self):
         cid = "b" * 64
         calls = []
         def fake_docker(args, **kwargs):
             calls.append(args)
             if args[0] == "run":
                 return 0, cid.encode()
-            if args[0] == "rm":
-                return 0, b""
             if args[0] == "inspect":
                 return 0, json.dumps({
-                    "schoolos.recovery.id": args[0] + "-wrong",
+                    "schoolos.recovery.id": "unexpected-existing-container"
                 }).encode()
             return 0, b""
         with patch.object(runner, "docker", side_effect=fake_docker), \
@@ -205,11 +203,51 @@ class IsolatedRecoveryTests(unittest.TestCase):
                           return_value="sha256:" + "a" * 64), \
              contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(
-                runner.RecoveryFailure, "CONTAINER_OWNERSHIP_MISMATCH"
+                runner.RecoveryFailure, "EPHEMERAL_CONTAINER_OWNERSHIP_OR_CLEANUP_FAILED"
             ):
                 runner.restore_in_isolation(self.folder, {}, 1024, 256)
-        self.assertTrue(any(a[0] == "rm" and a[-1] == cid for a in calls))
+        self.assertFalse(any(a[0] == "rm" for a in calls),
+                         "cannot delete unverified container ownership")
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_report_inside_checkpoint_copy_is_refused(self):
+        report = self.folder / "should-not-be-created.json"
+        argv = [
+            "runner", "--checkpoint-dir", str(self.folder),
+            "--checkpoint-id", runner.CHECKPOINT_ID,
+            "--report", str(report),
+        ]
+        with patch("sys.argv", argv), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = runner.main()
+        self.assertEqual(rc, 2)
+        self.assertFalse(report.exists())
+        self.assertIn("REPORT_INSIDE_CHECKPOINT_REFUSED", out.getvalue())
+
+    def test_insufficient_tmpfs_is_vetoed_without_starting_docker(self):
+        report = Path(self.temp.name) / "too-small.json"
+        argv = [
+            "runner", "--checkpoint-dir", str(self.folder),
+            "--checkpoint-id", runner.CHECKPOINT_ID,
+            "--report", str(report), "--execute-isolated-restore",
+            "--acknowledge-private-offline-checkpoint",
+            "--files-tmpfs-mb", "64",
+        ]
+        # Test the capacity branch without allocating a huge real fixture.
+        original = runner.PREFLIGHT.preflight
+        def fake_preflight(folder, digest):
+            result = original(folder, digest)
+            result["tar_declared_file_bytes"] = 100 * 1024 * 1024
+            return result
+        with patch("sys.argv", argv), \
+             patch.object(runner.PREFLIGHT, "preflight", fake_preflight), \
+             patch.object(runner, "docker") as docker, \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = runner.main()
+        self.assertEqual(rc, 2)
+        docker.assert_not_called()
+        self.assertIn("ISOLATED_FILE_TMPFS_CAPACITY_TOO_SMALL", out.getvalue())
