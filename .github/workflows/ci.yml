@@ -144,3 +144,85 @@ jobs:
           echo "V5_API_CLEAN_IMAGE_ENTRYPOINT_LF=PASS"
           echo "REAL_STAGING_IMAGE_ATTESTED=NO"
           echo "STAGING_DEPLOYMENT=NOT_PERFORMED"
+      - name: Boot corrected API image with isolated synthetic PostgreSQL
+        run: |
+          set -euo pipefail
+          sid="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          network="schoolos-ci-api-lf-net-${sid}"
+          pg="schoolos-ci-api-lf-db-${sid}"
+          api="schoolos-ci-api-lf-svc-${sid}"
+          created_network=0
+          created_pg=0
+          created_api=0
+          cleanup() {
+            if [ "$created_api" -eq 1 ]; then docker rm -f "$api" >/dev/null 2>&1 || true; fi
+            if [ "$created_pg" -eq 1 ]; then docker rm -f "$pg" >/dev/null 2>&1 || true; fi
+            if [ "$created_network" -eq 1 ]; then docker network rm "$network" >/dev/null 2>&1 || true; fi
+          }
+          trap cleanup EXIT
+          docker network create --internal --driver bridge "$network" >/dev/null
+          created_network=1
+          docker run -d --rm --pull=never --name "$pg" \
+            --network "$network" --network-alias pg \
+            --tmpfs /var/lib/postgresql/data:rw,size=1024m \
+            --memory 1400m \
+            -e POSTGRES_DB=schoolos_ci \
+            -e POSTGRES_USER=schoolos_ci \
+            -e POSTGRES_PASSWORD=synthetic_ci_credential_only \
+            postgres:16-alpine >/dev/null
+          created_pg=1
+          ready=0
+          for attempt in $(seq 1 60); do
+            if docker exec "$pg" pg_isready -U schoolos_ci -d schoolos_ci >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "V5_CI_SYNTHETIC_POSTGRES=FAIL"
+            exit 1
+          fi
+          echo "V5_CI_SYNTHETIC_POSTGRES=PASS"
+          docker run -d --rm --pull=never --name "$api" \
+            --network "$network" --network-alias api \
+            --memory 2300m \
+            --pids-limit 1024 \
+            -e NODE_ENV=test \
+            -e PORT=4000 \
+            -e DATABASE_URL=postgresql://schoolos_ci:synthetic_ci_credential_only@pg:5432/schoolos_ci?schema=public \
+            -e JWT_ACCESS_SECRET=synthetic-ci-only-access-token-secret-32-chars \
+            -e JWT_REFRESH_SECRET=synthetic-ci-only-refresh-token-secret-32-chars \
+            -e WEB_URL=http://web:3000 \
+            -e STORAGE_DRIVER=local \
+            -e LOCAL_STORAGE_PATH=/data/storage \
+            -e REDIS_REQUIRED=false \
+            -e LOG_LEVEL=silent \
+            -e RAZORPAY_MODE=test \
+            schoolos-v5-ci-lf-check:ephemeral >/dev/null
+          created_api=1
+          ready=0
+          for attempt in $(seq 1 105); do
+            if docker exec "$api" node -e 'fetch("http://127.0.0.1:4000/health/ready",{signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))' >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            if ! docker inspect "$api" --format '{{.State.Running}}' 2>/dev/null | grep -qx true; then
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "V5_CI_SYNTHETIC_API_READY=FAIL"
+            exit 1
+          fi
+          echo "V5_CI_SYNTHETIC_API_READY=PASS"
+          migrations="$(docker exec "$pg" psql -U schoolos_ci -d schoolos_ci -At -c 'SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL' 2>/dev/null)"
+          if ! [[ "$migrations" =~ ^[0-9]+$ ]] || [ "$migrations" -lt 114 ]; then
+            echo "V5_CI_SYNTHETIC_MIGRATIONS=FAIL"
+            exit 1
+          fi
+          echo "V5_CI_SYNTHETIC_MIGRATIONS=PASS"
+          echo "REAL_STAGING_DATA_ACCESSED=NO"
+          echo "SOURCE_BUILD_SIGNED_PROVENANCE=NOT_ATTESTED"
+          echo "STAGING_DEPLOYMENT=NOT_PERFORMED"
