@@ -35,4 +35,14 @@ test("human grading finalization updates the same sheet row as evidence lock", (
   assert.match(body, /finalizedAt: now/);
   assert.match(body, /AI_EXAMINER_REVIEW_POLICY_INCOMPLETE/);
   assert.match(body, /AI_EXAMINER_SUPPLEMENTARY_EVIDENCE_INCOMPLETE/);
+  // Previously, a VERIFIED evidence snapshot was read before the approval
+  // transaction. Another reviewer could REJECT it before marks finalized.
+  const approval = body.indexOf("const approved = await prisma.$transaction(async tx =>");
+  const lock = body.indexOf("const sheetLock = await tx.$queryRaw", approval);
+  const evidence = body.indexOf("tx.aIExaminerEvidenceAttachment.findMany(", lock);
+  const finalize = body.indexOf("tx.examinationAnswerSheet.updateMany(", evidence);
+  assert.ok(approval >= 0 && lock > approval && evidence > lock && finalize > evidence,
+    "Evidence must be verified under the answer-sheet row lock before marking is finalized");
+  assert.doesNotMatch(body.slice(0, approval), /prisma\.aIExaminerEvidenceAttachment\.findMany\(/);
 });
+
