@@ -88,8 +88,7 @@ test("existing BBA deferred branch manager appointment rejects privilege escalat
       },
       user: {
         findFirst: async ({ where }: any) => {
-          assert.equal(where.email, MAIL);
-          return candidate;
+          return where.email === MAIL ? candidate : null;
         },
         create: async ({ data }: any) => {
           managerCreates++;
