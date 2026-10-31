@@ -6,9 +6,7 @@ const id="sha256:"+"a".repeat(64), sha="b".repeat(40);
 function fake(role="WEB") {
   return {Id:id,Config:{WorkingDir:role==="API"?"/workspace/apps/api":"/app",
     Env:["NODE_ENV=production"],Labels:{
-      "org.opencontainers.image.revision":sha,
-      "com.docker.compose.project":"96ffcu0jinuwlnaqxpltln4p",
-      "com.docker.compose.service":role.toLowerCase()}}};
+      "org.opencontainers.image.revision":sha}}};
 }
 function review(image=fake(),history=["RUN apk add --no-cache tini"],role="WEB"){
   return reviewImage({image,history,id,sha,role});
@@ -34,11 +32,18 @@ test("image Config.Env credentials fail even if history does not include them",(
   assert.deepEqual(y.imageEnvKeyNames,["POSTGRES_PASSWORD"]);
   assert.ok(!JSON.stringify(y).includes("private-fixture"));
 });
-test("wrong project, source revision and unreadable history fail closed",()=>{
+test("wrong source revision and unreadable history fail closed",()=>{
   const x=fake();x.Config.Labels["org.opencontainers.image.revision"]="c".repeat(40);
-  x.Config.Labels["com.docker.compose.project"]="unknown";
   const y=review(x,[]);
-  assert.deepEqual(y.reasons,["PROJECT_MISMATCH","REVISION_MISMATCH","UNREADABLE_HISTORY"]);
+  assert.deepEqual(y.reasons,["REVISION_MISMATCH","UNREADABLE_HISTORY"]);
+});
+test("clean built images do not require Compose container labels",()=>{
+  // Compose labels are on running containers, not in Docker image Config.Labels.
+  const x=fake();
+  assert.deepEqual(Object.keys(x.Config.Labels),["org.opencontainers.image.revision"]);
+  const y=review(x,["RUN apk add --no-cache curl"]);
+  assert.equal(y.status,"PASS_METADATA_ONLY");
+  assert.equal(y.signedProvenanceVerified,false);
 });
 
 test("backup and proxy image histories are independently scanned",()=>{
