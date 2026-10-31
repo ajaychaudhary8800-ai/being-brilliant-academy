@@ -131,7 +131,6 @@ def build_container_command(checkpoint: Path, name: str,
         "--pids-limit", "512",
         "--memory", "4g",
         "--shm-size", "128m",
-        "--tmpfs", "type=tmpfs",            # Removed by normalization below
         "--tmpfs", f"/var/lib/postgresql/data:rw,nosuid,nodev,size={db_mb}m",
         "--tmpfs", "/var/run/postgresql:rw,nosuid,nodev,size=64m",
         "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m",
@@ -208,7 +207,8 @@ def restore_in_isolation(checkpoint: Path, preflight: dict,
             raise RecoveryFailure("NETWORK_ISOLATION_MISSING")
         if "--read-only" not in args or "--mount" not in args:
             raise RecoveryFailure("FILESYSTEM_ISOLATION_MISSING")
-        if any(flag in args for flag in ("-p", "--publish", "-v", "--volume")):
+        if any(flag in args for flag in ("-p", "--publish", "-v", "--volume",
+                                        "--network-alias", "--privileged")):
             raise RecoveryFailure("PERSISTENT_OR_PUBLIC_RESOURCE_REFUSED")
         _, raw = docker(args, timeout=90)
         cid = raw.decode("ascii", errors="ignore").strip()
@@ -254,7 +254,6 @@ def restore_in_isolation(checkpoint: Path, preflight: dict,
             "tar", "-xzf", "/isolated-checkpoint/files.tar.gz",
             "-C", "/isolated-files",
         ], timeout=900)
-        files = pg_scalar if False else None  # No DB query for storage.
         _, count_raw = docker([
             "exec", cid, "sh", "-c",
             "find /isolated-files -type f | wc -l",
