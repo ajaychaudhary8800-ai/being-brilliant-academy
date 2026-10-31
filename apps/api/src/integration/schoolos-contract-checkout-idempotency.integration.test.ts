@@ -397,6 +397,28 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
       data: { periodStart: termStart, periodEnd: termEnd } });
     console.log("SYNTHETIC_EXPIRED_TERM_CAPTURE_DENIAL=PASS");
 
+    // The other timing boundary is equally unsafe: a future-dated quote
+    // cannot immediately activate a school before its annual term begins.
+    const futureStart = new Date(Date.now() + 2 * 86400_000);
+    const futureEnd = new Date(Date.now() + 367 * 86400_000);
+    await systemPrisma.saaSInvoice.update({ where: { id: invoice.id },
+      data: { periodStart: futureStart, periodEnd: futureEnd } });
+    const earlyTermCapture = await postWebhook(event, signatureFor(event));
+    assert.equal(earlyTermCapture.status, 409);
+    assert.equal((await earlyTermCapture.json()).error.code, "SCHOOLOS_CAPTURE_TERM_NOT_STARTED");
+    assert.equal(await systemPrisma.saaSPayment.count({
+      where: { invoiceId, providerPaymentId: payment.id },
+    }), 0);
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "OVERDUE");
+    assert.equal((await systemPrisma.schoolOSQuotation.findUniqueOrThrow({
+      where: { id: quote.id },
+    })).status, "PAYMENT_PENDING");
+    await systemPrisma.saaSInvoice.update({ where: { id: invoice.id },
+      data: { periodStart: termStart, periodEnd: termEnd } });
+    console.log("SYNTHETIC_FUTURE_TERM_CAPTURE_DENIAL=PASS");
+
     // Real PostgreSQL transaction race: three signed HTTP deliveries for the
     // same provider capture arrive before the first one has committed.
     // Replays must serialize before invoice status reads and all return 200.
