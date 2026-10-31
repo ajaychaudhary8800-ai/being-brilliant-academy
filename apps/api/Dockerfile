@@ -28,6 +28,12 @@ COPY --from=build --chown=app:app /workspace/apps/api/scripts ./apps/api/scripts
 COPY --chown=app:app docs/legal-sales ./docs/legal-sales
 COPY --chown=app:app config ./config
 COPY --chmod=755 apps/api/docker-entrypoint.sh /usr/local/bin/bba-api-entrypoint
+# Windows Docker Desktop checkouts may supply CRLF despite LF Git blobs.
+# Canonicalize this executable inside the image and fail the build if invalid;
+# do not depend solely on a developer's git core.autocrlf setting.
+RUN sed -i 's/\r$//' /usr/local/bin/bba-api-entrypoint \
+    && /bin/sh -n /usr/local/bin/bba-api-entrypoint \
+    && test -x /usr/local/bin/bba-api-entrypoint
 WORKDIR /workspace/apps/api
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD curl -fsS http://127.0.0.1:4000/health/ready || exit 1
