@@ -4,6 +4,7 @@ export type SchoolOSInvoiceLedger = {
   provider: string | null; providerOrderId: string | null; status: string;
   amountPaise: number; taxPaise: number; totalPaise: number; currency: string;
   schoolOSQuote: { id: string; organizationId: string | null; totalPaise: number } | null;
+  schoolOSPaymentRiskHold: { organizationId: string; status: string } | null;
   payments: Array<{
     invoiceId: string; organizationId: string; provider: string; providerPaymentId: string | null;
     status: string; amountPaise: number; currency: string;
@@ -28,6 +29,12 @@ export function reconcileSchoolOSInvoiceLedger(invoice: SchoolOSInvoiceLedger) {
     || invoice.schoolOSQuote.organizationId !== invoice.organizationId
     || invoice.schoolOSQuote.totalPaise !== invoice.totalPaise) findings.add("QUOTE_LINK_MISMATCH");
   if (!["DRAFT", "OPEN", "OVERDUE", "PAID", "VOID"].includes(invoice.status)) findings.add("INVOICE_STATE_INVALID");
+  if (invoice.schoolOSPaymentRiskHold &&
+    (invoice.schoolOSPaymentRiskHold.organizationId !== invoice.organizationId ||
+      !["ACTIVE", "RESOLVED"].includes(invoice.schoolOSPaymentRiskHold.status)))
+    findings.add("RISK_HOLD_TENANT_OR_STATE_INVALID");
+  if (invoice.schoolOSPaymentAdjustments.length > 0 && !invoice.schoolOSPaymentRiskHold)
+    findings.add("RISK_HOLD_MISSING_FOR_ADJUSTMENTS");
   if (invoice.payments.length > SCHOOL_OS_RECONCILIATION_ROW_LIMIT
     || invoice.schoolOSPaymentAdjustments.length > SCHOOL_OS_RECONCILIATION_ROW_LIMIT)
     findings.add("LEDGER_ROW_LIMIT_EXCEEDED");
@@ -88,6 +95,9 @@ export function reconcileSchoolOSInvoiceLedger(invoice: SchoolOSInvoiceLedger) {
   const consistent = findings.size === 0;
   return {
     invoiceId: invoice.id,
+    invoiceStatus: invoice.status,
+    financeHoldStatus: invoice.schoolOSPaymentRiskHold?.status ?? null,
+    financeReviewRequired: invoice.schoolOSPaymentRiskHold?.status === "ACTIVE" || disputeEvents > 0,
     status: consistent ? "INTERNAL_AMOUNTS_CONSISTENT" : "REVIEW_REQUIRED",
     findings: [...findings].sort(),
     providerSettlement: "NOT_VERIFIED", taxCompliance: "NOT_VERIFIED",

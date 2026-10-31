@@ -434,6 +434,9 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     assert.equal(financeResponse.headers.get("cache-control"), "no-store");
     const finance = (await financeResponse.json()).data;
     assert.equal(finance.status, "INTERNAL_AMOUNTS_CONSISTENT");
+    assert.equal(finance.invoiceStatus, "PAID");
+    assert.equal(finance.financeHoldStatus, "ACTIVE");
+    assert.equal(finance.financeReviewRequired, true);
     assert.equal(finance.providerSettlement, "NOT_VERIFIED");
     assert.equal(finance.totals.capturedPaise, totalPaise);
     assert.equal(finance.totals.processedRefundPaise, refundAmountPaise);
