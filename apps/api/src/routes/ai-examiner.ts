@@ -21,7 +21,7 @@ import {
   hashAIExaminerScanToken,
   validateAIExaminerOmrIngestion,
 } from "../lib/ai-examiner-scan-ingestion.js";
-import { aiExaminerLifecycleBlocker, assertAIExaminerEvaluationReady, assertAIExaminerEvidenceMutable, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
+import { aiExaminerLifecycleBlocker, assertAIExaminerEvaluationReady, assertAIExaminerReviewable, assertAIExaminerRubricActivatable } from "../lib/ai-examiner-policy.js";
 import { assessAIExaminerReviewCompletion, reviewPolicyFromExamSnapshot } from "../lib/ai-examiner-review-policy.js";
 import {
   aiExaminerRegradeWindow,
