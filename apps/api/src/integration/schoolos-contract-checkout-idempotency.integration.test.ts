@@ -460,7 +460,10 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     console.log("LIVE_SIGNED_RAZORPAY_WEBHOOK=NOT_TESTED");
   } finally {
     if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));
-    if (platformReviewerId) await systemPrisma.user.delete({ where: { id: platformReviewerId } });
+    if (platformReviewerId) {
+      await systemPrisma.tenantAccessAudit.deleteMany({ where: { userId: platformReviewerId } });
+      await systemPrisma.user.delete({ where: { id: platformReviewerId } });
+    }
     await systemPrisma.schoolOSPaymentAdjustment.deleteMany({ where: { organizationId: customerId } });
     await systemPrisma.schoolOSPaymentRiskHold.deleteMany({ where: { organizationId: customerId } });
     await systemPrisma.saaSWebhookEvent.deleteMany({
