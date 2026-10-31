@@ -32,6 +32,7 @@ import {
 import { assertExaminationManager, evaluationStatus, examinationResultFor } from "../lib/examination-policy.js";
 import { analyzeAIExaminerOriginality } from "../lib/ai-examiner-originality.js";
 import { aiExaminerEvidenceMimeTypes, assertAIExaminerEvidenceKindMatchesMime, decodeAIExaminerEvidenceUpload, normalizeAIExaminerEvidenceUrl } from "../lib/ai-examiner-evidence-upload.js";
+import { lockMutableEvidenceAnswerSheet } from "../lib/ai-examiner-evidence-write.js";
 import { renderAIExaminerCheckedCopy } from "../lib/ai-examiner-checked-copy.js";
 import { buildAIExaminerCheckedCopyDraft } from "../lib/ai-examiner-checked-copy-state.js";
 import { ensureAIExaminerCheckedCopyDraft } from "../lib/ai-examiner-checked-copy-draft.js";
@@ -257,6 +258,7 @@ async function answerSheetForManager(req: AuthRequest, answerSheetId: string) {
   const exam = await examinationForManager(req, sheet.examinationId);
   return { sheet, exam };
 }
+
 
 async function recomputePublishedRanks(tx: Prisma.TransactionClient, organizationId: string, examinationId: string) {
   const rows = await tx.examinationResult.findMany({
@@ -1463,7 +1465,9 @@ router.post("/answer-sheets/:answerSheetId/evidence", async (req: AuthRequest, r
     externalUrl = normalizeAIExaminerEvidenceUrl(body.externalUrl);
   }
 
-  const evidence = await prisma.aIExaminerEvidenceAttachment.create({
+  const evidence = await prisma.$transaction(async tx => {
+    await lockMutableEvidenceAnswerSheet(tx, req.auth!.organizationId, sheet.id);
+    return tx.aIExaminerEvidenceAttachment.create({
     data: {
       organizationId: req.auth!.organizationId,
       answerSheetId: sheet.id,
@@ -1488,6 +1492,7 @@ router.post("/answer-sheets/:answerSheetId/evidence", async (req: AuthRequest, r
       externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true, identityMasked: true,
       uploadedById: true, reviewedById: true, reviewNotes: true, reviewedAt: true, createdAt: true, updatedAt: true,
     },
+    });
   });
   await prisma.auditLog.create({
     data: {
@@ -1568,7 +1573,9 @@ router.patch("/evidence/:evidenceId/review", async (req: AuthRequest, res) => {
   });
   if (!evidence) throw new AppError(404, "AI_EXAMINER_EVIDENCE_NOT_FOUND", "Evidence attachment not found");
   await answerSheetForManager(req, evidence.answerSheetId);
-  const updated = await prisma.aIExaminerEvidenceAttachment.update({
+  const updated = await prisma.$transaction(async tx => {
+    await lockMutableEvidenceAnswerSheet(tx, req.auth!.organizationId, evidence.answerSheetId);
+    return tx.aIExaminerEvidenceAttachment.update({
     where: { id: evidence.id },
     data: {
       status: body.status,
@@ -1581,6 +1588,7 @@ router.patch("/evidence/:evidenceId/review", async (req: AuthRequest, res) => {
       externalUrl: true, contentSha256: true, durationSeconds: true, transcript: true, observation: true, sourceDevice: true, capturedAt: true, identityMasked: true,
       uploadedById: true, reviewedById: true, reviewNotes: true, reviewedAt: true, createdAt: true, updatedAt: true,
     },
+    });
   });
   await prisma.auditLog.create({
     data: {
@@ -3666,27 +3674,6 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
   const resolvedRubricQuestions = resolveAIExaminerRubricQuestions(activeRubric.rubric, activeRubric.modelAnswer);
   const supplementaryQuestions = resolvedRubricQuestions
     .filter(question => question.questionType === "ORAL_AUDIO_VIDEO" || question.questionType === "PRACTICAL_PROJECT_VIVA");
-  if (supplementaryQuestions.length) {
-    const verifiedEvidence = await prisma.aIExaminerEvidenceAttachment.findMany({
-      where: {
-        organizationId: req.auth!.organizationId,
-        answerSheetId: evaluation.answerSheet.id,
-        status: "VERIFIED",
-        questionKey: { in: supplementaryQuestions.map(question => question.key) },
-      },
-      select: { questionKey: true },
-    });
-    const verifiedKeys = new Set(verifiedEvidence.map(item => item.questionKey.toLocaleLowerCase("en")));
-    const missing = supplementaryQuestions.filter(question => !verifiedKeys.has(question.key.toLocaleLowerCase("en"))).map(question => question.key);
-    if (missing.length) {
-      throw new AppError(
-        409,
-        "AI_EXAMINER_SUPPLEMENTARY_EVIDENCE_INCOMPLETE",
-        `Verified oral/practical evidence is required before final approval for: ${missing.join(", ")}`,
-      );
-    }
-  }
-
   const byKey = new Map(body.questions.map(row => [row.questionKey.toLowerCase(), row]));
   if (byKey.size !== evaluation.questions.length || body.questions.length !== evaluation.questions.length) {
     throw new AppError(422, "AI_EXAMINER_REVIEW_INCOMPLETE", "Teacher must explicitly review every AI-evaluated question before approval");
@@ -3706,6 +3693,41 @@ router.post("/evaluations/:evaluationId/approve", async (req: AuthRequest, res) 
   const now = new Date();
   const teacherRemarks = body.teacherRemarks ?? evaluation.feedback ?? null;
   const approved = await prisma.$transaction(async tx => {
+    // Verify supplementary evidence while holding the SAME answer-sheet lock
+    // used by evidence create/review. This prevents a stale VERIFIED snapshot:
+    // evidence may otherwise be REJECTED between review preflight and approval.
+    const sheetLock = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "ExaminationAnswerSheet"
+      WHERE "id" = ${evaluation.answerSheet.id} AND "organizationId" = ${req.auth!.organizationId}
+      FOR UPDATE
+    `;
+    if (sheetLock.length !== 1) throw new AppError(404, "ANSWER_SHEET_NOT_FOUND", "Answer sheet not found");
+    const currentSheet = await tx.examinationAnswerSheet.findFirst({
+      where: { id: evaluation.answerSheet.id, organizationId: req.auth!.organizationId },
+      select: { finalizedAt: true, status: true },
+    });
+    if (!currentSheet || currentSheet.finalizedAt || currentSheet.status !== AnswerSheetStatus.UNDER_REVIEW) {
+      throw new AppError(409, "AI_EXAMINER_ANSWER_FINALIZED", "Answer sheet review state changed before approval");
+    }
+    if (supplementaryQuestions.length) {
+      const verifiedEvidence = await tx.aIExaminerEvidenceAttachment.findMany({
+        where: {
+          organizationId: req.auth!.organizationId,
+          answerSheetId: evaluation.answerSheet.id,
+          status: "VERIFIED",
+          questionKey: { in: supplementaryQuestions.map(question => question.key) },
+        },
+        select: { questionKey: true },
+      });
+      const verifiedKeys = new Set(verifiedEvidence.map(item => item.questionKey.toLocaleLowerCase("en")));
+      const missing = supplementaryQuestions.filter(question =>
+        !verifiedKeys.has(question.key.toLocaleLowerCase("en"))).map(question => question.key);
+      if (missing.length) throw new AppError(
+        409, "AI_EXAMINER_SUPPLEMENTARY_EVIDENCE_INCOMPLETE",
+        `Verified oral/practical evidence is required before final approval for: ${missing.join(", ")}`,
+      );
+    }
+
     const locked = await tx.aIExaminerEvaluation.updateMany({
       where: { id: evaluation.id, organizationId: req.auth!.organizationId, status: AIExaminerEvaluationStatus.REVIEW_REQUIRED },
       data: { status: AIExaminerEvaluationStatus.APPROVED, reviewedById: req.auth!.userId, reviewedAt: now },

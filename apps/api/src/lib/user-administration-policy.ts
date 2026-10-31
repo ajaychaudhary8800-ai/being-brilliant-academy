@@ -20,6 +20,19 @@ export type UserAdministrator = {
 
 const branchAdministratorAssignableRoles = new Set<Role>([Role.STUDENT, Role.TEACHER, Role.PARENT, Role.EMPLOYEE]);
 
+/**
+ * A branch administrator may invite or reset ordinary users in their own
+ * branch, but must not rotate an administrator's setup token. Account setup
+ * links are credential-bearing: an admin-targeted token invalidation must
+ * remain under the SUPER_ADMIN authority boundary.
+ */
+export function assertCanIssueAccountSetup(actorRole: Role, targetRole: Role) {
+  if (actorRole === Role.BRANCH_ADMIN
+    && (targetRole === Role.SUPER_ADMIN || targetRole === Role.BRANCH_ADMIN || targetRole === Role.ACCOUNTANT)) {
+    throw new AppError(403, "ADMIN_ACCOUNT_PROTECTED", "Only a Super Administrator may issue administrator account-setup links");
+  }
+}
+
 export function assertCanAdministerUserTarget(actorRole: Role, targetRole: Role) {
   if (targetRole === Role.ACCOUNTANT && actorRole !== Role.SUPER_ADMIN) {
     throw new AppError(403, "ACCOUNTANT_ROLE_FORBIDDEN", "Only super administrators may manage Accountant access");

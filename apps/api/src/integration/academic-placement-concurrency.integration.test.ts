@@ -281,6 +281,32 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
           teacherId: teacher.id, classroomId, academicSession: session.name,
           day: "MONDAY", startTime, endTime, periodNumber: 1, status: "ACTIVE",
         });
+        // The timetable now fails closed without an effective allocation.
+        // This is a *new* negative HTTP regression, not a repeat of an
+        // already accepted assignment scenario.
+        await systemPrisma.teacherSubject.create({ data: {
+          organizationId, teacherId: teacher.id, subjectId: subject.id,
+        } });
+        const withoutAllocation = await request("/timetables", "POST",
+          { ...period(branch, batch, course.id, roomA.id, "11:00", "12:00"), day: "WEDNESDAY" });
+        assert.equal(withoutAllocation.status, 422, JSON.stringify(withoutAllocation.payload));
+        assert.equal(withoutAllocation.payload.error.code, "TEACHER_SUBJECT_NOT_ALLOCATED");
+
+        // Explicitly establish the valid teacher-subject allocations required
+        // by the strengthened single-period create/edit/reactivation policy.
+        await systemPrisma.teacherAllocation.createMany({ data: [
+          { organizationId, academicSessionId: session.id, branchId: branch.id,
+            courseId: course.id, batchId: batch.id, teacherId: teacher.id,
+            subjectId: subject.id, subjectName: subject.name, weeklyPeriods: 12,
+            effectiveFrom: session.startsAt, status: "ACTIVE",
+            createdById: admin.id, updatedById: admin.id },
+          { organizationId, academicSessionId: session.id, branchId: branchB.id,
+            courseId: courseB.id, batchId: batchB.id, teacherId: teacher.id,
+            subjectId: subject.id, subjectName: subject.name, weeklyPeriods: 12,
+            effectiveFrom: session.startsAt, status: "ACTIVE",
+            createdById: admin.id, updatedById: admin.id },
+        ] });
+
         // Real parallel HTTP requests must not double-book an institution-wide
         // coaching teacher even when different branches lock independently.
         const [raceA, raceB] = await Promise.all([
@@ -356,6 +382,8 @@ test("real PostgreSQL academic placement constraints, races and retry authorizat
         assert.ok(ownedAudit.some(event => event.action === "STATUS_CHANGED"), JSON.stringify(ownedAudit));
       } finally {
         await systemPrisma.timetable.deleteMany({ where: { organizationId, teacherId: teacher.id } });
+        await systemPrisma.teacherAllocation.deleteMany({ where: { organizationId, teacherId: teacher.id } });
+        await systemPrisma.teacherSubject.deleteMany({ where: { organizationId, teacherId: teacher.id } });
         await systemPrisma.courseSubject.deleteMany({ where: { organizationId, subjectId: subject.id } });
         await systemPrisma.classroom.deleteMany({ where: { organizationId, id: { in: [roomA.id, roomB.id] } } });
         await systemPrisma.subject.delete({ where: { id: subject.id } });

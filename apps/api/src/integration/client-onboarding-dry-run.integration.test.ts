@@ -312,23 +312,27 @@ test("real PostgreSQL completes the full client onboarding dry run to READY / 10
       await systemPrisma.branch.deleteMany({ where: { organizationId } });
       await systemPrisma.saaSSubscription.deleteMany({ where: { organizationId } });
       await systemPrisma.user.deleteMany({ where: { organizationId } });
-      await systemPrisma.$executeRawUnsafe('ALTER TABLE "AcademicSession" DISABLE TRIGGER "AcademicSession_exactly_one_current"');
-      try {
-        await systemPrisma.academicSession.deleteMany({ where: { organizationId } });
-        await systemPrisma.organization.deleteMany({ where: { id: organizationId } });
-      } finally {
-        await systemPrisma.$executeRawUnsafe('ALTER TABLE "AcademicSession" ENABLE TRIGGER "AcademicSession_exactly_one_current"');
-      }
     }
 
     await systemPrisma.branch.deleteMany({ where: { organizationId: otherOrganizationId } });
-    await systemPrisma.$executeRawUnsafe('ALTER TABLE "AcademicSession" DISABLE TRIGGER "AcademicSession_exactly_one_current"');
-    try {
-      await systemPrisma.academicSession.deleteMany({ where: { organizationId: otherOrganizationId } });
-      await systemPrisma.organization.deleteMany({ where: { id: otherOrganizationId } });
-    } finally {
-      await systemPrisma.$executeRawUnsafe('ALTER TABLE "AcademicSession" ENABLE TRIGGER "AcademicSession_exactly_one_current"');
-    }
+    // Keep the deferred academic-session trigger disabled only inside this
+    // single transaction. The previous two separate non-transactional ALTER
+    // commands raced with other PostgreSQL integration suites and caused
+    // intermittent 23514 "exactly one current academic session" cleanup
+    // failures even though no onboarding behavior was failing.
+    await systemPrisma.$transaction(async tx => {
+      await tx.$executeRawUnsafe('ALTER TABLE "AcademicSession" DISABLE TRIGGER "AcademicSession_exactly_one_current"');
+      try {
+        if (organizationId) {
+          await tx.academicSession.deleteMany({ where: { organizationId } });
+          await tx.organization.deleteMany({ where: { id: organizationId } });
+        }
+        await tx.academicSession.deleteMany({ where: { organizationId: otherOrganizationId } });
+        await tx.organization.deleteMany({ where: { id: otherOrganizationId } });
+      } finally {
+        await tx.$executeRawUnsafe('ALTER TABLE "AcademicSession" ENABLE TRIGGER "AcademicSession_exactly_one_current"');
+      }
+    });
 
     if (platformUserId) {
       await systemPrisma.tenantAccessAudit.deleteMany({ where: { userId: platformUserId } });
