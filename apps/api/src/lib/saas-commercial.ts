@@ -199,6 +199,13 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
         }
         return;
       }
+      // A valid provider signature proves origin, not permission to revive a
+      // voided or unissued invoice. Preserve the capture for provider-side
+      // reconciliation; do not grant entitlements or rewrite financial state.
+      if (invoice.status !== "OPEN" && invoice.status !== "OVERDUE") {
+        throw new AppError(409, "SCHOOLOS_CAPTURE_INVOICE_STATE_CONFLICT",
+          "Captured payment references an invoice that is not collectible; finance reconciliation required");
+      }
       if (payment.amount !== invoice.totalPaise || payment.currency.toUpperCase() !== invoice.currency.toUpperCase()) {
         throw new AppError(422, "PAYMENT_MISMATCH", "Captured SaaS payment does not match the subscription invoice");
       }

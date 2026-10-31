@@ -283,6 +283,30 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     })).status, "OPEN");
     await systemPrisma.saaSPayment.delete({ where: { providerPaymentId: reusedFailedId } });
 
+    // Signed late captures must not revive voided or unissued invoices.
+    // Exercise the actual HTTP handler and assert transactional non-mutation.
+    const subscriptionBeforeBlockedCapture = await systemPrisma.saaSSubscription.findUniqueOrThrow({
+      where: { id: subscription.id },
+    });
+    for (const status of [SaaSInvoiceStatus.DRAFT, SaaSInvoiceStatus.VOID]) {
+      await systemPrisma.saaSInvoice.update({ where: { id: invoice.id }, data: { status } });
+      const blocked = await postWebhook(event, signatureFor(event));
+      assert.equal(blocked.status, 409, `${status} invoice must not be activated by capture`);
+      assert.equal((await blocked.json()).error.code, "SCHOOLOS_CAPTURE_INVOICE_STATE_CONFLICT");
+      assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status, status);
+      assert.equal(await systemPrisma.saaSPayment.count({ where: { providerPaymentId: payment.id } }), 0);
+      assert.equal(await systemPrisma.saaSWebhookEvent.count({
+        where: { provider: "RAZORPAY", eventKey: "payment.captured:" + payment.id },
+      }), 0);
+      assert.deepEqual(await systemPrisma.saaSSubscription.findUniqueOrThrow({
+        where: { id: subscription.id },
+      }), subscriptionBeforeBlockedCapture);
+      assert.equal((await systemPrisma.schoolOSQuotation.findUniqueOrThrow({ where: { id: quote.id } })).status,
+        "PAYMENT_PENDING");
+    }
+    // An overdue collectible invoice remains eligible for verified settlement.
+    await systemPrisma.saaSInvoice.update({ where: { id: invoice.id }, data: { status: SaaSInvoiceStatus.OVERDUE } });
+
     // Real PostgreSQL transaction race: three signed HTTP deliveries for the
     // same provider capture arrive before the first one has committed.
     // Replays must serialize before invoice status reads and all return 200.
