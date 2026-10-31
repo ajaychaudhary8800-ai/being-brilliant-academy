@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { approvedStagingProject, inspectV5StagingContainers } from "./schoolos-v5-staging-provenance.mjs";
+import { assessV5ImageInventory } from "./schoolos-v5-image-rollback-inventory.mjs";
 
 const sha = "a".repeat(40);
 const project = "96ffcu0jinuwlnaqxpltln4p";
@@ -12,7 +13,9 @@ function container(service) {
       "WEB_URL=https://v5-staging.beingbrilliantedu.com", "RAZORPAY_MODE=test",
       "SCHOOLOS_V5_LIVEKIT_ENV_FILE=/run/secrets/schoolos-v5-livekit-api.env",
       "SCHOOLOS_V5_APP_ENV_FILE=/run/secrets/schoolos-v5-app-api.env"]
-    : [];
+    : ["backup", "migrate"].includes(service)
+      ? ["DATABASE_URL=postgresql://secret-user:secret-pass@postgres:5432/schoolos_v5_staging"]
+      : [];
   const mounts = service === "api"
     ? [{ Destination: "/run/secrets/schoolos-v5-razorpay-api.env", Source: "/etc/schoolos/v5-staging/razorpay-v5-api.env", Type: "bind", RW: false },
       { Destination: "/run/secrets/schoolos-v5-livekit-api.env", Source: "/etc/schoolos/v5-staging/livekit-v5-api.env", Type: "bind", RW: false },
@@ -119,6 +122,87 @@ test("full isolated V5 inventory is informational and never claims paid commerci
   assert.equal(result.changesMade, false);
   assert.equal(result.services.length, names.length);
   assert.ok(result.services.every(x => x.health === "healthy" && x.imageId));
+});
+
+test("unexpected sidecar or missing project service labels veto staging trust-boundary acceptance", () => {
+  for (const service of ["unreviewed-sidecar", null]) {
+    const entries = fixtures();
+    const extraContainer = structuredClone(entries.find(c =>
+      c.Config.Labels["com.docker.compose.service"] === "web"));
+    if (service === null) delete extraContainer.Config.Labels["com.docker.compose.service"];
+    else extraContainer.Config.Labels["com.docker.compose.service"] = service;
+    entries.push(extraContainer);
+    const audit = check(entries);
+    assert.equal(audit.status, "FAIL");
+    assert.ok(audit.reasons.includes("UNEXPECTED_STAGING_SERVICE"));
+  }
+});
+
+test("migration and backup database targets must match the V5 API exactly without leaking credentials", () => {
+  for (const service of ["migrate", "backup"]) {
+    for (const mutatedUrl of [
+      "postgresql://secret-user:secret-pass@production-db:5432/bba",
+      "postgresql://secret-user:secret-pass@postgres:5432/production",
+      "postgresql://other-user:other-pass@postgres:5432/schoolos_v5_staging",
+      "not-a-postgres-url",
+    ]) {
+      const entries = fixtures();
+      const target = entries.find(x => x.Config.Labels["com.docker.compose.service"] === service);
+      target.Config.Env = target.Config.Env.filter(x => !x.startsWith("DATABASE_URL="));
+      target.Config.Env.push("DATABASE_URL=" + mutatedUrl);
+      const result = check(entries);
+      assert.equal(result.status, "FAIL", service);
+      assert.ok(result.reasons.some(r => r === "DATABASE_TARGET_NOT_ISOLATED_" + service.toUpperCase()
+        || r === "DATABASE_URL_PARITY_" + service.toUpperCase()), service);
+      assert.ok(!JSON.stringify(result).includes("secret-pass"));
+      assert.ok(!JSON.stringify(result).includes("other-pass"));
+    }
+  }
+});
+test("duplicate or absent DATABASE_URL for API migration and backup must fail closed", () => {
+  for (const service of ["api", "migrate", "backup"]) {
+    for (const mode of ["absent", "duplicate"]) {
+      const entries = fixtures();
+      const target = entries.find(x => x.Config.Labels["com.docker.compose.service"] === service);
+      const url = target.Config.Env.find(x => x.startsWith("DATABASE_URL="));
+      if (mode === "absent") target.Config.Env = target.Config.Env.filter(x => !x.startsWith("DATABASE_URL="));
+      else target.Config.Env.push(url);
+      const audit = check(entries);
+      assert.equal(audit.status, "FAIL");
+      assert.ok(audit.reasons.includes("DATABASE_URL_COUNT_" + service.toUpperCase()));
+      assert.ok(!JSON.stringify(audit).includes("secret-pass"));
+    }
+  }
+  assert.equal(check(fixtures()).status, "PASS_TECHNICAL_SNAPSHOT_ONLY");
+});
+
+test("stopped V5 migration must be present exactly once and have succeeded", () => {
+  const withoutMigration = fixtures().filter(x => x.Config.Labels["com.docker.compose.service"] !== "migrate");
+  const missing = check(withoutMigration);
+  assert.equal(missing.status, "FAIL");
+  assert.ok(missing.reasons.includes("MIGRATION_CONTAINER_COUNT"));
+  assert.deepEqual(missing.migration, { count: 0, exitedSuccessfully: false });
+
+  const duplicated = fixtures();
+  duplicated.push({ ...duplicated.find(x => x.Config.Labels["com.docker.compose.service"] === "migrate") });
+  assert.ok(check(duplicated).reasons.includes("MIGRATION_CONTAINER_COUNT"));
+
+  for (const state of [
+    { Running: true, ExitCode: 0 },
+    { Running: false, ExitCode: 1 },
+    { Running: false },
+  ]) {
+    const containers = fixtures();
+    containers.find(x => x.Config.Labels["com.docker.compose.service"] === "migrate").State = state;
+    const result = check(containers);
+    assert.equal(result.status, "FAIL");
+    assert.ok(result.reasons.includes("MIGRATION_NOT_SUCCESSFULLY_STOPPED"));
+    assert.equal(result.migration.exitedSuccessfully, false);
+  }
+
+  const successful = check(fixtures());
+  assert.equal(successful.status, "PASS_TECHNICAL_SNAPSHOT_ONLY");
+  assert.deepEqual(successful.migration, { count: 1, exitedSuccessfully: true });
 });
 
 test("any unlabelled or mislabelled API/web image blocks staging parity", () => {
@@ -252,6 +336,27 @@ test("empty optional placeholders and API-specific runtime secrets do not falsel
   assert.ok(!JSON.stringify(result).includes("api-only-mail-value"));
 });
 
+test("duplicate empty Docker Env entries cannot conceal nonempty API-only secrets", () => {
+  for (const [service, key] of [
+    ["migrate", "JWT_ACCESS_SECRET"],
+    ["web", "SMTP_PASSWORD"],
+    ["backup", "COMMERCIAL_DOCUMENT_ENCRYPTION_KEY"],
+    ["nginx", "LIVEKIT_API_SECRET"],
+    ["postgres", "AI_API_KEY"],
+    ["redis", "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY"],
+  ]) {
+    const entries = fixtures();
+    const target = entries.find(x => x.Config.Labels["com.docker.compose.service"] === service);
+    target.Config.Env.push(key + "=never-print-shadowed-secret", key + "=");
+    const audit = check(entries);
+    assert.equal(audit.status, "FAIL", service);
+    const expected = key.startsWith("LIVEKIT_")
+      ? "MEDIA_SECRET_EXPOSURE_" : "API_RUNTIME_SECRET_EXPOSURE_";
+    assert.ok(audit.reasons.includes(expected + service.toUpperCase()));
+    assert.ok(!JSON.stringify(audit).includes("never-print-shadowed-secret"));
+  }
+});
+
 test("repository labels cannot identify V4 production or legacy staging as V5", () => {
   assert.equal(approvedStagingProject("bba-production"), false);
   assert.equal(approvedStagingProject("bba-staging"), false);
@@ -278,4 +383,92 @@ test("only isolated V5 compose receives pinned build-arg, script is read-only", 
   assert.match(audit, /\["inspect", \.\.\.ids\]/);
   assert.doesNotMatch(audit, /spawnSync\(["'](?:bash|sh|sudo)["']/);
   assert.doesNotMatch(audit, /docker\s+(?:build|run|compose|exec|restart|rm|pull)/);
+});
+
+function imageInventoryFixtures() {
+  const current = fixtures();
+  const api = current.find(x => x.Config.Labels["com.docker.compose.service"] === "api");
+  const web = current.find(x => x.Config.Labels["com.docker.compose.service"] === "web");
+  const currentApiId = "sha256:" + "1".repeat(64);
+  const currentWebId = "sha256:" + "2".repeat(64);
+  const rollbackApiId = "sha256:" + "3".repeat(64);
+  const rollbackWebId = "sha256:" + "4".repeat(64);
+  const rollbackSourceSha = "c".repeat(40);
+  api.Image = currentApiId;
+  web.Image = currentWebId;
+  const make = (id, role, revision) => ({
+    Id: id,
+    Config: {
+      WorkingDir: role === "api" ? "/workspace/apps/api" : "/app",
+      Labels: { "org.opencontainers.image.revision": revision },
+      Env: ["NOT_FOR_PUBLIC_REPORT=very-secret-test-only"],
+    },
+    RepoDigests: ["internal.example.invalid/test@" + "sha256:" + "5".repeat(64)],
+    RepoTags: ["sensitive.example.invalid/private-repo:private-tag"],
+  });
+  return {
+    current, currentApiId, currentWebId, rollbackApiId, rollbackWebId, rollbackSourceSha,
+    images: [
+      make(currentApiId, "api", sha), make(currentWebId, "web", sha),
+      make(rollbackApiId, "api", rollbackSourceSha),
+      make(rollbackWebId, "web", rollbackSourceSha),
+    ],
+    options: { project, sourceSha: sha, rollbackApiId, rollbackWebId, rollbackSourceSha },
+  };
+}
+
+test("read-only V5 image inventory preserves self-reported versus attested provenance boundary", () => {
+  const f = imageInventoryFixtures();
+  const result = assessV5ImageInventory(f.current, f.images, f.options);
+  assert.equal(result.status, "LOCAL_IMAGE_INVENTORY_PASS_REVIEW_REQUIRED");
+  assert.equal(result.currentPairLocallyAvailableAndLabeled, true);
+  assert.equal(result.rollbackPairLocallyAvailableAndLabeled, true);
+  assert.equal(result.authenticatedImageProvenanceVerified, false);
+  assert.equal(result.rollbackCompatibilityVerified, false);
+  assert.equal(result.approvedRollbackProcedure, false);
+  assert.equal(result.productionDeploymentAuthorized, false);
+  assert.equal(result.changesMade, false);
+  assert.deepEqual(result.current.api.registryManifestDigestsObserved,
+    ["sha256:" + "5".repeat(64)]);
+  assert.ok(!JSON.stringify(result).includes("very-secret-test-only"));
+  assert.ok(!JSON.stringify(result).includes("sensitive.example.invalid"));
+});
+
+test("rollback identity is never guessed when previous image IDs and source are absent", () => {
+  const f = imageInventoryFixtures();
+  const result = assessV5ImageInventory(f.current, f.images,
+    { project, sourceSha: sha });
+  assert.equal(result.status, "CHECK_REQUIRED");
+  assert.equal(result.rollback, null);
+  assert.equal(result.rollbackPairLocallyAvailableAndLabeled, false);
+  assert.equal(result.currentPairLocallyAvailableAndLabeled, true);
+});
+
+test("missing, mislabelled, wrong-role or active-image rollback candidates cannot pass", () => {
+  const f = imageInventoryFixtures();
+  for (const mutation of [
+    x => { x.images.pop(); },
+    x => { x.images[3].Config.Labels["org.opencontainers.image.revision"] = sha; },
+    x => { x.images[2].Config.WorkingDir = "/app"; },
+    x => { x.options.rollbackApiId = x.currentApiId; },
+    x => { x.current.find(y => y.Config.Labels["com.docker.compose.service"] === "web").Image =
+      "sha256:" + "9".repeat(64); },
+    x => { x.current.push({ ...x.current.find(y =>
+      y.Config.Labels["com.docker.compose.service"] === "api") }); },
+  ]) {
+    const copy = structuredClone(f);
+    mutation(copy);
+    const result = assessV5ImageInventory(copy.current, copy.images, copy.options);
+    assert.equal(result.status, "CHECK_REQUIRED");
+  }
+});
+
+test("invalid V5 project or incomplete rollback ID triple is rejected before Docker IO", () => {
+  const f = imageInventoryFixtures();
+  assert.throws(() => assessV5ImageInventory(f.current, f.images,
+    { ...f.options, project: "bba-production" }), /INVALID_ISOLATED_TARGET_OR_SOURCE/);
+  assert.throws(() => assessV5ImageInventory(f.current, f.images,
+    { ...f.options, rollbackSourceSha: null }), /INCOMPLETE_PINNED_ROLLBACK_TRIPLE/);
+  assert.throws(() => assessV5ImageInventory(f.current, f.images,
+    { ...f.options, rollbackApiId: "rc7" }), /INCOMPLETE_PINNED_ROLLBACK_TRIPLE/);
 });

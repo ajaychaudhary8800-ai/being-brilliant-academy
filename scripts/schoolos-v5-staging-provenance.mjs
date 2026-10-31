@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
  * Read-only Coolify/Docker V5 staging acceptance PRECHECK, not a release GO.
- * Invokes only Docker ps/inspect. Never invokes compose, pull, build, restart,
- * database CLI, payment provider, or network write. Emits no secrets/URL users.
+ * Invokes only Docker ps/inspect plus pinned image inspect/history metadata.
+ * Never invokes compose, pull, build, restart, database CLI, payment provider,
+ * or network write. Emits no Docker history, configuration or credential values.
  */
 import { spawnSync } from "node:child_process";
+import { auditImage, auditSupportingImage } from "./schoolos-v5-image-build-history-audit.mjs";
 
 const services = ["postgres", "redis", "api", "web", "nginx", "backup"];
 const appRevisionKey = "org.opencontainers.image.revision";
@@ -24,6 +26,15 @@ function entryEnvironment(container) {
   return values;
 }
 
+// Test every Docker Env entry, not just the last duplicate key in the
+// convenience Map. A nonempty key shadowed by a later empty placeholder
+// must still veto staging security acceptance.
+function hasNonemptyEnvironmentValue(container, key) {
+  return (container?.Config?.Env ?? []).some(entry =>
+    typeof entry === "string" && entry.startsWith(key + "=")
+      && entry.length > key.length + 1);
+}
+
 export function approvedStagingProject(project) {
   return typeof project === "string"
     && /^[a-z0-9][a-z0-9_-]{4,63}$/.test(project)
@@ -39,6 +50,54 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
 
   const reasons = [];
   const matched = containers.filter(c => c?.Config?.Labels?.[labels.project] === project);
+  // A newly introduced sidecar within this isolated Compose trust boundary
+  // is not reviewed by the seven-service deployment contract. Fail closed.
+  const allowedServices = new Set([...services, "migrate"]);
+  if (matched.some(c => !allowedServices.has(c?.Config?.Labels?.[labels.service])))
+    reasons.push("UNEXPECTED_STAGING_SERVICE");
+  // The one-shot migration is deliberately stopped after a successful deploy.
+  // It must still be present in Docker's all-container inventory for the
+  // secret-scope audit; otherwise 6/6 running services could falsely pass.
+  const migrations = matched.filter(c => c?.Config?.Labels?.[labels.service] === "migrate");
+  if (migrations.length !== 1) reasons.push("MIGRATION_CONTAINER_COUNT");
+  const migration = migrations.length === 1 ? migrations[0] : null;
+  const migrationExitedSuccessfully = Boolean(migration
+    && migration.State?.Running === false && migration.State?.ExitCode === 0);
+  if (migration && !migrationExitedSuccessfully)
+    reasons.push("MIGRATION_NOT_SUCCESSFULLY_STOPPED");
+  // Protect the database boundary for every service capable of changing or
+  // exporting data. An API-only target check is insufficient: a Coolify
+  // override on migrate/backup could target a different (even production) DB.
+  // Compare exact strings in memory; never return URLs or their credentials.
+  const dbServices = ["api", "migrate", "backup"];
+  const databaseConnections = new Map();
+  for (const service of dbServices) {
+    const selected = matched.filter(c => c?.Config?.Labels?.[labels.service] === service);
+    const connectionEntries = selected.length === 1
+      ? (selected[0].Config?.Env ?? []).filter(e =>
+          typeof e === "string" && e.startsWith("DATABASE_URL="))
+      : [];
+    if (connectionEntries.length !== 1) {
+      reasons.push("DATABASE_URL_COUNT_" + service.toUpperCase());
+      continue;
+    }
+    const value = connectionEntries[0].slice("DATABASE_URL=".length);
+    let valid = false;
+    try {
+      const parsed = new URL(value);
+      valid = ["postgres:", "postgresql:"].includes(parsed.protocol)
+        && parsed.hostname === "postgres"
+        && parsed.pathname === "/schoolos_v5_staging";
+    } catch { /* Do not emit connection strings. */ }
+    if (!valid) reasons.push("DATABASE_TARGET_NOT_ISOLATED_" + service.toUpperCase());
+    databaseConnections.set(service, value);
+  }
+  const apiDatabase = databaseConnections.get("api");
+  for (const service of ["migrate", "backup"]) {
+    const candidate = databaseConnections.get(service);
+    if (apiDatabase && candidate && candidate !== apiDatabase)
+      reasons.push("DATABASE_URL_PARITY_" + service.toUpperCase());
+  }
   const dataVolumes = new Map();
   const detail = services.map(service => {
     const found = matched.filter(c => c?.Config?.Labels?.[labels.service] === service && c?.State?.Running === true);
@@ -129,7 +188,7 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
       "LIVEKIT_API_KEY",
       "LIVEKIT_RECORDING_S3_ACCESS_KEY_ID",
       "LIVEKIT_RECORDING_S3_SECRET_ACCESS_KEY",
-    ].some(key => Boolean(env.get(key))))
+    ].some(key => hasNonemptyEnvironmentValue(container, key)))
       reasons.push("MEDIA_SECRET_EXPOSURE_" + String(service).toUpperCase());
     // Coolify can inject globally configured values independently of the
     // reviewed Compose environment block. Inspect stopped migration services
@@ -146,7 +205,7 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
       "PAYMENT_CREDENTIAL_ENCRYPTION_KEY",
       "COMMERCIAL_DOCUMENT_ENCRYPTION_KEY",
       "AWS_SECRET_ACCESS_KEY",
-    ].some(key => Boolean(env.get(key))))
+    ].some(key => hasNonemptyEnvironmentValue(container, key)))
       reasons.push("API_RUNTIME_SECRET_EXPOSURE_" + String(service).toUpperCase());
     if (service === "api") {
       if (env.get("SCHOOLOS_V5_APP_ENV_FILE") !== appMount)
@@ -186,6 +245,7 @@ export function inspectV5StagingContainers(containers, { project, sourceSha }) {
     status: reasons.length === 0 ? "PASS_TECHNICAL_SNAPSHOT_ONLY" : "FAIL",
     project, pinnedApplicationSource: sourceSha,
     reasons: [...new Set(reasons)].sort(), services: detail,
+    migration: { count: migrations.length, exitedSuccessfully: migrationExitedSuccessfully },
     revisionLabelIsSelfReported: true, sourceBuildProvenanceIndependentlyVerified: false,
     actualOffsiteRestoreVerified: false, realProviderTested: false,
     authenticatedCustomerUATVerified: false, commercialReleaseAuthorized: false,
@@ -209,7 +269,39 @@ export function runReadOnlyDockerAudit({ project, sourceSha }) {
   let containers;
   try { containers = JSON.parse(inspection.stdout); } catch { throw new Error("DOCKER_INSPECT_FORMAT_INVALID"); }
   if (!Array.isArray(containers)) throw new Error("DOCKER_INSPECT_FORMAT_INVALID");
-  return inspectV5StagingContainers(containers, { project, sourceSha });
+  const snapshot = inspectV5StagingContainers(containers, { project, sourceSha });
+  // Runtime Env containment alone does not protect credentials baked into
+  // OCI image build-history RUN instructions. Audit both pinned image IDs,
+  // fail closed on missing/unreadable history, and NEVER echo Docker output.
+  const imageHistory = [];
+  for (const role of ["API", "WEB", "NGINX", "BACKUP"]) {
+    const service = snapshot.services.find(s => s.service === role.toLowerCase());
+    if (!service?.imageId) {
+      snapshot.reasons.push("IMAGE_HISTORY_PIN_MISSING_" + role);
+      continue;
+    }
+    try {
+      const result = ["NGINX", "BACKUP"].includes(role)
+        ? auditSupportingImage({id:service.imageId,role})
+        : auditImage({id:service.imageId,role,sha:sourceSha});
+      imageHistory.push(result);
+      if (result.status !== "PASS_METADATA_ONLY")
+        snapshot.reasons.push("IMAGE_HISTORY_SECURITY_VETO_" + role);
+    } catch {
+      snapshot.reasons.push("IMAGE_HISTORY_UNREADABLE_" + role);
+    }
+  }
+  snapshot.imageBuildHistory = {
+    reviewed: imageHistory.map(r => ({
+      role: r.role, status: r.status, reasons: r.reasons,
+      sensitiveKeyNames: r.sensitiveKeyNames,
+      imageEnvKeyNames: r.imageEnvKeyNames,
+    })),
+    registryProvenanceVerified: false, layersSecretScanned: false,
+  };
+  snapshot.reasons = [...new Set(snapshot.reasons)].sort();
+  if (snapshot.reasons.length) snapshot.status = "FAIL";
+  return snapshot;
 }
 
 if (process.argv[1]?.endsWith("schoolos-v5-staging-provenance.mjs")) {
