@@ -213,6 +213,14 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
       let quotedSettings: Prisma.InputJsonValue | undefined;
       let settledAddonLines: SchoolOSApprovedAddonLine[] | null = null;
       if (invoice.schoolOSQuoteId) {
+        // Provider authenticity cannot reactivate a fully elapsed annual term.
+        // Keep a late actual charge for manual provider reconciliation rather
+        // than marking an expired contract PAID or granting access. The PAID
+        // replay branch above remains idempotent even after normal expiry.
+        if (invoice.periodStart.getTime() >= invoice.periodEnd.getTime() ||
+            invoice.periodEnd.getTime() <= Date.now())
+          throw new AppError(409, "SCHOOLOS_CAPTURE_TERM_EXPIRED",
+            "Captured funds reference an expired or invalid contracted term; finance reconciliation required");
         // Captured payments against a term already covered by a different PAID
         // invoice go to finance reconciliation, never overwrite the live plan.
         await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-renewal-settlement:"+invoice.organizationId}))`;

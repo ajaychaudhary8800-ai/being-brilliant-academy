@@ -370,6 +370,33 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     })).status, "CONTRACTED");
     console.log("SYNTHETIC_OVERDUE_SECOND_QUOTE_DENIAL=PASS");
 
+    // Newly identified, narrowly scoped defect: a *signed* capture for a fully
+    // expired contracted annual term must go to finance reconciliation, not
+    // reactivate the customer or mark an old invoice paid.
+    const oldStart = new Date(Date.now() - 370 * 86400_000);
+    const oldEnd = new Date(Date.now() - 5 * 86400_000);
+    await systemPrisma.saaSInvoice.update({ where: { id: invoice.id },
+      data: { periodStart: oldStart, periodEnd: oldEnd } });
+    const expiredTermCapture = await postWebhook(event, signatureFor(event));
+    assert.equal(expiredTermCapture.status, 409);
+    assert.equal((await expiredTermCapture.json()).error.code, "SCHOOLOS_CAPTURE_TERM_EXPIRED");
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoice.id },
+    })).status, "OVERDUE");
+    assert.equal(await systemPrisma.saaSPayment.count({
+      where: { invoiceId, providerPaymentId: payment.id },
+    }), 0, "Expired capture cannot create a paid ledger entry");
+    assert.equal((await systemPrisma.schoolOSQuotation.findUniqueOrThrow({
+      where: { id: quote.id },
+    })).status, "PAYMENT_PENDING");
+    assert.equal((await systemPrisma.organization.findUniqueOrThrow({
+      where: { id: customerId },
+    })).subscriptionEndsAt?.getTime(), termEnd.getTime(),
+      "Blocked expired settlement must not rewrite the subscription term");
+    await systemPrisma.saaSInvoice.update({ where: { id: invoice.id },
+      data: { periodStart: termStart, periodEnd: termEnd } });
+    console.log("SYNTHETIC_EXPIRED_TERM_CAPTURE_DENIAL=PASS");
+
     // Real PostgreSQL transaction race: three signed HTTP deliveries for the
     // same provider capture arrive before the first one has committed.
     // Replays must serialize before invoice status reads and all return 200.
