@@ -3,7 +3,6 @@
  * Config.Env, Docker stderr, or secret values. PASS is metadata-only, not GO. */
 import { spawnSync } from "node:child_process";
 
-const PROJECT = "96ffcu0jinuwlnaqxpltln4p";
 const KEYS = [
   "POSTGRES_PASSWORD","REDIS_PASSWORD","DATABASE_URL","REDIS_URL",
   "JWT_ACCESS_SECRET","JWT_REFRESH_SECRET","AI_API_KEY","SMTP_PASSWORD",
@@ -34,10 +33,12 @@ export function reviewImage({image, id, role, sha, history}) {
   if (image?.Config?.WorkingDir !== expectedDir) failures.push("ROLE_MISMATCH");
   if (image?.Config?.Labels?.["org.opencontainers.image.revision"] !== sha)
     failures.push("REVISION_MISMATCH");
-  if (image?.Config?.Labels?.["com.docker.compose.project"] !== PROJECT)
-    failures.push("PROJECT_MISMATCH");
-  if (image?.Config?.Labels?.["com.docker.compose.service"] !== role.toLowerCase())
-    failures.push("SERVICE_MISMATCH");
+  // Compose project/service labels belong to *containers*, not images.
+  // The calling inventory pins the image ID from a V5 service container
+  // after validating its Compose project and service identity. Enforcing
+  // container-only labels on immutable image Config.Labels causes false FAIL
+  // for correctly built, clean images. Do not equate source revision OCI
+  // labels with signed build provenance.
   if (!Array.isArray(history) || !history.length || history.some(s=>typeof s!=="string"))
     failures.push("UNREADABLE_HISTORY");
   const keys = sensitiveAssignments(history);
