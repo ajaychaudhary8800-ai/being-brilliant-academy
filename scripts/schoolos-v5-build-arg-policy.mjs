@@ -42,12 +42,47 @@ export function checkComposeBuildArgumentPolicy(document) {
     coolifyBuildSettingsVerified:false,imageHistoryVerified:false,
     credentialRotationVerified:false,commercialGo:false};
 }
+export function checkSourceDockerfileArgs(source, expectedNames) {
+  if (typeof source !== "string" || !source.trim())
+    return {status:"FAIL",reasons:["DOCKERFILE_UNREADABLE"],valuesPrinted:false};
+  const reasons=[];
+  const args=[];
+  for (const line of source.split(/\r?\n/)) {
+    if (!/^\s*ARG(?:\s|$)/.test(line)) continue;
+    const match=/^\s*ARG\s+([A-Z][A-Z0-9_]*)(?:=[^\r\n]*)?\s*$/.exec(line);
+    if (!match) reasons.push("DOCKERFILE_ARG_DECLARATION_INVALID");
+    else args.push(match[1]);
+  }
+  if (args.length !== expectedNames.length ||
+      [...args].sort().join("|") !== [...expectedNames].sort().join("|"))
+    reasons.push("DOCKERFILE_BUILD_ARGS_UNREVIEWED");
+  return {status:reasons.length?"FAIL":"PASS_SOURCE_DOCKERFILE_ARGS_ONLY",
+    reasons:[...new Set(reasons)].sort(),valuesPrinted:false,
+    coolifyInjectionExcluded:false,compiledImageVerified:false};
+}
+
 if (process.argv[1]?.endsWith("schoolos-v5-build-arg-policy.mjs")) {
   try {
     if (process.argv.length!==2) throw new Error("INVALID_ARGUMENTS");
     const input=readFileSync(0,{encoding:"utf8"});
     if (input.length>10*1024*1024) throw new Error("COMPOSE_SIZE_LIMIT");
     const result=checkComposeBuildArgumentPolicy(JSON.parse(input));
+    // Source Dockerfiles must independently declare exactly the reviewed
+    // argument allowlist. This cannot detect extra Coolify-generated ARGs;
+    // the built-image history audit addresses that second boundary.
+    const fsResults={};
+    for (const [role,file,allowed] of [
+      ["API","apps/api/Dockerfile",["SCHOOLOS_BUILD_REVISION"]],
+      ["WEB","apps/web/Dockerfile",["NEXT_PUBLIC_API_URL","SCHOOLOS_BUILD_REVISION"]]
+    ]) {
+      const content=readFileSync(file,{encoding:"utf8"});
+      fsResults[role]=checkSourceDockerfileArgs(content,allowed);
+      if (fsResults[role].status!=="PASS_SOURCE_DOCKERFILE_ARGS_ONLY") {
+        result.status="FAIL";
+        result.reasons.push("UNREVIEWED_DOCKERFILE_ARGS_"+role);
+      }
+    }
+    result.sourceDockerfiles=fsResults;
     console.log("SCHOOLOS_V5_BUILD_ARG_POLICY "+JSON.stringify(result));
     if (result.status!=="PASS_SOURCE_BUILD_ARGS_ONLY") process.exitCode=1;
   } catch {
