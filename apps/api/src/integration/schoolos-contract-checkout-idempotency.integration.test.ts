@@ -12,6 +12,8 @@ import { systemPrisma } from "../lib/prisma.js";
 import { captureSaaSRazorpayPayment } from "../lib/saas-commercial.js";
 import contractRouter from "../routes/schoolos-contract-checkout.js";
 import paymentsRouter from "../routes/payments.js";
+import paymentRiskRouter from "../routes/schoolos-payment-risk-review.js";
+import saasCommercialRouter from "../routes/saas-commercial.js";
 
 /**
  * Disposable PostgreSQL HTTP integration. Only tests reuse of an existing
@@ -58,8 +60,10 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
   let server: ReturnType<ReturnType<typeof express>["listen"]> | undefined;
   let leadId: string | undefined;
   let documentId: string | undefined;
+  let secondDocumentId: string | undefined;
   let invoiceId: string | undefined;
   let originalEssentialsPricePaise: number | undefined;
+  let platformReviewerId: string | undefined;
 
   try {
     const seeded = await systemPrisma.saaSPlan.findUniqueOrThrow({ where: { code: "ESSENTIALS" } });
@@ -142,12 +146,19 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     } });
     invoiceId = invoice.id;
 
+    const reviewer = await systemPrisma.user.create({ data: {
+      organizationId: "org_default", name: "Synthetic finance reviewer",
+      email: "qa-finance-" + unique + "@example.test", role: Role.SUPER_ADMIN, passwordHash: "not-a-real-password",
+    } });
+    platformReviewerId = reviewer.id;
     const app = express();
     // The real API mounts raw webhook bytes before its general JSON parser.
     app.use("/api/v1/payments/razorpay/webhook", express.raw({ type: "application/json" }));
     app.use(express.json());
     // The webhook must be reachable without the subscription router's auth middleware.
     app.use("/api/v1/payments", paymentsRouter);
+    app.use("/api/v1", paymentRiskRouter);
+    app.use("/api/v1", saasCommercialRouter);
     app.use("/api/v1", contractRouter);
     app.use(errorHandler);
     server = await new Promise<ReturnType<ReturnType<typeof express>["listen"]>>((resolve, reject) => {
@@ -171,6 +182,40 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
 
     const ownToken = authorize(owner.id, customerId);
     const foreignToken = authorize(foreign.id, otherId);
+
+    // Newly uncovered V5-only platform billing bypass: even a platform
+    // SUPER_ADMIN cannot convert a signed-quote customer into an unlimited
+    // legacy trial or disable paid feature enforcement.
+    const platformToken = authorize(reviewer.id, "org_default");
+    const adminPatch = async (status: "TRIAL" | "PAST_DUE", enforce: boolean) => {
+      const reply = await fetch(origin + "/api/v1/platform/saas/organizations/" +
+        customerId + "/subscription", {
+        method: "PATCH", headers: {
+          Authorization: platformToken, "Content-Type": "application/json",
+        }, body: JSON.stringify({
+          planCode: plan.code, status, billingCycle: "ANNUAL",
+          currentPeriodStart: termStart.toISOString(),
+          currentPeriodEnd: termEnd.toISOString(),
+          enforcementEnabled: enforce,
+        }),
+      });
+      return { code: reply.status, result: await reply.json() };
+    };
+    const trialBypass = await adminPatch("TRIAL", false);
+    assert.equal(trialBypass.code, 409);
+    assert.equal(trialBypass.result.error.code,
+      "SCHOOLOS_SIGNED_QUOTE_TRIAL_BYPASS_DENIED");
+    const licensingBypass = await adminPatch("PAST_DUE", false);
+    assert.equal(licensingBypass.code, 409);
+    assert.equal(licensingBypass.result.error.code,
+      "SCHOOLOS_SIGNED_QUOTE_ENFORCEMENT_REQUIRED");
+    assert.equal((await systemPrisma.organization.findUniqueOrThrow({
+      where: { id: customerId },
+    })).subscriptionStatus, OrganizationSubscriptionStatus.ACTIVE);
+    assert.equal((await systemPrisma.saaSSubscription.findUniqueOrThrow({
+      where: { id: subscription.id },
+    })).status, OrganizationSubscriptionStatus.ACTIVE);
+    console.log("SYNTHETIC_QUOTED_PLATFORM_BILLING_BYPASS_DENIAL=PASS");
     const foreignAttempt = await postCheckout(foreignToken, quote.id);
     assert.equal(foreignAttempt.status, 404);
     assert.equal(foreignAttempt.body.error?.code, "SCHOOLOS_QUOTE_NOT_FOUND");
@@ -283,6 +328,168 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     })).status, "OPEN");
     await systemPrisma.saaSPayment.delete({ where: { providerPaymentId: reusedFailedId } });
 
+    // Signed late captures must not revive voided or unissued invoices.
+    // Exercise the actual HTTP handler and assert transactional non-mutation.
+    const subscriptionBeforeBlockedCapture = await systemPrisma.saaSSubscription.findUniqueOrThrow({
+      where: { id: subscription.id },
+    });
+    for (const status of [SaaSInvoiceStatus.DRAFT, SaaSInvoiceStatus.VOID]) {
+      await systemPrisma.saaSInvoice.update({ where: { id: invoice.id }, data: { status } });
+      const blocked = await postWebhook(event, signatureFor(event));
+      assert.equal(blocked.status, 409, `${status} invoice must not be activated by capture`);
+      assert.equal((await blocked.json()).error.code, "SCHOOLOS_CAPTURE_INVOICE_STATE_CONFLICT");
+      assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status, status);
+      assert.equal(await systemPrisma.saaSPayment.count({ where: { providerPaymentId: payment.id } }), 0);
+      assert.equal(await systemPrisma.saaSWebhookEvent.count({
+        where: { provider: "RAZORPAY", eventKey: "payment.captured:" + payment.id },
+      }), 0);
+      assert.deepEqual(await systemPrisma.saaSSubscription.findUniqueOrThrow({
+        where: { id: subscription.id },
+      }), subscriptionBeforeBlockedCapture);
+      assert.equal((await systemPrisma.schoolOSQuotation.findUniqueOrThrow({ where: { id: quote.id } })).status,
+        "PAYMENT_PENDING");
+    }
+    // An overdue collectible invoice remains eligible for verified settlement.
+    await systemPrisma.saaSInvoice.update({ where: { id: invoice.id }, data: { status: SaaSInvoiceStatus.OVERDUE } });
+    // A provider failure notification on an OVERDUE but still collectible order
+    // must be recorded as an unsuccessful attempt, not rejected or settled.
+    const overdueFailureId = "pay_" + unique + "overdue";
+    const overdueFailure = { ...failure, payload: { payment: { entity: {
+      ...failure.payload.payment.entity, id: overdueFailureId,
+    } } } };
+    assert.equal((await postWebhook(overdueFailure, signatureFor(overdueFailure))).status, 200);
+    assert.equal((await postWebhook(overdueFailure, signatureFor(overdueFailure))).status, 200);
+    assert.equal(await systemPrisma.saaSPayment.count({
+      where: { invoiceId, providerPaymentId: overdueFailureId, status: "FAILED" },
+    }), 1);
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "OVERDUE");
+    console.log("SYNTHETIC_OVERDUE_FAILURE_REPLAY=PASS");
+
+    // New coverage only: a second valid contracted quote must not open a
+    // separate provider order while an earlier signed invoice is OVERDUE.
+    // The first overdue order can still receive a valid signed capture.
+    const nextQuoteNo = quoteNo + "-NEXT";
+    const nextDocument = await systemPrisma.saaSCommercialDocument.create({ data: {
+      leadId: lead.id, organizationId: customerId, documentType: "SIGNED_ORDER_FORM",
+      documentReference: nextQuoteNo, signedAt: new Date(),
+      fileName: "synthetic-second-contract-not-evidence.pdf", mimeType: "application/pdf",
+      fileSize: 18, encryptedFileData: Buffer.from("synthetic-local-second"),
+      contentSha256: crypto.createHash("sha256").update("synthetic-local-second").digest("hex"),
+      verificationStatus: "VERIFIED", verifiedAt: new Date(),
+      uploadedById: "synthetic-fixture-maker", verifiedById: "synthetic-fixture-checker",
+    } });
+    secondDocumentId = nextDocument.id;
+    const nextQuote = await systemPrisma.schoolOSQuotation.create({ data: {
+      quoteNo: nextQuoteNo, organizationId: customerId,
+      clientName: "Synthetic second pending quote", planCode: plan.code,
+      billingCycle: SaaSBillingCycle.ANNUAL, status: "CONTRACTED",
+      validUntil, contractDocumentId: nextDocument.id, items: [],
+      pricingSnapshot: { pricing: { totalPaise }, rateCardSnapshot: {
+        planId: plan.id, planCode: plan.code, currency: "INR",
+        billingCycle: "ANNUAL", basePricePaise: plan.annualPricePaise,
+        taxRateBps: plan.taxRateBps,
+      } },
+      subtotalPaise: plan.annualPricePaise, discountBps: 0,
+      discountPaise: 0, taxRateBps: plan.taxRateBps, taxPaise, totalPaise,
+      createdBy: owner.id, updatedBy: owner.id,
+    } });
+    const competingCheckout = await postCheckout(ownToken, nextQuote.id);
+    assert.equal(competingCheckout.status, 409);
+    assert.equal(competingCheckout.body.error?.code, "SCHOOLOS_TENANT_CHECKOUT_PENDING");
+    assert.equal(await systemPrisma.saaSInvoice.count({
+      where: { organizationId: customerId },
+    }), 1, "Overdue order must remain the sole unresolved quoted invoice");
+    assert.equal((await systemPrisma.schoolOSQuotation.findUniqueOrThrow({
+      where: { id: nextQuote.id },
+    })).status, "CONTRACTED");
+    console.log("SYNTHETIC_OVERDUE_SECOND_QUOTE_DENIAL=PASS");
+
+    // Newly identified, narrowly scoped defect: a *signed* capture for a fully
+    // expired contracted annual term must go to finance reconciliation, not
+    // reactivate the customer or mark an old invoice paid.
+    const oldStart = new Date(Date.now() - 370 * 86400_000);
+    const oldEnd = new Date(Date.now() - 5 * 86400_000);
+    await systemPrisma.saaSInvoice.update({ where: { id: invoice.id },
+      data: { periodStart: oldStart, periodEnd: oldEnd } });
+    const expiredTermCapture = await postWebhook(event, signatureFor(event));
+    assert.equal(expiredTermCapture.status, 409);
+    assert.equal((await expiredTermCapture.json()).error.code, "SCHOOLOS_CAPTURE_TERM_EXPIRED");
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoice.id },
+    })).status, "OVERDUE");
+    assert.equal(await systemPrisma.saaSPayment.count({
+      where: { invoiceId, providerPaymentId: payment.id },
+    }), 0, "Expired capture cannot create a paid ledger entry");
+    assert.equal((await systemPrisma.schoolOSQuotation.findUniqueOrThrow({
+      where: { id: quote.id },
+    })).status, "PAYMENT_PENDING");
+    assert.equal((await systemPrisma.organization.findUniqueOrThrow({
+      where: { id: customerId },
+    })).subscriptionEndsAt?.getTime(), termEnd.getTime(),
+      "Blocked expired settlement must not rewrite the subscription term");
+    await systemPrisma.saaSInvoice.update({ where: { id: invoice.id },
+      data: { periodStart: termStart, periodEnd: termEnd } });
+    console.log("SYNTHETIC_EXPIRED_TERM_CAPTURE_DENIAL=PASS");
+
+    // The other timing boundary is equally unsafe: a future-dated quote
+    // cannot immediately activate a school before its annual term begins.
+    const futureStart = new Date(Date.now() + 2 * 86400_000);
+    const futureEnd = new Date(Date.now() + 367 * 86400_000);
+    await systemPrisma.saaSInvoice.update({ where: { id: invoice.id },
+      data: { periodStart: futureStart, periodEnd: futureEnd } });
+    const earlyTermCapture = await postWebhook(event, signatureFor(event));
+    assert.equal(earlyTermCapture.status, 409);
+    assert.equal((await earlyTermCapture.json()).error.code, "SCHOOLOS_CAPTURE_TERM_NOT_STARTED");
+    assert.equal(await systemPrisma.saaSPayment.count({
+      where: { invoiceId, providerPaymentId: payment.id },
+    }), 0);
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "OVERDUE");
+    assert.equal((await systemPrisma.schoolOSQuotation.findUniqueOrThrow({
+      where: { id: quote.id },
+    })).status, "PAYMENT_PENDING");
+    await systemPrisma.saaSInvoice.update({ where: { id: invoice.id },
+      data: { periodStart: termStart, periodEnd: termEnd } });
+    console.log("SYNTHETIC_FUTURE_TERM_CAPTURE_DENIAL=PASS");
+
+    // A real signed gateway capture must not override an administrative hold
+    // set after checkout. No provider network requests are used in this test.
+    await systemPrisma.organization.update({ where: { id: customerId }, data: {
+      subscriptionStatus: OrganizationSubscriptionStatus.SUSPENDED,
+    } });
+    const suspended = await postWebhook(event, signatureFor(event));
+    assert.equal(suspended.status, 409);
+    assert.equal((await suspended.json()).error.code,
+      "SCHOOLOS_CAPTURE_ORGANIZATION_SUSPENDED");
+    await systemPrisma.organization.update({ where: { id: customerId }, data: {
+      subscriptionStatus: OrganizationSubscriptionStatus.ACTIVE, isActive: false,
+    } });
+    const inactive = await postWebhook(event, signatureFor(event));
+    assert.equal(inactive.status, 409);
+    assert.equal((await inactive.json()).error.code,
+      "SCHOOLOS_CAPTURE_ORGANIZATION_SUSPENDED");
+    await systemPrisma.organization.update({ where: { id: customerId }, data: { isActive: true } });
+    await systemPrisma.saaSSubscription.update({ where: { id: subscription.id }, data: {
+      status: OrganizationSubscriptionStatus.SUSPENDED,
+    } });
+    const suspendedSubscription = await postWebhook(event, signatureFor(event));
+    assert.equal(suspendedSubscription.status, 409);
+    assert.equal((await suspendedSubscription.json()).error.code,
+      "SCHOOLOS_CAPTURE_ORGANIZATION_SUSPENDED");
+    assert.equal(await systemPrisma.saaSPayment.count({
+      where: { invoiceId, providerPaymentId: payment.id },
+    }), 0, "Suspended customer must not be activated by late signed capture");
+    assert.equal((await systemPrisma.schoolOSQuotation.findUniqueOrThrow({
+      where: { id: quote.id },
+    })).status, "PAYMENT_PENDING");
+    await systemPrisma.saaSSubscription.update({ where: { id: subscription.id }, data: {
+      status: OrganizationSubscriptionStatus.ACTIVE,
+    } });
+    console.log("SYNTHETIC_SUSPENDED_TENANT_CAPTURE_DENIAL=PASS");
+
     // Real PostgreSQL transaction race: three signed HTTP deliveries for the
     // same provider capture arrive before the first one has committed.
     // Replays must serialize before invoice status reads and all return 200.
@@ -386,6 +593,92 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     }), 1);
     assert.equal(await systemPrisma.saaSInvoice.count({ where: { organizationId: customerId } }), 1);
 
+    // Read-only finance reconciliation: platform access, tenant denial and no ledger mutations.
+    const reconciliationUrl = origin + `/api/v1/platform/schoolos/payment-risk/${invoice.id}/reconciliation`;
+    assert.equal((await fetch(reconciliationUrl)).status, 401);
+    for (const token of [authorize(owner.id, customerId), authorize(foreign.id, otherId)]) {
+      assert.equal((await fetch(reconciliationUrl, { headers: { Authorization: token } })).status, 403);
+    }
+    const beforeReconciliation = await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoice.id }, include: { payments: true, schoolOSPaymentAdjustments: true, schoolOSPaymentRiskHold: true },
+    });
+    const financeResponse = await fetch(reconciliationUrl, {
+      headers: { Authorization: authorize(reviewer.id, "org_default") },
+    });
+    assert.equal(financeResponse.status, 200);
+    assert.equal(financeResponse.headers.get("cache-control"), "no-store");
+    const finance = (await financeResponse.json()).data;
+    assert.equal(finance.status, "INTERNAL_AMOUNTS_CONSISTENT");
+    assert.equal(finance.invoiceStatus, "PAID");
+    assert.equal(finance.financeHoldStatus, "ACTIVE");
+    assert.equal(finance.financeReviewRequired, true);
+    assert.equal(finance.providerSettlement, "NOT_VERIFIED");
+    assert.equal(finance.totals.capturedPaise, totalPaise);
+    assert.equal(finance.totals.processedRefundPaise, refundAmountPaise);
+    assert.equal(finance.totals.capturedLessRefundsPaise, totalPaise - refundAmountPaise);
+    assert.equal(finance.counts.failedAttempts, 2);
+    assert.equal("payments" in finance, false, "Raw payment records must not be returned");
+    assert.deepEqual(await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoice.id }, include: { payments: true, schoolOSPaymentAdjustments: true, schoolOSPaymentRiskHold: true },
+    }), beforeReconciliation);
+    // Full refund from an additional signed provider callback must cap exactly
+    // at the captured amount and remain idempotent, without unreviewed hold release.
+    const remainingRefundId = "rfnd_" + unique + "final";
+    const remainingRefund = { ...refund, payload: { ...refund.payload, refund: { entity: {
+      ...refund.payload.refund.entity, id: remainingRefundId,
+      amount: totalPaise - refundAmountPaise,
+    } } } };
+    assert.equal((await postWebhook(remainingRefund, signatureFor(remainingRefund))).status, 200);
+    assert.equal((await postWebhook(remainingRefund, signatureFor(remainingRefund))).status, 200);
+    assert.equal(await systemPrisma.schoolOSPaymentAdjustment.count({
+      where: { invoiceId, eventType: "refund.processed" },
+    }), 2, "Second signed refund replay must not create duplicate adjustments");
+    const fullRefundFinanceResponse = await fetch(reconciliationUrl, {
+      headers: { Authorization: authorize(reviewer.id, "org_default") },
+    });
+    assert.equal(fullRefundFinanceResponse.status, 200);
+    const fullRefundFinance = (await fullRefundFinanceResponse.json()).data;
+    assert.equal(fullRefundFinance.status, "INTERNAL_AMOUNTS_CONSISTENT");
+    assert.equal(fullRefundFinance.totals.processedRefundPaise, totalPaise);
+    assert.equal(fullRefundFinance.totals.capturedLessRefundsPaise, 0);
+    assert.equal(fullRefundFinance.financeHoldStatus, "ACTIVE");
+    assert.equal(fullRefundFinance.financeReviewRequired, true);
+    assert.equal((await systemPrisma.schoolOSPaymentRiskHold.findUniqueOrThrow({
+      where: { invoiceId },
+    })).revision, 2);
+    assert.equal((await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    })).status, "PAID");
+    // Newly uncovered: HMAC verifies event origin but cannot establish
+    // matching financial evidence when won amount differs from raised amount.
+    const disputeId = "disp_" + unique;
+    const disputeCreated = { event: "payment.dispute.created", payload: {
+      payment: { entity: payment }, dispute: { entity: {
+        id: disputeId, payment_id: payment.id, amount: totalPaise, currency: "INR",
+      } },
+    } };
+    assert.equal((await postWebhook(disputeCreated, signatureFor(disputeCreated))).status, 200);
+    const priorHoldRevision = (await systemPrisma.schoolOSPaymentRiskHold.findUniqueOrThrow({
+      where: { invoiceId },
+    })).revision;
+    const mismatchedWon = { event: "payment.dispute.won", payload: {
+      payment: { entity: payment }, dispute: { entity: {
+        id: disputeId, payment_id: payment.id, amount: totalPaise - 1, currency: "INR",
+      } },
+    } };
+    const deniedWon = await postWebhook(mismatchedWon, signatureFor(mismatchedWon));
+    assert.equal(deniedWon.status, 409);
+    assert.equal((await deniedWon.json()).error.code,
+      "SCHOOLOS_RISK_DISPUTE_SOURCE_MISMATCH");
+    assert.equal(await systemPrisma.schoolOSPaymentAdjustment.count({
+      where: { invoiceId, eventKey: "payment.dispute.won:" + disputeId },
+    }), 0);
+    assert.equal((await systemPrisma.schoolOSPaymentRiskHold.findUniqueOrThrow({
+      where: { invoiceId },
+    })).revision, priorHoldRevision);
+    console.log("SYNTHETIC_MISMATCHED_WON_DISPUTE_DENIAL=PASS");
+    console.log("SYNTHETIC_FULL_REFUND_RECEIPT_REPLAY=PASS");
+    console.log("SYNTHETIC_FINANCE_RECONCILIATION_READ_ONLY=PASS");
     console.log("SYNTHETIC_SIGNED_FAILURE_REPLAY=PASS");
     console.log("SYNTHETIC_LATE_FAILURE_AFTER_CAPTURE=PASS");
     console.log("SYNTHETIC_SIGNED_REFUND_HOLD_REPLAY=PASS");
@@ -402,13 +695,20 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     console.log("LIVE_SIGNED_RAZORPAY_WEBHOOK=NOT_TESTED");
   } finally {
     if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));
+    if (platformReviewerId) {
+      await systemPrisma.tenantAccessAudit.deleteMany({ where: { userId: platformReviewerId } });
+      await systemPrisma.user.delete({ where: { id: platformReviewerId } });
+    }
     await systemPrisma.schoolOSPaymentAdjustment.deleteMany({ where: { organizationId: customerId } });
     await systemPrisma.schoolOSPaymentRiskHold.deleteMany({ where: { organizationId: customerId } });
     await systemPrisma.saaSWebhookEvent.deleteMany({
       where: { provider: "RAZORPAY", eventKey: { in: [
         "payment.captured:pay_" + unique,
         "payment.failed:pay_" + unique + "failed",
+        "payment.failed:pay_" + unique + "overdue",
         "refund.processed:rfnd_" + unique,
+        "refund.processed:rfnd_" + unique + "final",
+        "payment.dispute.created:disp_" + unique,
       ] } },
     });
     await systemPrisma.saaSPayment.deleteMany({ where: { organizationId: customerId } });
@@ -416,6 +716,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     if (invoiceId) await systemPrisma.saaSInvoice.deleteMany({ where: { organizationId: customerId } });
     await systemPrisma.schoolOSQuotationRevision.deleteMany({ where: { quote: { organizationId: customerId } } });
     await systemPrisma.schoolOSQuotation.deleteMany({ where: { organizationId: customerId } });
+    if (secondDocumentId) await systemPrisma.saaSCommercialDocument.deleteMany({ where: { id: secondDocumentId } });
     if (documentId) await systemPrisma.saaSCommercialDocument.deleteMany({ where: { id: documentId } });
     if (leadId) await systemPrisma.saaSSalesLead.deleteMany({ where: { id: leadId } });
     await systemPrisma.saaSSubscription.deleteMany({ where: { organizationId: customerId } });

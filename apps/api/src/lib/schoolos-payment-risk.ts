@@ -94,6 +94,11 @@ export async function recordSchoolOSPaymentRisk(input: SchoolOSRiskEvent, origin
       });
       if (!raised || raised.invoiceId!==invoice.id || raised.providerPaymentId!==e.providerPaymentId)
         throw new AppError(409,"SCHOOLOS_RISK_DISPUTE_NOT_RAISED","Won notification has no recorded source dispute");
+      // A signed won notification with a different disputed amount/currency
+      // is not evidence that the original dispute has been won.
+      if (raised.amountPaise!==e.amountPaise || raised.currency!==e.currency)
+        throw new AppError(409,"SCHOOLOS_RISK_DISPUTE_SOURCE_MISMATCH",
+          "Won dispute differs from the originally recorded raised dispute");
     }
     await tx.schoolOSPaymentAdjustment.create({data:{
       invoiceId:invoice.id,organizationId:invoice.organizationId,eventType:e.type,
