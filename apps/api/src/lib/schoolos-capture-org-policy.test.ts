@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { assertSchoolOSCaptureOrganizationEligible as guard } from "./schoolos-capture-org-policy.js";
-const good={invoiceOrganizationId:"customer-a",subscriptionOrganizationId:"customer-a",
+const good: Parameters<typeof guard>[0] = {invoiceOrganizationId:"customer-a",subscriptionOrganizationId:"customer-a",
   organizationStatus:"PAST_DUE",subscriptionStatus:"PAST_DUE",isActive:true,deletedAt:null};
-const denied=(input:typeof good,code:string)=>assert.throws(()=>guard(input),
+const denied=(input:Parameters<typeof guard>[0],code:string)=>assert.throws(()=>guard(input),
   (e:unknown)=>Boolean(e&&typeof e==="object"&&"code" in e&&e.code===code));
 
 test("signed payment can recover an active, eligible past-due tenant",()=>{
