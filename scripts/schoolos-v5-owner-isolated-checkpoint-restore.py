@@ -198,6 +198,7 @@ def restore_in_isolation(checkpoint: Path, preflight: dict,
     started = datetime.now(timezone.utc)
     cid = None
     cleanup = False
+    owned_container = False
     try:
         args = build_container_command(
             checkpoint, name, password, db_tmpfs_mb, files_tmpfs_mb
@@ -213,6 +214,7 @@ def restore_in_isolation(checkpoint: Path, preflight: dict,
         _, raw = docker(args, timeout=90)
         cid = raw.decode("ascii", errors="ignore").strip()
         verify_container_identity(cid, name)
+        owned_container = True
         print("REAL_CHECKPOINT_ISOLATION=NETWORK_NONE_TMPFS_ONLY")
         wait_for_isolated_pg(cid)
         print("REAL_CHECKPOINT_DISPOSABLE_POSTGRES=PASS")
@@ -290,15 +292,18 @@ def restore_in_isolation(checkpoint: Path, preflight: dict,
         })
         return evidence
     finally:
-        if cid and CONTAINER_ID.fullmatch(cid):
-            # Only delete the verified ephemeral ID, never a name or a volume.
-            # Record cleanup failure as a failure rather than claiming PASS.
-            code, _ = docker(["rm", "-f", cid], expected=False, timeout=60)
-            cleanup = code == 0
+        if cid and owned_container and CONTAINER_ID.fullmatch(cid):
+            # Recheck owner label before deleting this exact ephemeral ID.
+            try:
+                verify_container_identity(cid, name)
+                code, _ = docker(["rm", "-f", cid], expected=False, timeout=60)
+                cleanup = code == 0
+            except RecoveryFailure:
+                cleanup = False
         if cid is not None:
             if not cleanup:
                 print("REAL_CHECKPOINT_CLEANUP=CHECK_REQUIRED")
-                raise RecoveryFailure("EPHEMERAL_CONTAINER_CLEANUP_FAILED")
+                raise RecoveryFailure("EPHEMERAL_CONTAINER_OWNERSHIP_OR_CLEANUP_FAILED")
             print("REAL_CHECKPOINT_CLEANUP=PASS")
 
 
@@ -320,6 +325,9 @@ def main() -> int:
             r"[0-9a-f]{64}", args.trusted_manifest_sha256):
             raise RecoveryFailure("INVALID_TRUSTED_DIGEST")
         folder = guarded_checkpoint_path(args.checkpoint_dir)
+        report_location = args.report.absolute()
+        if report_location == folder or folder in report_location.parents:
+            raise RecoveryFailure("REPORT_INSIDE_CHECKPOINT_REFUSED")
         evidence = PREFLIGHT.preflight(folder, args.trusted_manifest_sha256)
         print("REAL_CHECKPOINT_READ_ONLY_PREFLIGHT=PASS_CONTENT_ONLY")
         print("CHECKPOINT_ORIGIN_AUTHENTICITY="
@@ -336,6 +344,8 @@ def main() -> int:
         if not (256 <= args.db_tmpfs_mb <= 8192 and
                 64 <= args.files_tmpfs_mb <= 8192):
             raise RecoveryFailure("TMPFS_LIMITS_INVALID")
+        if evidence["tar_declared_file_bytes"] > (args.files_tmpfs_mb - 32) * 1024 * 1024:
+            raise RecoveryFailure("ISOLATED_FILE_TMPFS_CAPACITY_TOO_SMALL")
         print("REAL_CHECKPOINT_ISOLATED_RESTORE=STARTED")
         outcome = restore_in_isolation(
             folder, evidence, args.db_tmpfs_mb, args.files_tmpfs_mb
