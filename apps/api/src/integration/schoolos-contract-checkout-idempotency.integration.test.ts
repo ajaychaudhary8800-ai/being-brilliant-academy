@@ -12,6 +12,7 @@ import { systemPrisma } from "../lib/prisma.js";
 import { captureSaaSRazorpayPayment } from "../lib/saas-commercial.js";
 import contractRouter from "../routes/schoolos-contract-checkout.js";
 import paymentsRouter from "../routes/payments.js";
+import paymentRiskRouter from "../routes/schoolos-payment-risk-review.js";
 
 /**
  * Disposable PostgreSQL HTTP integration. Only tests reuse of an existing
@@ -60,6 +61,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
   let documentId: string | undefined;
   let invoiceId: string | undefined;
   let originalEssentialsPricePaise: number | undefined;
+  let platformReviewerId: string | undefined;
 
   try {
     const seeded = await systemPrisma.saaSPlan.findUniqueOrThrow({ where: { code: "ESSENTIALS" } });
@@ -142,12 +144,18 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     } });
     invoiceId = invoice.id;
 
+    const reviewer = await systemPrisma.user.create({ data: {
+      organizationId: "org_default", name: "Synthetic finance reviewer",
+      email: "qa-finance-" + unique + "@example.test", role: Role.SUPER_ADMIN, passwordHash: "not-a-real-password",
+    } });
+    platformReviewerId = reviewer.id;
     const app = express();
     // The real API mounts raw webhook bytes before its general JSON parser.
     app.use("/api/v1/payments/razorpay/webhook", express.raw({ type: "application/json" }));
     app.use(express.json());
     // The webhook must be reachable without the subscription router's auth middleware.
     app.use("/api/v1/payments", paymentsRouter);
+    app.use("/api/v1", paymentRiskRouter);
     app.use("/api/v1", contractRouter);
     app.use(errorHandler);
     server = await new Promise<ReturnType<ReturnType<typeof express>["listen"]>>((resolve, reject) => {
@@ -410,6 +418,32 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     }), 1);
     assert.equal(await systemPrisma.saaSInvoice.count({ where: { organizationId: customerId } }), 1);
 
+    // Read-only finance reconciliation: platform access, tenant denial and no ledger mutations.
+    const reconciliationUrl = origin + `/api/v1/platform/schoolos/payment-risk/${invoice.id}/reconciliation`;
+    assert.equal((await fetch(reconciliationUrl)).status, 401);
+    for (const token of [authorize(owner.id, customerId), authorize(foreign.id, otherId)]) {
+      assert.equal((await fetch(reconciliationUrl, { headers: { Authorization: token } })).status, 403);
+    }
+    const beforeReconciliation = await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoice.id }, include: { payments: true, schoolOSPaymentAdjustments: true, schoolOSPaymentRiskHold: true },
+    });
+    const financeResponse = await fetch(reconciliationUrl, {
+      headers: { Authorization: authorize(reviewer.id, "org_default") },
+    });
+    assert.equal(financeResponse.status, 200);
+    assert.equal(financeResponse.headers.get("cache-control"), "no-store");
+    const finance = (await financeResponse.json()).data;
+    assert.equal(finance.status, "INTERNAL_AMOUNTS_CONSISTENT");
+    assert.equal(finance.providerSettlement, "NOT_VERIFIED");
+    assert.equal(finance.totals.capturedPaise, totalPaise);
+    assert.equal(finance.totals.processedRefundPaise, refundAmountPaise);
+    assert.equal(finance.totals.capturedLessRefundsPaise, totalPaise - refundAmountPaise);
+    assert.equal(finance.counts.failedAttempts, 1);
+    assert.equal("payments" in finance, false, "Raw payment records must not be returned");
+    assert.deepEqual(await systemPrisma.saaSInvoice.findUniqueOrThrow({
+      where: { id: invoice.id }, include: { payments: true, schoolOSPaymentAdjustments: true, schoolOSPaymentRiskHold: true },
+    }), beforeReconciliation);
+    console.log("SYNTHETIC_FINANCE_RECONCILIATION_READ_ONLY=PASS");
     console.log("SYNTHETIC_SIGNED_FAILURE_REPLAY=PASS");
     console.log("SYNTHETIC_LATE_FAILURE_AFTER_CAPTURE=PASS");
     console.log("SYNTHETIC_SIGNED_REFUND_HOLD_REPLAY=PASS");
@@ -426,6 +460,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
     console.log("LIVE_SIGNED_RAZORPAY_WEBHOOK=NOT_TESTED");
   } finally {
     if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));
+    if (platformReviewerId) await systemPrisma.user.delete({ where: { id: platformReviewerId } });
     await systemPrisma.schoolOSPaymentAdjustment.deleteMany({ where: { organizationId: customerId } });
     await systemPrisma.schoolOSPaymentRiskHold.deleteMany({ where: { organizationId: customerId } });
     await systemPrisma.saaSWebhookEvent.deleteMany({

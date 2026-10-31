@@ -6,6 +6,7 @@ import {
   listSchoolOSRiskReviews,proposeSchoolOSRiskRelease,decideSchoolOSRiskRelease,
 } from "../lib/schoolos-risk-resolution.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { readSchoolOSInvoiceReconciliation } from "../lib/schoolos-invoice-reconciliation.js";
 
 const router=Router();
 router.use(requireAuth);
@@ -26,6 +27,12 @@ const decision=z.object({
 router.get("/platform/schoolos/payment-risk",async(req:AuthRequest,res)=>{
   platformOnly(req);
   res.json({data:await listSchoolOSRiskReviews()});
+});
+router.get("/platform/schoolos/payment-risk/:invoiceId/reconciliation",async(req:AuthRequest,res)=>{
+  platformOnly(req);
+  const invoiceId = z.string().min(8).max(100).parse(req.params.invoiceId);
+  res.set("Cache-Control", "no-store");
+  res.json({data:await readSchoolOSInvoiceReconciliation(invoiceId)});
 });
 router.post("/platform/schoolos/payment-risk/reviews",async(req:AuthRequest,res)=>{
   platformOnly(req);

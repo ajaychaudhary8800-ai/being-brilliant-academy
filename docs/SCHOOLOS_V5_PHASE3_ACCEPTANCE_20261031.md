@@ -2,7 +2,7 @@
 
 Status: **TECHNICAL WORK IN PROGRESS / ACCEPTANCE BLOCKED / COMMERCIAL HOLD**.
 Reviewed baseline: `b54dca5ae36a948f83012faa4a37354198fba083` (cumulative V5 PR #262).
-Coordination: Issue #258. Security restriction: #293 remains open; no shared staging access, deployment, credential use, real-money transaction or provider TEST transaction was performed.
+Coordination: Issue #258. Security restriction: #293 remains open; no authenticated shared staging access, deployment, credential use, real-money transaction or provider TEST transaction was performed. Existing repository-triggered public read-only QA runs separately.
 
 ## Findings and evidence reuse
 
@@ -26,6 +26,16 @@ The service previously treated any non-PAID invoice as eligible for capture if o
 The existing Phase 3 signed HTTP/PostgreSQL scenario is extended to check both rejected states, unchanged invoice/quote/subscription and zero new capture/payment-event records; the subsequent concurrent positive settlement starts from OVERDUE. This changes payment-only test fixtures, not Phase 2 ERP/LMS fixtures. No schema migration, price change or shared CI workflow modification.
 
 ## Evidence required after security clearance
+
+### Read-only internal invoice reconciliation
+
+Phase 3 adds platform-admin-only `GET /api/v1/platform/schoolos/payment-risk/:invoiceId/reconciliation`. It uses a repeatable-read transaction and minimal selected fields, with a 1,000-row limit per payment/adjustment collection. Overflow is explicitly flagged and totals suppressed, never silently treated as a complete ledger. No provider traffic, financial writes, raw payment payloads, personal billing details or secret values are returned; responses use `Cache-Control: no-store`.
+
+The report checks invoice arithmetic, quote/tenant linkage, capture identity/status/amount/currency, failed-attempt exclusion, duplicate adjustment detection, refund-to-capture linkage and cumulative ceilings. Draft/void invoices do not become collectible. Dispute lifecycle notifications are not summed as separate cash debits. Failed checks produce `REVIEW_REQUIRED` and null totals. Positive reports say `INTERNAL_AMOUNTS_CONSISTENT`; provider settlement and tax compliance explicitly remain `NOT_VERIFIED`. Gross captured less processed refunds is not bank settlement or tax revenue, and excludes provider fees, disputes and credit notes.
+
+New pure-policy tests cover valid capture, partial/full refund, failure attempts, outstanding amounts and malformed/foreign/duplicate/truncated ledger evidence. The isolated signed HTTP scenario additionally checks unauthenticated/tenant access denial, platform access, no-store response, correct partial-refund arithmetic and unchanged persisted invoice/payment/adjustment/hold records. Exact-source execution results belong to PR #294 and Issue #258; no provider TEST evidence is implied.
+
+### Remaining prerequisites
 
 1. Phase 1 records #293 remediation and #292 rollback/provenance clearance; #258 records an authorized staging window before provider access or changes.
 2. Retrieve the previously reported real TEST evidence first. Match protected contract reference, tenant, quote, invoice, provider TEST order/payment/refund identifiers, callback outcomes and ledger sums. Do not publish customer data, raw provider payloads or secrets.
