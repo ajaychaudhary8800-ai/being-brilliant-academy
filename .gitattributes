@@ -4,3 +4,4 @@ infra/backup/backup.sh text eol=lf
 infra/backup/restore.sh text eol=lf
 infra/backup/entrypoint.sh text eol=lf
 infra/backup/healthcheck.sh text eol=lf
+infra/backup/verify-checksums.sh text eol=lf
