@@ -1,2 +1,8 @@
 # Force a Linux-compatible interpreter path, regardless of Windows checkout settings.
 apps/api/docker-entrypoint.sh text eol=lf
+infra/backup/backup.sh text eol=lf
+infra/backup/restore.sh text eol=lf
+infra/backup/entrypoint.sh text eol=lf
+infra/backup/healthcheck.sh text eol=lf
+infra/backup/verify-checksums.sh text eol=lf
+scripts/schoolos-v5-backup-synthetic-e2e.sh text eol=lf
