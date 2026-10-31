@@ -325,7 +325,7 @@ def main() -> int:
             r"[0-9a-f]{64}", args.trusted_manifest_sha256):
             raise RecoveryFailure("INVALID_TRUSTED_DIGEST")
         folder = guarded_checkpoint_path(args.checkpoint_dir)
-        report_location = args.report.absolute()
+        report_location = args.report.resolve(strict=False)
         if report_location == folder or folder in report_location.parents:
             raise RecoveryFailure("REPORT_INSIDE_CHECKPOINT_REFUSED")
         evidence = PREFLIGHT.preflight(folder, args.trusted_manifest_sha256)
