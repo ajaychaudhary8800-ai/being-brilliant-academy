@@ -298,6 +298,10 @@ router.post("/branches/:id/manager", async (req: AuthRequest, res) => {
   // transaction. New managers must use the emailed one-time setup link.
   const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("base64url"), 12);
   const result = await retrySerializableWrite(() => prisma.$transaction(async tx => {
+    // Serialize competing manager appointments on the authoritative branch
+    // row. Two requests with DIFFERENT manager emails must never both attach
+    // their accounts to the same manager-deferred branch.
+    await tx.$queryRaw`SELECT "id" FROM "Branch" WHERE "id" = ${branchId} AND "organizationId" = ${req.auth!.organizationId} FOR UPDATE`;
     const branch = await tx.branch.findFirst({
       where: { id: branchId, organizationId: req.auth!.organizationId },
       select: { id: true, organizationId: true, isActive: true },
