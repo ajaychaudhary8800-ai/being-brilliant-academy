@@ -6,7 +6,7 @@
  * or network write. Emits no Docker history, configuration or credential values.
  */
 import { spawnSync } from "node:child_process";
-import { auditImage } from "./schoolos-v5-image-build-history-audit.mjs";
+import { auditImage, auditSupportingImage } from "./schoolos-v5-image-build-history-audit.mjs";
 
 const services = ["postgres", "redis", "api", "web", "nginx", "backup"];
 const appRevisionKey = "org.opencontainers.image.revision";
@@ -274,14 +274,16 @@ export function runReadOnlyDockerAudit({ project, sourceSha }) {
   // OCI image build-history RUN instructions. Audit both pinned image IDs,
   // fail closed on missing/unreadable history, and NEVER echo Docker output.
   const imageHistory = [];
-  for (const role of ["API", "WEB"]) {
+  for (const role of ["API", "WEB", "NGINX", "BACKUP"]) {
     const service = snapshot.services.find(s => s.service === role.toLowerCase());
     if (!service?.imageId) {
       snapshot.reasons.push("IMAGE_HISTORY_PIN_MISSING_" + role);
       continue;
     }
     try {
-      const result = auditImage({ id: service.imageId, role, sha: sourceSha });
+      const result = ["NGINX", "BACKUP"].includes(role)
+        ? auditSupportingImage({id:service.imageId,role})
+        : auditImage({id:service.imageId,role,sha:sourceSha});
       imageHistory.push(result);
       if (result.status !== "PASS_METADATA_ONLY")
         snapshot.reasons.push("IMAGE_HISTORY_SECURITY_VETO_" + role);
