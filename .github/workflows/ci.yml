@@ -56,6 +56,8 @@ jobs:
           sudo -E docker compose -f docker-compose.schoolos-v5-staging.yml config --quiet
       - name: Validate V5-only Coolify staging source provenance and no-secret runtime inventory
         run: node --test scripts/schoolos-v5-staging-provenance.test.mjs
+      - name: Guard Linux API entrypoint against Windows CRLF checkout
+        run: node --test scripts/schoolos-v5-api-entrypoint-lf.test.mjs
       - name: Test V5-only Growth approved ratebook check and strict staging guard
         run: node --test apps/api/scripts/schoolos-v5-growth-price-policy.test.mjs
       - name: Validate V5 read-only monitor and isolated restore utility safety
@@ -119,3 +121,108 @@ jobs:
         env:
           DOCKER_BUILDKIT: "1"
         run: docker compose build --pull api migrate web nginx backup
+      - name: Verify V5 API executable in actual source-pinned synthetic Docker image
+        env:
+          DOCKER_BUILDKIT: "1"
+          SCHOOLOS_BUILD_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          docker build --pull=false \
+            --build-arg "SCHOOLOS_BUILD_REVISION=${SCHOOLOS_BUILD_REVISION}" \
+            --tag schoolos-v5-ci-lf-check:ephemeral \
+            --file apps/api/Dockerfile .
+          docker run --rm --pull=never --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --entrypoint /bin/sh schoolos-v5-ci-lf-check:ephemeral \
+            -n /usr/local/bin/bba-api-entrypoint
+          docker run --rm --pull=never --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --entrypoint /bin/cat schoolos-v5-ci-lf-check:ephemeral \
+            /usr/local/bin/bba-api-entrypoint \
+            | python3 -c 'import sys; b=sys.stdin.buffer.read(); sys.exit(0 if b and bytes([13]) not in b else 1)'
+          echo "V5_API_CLEAN_IMAGE_ENTRYPOINT_SYNTAX=PASS"
+          echo "V5_API_CLEAN_IMAGE_ENTRYPOINT_LF=PASS"
+          echo "REAL_STAGING_IMAGE_ATTESTED=NO"
+          echo "STAGING_DEPLOYMENT=NOT_PERFORMED"
+      - name: Boot corrected API image with isolated synthetic PostgreSQL
+        run: |
+          set -euo pipefail
+          sid="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          network="schoolos-ci-api-lf-net-${sid}"
+          pg="schoolos-ci-api-lf-db-${sid}"
+          api="schoolos-ci-api-lf-svc-${sid}"
+          created_network=0
+          created_pg=0
+          created_api=0
+          cleanup() {
+            if [ "$created_api" -eq 1 ]; then docker rm -f "$api" >/dev/null 2>&1 || true; fi
+            if [ "$created_pg" -eq 1 ]; then docker rm -f "$pg" >/dev/null 2>&1 || true; fi
+            if [ "$created_network" -eq 1 ]; then docker network rm "$network" >/dev/null 2>&1 || true; fi
+          }
+          trap cleanup EXIT
+          docker network create --internal --driver bridge "$network" >/dev/null
+          created_network=1
+          docker run -d --rm --pull=never --name "$pg" \
+            --network "$network" --network-alias pg \
+            --tmpfs /var/lib/postgresql/data:rw,size=1024m \
+            --memory 1400m \
+            -e POSTGRES_DB=schoolos_ci \
+            -e POSTGRES_USER=schoolos_ci \
+            -e POSTGRES_PASSWORD=synthetic_ci_credential_only \
+            postgres:16-alpine >/dev/null
+          created_pg=1
+          ready=0
+          for attempt in $(seq 1 60); do
+            if docker exec "$pg" pg_isready -U schoolos_ci -d schoolos_ci >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "V5_CI_SYNTHETIC_POSTGRES=FAIL"
+            exit 1
+          fi
+          echo "V5_CI_SYNTHETIC_POSTGRES=PASS"
+          docker run -d --rm --pull=never --name "$api" \
+            --network "$network" --network-alias api \
+            --memory 2300m \
+            --pids-limit 1024 \
+            -e NODE_ENV=test \
+            -e PORT=4000 \
+            -e DATABASE_URL=postgresql://schoolos_ci:synthetic_ci_credential_only@pg:5432/schoolos_ci?schema=public \
+            -e JWT_ACCESS_SECRET=synthetic-ci-only-access-token-secret-32-chars \
+            -e JWT_REFRESH_SECRET=synthetic-ci-only-refresh-token-secret-32-chars \
+            -e WEB_URL=http://web:3000 \
+            -e STORAGE_DRIVER=local \
+            -e LOCAL_STORAGE_PATH=/data/storage \
+            -e REDIS_REQUIRED=false \
+            -e LOG_LEVEL=silent \
+            -e RAZORPAY_MODE=test \
+            schoolos-v5-ci-lf-check:ephemeral >/dev/null
+          created_api=1
+          ready=0
+          for attempt in $(seq 1 105); do
+            if docker exec "$api" node -e 'fetch("http://127.0.0.1:4000/health/ready",{signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))' >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            if ! docker inspect "$api" --format '{{.State.Running}}' 2>/dev/null | grep -qx true; then
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "V5_CI_SYNTHETIC_API_READY=FAIL"
+            exit 1
+          fi
+          echo "V5_CI_SYNTHETIC_API_READY=PASS"
+          migrations="$(docker exec "$pg" psql -U schoolos_ci -d schoolos_ci -At -c 'SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL' 2>/dev/null)"
+          if ! [[ "$migrations" =~ ^[0-9]+$ ]] || [ "$migrations" -lt 114 ]; then
+            echo "V5_CI_SYNTHETIC_MIGRATIONS=FAIL"
+            exit 1
+          fi
+          echo "V5_CI_SYNTHETIC_MIGRATIONS=PASS"
+          echo "REAL_STAGING_DATA_ACCESSED=NO"
+          echo "SOURCE_BUILD_SIGNED_PROVENANCE=NOT_ATTESTED"
+          echo "STAGING_DEPLOYMENT=NOT_PERFORMED"
