@@ -12,9 +12,9 @@ Three synthetic BBA branch setups, admissions, mixed batch allocations, teacher 
 
 ### A. BRANCH_ADMIN role-based BBA UAT — 0.40pp (PENDING)
 
-- Current three BBA synthetic branches used explicit deferred manager provisioning; zero BBA BRANCH_ADMIN users exist from that flow. Existing pinned backend **has no supported endpoint to attach a new BRANCH_ADMIN to an existing branch** after deferred creation. `PUT /admin/branches/:id` only patches branch metadata; do not infer manager linkage.
+- Current three BBA synthetic branches used explicit deferred manager provisioning; zero BBA BRANCH_ADMIN users exist from that flow. **The deployed pinned backend has no endpoint to attach a manager to an existing branch.** On the isolated Phase 2 development branch only, a proposed `POST /admin/branches/:id/manager` route now accepts a manager name/email, requires SUPER_ADMIN, checks exact tenant and active branch, refuses role conversion or silent manager replacement, and atomically assigns a new or existing eligible manager before issuing a controlled one-time setup email. Pure policy and route contract tests have been added. **NOT MERGED, NOT DEPLOYED, NOT RUNTIME ACCEPTED**; CI and security review required. No real or synthetic manager has been created on staging by this source work.
 - The supported backend `POST /admin/branches` can atomically create **a new branch** and a **new branch-manager account** or link an existing eligible tenant-owned BRANCH_ADMIN, delivering a setup email for a newly created manager. It **cannot** reuse an existing SUPER_ADMIN email. This would add a **fourth synthetic BBA branch** if chosen, so preserve the previous three-branch fixture and document the additional test scope. Never create a real or fake uncontrolled manager email.
-- **Manual dependency:** an owner-controlled, newly designated manager test inbox/account or separately reviewed manager-link feature; no email address currently verified. Do not promote an existing teacher/student to BRANCH_ADMIN, manually insert SQL identity or bypass account setup.
+- **Manual dependency:** an owner-controlled, newly designated manager test inbox, a reviewed implementation, and an agreed deployment window through Issue #258 after Phase 1 P0 #293 is resolved. No email address currently verified. Do not promote an existing teacher/student to BRANCH_ADMIN, manually insert SQL identity or bypass account setup.
 - After authorized provisioning: capture branch-admin login, assigned branch visibility for students/teacher/timetable/exams, 403/404 denial in another BBA branch, no access to protected super-admin operations, and original human acceptance. Only then credit this 0.40pp.
 - Manager-link feature, if selected, requires separate source review and Issue #258 coordination before any staging deployment; not included in approved Phase 2 runtime.
 
@@ -31,6 +31,12 @@ Three synthetic BBA branch setups, admissions, mixed batch allocations, teacher 
 - Ajay Chaudhary is the identified BBA related-party institutional UAT signatory. Owner's reported blanket approval intent **does not establish a dated signed acceptance of actual observations** or a related-party conflict waiver.
 - **Manual dependency:** actually review the original tenant/revision-specific UAT outcomes and exceptions (BBA-01 through BBA-12), confirm what is out of scope, sign dated institution acceptance/related-party waiver and preserve the original in restricted storage; add only a permitted locator/hash to Issue #258. Do not manufacture a signature, timestamp or source.
 - Outstanding scope decisions include real operational master branch mapping, parent/guardian role UAT, timetable parity Draft PR #290 not yet deployed, AI disabled, independent-device video, and cross-tenant recording denial. This does not change gate 7 or paid release before formal acceptance.
+
+## Development evidence added without staged runtime changes
+
+- Added a tenant-scoped existing-branch manager-assignment **proposal** in `apps/api/src/routes/admin.ts` and pure validation logic `apps/api/src/lib/branch-manager-assignment.ts`, plus policy/regression tests. The code is only in draft Phase 2 PR #290; it is **not** compatible with the deployed staging API until an explicitly approved release window.
+- Do not credit any fraction of the 0.40pp BRANCH_ADMIN UAT for source work alone. The target account, onboarding email, authenticated manager role and negative branch-scope authorization have not been observed.
+- Original BBA-01 through BBA-12 evidence and related-party human signoff remain as documented; no digital signature has been provided.
 
 ## Coordination / security hold
 
