@@ -3,6 +3,41 @@ import { AppError } from "./http.js";
 import { systemPrisma } from "./prisma.js";
 import { schoolOSDisputeReleasePolicy } from "./schoolos-dispute-release-policy.js";
 
+export type SchoolOSReleasePaymentEvidence = {
+  organizationId: string; provider: string; status: string;
+  amountPaise: number; currency: string; providerPaymentId: string | null;
+};
+export type SchoolOSReleaseAdjustmentEvidence = {
+  organizationId: string; providerPaymentId: string;
+  amountPaise: number; currency: string;
+};
+
+/** Fail closed before maker/checker release on ambiguous or foreign capture evidence. */
+export function assertSchoolOSRiskReleasePaymentEvidence(
+  organizationId: string, invoiceTotalPaise: number,
+  payments: SchoolOSReleasePaymentEvidence[],
+  adjustments: SchoolOSReleaseAdjustmentEvidence[],
+): void {
+  const captured = payments.filter(p => p.status === "CAPTURED");
+  const pay = captured[0];
+  if (captured.length !== 1 || payments.some(p => p.status === "REFUNDED") ||
+      !pay || pay.organizationId !== organizationId || pay.provider !== "RAZORPAY" ||
+      !pay.providerPaymentId || pay.currency !== "INR" ||
+      !Number.isSafeInteger(invoiceTotalPaise) || invoiceTotalPaise <= 0 ||
+      pay.amountPaise !== invoiceTotalPaise ||
+      payments.some(p => p.organizationId !== organizationId ||
+        p.provider !== "RAZORPAY" || p.currency !== "INR" ||
+        !Number.isSafeInteger(p.amountPaise) || p.amountPaise <= 0))
+    throw new AppError(409,"SCHOOLOS_RISK_PAYMENT_LEDGER_MISMATCH",
+      "Finance hold release requires one valid captured payment and no conflicting payment entries");
+  if (adjustments.some(a => a.organizationId !== organizationId ||
+      a.providerPaymentId !== pay.providerPaymentId || a.currency !== "INR" ||
+      !Number.isSafeInteger(a.amountPaise) || a.amountPaise <= 0 ||
+      a.amountPaise > invoiceTotalPaise))
+    throw new AppError(409,"SCHOOLOS_RISK_ADJUSTMENT_LEDGER_MISMATCH",
+      "Risk adjustment cannot authorize release against unrelated or invalid payment evidence");
+}
+
 async function lockRisk(tx: Prisma.TransactionClient, invoiceId: string) {
   await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-risk:"+invoiceId}))`;
 }
@@ -17,16 +52,17 @@ async function state(tx: Prisma.TransactionClient, invoiceId: string) {
     tx.schoolOSPaymentAdjustment.findMany({where:{invoiceId},orderBy:{createdAt:"asc"}}),
     tx.saaSInvoice.findUnique({where:{id:invoiceId},select:{
       organizationId:true,status:true,currency:true,schoolOSQuoteId:true,
-      providerOrderId:true,totalPaise:true,payments:{select:{status:true,amountPaise:true,currency:true,providerPaymentId:true}},
+      providerOrderId:true,totalPaise:true,payments:{select:{
+        organizationId:true,provider:true,status:true,amountPaise:true,currency:true,providerPaymentId:true,
+      }},
     }}),
   ]);
   if (!hold || hold.status!=="ACTIVE" || !invoice || invoice.status!=="PAID" ||
       invoice.organizationId!==hold.organizationId || invoice.currency!=="INR" || !invoice.schoolOSQuoteId ||
-      !invoice.providerOrderId ||
-      invoice.payments.some(payment=>payment.status==="REFUNDED") ||
-      !invoice.payments.some(payment=>payment.status==="CAPTURED" && payment.providerPaymentId &&
-        payment.currency==="INR" && payment.amountPaise===invoice.totalPaise))
+      !invoice.providerOrderId)
     throw new AppError(409,"SCHOOLOS_RISK_HOLD_NOT_ELIGIBLE","Active payment-risk hold for a paid SchoolOS invoice required");
+  assertSchoolOSRiskReleasePaymentEvidence(invoice.organizationId,invoice.totalPaise,
+    invoice.payments,adjustments);
   const evaluation=schoolOSDisputeReleasePolicy(adjustments);
   if (!evaluation.allowed)
     throw new AppError(409,"SCHOOLOS_RISK_FINANCE_CLEARANCE_DENIED",
