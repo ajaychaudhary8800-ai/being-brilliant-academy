@@ -1,6 +1,6 @@
 FROM postgres:16-alpine
 RUN apk add --no-cache dcron tar gzip aws-cli
-COPY backup.sh restore.sh entrypoint.sh healthcheck.sh /usr/local/bin/
+COPY backup.sh restore.sh entrypoint.sh healthcheck.sh verify-checksums.sh /usr/local/bin/
 # A Windows checkout may silently replace LF with CRLF; validate all executable
 # scripts during image build (and fail before any backup/restore runs).
 RUN set -eu; \
