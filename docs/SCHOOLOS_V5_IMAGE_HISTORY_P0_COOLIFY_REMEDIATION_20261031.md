@@ -48,3 +48,27 @@ Coolify docs (checked 31 Oct 2026): https://coolify.io/docs/applications/configu
 - Deployed staging SHA label: `b54dca5ae36a948f83012faa4a37354198fba083` (self-reported, not signed build attestation).
 - Phase 1 source-only no-values audit guard: Draft PR #291, unmerged/undeployed.
 - P0 #293 **OPEN**. No credentials rotated, images rebuilt or staging deployment authorized by this document.
+
+
+## Additional exposure-scope check — Nginx and backup custom images
+
+The P0 finding is **directly observed only in API and Web** so far.
+The Compose file also builds the `nginx` and `backup` images
+locally, and both could have inherited Coolify's build-variable injection.
+Do **not** assert these images are clean without operator-observed results.
+The single-stage `migrate` service uses the API image (already covered).
+PostgreSQL and Redis use upstream images, not this repository's custom build
+path, although their **runtime** configuration requires separately reviewed
+credential handling.
+
+The Phase 1 read-only provenance script now checks metadata build history
+and image-level `Config.Env` for **all four local custom-build service
+images**, with a false-negative-prevention veto if any image cannot be
+inspected. Nginx and backup have no required repository revision label,
+so their identity is pinned by the running container's image ID; this is
+still self-reported metadata, not a signed supply-chain attestation.
+Native tests use synthetic credentials only. **No actual Nginx/backup
+Docker history output has been observed yet**. Reuse the current security
+audit without repeating previous successful backup or LiveKit/UAT checks.
+Only report secret-key NAMES and YES/NO flags — never Config, image history,
+service environment, generated `.env`, URL credentials or raw Docker logs.
