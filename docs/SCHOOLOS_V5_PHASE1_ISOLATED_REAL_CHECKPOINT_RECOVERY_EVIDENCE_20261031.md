@@ -60,6 +60,39 @@ If an authenticated original SHA-256 of the `SHA256SUMS` manifest is available f
 
 **The preflight is a read-only structural and consistency gate**, not a real DB restore, media/Vault recovery, authentic source chain or cryptographic signature. It rejects tar traversal, links and special entries; legitimate archives containing links will require documented manual review rather than automatically extracting. No copied real checkpoint should be committed, uploaded or attached to GitHub issues.
 
+### Owner-local restore runner prepared — only after private checkpoint acquisition
+
+The new `scripts/schoolos-v5-owner-isolated-checkpoint-restore.py` implements RC-02, RC-04 and RC-05 **only when run on an owner-controlled Windows Docker Desktop Linux engine**. No data transfer is performed by the tool. Do not run from the V5 staging VPS or any SSH/remote Docker context.
+
+**Safety characteristics:** explicitly validates the local `desktop-linux` Windows named-pipe endpoint, requires a cached `postgres:16-alpine` image (no pull), validates the checksum and tar entry safety before starting, uses only `--network none`, a **read-only bind mount of a privately copied checkpoint**, and separate discarded-on-stop tmpfs PostgreSQL data and file-extraction directories. No Compose, existing Docker volumes, host ports, backups/R2 access, Coolify, real provider keys or production services. PostgreSQL `pg_restore` is performed in a freshly initialized ephemeral DB, with only aggregate table/migration counts reported; `files.tar.gz` is extracted only inside ephemeral tmpfs. Output and 0600 report contain status/aggregate evidence, not customer records. A failure to verify container ownership or remove the ephemeral container is a hard HOLD, not a success.
+
+The *default* invocation is read-only preflight; actual isolated restore requires **both** `--execute-isolated-restore` and `--acknowledge-private-offline-checkpoint`. Use a **private, encrypted, non-cloud-synced** copy, with exactly `SHA256SUMS`, `database.dump`, `files.tar.gz`. Do not paste source paths, manifest contents, R2 object keys, dumps, student records, Vault keys or raw Docker logs into chat or GitHub. The report path must be outside the checkpoint folder and must not exist already.
+
+Illustrative commands on the **owner's private Windows machine**, from a pinned checked-out PR #297 branch (replace placeholders with privately selected absolute paths, not in chat):
+
+```powershell
+$checkpoint = 'C:\PRIVATE_ISOLATED_COPY\20261031T073407Z'
+$preflight = 'C:\PRIVATE_PROTECTED_REPORTS\preflight-unique.json'
+py -3 -B scripts/schoolos-v5-owner-isolated-checkpoint-restore.py `
+  --checkpoint-dir $checkpoint `
+  --checkpoint-id 20261031T073407Z `
+  --report $preflight
+
+# Only after the preflight passes and the operator explicitly confirms
+# source-origin controls, data protection, machine isolation, and capacity:
+$restoreReport = 'C:\PRIVATE_PROTECTED_REPORTS\restore-unique.json'
+py -3 -B scripts/schoolos-v5-owner-isolated-checkpoint-restore.py `
+  --checkpoint-dir $checkpoint `
+  --checkpoint-id 20261031T073407Z `
+  --report $restoreReport `
+  --execute-isolated-restore `
+  --acknowledge-private-offline-checkpoint
+```
+
+Do **not** run the illustrative commands until the protected checkpoint has actually been acquired and isolated and the branch's exact-head CI is successful. If the original manifest's digest is available from an independent trusted protected record, add `--trusted-manifest-sha256 <verified 64 hex>`; otherwise the report explicitly retains `NOT_ATTESTED` for origin. Only statuses/counts are permitted into Issue #292.
+
+**Limit of achievement even after this passes:** it proves only that this **real DB dump and archived files** can be restored into a disposable isolated environment. Application-backed Vault decryption, external R2 media, coherent API/Web state, payment-ledger reconciliation, source→image attestation, witness and RPO/RTO decisions remain independent blocked gates.
+
 ### Restricted operator workflow (no staging changes)
 
 1. Keep existing #258 lock. Verify the isolated recovery engine/host has no shared V5 production/staging volumes, remote Docker context, routed provider access or published ports. Record host/isolation attestation privately.
