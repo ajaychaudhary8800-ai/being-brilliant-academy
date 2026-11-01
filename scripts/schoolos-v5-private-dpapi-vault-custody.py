@@ -143,8 +143,10 @@ def sid() -> str:
 
 
 def restrict_acl(path: Path, owner_sid: str) -> None:
-    cmd = ["icacls", str(path), "/inheritance:r",
-           "/grant:r", "*" + owner_sid + ":(OI)(CI)F"]
+    grant = "*" + owner_sid + (
+        ":(OI)(CI)F" if path.is_dir() else ":F"
+    )
+    cmd = ["icacls", str(path), "/inheritance:r", "/grant:r", grant]
     result = subprocess.run(
         cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         timeout=30, check=False,
