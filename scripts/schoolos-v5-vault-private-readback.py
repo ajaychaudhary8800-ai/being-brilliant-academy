@@ -31,6 +31,14 @@ if SPEC is None or SPEC.loader is None:
 BASE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BASE)
 
+DPAPI_SPEC = importlib.util.spec_from_file_location(
+    "private_v5_dpapi", HERE / "schoolos-v5-private-dpapi-vault-custody.py"
+)
+if DPAPI_SPEC is None or DPAPI_SPEC.loader is None:
+    raise RuntimeError("OWNER_DPAPI_CUSTODY_HELPER_MISSING")
+DPAPI = importlib.util.module_from_spec(DPAPI_SPEC)
+DPAPI_SPEC.loader.exec_module(DPAPI)
+
 MAX_ENCRYPTED = 10 * 1024 * 1024 + 32
 READ_LIMIT = 2 * MAX_ENCRYPTED + 1024
 ALLOWED_CONTEXT = "desktop-linux"
@@ -47,10 +55,10 @@ def protected_local_escrow(key_file: Path, checkpoint: Path) -> Path:
     if key_file.is_symlink() or not key_file.is_file():
         raise BASE.RecoveryFailure("ESCROW_FILE_NOT_FOUND_OR_LINKED")
     path = key_file.resolve(strict=True)
-    expected = checkpoint.parent / "protected-escrow" / "original-vault-key.txt"
+    expected = checkpoint.parent / "protected-escrow" / "original-vault-key.dpapi"
     if path != expected.resolve(strict=False):
         raise BASE.RecoveryFailure("ESCROW_OUTSIDE_RESTRICTED_WORKSPACE")
-    if path.stat().st_size < 32 or path.stat().st_size > 512:
+    if path.stat().st_size < 64 or path.stat().st_size > 8192:
         raise BASE.RecoveryFailure("ESCROW_FILE_SIZE_INVALID")
     # Do not read the actual secret here. Node reads it directly, in RAM.
     # A filesystem location is only owner-supplied custody, not proof of
@@ -131,25 +139,52 @@ def run_local_crypto(payload: dict, key_path: Path) -> None:
     js = HERE / "schoolos-v5-vault-offline-aesgcm.mjs"
     if not js.is_file():
         raise BASE.RecoveryFailure("PINNED_CRYPTO_CHECKER_MISSING")
-    args = dict(payload)
-    args["escrowKeyFile"] = str(key_path)
-    raw = json.dumps(args, separators=(",", ":")).encode("ascii")
-    if len(raw) > READ_LIMIT:
-        raise BASE.RecoveryFailure("CRYPTO_INPUT_TOO_LARGE")
+    encrypted = key_path.read_bytes()
+    if not 64 <= len(encrypted) <= 8192:
+        raise BASE.RecoveryFailure("DPAPI_ESCROW_FORMAT_INVALID")
     try:
-        result = subprocess.run(
-            ["node", str(js), "--owner-private-stdin"],
-            input=raw, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            timeout=120, check=False, env=BASE.scrub_docker_environment(),
+        key = bytearray(DPAPI.unprotect(encrypted))
+    except (DPAPI.CustodyFailure, OSError, ValueError):
+        raise BASE.RecoveryFailure("DPAPI_ORIGINAL_KEY_UNAVAILABLE")
+    raw = None
+    try:
+        try:
+            secret = key.decode("utf-8", errors="strict")
+        except UnicodeError:
+            raise BASE.RecoveryFailure("DPAPI_KEY_ENCODING_INVALID")
+        if not (32 <= len(secret) <= 512 and
+                "\r" not in secret and "\n" not in secret and "\x00" not in secret):
+            raise BASE.RecoveryFailure("DPAPI_KEY_MATERIAL_INVALID")
+        args = dict(payload)
+        args["originalKey"] = secret
+        # Private original secret and ciphertext are sent by local stdin only.
+        # No argv/env, disk dump, Node logs or debug print contains them.
+        raw = bytearray(json.dumps(args, separators=(",", ":"),
+                                   ensure_ascii=False).encode("utf-8"))
+        if len(raw) > READ_LIMIT:
+            raise BASE.RecoveryFailure("CRYPTO_INPUT_TOO_LARGE")
+        try:
+            result = subprocess.run(
+                ["node", str(js), "--owner-private-stdin"],
+                input=raw, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=120, check=False,
+                env=BASE.scrub_docker_environment(),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            raise BASE.RecoveryFailure("LOCAL_NODE_CRYPTO_UNAVAILABLE")
+        expected = (
+            b"VAULT_OFFLINE_GCM_TAG_AND_CONTENT_DIGEST=PASS\n"
+            b"VAULT_PLAINTEXT_AND_KEY_PRINTED=NO\n"
         )
-    except (OSError, subprocess.TimeoutExpired):
-        raise BASE.RecoveryFailure("LOCAL_NODE_CRYPTO_UNAVAILABLE")
-    expected = (
-        b"VAULT_OFFLINE_GCM_TAG_AND_CONTENT_DIGEST=PASS\n"
-        b"VAULT_PLAINTEXT_AND_KEY_PRINTED=NO\n"
-    )
-    if result.returncode != 0 or result.stdout.replace(b"\r\n", b"\n") != expected:
-        raise BASE.RecoveryFailure("AUTHENTICATED_DECRYPTION_OR_DIGEST_FAILED")
+        if (result.returncode != 0 or
+            result.stdout.replace(b"\r\n", b"\n") != expected):
+            raise BASE.RecoveryFailure("AUTHENTICATED_DECRYPTION_OR_DIGEST_FAILED")
+    finally:
+        for i in range(len(key)):
+            key[i] = 0
+        if raw is not None:
+            for i in range(len(raw)):
+                raw[i] = 0
 
 
 def restore_and_verify(checkpoint: Path, escrow: Path, preflight: dict) -> dict:
@@ -218,9 +253,9 @@ def restore_and_verify(checkpoint: Path, escrow: Path, preflight: dict) -> dict:
                 preflight["origin_manifest_authenticity"],
             "document_count_scoped": 1,
             "vault_original_key_escrow_origin":
-                "OWNER_SUPPLIED_PRIVATE_FILE_NOT_INDEPENDENTLY_ATTESTED",
+                "OWNER_USER_DPAPI_PROTECTED_STAGING_READONLY_COPY",
             "vault_decryption": "PASS_GCM_TAG_AND_PLAINTEXT_SHA256",
-            "original_key_provenance": "NOT_ATTESTED",
+            "original_key_provenance": "NOT_INDEPENDENTLY_ATTESTED",
             "plaintext_stored_or_printed": False,
             "secret_stored_or_printed": False,
             "staging_and_production_changed": False,

@@ -4,7 +4,6 @@
 // For actual recovery invoke only via the owner-local offline PostgreSQL runner.
 // Never read a live staging secret, Docker env/history, R2 or provider credentials.
 import crypto from "node:crypto";
-import fs from "node:fs";
 import process from "node:process";
 
 const PREFIX = Buffer.from("CDV1", "ascii");
@@ -86,30 +85,6 @@ async function readBoundedStdin() {
   return Buffer.concat(blocks).toString("utf8");
 }
 
-function escrowMaterial(file) {
-  if (typeof file !== "string" || !file || file.includes("\0")) {
-    throw new Error("INVALID_ESCROW_PATH");
-  }
-  const info = fs.lstatSync(file);
-  if (!info.isFile() || info.isSymbolicLink() || info.size < 32 ||
-      info.size > 512) {
-    throw new Error("INVALID_ESCROW_FILE");
-  }
-  const bytes = fs.readFileSync(file);
-  try {
-    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    const value = decoded.replace(/\r?\n$/, "");
-    // Single exact UTF-8 secret; never parse a .env or alter surrounding
-    // whitespace/quotes because application hashes original material verbatim.
-    if (value.length < 32 || /[\r\n\0]/.test(value) ||
-        value.startsWith("COMMERCIAL_DOCUMENT_ENCRYPTION_KEY=")) {
-      throw new Error("ESCROW_FORMAT_UNACCEPTABLE");
-    }
-    return value;
-  } finally {
-    bytes.fill(0);
-  }
-}
 
 async function verifyOwnerPrivateStdin() {
   if (process.platform !== "win32") throw new Error("OWNER_WINDOWS_REQUIRED");
@@ -117,7 +92,7 @@ async function verifyOwnerPrivateStdin() {
     const input = JSON.parse(await readBoundedStdin());
     const names = Object.keys(input).sort();
     if (JSON.stringify(names) !== JSON.stringify(
-      ["cipherHex", "escrowKeyFile", "expectedSha256", "fileSize"].sort()
+      ["cipherHex", "originalKey", "expectedSha256", "fileSize"].sort()
     )) {
       throw new Error("PRIVATE_INPUT_FIELDS_UNEXPECTED");
     }
@@ -126,11 +101,15 @@ async function verifyOwnerPrivateStdin() {
         input.cipherHex.length > 2 * (MAX_FILE + 32)) {
       throw new Error("CIPHERTEXT_INVALID");
     }
-    const material = escrowMaterial(input.escrowKeyFile);
+    if (typeof input.originalKey !== "string" ||
+        input.originalKey.length < 32 || input.originalKey.length > 512 ||
+        /[\r\n\0]/.test(input.originalKey)) {
+      throw new Error("ESCROW_MATERIAL_INVALID");
+    }
     const ciphertext = Buffer.from(input.cipherHex, "hex");
     try {
       if (!verifyEnvelope(ciphertext, input.expectedSha256,
-                          input.fileSize, material)) {
+                          input.fileSize, input.originalKey)) {
         throw new Error("AUTHENTICATED_DECRYPTION_OR_DIGEST_FAILED");
       }
       console.log("VAULT_OFFLINE_GCM_TAG_AND_CONTENT_DIGEST=PASS");
