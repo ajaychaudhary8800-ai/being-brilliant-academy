@@ -25,9 +25,9 @@ class VaultOfflineReadbackTest(unittest.TestCase):
         self.base = Path(tmp.name) / "SchoolOS-V5-Recovery-synthetic"
         self.checkpoint = self.base / MODULE.BASE.CHECKPOINT_ID
         self.checkpoint.mkdir(parents=True)
-        self.escrow = self.base / "protected-escrow" / "original-vault-key.txt"
+        self.escrow = self.base / "protected-escrow" / "original-vault-key.dpapi"
         self.escrow.parent.mkdir()
-        self.escrow.write_text("synthetic-private-material-only-at-least-32-char")
+        self.escrow.write_bytes(b"synthetic-DPAPI-encrypted-escrow-fixture-" + b"x" * 80)
         self.preflight = {
             "manifest_checksums": "PASS",
             "origin_manifest_authenticity": "NOT_ATTESTED",
@@ -48,7 +48,7 @@ class VaultOfflineReadbackTest(unittest.TestCase):
                 MODULE.protected_local_escrow(other, self.checkpoint)
 
     def test_symlink_escrow_refused(self):
-        link = self.base / "protected-escrow" / "original-vault-key.txt"
+        link = self.base / "protected-escrow" / "original-vault-key.dpapi"
         link.unlink()
         link.symlink_to(self.base / "source-key.txt")
         with patch.object(MODULE.sys, "platform", "win32"):
@@ -125,7 +125,7 @@ class VaultOfflineReadbackTest(unittest.TestCase):
             "PASS_GCM_TAG_AND_PLAINTEXT_SHA256",
         )
         self.assertEqual(
-            result["original_key_provenance"], "NOT_ATTESTED"
+            result["original_key_provenance"], "NOT_INDEPENDENTLY_ATTESTED"
         )
         self.assertFalse(result["plaintext_stored_or_printed"])
         self.assertEqual(result["r2_media_recovery"], "NOT_EXECUTED")
