@@ -66,6 +66,8 @@ jobs:
         run: python3 -m unittest discover -s scripts -p 'test_schoolos_v5_*.py'
       - name: Test isolated Vault GCM and plaintext-hash verification with synthetic data
         run: node --test scripts/schoolos-v5-vault-offline-aesgcm.test.mjs
+      - name: Verify metadata-only image-secret-history audit rejects injected build args
+        run: node --test scripts/schoolos-v5-image-secret-metadata-audit.test.mjs
       - name: Validate SchoolOS V5 release gate policy tests
         run: pnpm v5:release:test
       - name: Verify SchoolOS V5 release HOLD or evidence-backed READY status
@@ -125,6 +127,10 @@ jobs:
         env:
           DOCKER_BUILDKIT: "1"
         run: docker compose build --pull api migrate web nginx backup
+      - name: Veto sensitive credential names in fresh CI image history and config
+        run: |
+          set -euo pipefail
+          node scripts/schoolos-v5-image-secret-metadata-audit.mjs bba-api:local bba-web:local
       - name: Build and verify actual corrected backup image with isolated synthetic restore
         env:
           DOCKER_BUILDKIT: "1"
