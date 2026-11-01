@@ -122,6 +122,19 @@ def run_owner_isolated_scope(checkpoint: Path, preflight: dict) -> dict:
         BASE.wait_for_isolated_pg(cid)
         print("VAULT_MEDIA_SCOPE_POSTGRES=PASS")
 
+        # Protect against an input change between host-side SHA preflight
+        # and container-side selected-table restore.
+        for basename in ("database.dump", "files.tar.gz"):
+            expected = BASE.PREFLIGHT.digest(checkpoint / basename)
+            _, raw_hash = BASE.docker([
+                "exec", "--user", "postgres", cid, "sha256sum",
+                "/isolated-checkpoint/" + basename,
+            ], timeout=180)
+            actual = raw_hash.decode("ascii", errors="ignore").split(" ", 1)[0]
+            if actual != expected:
+                raise BASE.RecoveryFailure("CHECKPOINT_MOUNT_CONTENT_DRIFT")
+        print("VAULT_MEDIA_SCOPE_INPUT_PARITY=PASS")
+
         # Only the needed archive tables are restored, with no application boot.
         # No SQL values, pg_restore output or stderr may enter the caller log.
         for table in VAULT_AND_MEDIA_TABLES:
