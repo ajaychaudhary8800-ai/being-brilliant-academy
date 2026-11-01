@@ -6,3 +6,4 @@ infra/backup/entrypoint.sh text eol=lf
 infra/backup/healthcheck.sh text eol=lf
 infra/backup/verify-checksums.sh text eol=lf
 scripts/schoolos-v5-backup-synthetic-e2e.sh text eol=lf
+scripts/schoolos-v5-vault-media-subset-ci.sh text eol=lf

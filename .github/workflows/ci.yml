@@ -133,6 +133,13 @@ jobs:
           docker build --pull=false --tag v5-backup-restore-ci:ephemeral \
             --file infra/backup/Dockerfile infra/backup
           bash scripts/schoolos-v5-backup-synthetic-e2e.sh
+      - name: Prove isolated Vault and media metadata subset excludes other customer tables
+        env:
+          BBA_SYNTHETIC_BUILD: "true"
+        run: |
+          set -euo pipefail
+          bash -n scripts/schoolos-v5-vault-media-subset-ci.sh
+          bash scripts/schoolos-v5-vault-media-subset-ci.sh
       - name: Verify V5 API executable in actual source-pinned synthetic Docker image
         env:
           DOCKER_BUILDKIT: "1"
