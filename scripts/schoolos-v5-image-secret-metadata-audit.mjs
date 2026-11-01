@@ -34,7 +34,7 @@ function secretAssignment(value, name) {
 export function analyzeImageMetadata(config, history) {
   if (!config || typeof config !== "object" ||
       !Array.isArray(config.Config?.Env) ||
-      !Array.isArray(history) ||
+      !Array.isArray(history) || history.length < 1 ||
       history.some(value => typeof value !== "string")) {
     return { verdict: "CHECK_REQUIRED_INVALID_CONFIG", names: [] };
   }
