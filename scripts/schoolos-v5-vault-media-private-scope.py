@@ -135,12 +135,26 @@ def run_owner_isolated_scope(checkpoint: Path, preflight: dict) -> dict:
                 raise BASE.RecoveryFailure("CHECKPOINT_MOUNT_CONTENT_DRIFT")
         print("VAULT_MEDIA_SCOPE_INPUT_PARITY=PASS")
 
-        # Only the needed archive tables are restored, with no application boot.
-        # No SQL values, pg_restore output or stderr may enter the caller log.
+        # Restore schema definitions and enum dependencies only, with ZERO
+        # customer rows. pg_restore -t alone cannot create an enum-dependent
+        # LiveClass/MeetingRecording table from a custom-format archive.
+        BASE.docker([
+            "exec", "--user", "postgres", cid,
+            "pg_restore", "--section=pre-data",
+            "--no-owner", "--no-acl", "--exit-on-error",
+            "--single-transaction",
+            "--username=v5_isolated_restore",
+            "--dbname=v5_isolated_restore",
+            "/isolated-checkpoint/database.dump",
+        ], timeout=900)
+        print("VAULT_MEDIA_SCOPE_SCHEMA_ONLY=PASS")
+
+        # Only the five allowlisted tables' DATA are restored; all other
+        # source-schema tables remain empty. Never print pg_restore output.
         for table in VAULT_AND_MEDIA_TABLES:
             BASE.docker([
                 "exec", "--user", "postgres", cid,
-                "pg_restore", "--no-owner", "--no-acl",
+                "pg_restore", "--data-only", "--no-owner", "--no-acl",
                 "--exit-on-error", "--single-transaction",
                 "--username=v5_isolated_restore",
                 "--dbname=v5_isolated_restore",
