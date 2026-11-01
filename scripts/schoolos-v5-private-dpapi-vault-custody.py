@@ -200,7 +200,7 @@ def acquire(workspace: Path) -> None:
         for i in range(len(secret)):
             secret[i] = 0
     # Exclusive, never overwrite a prior original-key escrow.
-    fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_BINARY, 0o600)
+    fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, 'O_BINARY', 0), 0o600)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(packed)
