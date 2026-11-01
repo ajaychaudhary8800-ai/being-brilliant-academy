@@ -51,21 +51,23 @@ for i in $(seq 1 60); do
 done
 [[ "$ready" == 1 ]] || fail "PG_READY"
 
-sql='
-CREATE TYPE "ScopeStatus" AS ENUM (''READY'',''STOPPED'');
+sql="$(cat <<'SQL'
+CREATE TYPE "ScopeStatus" AS ENUM ('READY','STOPPED');
 CREATE TABLE "SaaSCommercialDocument" ("id" integer PRIMARY KEY, "encryptedFileData" bytea NOT NULL);
 CREATE TABLE "LiveClass" ("id" integer PRIMARY KEY, "recordingObjectKey" text, "state" "ScopeStatus");
 CREATE TABLE "StudyMaterial" ("id" integer PRIMARY KEY, "storageKey" text);
 CREATE TABLE "MeetingRecording" ("id" integer PRIMARY KEY, "storageKey" text);
 CREATE TABLE "MeetingAttachment" ("id" integer PRIMARY KEY, "storageKey" text);
 CREATE TABLE "OtherConfidential" ("id" integer PRIMARY KEY, "privatePayload" text NOT NULL);
-INSERT INTO "SaaSCommercialDocument" VALUES (1,decode(''4344563101020304'',''hex''));
-INSERT INTO "LiveClass" VALUES (1,''synthetic-key'',''READY'');
-INSERT INTO "StudyMaterial" VALUES (1,''synthetic-key'');
-INSERT INTO "MeetingRecording" VALUES (1,''synthetic-key'');
-INSERT INTO "MeetingAttachment" VALUES (1,''synthetic-key'');
-INSERT INTO "OtherConfidential" VALUES (1,''do-not-select'');
-'
+INSERT INTO "SaaSCommercialDocument" VALUES (1,decode('4344563101020304','hex'));
+INSERT INTO "LiveClass" VALUES (1,'synthetic-key','READY');
+INSERT INTO "StudyMaterial" VALUES (1,'synthetic-key');
+INSERT INTO "MeetingRecording" VALUES (1,'synthetic-key');
+INSERT INTO "MeetingAttachment" VALUES (1,'synthetic-key');
+INSERT INTO "OtherConfidential" VALUES (1,'do-not-select');
+SQL
+)"
+
 # Quote-safe SQL: no real secrets or data involved.
 docker exec --user postgres "$name" psql -X -v ON_ERROR_STOP=1 -U postgres \
   -d ci_scope -q -c "$sql" >/dev/null 2>&1 || fail "SYNTHETIC_SCHEMA"
