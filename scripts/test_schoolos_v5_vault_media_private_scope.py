@@ -123,8 +123,14 @@ class VaultMediaPrivateScopeTest(unittest.TestCase):
         self.assertEqual(result["commercial_go"], "HOLD")
         self.assertNotIn("key", output.lower())
         self.assertNotIn("password", output.lower())
-        self.assertEqual(len([c for c in commands
-                              if c[0] == "exec" and "pg_restore" in c]), 5)
+        restore_commands = [c for c in commands
+                            if c[0] == "exec" and "pg_restore" in c]
+        self.assertEqual(len(restore_commands), 6)
+        self.assertEqual(len([c for c in restore_commands
+                              if "--section=pre-data" in c]), 1)
+        self.assertEqual(len([c for c in restore_commands
+                              if "--data-only" in c and
+                              any(a.startswith("--table=") for a in c)]), 5)
         runs = [c for c in commands if c[0] == "run"]
         self.assertEqual(len(runs), 1)
         args = runs[0]
