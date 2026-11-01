@@ -35,9 +35,9 @@ MAX_ENCRYPTED = 10 * 1024 * 1024 + 32
 READ_LIMIT = 2 * MAX_ENCRYPTED + 1024
 ALLOWED_CONTEXT = "desktop-linux"
 QUERY = (
-    """SELECT encode("encryptedFileData",'hex') || '|' || """
-    """"contentSha256" || '|' || "fileSize"::text """
-    """FROM "SaaSCommercialDocument" LIMIT 1"""
+    'SELECT encode("encryptedFileData", \'hex\') || \'|\' || '
+    '"contentSha256" || \'|\' || "fileSize"::text '
+    'FROM "SaaSCommercialDocument" LIMIT 1'
 )
 
 
