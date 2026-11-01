@@ -72,6 +72,10 @@ class VaultMediaPrivateScopeTest(unittest.TestCase):
             events.append(args)
             if args[0] == "run":
                 return 0, cid.encode()
+            if args[0] == "exec" and "sha256sum" in args:
+                name = args[-1].rsplit("/", 1)[-1]
+                hashed = hashlib.sha256((self.checkpoint / name).read_bytes()).hexdigest()
+                return 0, (hashed + "  safe-input").encode()
             return 0, b""
         def fake_pg_scalar(container, sql):
             self.assertEqual(container, cid)
@@ -146,7 +150,13 @@ class VaultMediaPrivateScopeTest(unittest.TestCase):
         cid = "a" * 64
         def fake_docker(args, **_):
             calls.append(args)
-            return 0, cid.encode() if args[0] == "run" else b""
+            if args[0] == "run":
+                return 0, cid.encode()
+            if args[0] == "exec" and "sha256sum" in args:
+                name = args[-1].rsplit("/", 1)[-1]
+                hashed = hashlib.sha256((self.checkpoint / name).read_bytes()).hexdigest()
+                return 0, (hashed + "  safe-input").encode()
+            return 0, b""
         def fake_pg_scalar(_cid, sql):
             if "octet_length" in sql:
                 return 3
