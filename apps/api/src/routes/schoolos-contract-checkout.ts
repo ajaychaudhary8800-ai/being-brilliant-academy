@@ -90,7 +90,10 @@ router.post("/organization/subscription/contracted-checkout", async (req: AuthRe
     const invoiceBasis = addon ? "SIGNED_ANNUAL_BASE_PLUS_ADDONS" : "SIGNED_ANNUAL_BASE_PLAN";
     if (!existing) {
       const otherUnpaid = await tx.saaSInvoice.findFirst({
-        where: { organizationId, schoolOSQuoteId: { not: null }, status: SaaSInvoiceStatus.OPEN },
+        // An overdue signed order remains capable of receiving a late provider capture.
+        // Never start another contracted checkout while that older order is unresolved.
+        where: { organizationId, schoolOSQuoteId: { not: null },
+          status: { in: [SaaSInvoiceStatus.OPEN, SaaSInvoiceStatus.OVERDUE] } },
         select: { id: true, invoiceNo: true },
       });
       if (otherUnpaid) throw new AppError(409, "SCHOOLOS_TENANT_CHECKOUT_PENDING", "Another signed quote has an open payment invoice; reconcile it before a new quote checkout");
