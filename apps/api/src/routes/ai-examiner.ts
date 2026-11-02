@@ -139,6 +139,12 @@ async function benchmarkSuiteForRequest(req: AuthRequest, suiteId: string) {
     },
   });
   if (!suite) throw new AppError(404, "AI_EXAMINER_BENCHMARK_SUITE_NOT_FOUND", "Benchmark suite not found");
+  // Global suite case/benchmark details can contain finalized student marks,
+  // answer-sheet identities and gold notes. Branch admins may see global
+  // catalogue metadata, not traverse into cross-branch case-level data.
+  if (req.auth!.role === Role.BRANCH_ADMIN && !suite.branchId) {
+    throw new AppError(403, "BRANCH_FORBIDDEN", "Organization-wide benchmark evidence requires a Super Administrator");
+  }
   if (suite.branchId) {
     const visibleBranches = await visibleProfileBranchIds(req);
     if (visibleBranches && !visibleBranches.includes(suite.branchId)) {
