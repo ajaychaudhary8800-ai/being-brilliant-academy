@@ -9,6 +9,7 @@ import { AppError } from "../lib/http.js";
 import { captureSaaSRazorpayPayment } from "../lib/saas-commercial.js";
 import { recordSchoolOSPaymentRisk } from "../lib/schoolos-payment-risk.js";
 import { recordSchoolOSFailedPayment } from "../lib/schoolos-payment-failure.js";
+import { recordSchoolOSFailedRefund } from "../lib/schoolos-refund-failure.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 const router = Router();
 router.post("/razorpay/order", requireAuth, async (req: AuthRequest, res) => { if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET) throw new AppError(503, "PAYMENT_UNAVAILABLE", "Razorpay is not configured"); const body = z.object({ amount: z.number().int().positive(), receipt: z.string().max(40).optional() }).parse(req.body); const client = new Razorpay({ key_id: env.RAZORPAY_KEY_ID, key_secret: env.RAZORPAY_KEY_SECRET }); const order = await client.orders.create({ amount: body.amount, currency: "INR", receipt: body.receipt }); const invoice = await prisma.invoice.create({ data: { userId: req.auth!.userId, amount: body.amount, invoiceNo: `BBA-${Date.now()}`, provider: "RAZORPAY", providerOrderId: order.id } }); res.status(201).json({ data: { order, invoiceId: invoice.id, keyId: env.RAZORPAY_KEY_ID } }); });
@@ -38,6 +39,34 @@ router.post("/razorpay/webhook", async (req, res) => { const signature = req.hea
     currency:child.currency,
   },{event:event.event,payment:original,
     riskEntity:{id:child.id,payment_id:child.payment_id,amount:child.amount,currency:child.currency}});
+  return res.status(200).send("ok");
+}
+if (event.event === "refund.failed") {
+  // Razorpay's documented refund.failed payload includes payment.entity
+  // and refund.entity. Signature was checked over raw bytes above.
+  // Record an operational finance alert only for quoted SchoolOS invoices;
+  // never decrease captured cash or treat failure as refund.processed.
+  const proof=z.object({payload:z.object({
+    payment:z.object({entity:z.object({
+      id:z.string(),order_id:z.string().nullable(),
+      amount:z.number().int().positive(),currency:z.string(),
+    })}),
+    refund:z.object({entity:z.object({
+      id:z.string(),payment_id:z.string(),amount:z.number().int().positive(),
+      currency:z.string(),status:z.literal("failed"),
+    })}),
+  })}).parse(originalEvent);
+  const original=proof.payload.payment.entity;
+  const refund=proof.payload.refund.entity;
+  if(refund.payment_id!==original.id ||
+     refund.currency.toUpperCase()!==original.currency.toUpperCase())
+    throw new AppError(422,"SCHOOLOS_REFUND_FAILURE_PROVIDER_LINK_INVALID",
+      "Signed failed refund does not reference the original provider payment");
+  await recordSchoolOSFailedRefund({
+    refundId:refund.id,paymentId:refund.payment_id,orderId:original.order_id,
+    amountPaise:refund.amount,originalAmountPaise:original.amount,
+    currency:refund.currency,status:"failed",
+  });
   return res.status(200).send("ok");
 }
 if (event.event === "payment.failed") {

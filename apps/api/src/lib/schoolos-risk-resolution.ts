@@ -71,7 +71,7 @@ async function state(tx: Prisma.TransactionClient, invoiceId: string) {
 }
 
 export async function listSchoolOSRiskReviews() {
-  const [holds,reviews]=await Promise.all([
+  const [holds,reviews,refundFailures]=await Promise.all([
     systemPrisma.schoolOSPaymentRiskHold.findMany({
       orderBy:{updatedAt:"desc"},take:100,
       select:{id:true,invoiceId:true,organizationId:true,status:true,revision:true,
@@ -81,8 +81,15 @@ export async function listSchoolOSRiskReviews() {
     systemPrisma.schoolOSPaymentRiskReview.findMany({
       orderBy:{proposedAt:"desc"},take:150,
     }),
+    // Only the platform finance endpoint may read these V5 exception alerts.
+    // This is a bounded, privacy-minimal projection of audited refund failures.
+    systemPrisma.auditLog.findMany({
+      where:{action:"SCHOOLOS_REFUND_PROCESSING_FAILED"},
+      orderBy:{createdAt:"desc"},take:100,
+      select:{id:true,organizationId:true,entityId:true,createdAt:true,metadata:true},
+    }),
   ]);
-  return {holds,reviews};
+  return {holds,reviews,refundFailures};
 }
 
 export async function proposeSchoolOSRiskRelease(

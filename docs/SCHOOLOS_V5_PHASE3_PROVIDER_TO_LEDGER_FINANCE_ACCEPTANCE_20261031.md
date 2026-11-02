@@ -36,7 +36,7 @@ For each real artifact record only: private vault locator, SHA-256, acquisition 
 | Capture/webhook | Raw-body HMAC, constant-time compare, provider identity/amount checks, advisory locks, signature refusal and idempotent replays | Provider-origin TEST callbacks and independently reviewed provider transaction status |
 | Subscription | Signed annual PAID activation, expiry and future-term veto, overlap prevention, manual signed renewal; platform bypass guards | Formal annual-only scope, renewal and cancellation notice policy; automatic renewal and proration are unsupported |
 | Failures | Stored FAILED provider attempt, late-failure no downgrade, no unpaid grace or new entitlement | Real TEST failure origin if feasible and provider exception log |
-| Refunds | Incoming processed-refund accounting, ceiling, maker-checker risk hold, no automatic unfreeze | Refund initiation is not implemented: approved customer-service manual refund pathway and test evidence required |
+| Refunds | Incoming processed-refund accounting, ceiling, maker-checker risk hold, no automatic unfreeze; **new V5-only signed refund.failed audit receipt/finance exception alert** (no cash reversal) | Refund initiation is not implemented: approved customer-service manual refund pathway and actual provider TEST evidence required |
 | Disputes | Raised/won source matching, mismatch deny, source provenance and contradictory-outcome finance-review flags | Real provider TEST dispute evidence or explicit accepted exclusion |
 | Reconciliation | Read-only bounded internal PAID ledger sums and null totals on inconsistency | Independent provider settlement, bank, fee and statutory accounting reconciliation |
 
@@ -57,6 +57,10 @@ Existing internal SaaS invoice/PDF is a **billing transaction record**, not cert
 | Onboarding and pilots | Standard remote onboarding vs separately charged work, contract SOW, exclusion of unsupported 60-day commercial pilot from annual auto checkout | HUMAN_ACCEPTANCE_REQUIRED |
 
 Preserve all original invoice and payment records. Do not delete/rewrite payment evidence to make accounting figures match, generate statutory documents without approved fields, or claim GST compliance from a formatted PDF. If compliance cannot be determined, carry it as a gated exception and do not launch statutory claims.
+
+### Provider refund-failure operational control (new independent source coverage)
+
+Razorpay's published refund webhook reference lists `refund.failed` with both original payment and refund entities. The V5-only `refund.failed` integration now requires the existing raw-body HMAC check, exact captured payment / invoice tenant and currency/amount binding, strict refund status, canonical event idempotency and no contradictory processed-refund result. It stores a **sanitized, deduplicated** `SaaSWebhookEvent` and attributable `AuditLog` entry; the existing platform-only `GET /platform/schoolos/payment-risk` now returns a bounded `refundFailures` finance exception queue. The event does **not** mark the refund processed, change gross cash, release a risk hold or trigger a new provider refund. Actual merchant-side subscription to this event, real provider delivery, manual finance resolution and exception-closure process remain `BLOCKED_BY_PHASE_1` / `HUMAN_ACCEPTANCE_REQUIRED`. Other dispute interim events are not silently claimed as supported and require a documented manual dashboard monitoring decision. Never change shared V4 provider configuration from this source addition.
 
 ## D. Human finance decision record — uncompleted
 - Reviewer: Madhuri Verma (designated). Owner approval intent is already reported; an original dated, attributable acceptance decision is **not yet verified**.

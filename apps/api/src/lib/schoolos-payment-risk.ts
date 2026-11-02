@@ -59,15 +59,15 @@ export async function recordSchoolOSPaymentRisk(input: SchoolOSRiskEvent, origin
     await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-risk:"+possible.id}))`;
     const invoice=await tx.saaSInvoice.findUnique({
       where:{id:possible.id},select:{id:true,organizationId:true,schoolOSQuoteId:true,status:true,providerOrderId:true,
-        totalPaise:true,currency:true},
+        provider:true,totalPaise:true,currency:true},
     });
     if (!invoice || invoice.schoolOSQuoteId!==possible.schoolOSQuoteId || invoice.status!=="PAID" ||
         (e.orderId!==null && invoice.providerOrderId!==e.orderId) || !invoice.providerOrderId || invoice.totalPaise!==e.originalAmountPaise ||
-        invoice.currency!=="INR" || e.currency!=="INR")
+        invoice.currency!=="INR" || invoice.provider!=="RAZORPAY" || e.currency!=="INR")
       throw new AppError(409,"SCHOOLOS_RISK_INVOICE_MISMATCH","Risk event does not match a captured, paid quotation invoice");
     const payment=await tx.saaSPayment.findUnique({where:{providerPaymentId:e.providerPaymentId}});
     if (!payment || payment.invoiceId!==invoice.id || payment.organizationId!==invoice.organizationId ||
-        payment.amountPaise!==invoice.totalPaise || payment.currency!=="INR" ||
+        payment.amountPaise!==invoice.totalPaise || payment.currency!=="INR" || payment.provider!=="RAZORPAY" ||
         (payment.status!==SaaSPaymentStatus.CAPTURED && payment.status!==SaaSPaymentStatus.REFUNDED))
       throw new AppError(409,"SCHOOLOS_RISK_CAPTURE_NOT_VERIFIED","No matching captured payment found");
 

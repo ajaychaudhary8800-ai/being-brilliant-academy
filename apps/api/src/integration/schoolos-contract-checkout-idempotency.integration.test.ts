@@ -546,6 +546,55 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
       where: { providerPaymentId: payment.id },
     })).status, "CAPTURED");
 
+    // New provider-documented refund.failed class: do not acknowledge it
+    // silently without creating an attributable V5 finance exception.
+    // Never decrease captured gross, change PAID status, or create a hold.
+    const failureRefundId = "rfnd_" + unique + "failed";
+    const refundFailed = {event:"refund.failed",payload:{
+      payment:{entity:payment},refund:{entity:{
+        id:failureRefundId,payment_id:payment.id,
+        amount:Math.floor(totalPaise/3),currency:"INR",status:"failed",
+      }},
+    }};
+    assert.equal((await postWebhook(refundFailed)).status,400);
+    assert.equal((await postWebhook(refundFailed,signatureFor(refundFailed))).status,200);
+    assert.equal((await postWebhook(refundFailed,signatureFor(refundFailed))).status,200);
+    const alteredRefundFailure = {...refundFailed,payload:{
+      ...refundFailed.payload,refund:{entity:{
+        ...refundFailed.payload.refund.entity,amount:Math.floor(totalPaise/3)+1,
+      }},
+    }};
+    const failureConflict = await postWebhook(alteredRefundFailure,signatureFor(alteredRefundFailure));
+    assert.equal(failureConflict.status,409);
+    assert.equal((await failureConflict.json()).error.code,
+      "SCHOOLOS_REFUND_FAILURE_REPLAY_CONFLICT");
+    assert.equal(await systemPrisma.saaSWebhookEvent.count({
+      where:{provider:"RAZORPAY",eventKey:"refund.failed:"+failureRefundId,processedAt:{not:null}},
+    }),1);
+    assert.equal(await systemPrisma.auditLog.count({
+      where:{organizationId:customerId,action:"SCHOOLOS_REFUND_PROCESSING_FAILED",
+        entityId:invoiceId},
+    }),1);
+    assert.equal(await systemPrisma.schoolOSPaymentRiskHold.count({
+      where:{invoiceId},
+    }),0);
+    assert.equal(await systemPrisma.schoolOSPaymentAdjustment.count({
+      where:{invoiceId},
+    }),0);
+    const failureAlertList=await fetch(origin+"/api/v1/platform/schoolos/payment-risk",{
+      headers:{Authorization:authorize(reviewer.id,"org_default")},
+    });
+    assert.equal(failureAlertList.status,200);
+    const exceptionList=(await failureAlertList.json()).data.refundFailures as Array<{
+      organizationId:string;metadata:{refundId:string};
+    }>;
+    assert.ok(exceptionList.some(x=>x.organizationId===customerId &&
+      x.metadata.refundId===failureRefundId));
+    assert.equal((await fetch(origin+"/api/v1/platform/schoolos/payment-risk",{
+      headers:{Authorization:ownToken},
+    })).status,403);
+    console.log("SYNTHETIC_REFUND_FAILED_FINANCE_ALERT=PASS");
+
     // HMAC is necessary but insufficient: a refund with the wrong child
     // payment ID is rejected even when the attacker knows the test HMAC key.
     const refundId = "rfnd_" + unique;
@@ -709,6 +758,7 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
         "refund.processed:rfnd_" + unique,
         "refund.processed:rfnd_" + unique + "final",
         "payment.dispute.created:disp_" + unique,
+        "refund.failed:rfnd_" + unique + "failed",
       ] } },
     });
     await systemPrisma.saaSPayment.deleteMany({ where: { organizationId: customerId } });
