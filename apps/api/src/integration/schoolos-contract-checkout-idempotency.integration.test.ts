@@ -605,6 +605,26 @@ test("signed-quote HTTP retry is tenant-bound, invoice-stable and never creates 
         currency: "INR", status: "processed",
       } },
     } };
+    // Newly hardened V5 source provenance: a syntactically valid HMAC cannot
+    // turn a non-Razorpay ledger capture or invoice into Razorpay refund proof.
+    await systemPrisma.saaSPayment.update({where:{providerPaymentId:payment.id},
+      data:{provider:"OTHER_TEST_PROVIDER"}});
+    const mismatchedPaymentProvider=await postWebhook(refund,signatureFor(refund));
+    assert.equal(mismatchedPaymentProvider.status,409);
+    assert.equal((await mismatchedPaymentProvider.json()).error.code,
+      "SCHOOLOS_RISK_CAPTURE_NOT_VERIFIED");
+    await systemPrisma.saaSPayment.update({where:{providerPaymentId:payment.id},
+      data:{provider:"RAZORPAY"}});
+    await systemPrisma.saaSInvoice.update({where:{id:invoiceId},data:{provider:"OTHER_TEST_PROVIDER"}});
+    const mismatchedInvoiceProvider=await postWebhook(refund,signatureFor(refund));
+    assert.equal(mismatchedInvoiceProvider.status,409);
+    assert.equal((await mismatchedInvoiceProvider.json()).error.code,
+      "SCHOOLOS_RISK_INVOICE_MISMATCH");
+    await systemPrisma.saaSInvoice.update({where:{id:invoiceId},data:{provider:"RAZORPAY"}});
+    assert.equal(await systemPrisma.schoolOSPaymentRiskHold.count({where:{invoiceId}}),0);
+    assert.equal(await systemPrisma.schoolOSPaymentAdjustment.count({where:{invoiceId}}),0);
+    console.log("SYNTHETIC_RISK_PROVIDER_SOURCE_BINDING=PASS");
+
     const falseLinkedRefund = { ...refund, payload: {
       ...refund.payload, refund: { entity: {
         ...refund.payload.refund.entity, payment_id: "pay_" + unique + "other",
