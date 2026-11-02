@@ -39,6 +39,13 @@ The index must contain: `schema`, `staging_project`, `candidate_source_sha`, `im
 
 Only after Phase 2 owner releases shared staging, a downtime window is acknowledged, protected backups are current, image identity and rollback are validated, and all real artifact and schema checks pass, prepare *fresh distinct PostgreSQL and Redis credentials* in a protected credential manager. Reconcile API, backup and migration PostgreSQL connection URLs, Postgres DB role password, Redis `requirepass`, API Redis URL and healthchecks. Use a staged, restart-safe maintenance runbook with the same persistent volumes; never `compose down -v`, Docker prune or change the original Vault key. After coordinated rotation, prove both old passwords rejected and new passwords accepted via boolean-only protected tests; ensure all seven service containers, including migrate, reflect authorized scope. If any stage fails, STOP and use a previously validated recovery path. No automatic password substitution or service restarts are included in this branch.
 
+
+## Source-repository containment completed in this branch
+
+- Git ignores new owner-private SchoolOS V5 checkpoint directories, raw Docker-save/OCI image archive files, PostgreSQL dump files and Windows DPAPI key escrow files. **Git ignore does not remove material that was previously committed or prevent deliberate `git add -f`.**
+- CI runs `scripts/schoolos-v5-tracked-private-artifacts.mjs` against the tracked Git file-index and refuses any disallowed private archive/DPAPI/backup filenames; synthetic tests cover the expected rejects and safe code/docs. The guard reads *filenames only* and never secrets or archive contents.
+- These controls prevent a common **new Git repository disclosure path** but do not revoke historical archive copies, change Coolify/registry permissions, invalidate already exposed PostgreSQL/Redis passwords, or sanitize the old Docker layers. Host/registry custody remains an operator action.
+
 ## D. Exact status — do not overstate closure
 
 | Requirement | Status |
