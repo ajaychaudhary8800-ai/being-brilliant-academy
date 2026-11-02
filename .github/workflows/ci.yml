@@ -40,6 +40,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Validate SchoolOS V5 promotion lock and legacy staging veto
         run: node --test scripts/check-schoolos-v5-promotion.test.mjs
+      - name: Prevent private V5 incident archives and recovery credentials being tracked
+        run: |
+          node --test scripts/schoolos-v5-tracked-private-artifacts.test.mjs
+          node scripts/schoolos-v5-tracked-private-artifacts.mjs
       - name: Validate V5 staging-only backup and API credential isolation
         run: |
           node --test scripts/check-schoolos-v5-r2-file-credentials.test.mjs
