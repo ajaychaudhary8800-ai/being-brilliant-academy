@@ -16,3 +16,15 @@ work/
 work-lighthouse.json
 playwright-report/
 test-results/
+
+# SchoolOS V5 incident/private disaster recovery: NEVER commit retained image or key material.
+SchoolOS-V5-Recovery-*/
+schoolos-v5-private-recovery/
+*.docker-save.tar
+*.oci-archive.tar
+*.image-archive.tar
+*.image-archive.tar.gz
+*.dpapi
+*.dump
+*schoolos*v5*recovery*.zip
+*schoolos*v5*incident*raw*
