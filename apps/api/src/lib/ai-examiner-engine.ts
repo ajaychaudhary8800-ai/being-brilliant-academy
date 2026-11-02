@@ -314,6 +314,41 @@ export function aiExaminerProviderMode() {
   return /\/responses\/?(?:\?|$)/i.test(env.AI_EXAMINER_PROVIDER_URL) ? "RESPONSES" as const : "CHAT_COMPLETIONS" as const;
 }
 
+export const AI_EXAMINER_PROVIDER_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Providers may return unbounded or malformed bodies (including sensitive
+ * student content in error responses). Never retain their error body, and
+ * bound successful JSON before reading it into memory.
+ */
+export async function readAIExaminerProviderBody(response: Response): Promise<string> {
+  const claimedLength = response.headers.get("content-length");
+  if (claimedLength !== null && Number.isFinite(Number(claimedLength))
+    && Number(claimedLength) > AI_EXAMINER_PROVIDER_MAX_RESPONSE_BYTES) {
+    throw new AIExaminerProviderError("AI_EXAMINER_PROVIDER_RESPONSE_TOO_LARGE", "AI provider response exceeded allowed size");
+  }
+
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > AI_EXAMINER_PROVIDER_MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new AIExaminerProviderError("AI_EXAMINER_PROVIDER_RESPONSE_TOO_LARGE", "AI provider response exceeded allowed size");
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks, bytes).toString("utf8");
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function evaluateWithAIProvider(input: AIExaminerProviderInput): Promise<AIExaminerProviderResult> {
   if (!env.AI_EXAMINER_PROVIDER_URL || !env.AI_EXAMINER_API_KEY || !env.AI_EXAMINER_MODEL) {
     throw new AIExaminerProviderError("AI_EXAMINER_PROVIDER_NOT_CONFIGURED", "AI provider is not configured");
@@ -375,11 +410,14 @@ export async function evaluateWithAIProvider(input: AIExaminerProviderInput): Pr
       },
       body: JSON.stringify(body),
       signal: controller.signal,
+      redirect: "error",
     });
-    const raw = await response.text();
+    // Provider 4xx/5xx bodies are untrusted and may echo student documents,
+    // authentication credentials or upstream traces. Never log or persist them.
     if (!response.ok) {
-      throw new AIExaminerProviderError("AI_EXAMINER_PROVIDER_ERROR", `AI provider returned HTTP ${response.status}: ${raw.slice(0, 1000)}`);
+      throw new AIExaminerProviderError("AI_EXAMINER_PROVIDER_ERROR", `AI provider returned HTTP ${response.status}`);
     }
+    const raw = await readAIExaminerProviderBody(response);
     let json: unknown;
     try { json = JSON.parse(raw); }
     catch { throw new AIExaminerProviderError("AI_EXAMINER_PROVIDER_INVALID_RESPONSE", "AI provider returned a non-JSON transport response"); }
@@ -389,8 +427,9 @@ export async function evaluateWithAIProvider(input: AIExaminerProviderInput): Pr
     if (error instanceof Error && error.name === "AbortError") {
       throw new AIExaminerProviderError("AI_EXAMINER_PROVIDER_TIMEOUT", "AI evaluation timed out");
     }
-    throw new AIExaminerProviderError("AI_EXAMINER_PROVIDER_UNAVAILABLE", error instanceof Error ? error.message : "AI provider request failed");
+    throw new AIExaminerProviderError("AI_EXAMINER_PROVIDER_UNAVAILABLE", "AI provider request failed");
   } finally {
     clearTimeout(timeout);
+    controller.abort();
   }
 }
