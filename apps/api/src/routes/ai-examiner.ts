@@ -1349,13 +1349,17 @@ router.post("/examinations/:examinationId/exam-profile", async (req: AuthRequest
 });
 
 router.get("/examinations", async (req: AuthRequest, res) => {
-  const teacher = req.auth!.role === Role.TEACHER ? await prisma.teacherProfile.findFirst({ where: { organizationId: req.auth!.organizationId, userId: req.auth!.userId }, select: { id: true } }) : null;
+  const isTeacher = req.auth!.role === Role.TEACHER;
+  const teacher = isTeacher ? await prisma.teacherProfile.findFirst({ where: { organizationId: req.auth!.organizationId, userId: req.auth!.userId, user: { isActive: true } }, select: { id: true } }) : null;
+  // A TEACHER without a same-tenant active TeacherProfile must NEVER fall
+  // through to the unfiltered institution-wide examination list.
+  if (isTeacher && !teacher) return res.json({ data: [] });
   const branchIds = req.auth!.role === Role.BRANCH_ADMIN ? (await prisma.branchUser.findMany({ where: { organizationId: req.auth!.organizationId, userId: req.auth!.userId }, select: { branchId: true } })).map(row => row.branchId) : null;
   const rows = await prisma.examination.findMany({
     where: {
       organizationId: req.auth!.organizationId,
       status: { not: ExaminationStatus.ARCHIVED },
-      ...(teacher ? { teacherId: teacher.id } : {}),
+      ...(isTeacher ? { teacherId: teacher!.id } : {}),
       ...(branchIds ? { branchId: { in: branchIds } } : {}),
     },
     select: {
