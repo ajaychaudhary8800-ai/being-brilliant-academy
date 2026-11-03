@@ -200,6 +200,20 @@ class V5CleanLayerPayloadTests(unittest.TestCase):
         self.assertNotIn("FICTIONAL", output)
         self.assertIn("DEPENDENCY_REVIEW_PENDING", output)
 
+    def test_sanitized_dependency_location_and_filetype_never_leak_raw_paths(self):
+        locations = (
+            ("workspace/node_modules/.pnpm/dotenv@16.6.1/node_modules/dotenv/README.md", "WORKSPACE_ROOT_MODULES", "README"),
+            ("workspace/apps/api/node_modules/dotenv/README.md", "API_WORKSPACE_MODULES", "README"),
+            ("workspace/apps/web/node_modules/dotenv/README.md", "WEB_WORKSPACE_MODULES", "README"),
+            ("app/node_modules/dotenv/README.md", "APP_RUNTIME_MODULES", "README"),
+            ("workspace/x/node_modules/dotenv/deep/private.pem", "OTHER_DEPENDENCY_LOCATION", "OTHER_FILE"),
+        )
+        for filename, location, filetype in locations:
+            self.assertEqual(AUDIT.sanitized_dependency_location(filename), location)
+            self.assertEqual(AUDIT.sanitized_dependency_filetype(filename), filetype)
+            self.assertNotIn("dotenv", location + filetype)
+            self.assertNotIn("private.pem", location + filetype)
+
     def test_strict_promotion_mode_rejects_unreviewed_dependency_pem(self):
         fake_stdin = SimpleNamespace(
             buffer=archive_for(

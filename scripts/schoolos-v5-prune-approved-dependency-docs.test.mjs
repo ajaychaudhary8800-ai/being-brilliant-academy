@@ -5,7 +5,8 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, symlin
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  APPROVED_RELATIVE_PATH, APPROVED_README_SHA256, PINNED_DOTENV_VERSION,
+  APPROVED_RELATIVE_PATH, APPROVED_README_SHA256,
+  APPROVED_RELATIVE_PATH_ES, APPROVED_README_ES_SHA256, PINNED_DOTENV_VERSION,
   pruneApprovedDocumentation, main,
 } from "./schoolos-v5-prune-approved-dependency-docs.mjs";
 
@@ -31,6 +32,43 @@ test("exactly matching disposable document is removed before runtime package cop
     const r = pruneApprovedDocumentation({ root, expectedDigest: hash(fake) });
     assert.equal(r.status, "PASS_PINNED_DOCUMENTATION_REMOVED");
     assert.equal(existsSync(filename), false);
+  });
+});
+
+test("Spanish README candidate has independently pinned full-document SHA and path", () => {
+  assert.equal(APPROVED_RELATIVE_PATH_ES,
+    "node_modules/.pnpm/dotenv@16.6.1/node_modules/dotenv/README-es.md");
+  assert.equal(APPROVED_README_ES_SHA256,
+    "a7021cf039feb04752c5cde82f07336dec6e17876e88677d7c5de4c2dbbbcff1");
+});
+
+test("exact-hash Spanish public documentation can be removed without touching English", () => {
+  withFixture((root, english) => {
+    const spanish = join(root, APPROVED_RELATIVE_PATH_ES);
+    const upstreamExample = 'Documentacion publica con sintesis de clave de muestra';
+    writeFileSync(english, "English public text remains");
+    writeFileSync(spanish, upstreamExample);
+    const result = pruneApprovedDocumentation({
+      root,
+      relativePath: APPROVED_RELATIVE_PATH_ES,
+      expectedDigest: hash(upstreamExample),
+    });
+    assert.equal(result.status, "PASS_PINNED_DOCUMENTATION_REMOVED");
+    assert.equal(existsSync(spanish), false);
+    assert.equal(readFileSync(english, "utf8"), "English public text remains");
+  });
+});
+
+test("modified Spanish README is refused and retained", () => {
+  withFixture((root, english) => {
+    const spanish = join(root, APPROVED_RELATIVE_PATH_ES);
+    writeFileSync(spanish, "SYNTHETIC-DO-NOT-DELETE-PRIVATE-KEY");
+    const result = pruneApprovedDocumentation({
+      root, relativePath: APPROVED_RELATIVE_PATH_ES,
+      expectedDigest: APPROVED_README_ES_SHA256,
+    });
+    assert.equal(result.status, "HOLD_UNKNOWN_DEPENDENCY_CONTENT");
+    assert.equal(readFileSync(spanish, "utf8"), "SYNTHETIC-DO-NOT-DELETE-PRIVATE-KEY");
   });
 });
 

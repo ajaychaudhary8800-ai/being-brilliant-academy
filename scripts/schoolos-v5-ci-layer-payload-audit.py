@@ -140,6 +140,29 @@ def dependency_package_token(name: str) -> str:
     return "PKG-" + hashlib.sha256(package.encode("ascii")).hexdigest()[:16].upper()
 
 
+def sanitized_dependency_location(name: str) -> str:
+    """Bounded location class: no file names, full paths or credential text."""
+    parts = normalize(name).split("/")
+    if parts[:3] == ["workspace", "apps", "api"] and "node_modules" in parts[3:]:
+        return "API_WORKSPACE_MODULES"
+    if parts[:3] == ["workspace", "apps", "web"] and "node_modules" in parts[3:]:
+        return "WEB_WORKSPACE_MODULES"
+    if parts[:2] == ["workspace", "node_modules"]:
+        return "WORKSPACE_ROOT_MODULES"
+    if len(parts) > 1 and parts[0] == "app" and "node_modules" in parts:
+        return "APP_RUNTIME_MODULES"
+    return "OTHER_DEPENDENCY_LOCATION"
+
+
+def sanitized_dependency_filetype(name: str) -> str:
+    basename = normalize(name).split("/")[-1].lower()
+    if basename == "readme.md":
+        return "README"
+    if basename in ("changelog.md", "license", "license.md"):
+        return "PUBLISHED_DOC"
+    return "OTHER_FILE"
+
+
 def inspect_regular_file(member, stream, checks, member_path):
     if member.size < 0 or checks["bytes"] + member.size > MAX_SCAN_BYTES:
         raise LayerAuditFailure("SCAN_BYTE_LIMIT_EXCEEDED")
@@ -172,6 +195,8 @@ def inspect_regular_file(member, stream, checks, member_path):
                     checks["dependency_pem_files"] += 1
                     checks["dependency_pem_unique_paths"].add(normalize(member_path))
                     checks["dependency_pem_package_tokens"].add(dependency_package_token(member_path))
+                    checks["dependency_pem_location_classes"].add(sanitized_dependency_location(member_path))
+                    checks["dependency_pem_filetype_classes"].add(sanitized_dependency_filetype(member_path))
                     if dependency_fixture_path_candidate(member_path):
                         checks["dependency_pem_fixture_path_candidates"] += 1
                     else:
@@ -246,6 +271,8 @@ def audit_layers(source) -> dict:
         "dependency_pem_files": 0,
         "dependency_pem_unique_paths": set(),
         "dependency_pem_package_tokens": set(),
+        "dependency_pem_location_classes": set(),
+        "dependency_pem_filetype_classes": set(),
         "dependency_pem_fixture_path_candidates": 0,
         "dependency_pem_nonfixture_path_candidates": 0,
     }
@@ -308,6 +335,14 @@ def main() -> int:
         print("V5_DEPENDENCY_PEM_PACKAGE_TOKENS=" + (
             ",".join(sorted(counts["dependency_pem_package_tokens"]))
             if counts["dependency_pem_package_tokens"] else "NONE"
+        ))
+        print("V5_DEPENDENCY_PEM_LOCATION_CLASSES=" + (
+            ",".join(sorted(counts["dependency_pem_location_classes"]))
+            if counts["dependency_pem_location_classes"] else "NONE"
+        ))
+        print("V5_DEPENDENCY_PEM_FILETYPE_CLASSES=" + (
+            ",".join(sorted(counts["dependency_pem_filetype_classes"]))
+            if counts["dependency_pem_filetype_classes"] else "NONE"
         ))
         print("V5_DEPENDENCY_PEM_FIXTURE_PATH_CANDIDATES=" + str(
             counts["dependency_pem_fixture_path_candidates"]
