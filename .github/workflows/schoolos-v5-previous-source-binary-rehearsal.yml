@@ -135,3 +135,19 @@ jobs:
           echo "V5_PREVIOUS_PRIVATE_RETRIEVAL=NOT_TESTED"
           echo "V5_PREVIOUS_DATABASE_COMPATIBILITY=NOT_VERIFIED"
           echo "V5_DEPLOYMENT_AND_ROTATION=HOLD"
+      - name: Build current V5 API for synthetic previous-version compatibility rehearsal
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          docker build --pull=false --file controls/apps/api/Dockerfile \
+            --build-arg "SCHOOLOS_BUILD_REVISION=$EXPECTED_CONTROLS_SHA" \
+            --tag schoolos-candidate-api:ci controls
+          echo "V5_CURRENT_API_REBUILT_FOR_PRIOR_BOOT=PASS_EPHEMERAL"
+      - name: Boot prior V5 API on synthetic current schema and boot current again
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          bash -n controls/scripts/schoolos-v5-ci-prior-api-synthetic-schema-boot.sh
+          bash controls/scripts/schoolos-v5-ci-prior-api-synthetic-schema-boot.sh
