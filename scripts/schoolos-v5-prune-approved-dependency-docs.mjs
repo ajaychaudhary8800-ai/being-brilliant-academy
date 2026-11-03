@@ -13,7 +13,7 @@
  * Does not edit app source/config, credential files or actual key material.
  */
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, unlinkSync, existsSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -37,6 +37,19 @@ export function pruneApprovedDocumentation({
   const target = resolve(canonicalRoot, relativePath);
   if (!target.startsWith(canonicalRoot + sep)) {
     return { status: "HOLD_OUTSIDE_ROOT" };
+  }
+  // Failure classes are deliberately boolean-only. Never echo the document,
+  // its location, its digest or contents (the README may contain PEM examples).
+  if (!existsSync(target)) {
+    const virtualStore = resolve(canonicalRoot, "node_modules/.pnpm");
+    const exactPackage = resolve(virtualStore, "dotenv@16.6.1/node_modules/dotenv");
+    let packageInstalled = false;
+    try {
+      packageInstalled = lstatSync(exactPackage).isDirectory();
+    } catch { /* no package at expected pinned location */ }
+    return { status: packageInstalled
+      ? "HOLD_PINNED_PACKAGE_DOCUMENT_MISSING"
+      : "HOLD_PINNED_PACKAGE_NOT_AT_EXPECTED_LOCATION" };
   }
   try {
     const stat = lstatSync(target);
