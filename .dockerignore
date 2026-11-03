@@ -12,3 +12,18 @@ node_modules
 storage
 backups
 *.log
+
+# V5 incident response: exclude private checkpoints and archived Docker images.
+# These can exist in an operator checkout even when ignored by Git.
+**/SchoolOS-V5-Recovery-*/
+**/schoolos-v5-private-recovery/
+**/*.dpapi
+**/*.dump
+**/*.docker-save.tar
+**/*.oci-archive.tar
+**/*.image-archive.tar
+**/*.image-archive.tar.gz
+**/schoolos*v5*recovery*.zip
+**/schoolos*v5*incident*raw*
+**/.env
+**/.env.*
