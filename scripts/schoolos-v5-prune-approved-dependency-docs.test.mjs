@@ -56,7 +56,7 @@ test("different versions, arbitrary paths and missing targets cannot be auto-cle
       root, relativePath: "../outside/secret", expectedDigest: hash("fictional-content"),
     }).status, "HOLD_BAD_POLICY");
     rmSync(filename);
-    assert.equal(pruneApprovedDocumentation({ root }).status, "HOLD_DOCUMENT_NOT_VERIFIED");
+    assert.equal(pruneApprovedDocumentation({ root }).status, "HOLD_PINNED_PACKAGE_DOCUMENT_MISSING");
   });
 });
 
