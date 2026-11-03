@@ -22,6 +22,10 @@ export const APPROVED_README_SHA256 =
   "d445595efbfa0e290e495cbef75379e5cb16d881489d4873ecb0d0bd2e56227a";
 export const APPROVED_RELATIVE_PATH =
   "node_modules/.pnpm/dotenv@16.6.1/node_modules/dotenv/README.md";
+export const APPROVED_README_ES_SHA256 =
+  "a7021cf039feb04752c5cde82f07336dec6e17876e88677d7c5de4c2dbbbcff1";
+export const APPROVED_RELATIVE_PATH_ES =
+  "node_modules/.pnpm/dotenv@16.6.1/node_modules/dotenv/README-es.md";
 
 export function pruneApprovedDocumentation({
   root,
@@ -29,7 +33,7 @@ export function pruneApprovedDocumentation({
   expectedDigest = APPROVED_README_SHA256,
 } = {}) {
   if (typeof root !== "string" || !root.length ||
-      relativePath !== APPROVED_RELATIVE_PATH ||
+      ![APPROVED_RELATIVE_PATH, APPROVED_RELATIVE_PATH_ES].includes(relativePath) ||
       !/^[0-9a-f]{64}$/.test(expectedDigest)) {
     return { status: "HOLD_BAD_POLICY" };
   }
@@ -80,11 +84,24 @@ export function main(argv = process.argv.slice(2)) {
     console.log("V5_DEPENDENCY_DOCUMENT_PRUNE=HOLD_CONTEXT");
     return 2;
   }
-  const result = pruneApprovedDocumentation({ root: "/workspace" });
-  console.log("V5_DEPENDENCY_DOCUMENT_PRUNE=" + result.status);
+  // Both docs ship harmless example PEM headers in public npm dotenv v16.6.1.
+  // Pin the complete exact bytes of each separately; never delete arbitrary
+  // other dependency files, alternate versions or modified documentation.
+  const english = pruneApprovedDocumentation({ root: "/workspace" });
+  const spanish = pruneApprovedDocumentation({
+    root: "/workspace",
+    relativePath: APPROVED_RELATIVE_PATH_ES,
+    expectedDigest: APPROVED_README_ES_SHA256,
+  });
+  const cleared = english.status === "PASS_PINNED_DOCUMENTATION_REMOVED" &&
+    spanish.status === "PASS_PINNED_DOCUMENTATION_REMOVED";
+  console.log("V5_DEPENDENCY_DOCUMENT_PRUNE_EN=" + english.status);
+  console.log("V5_DEPENDENCY_DOCUMENT_PRUNE_ES=" + spanish.status);
+  console.log("V5_DEPENDENCY_DOCUMENT_PRUNE=" +
+    (cleared ? "PASS_BOTH_PINNED_PUBLIC_DOCS_REMOVED" : "HOLD_DOCUMENT_NOT_VERIFIED"));
   console.log("REAL_CREDENTIALS_TOUCHED=NO");
   console.log("SOURCE_TO_OCI_SIGNED_PROVENANCE=NOT_ATTESTED");
-  return result.status === "PASS_PINNED_DOCUMENTATION_REMOVED" ? 0 : 2;
+  return cleared ? 0 : 2;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
