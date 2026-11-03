@@ -171,8 +171,18 @@ def main() -> int:
         print("STAGING_PRODUCTION_CHANGED=NO")
         print("COMMERCIAL_GO=HOLD")
         return 0
-    except (LayerAuditFailure, tarfile.TarError, OSError, ValueError):
+    except LayerAuditFailure as exc:
+        # All raised LayerAuditFailure messages are hard-coded public enums.
+        # Never propagate untrusted TAR names, file content or image metadata.
         print("V5_LAYER_AUDIT=CHECK_REQUIRED")
+        print("V5_LAYER_AUDIT_FAILURE_CODE=" + str(exc))
+        print("IMAGE_NAMES_PATHS_SECRET_VALUES_PRINTED=NO")
+        print("STAGING_PRODUCTION_CHANGED=NO")
+        print("COMMERCIAL_GO=HOLD")
+        return 2
+    except (tarfile.TarError, OSError, ValueError):
+        print("V5_LAYER_AUDIT=CHECK_REQUIRED")
+        print("V5_LAYER_AUDIT_FAILURE_CODE=UNREADABLE_IMAGE_TAR")
         print("IMAGE_NAMES_PATHS_SECRET_VALUES_PRINTED=NO")
         print("STAGING_PRODUCTION_CHANGED=NO")
         print("COMMERCIAL_GO=HOLD")
