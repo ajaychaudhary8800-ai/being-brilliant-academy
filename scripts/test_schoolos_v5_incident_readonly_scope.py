@@ -27,6 +27,42 @@ class StagingIncidentScopeTests(TestCase):
         )
         self.assertEqual(SCOPE.runtime_excess(env, "api"), [])
 
+    def test_exact_nonempty_runtime_assignment_ignores_empty_and_embedded_names(self):
+        env = [
+            "JWT_ACCESS_SECRET=",
+            "PAYMENT_CREDENTIAL_ENCRYPTION_KEY=synthetic-present",
+            "OTHER=example text JWT_REFRESH_SECRET=synthetic-not-an-assignment",
+            "TWILIO_AUTH_TOKEN=",
+            "AI_API_KEY=synthetic-present",
+        ]
+        self.assertEqual(SCOPE.runtime_excess(env, "web"), [
+            "PAYMENT_CREDENTIAL_ENCRYPTION_KEY", "AI_API_KEY",
+        ])
+        self.assertEqual(SCOPE.runtime_excess(env, "api"), [])
+        self.assertEqual(SCOPE.nonempty_exact_env_names([
+            "POSTGRES_PASSWORD=", "REDIS_PASSWORD=synthetic", "N=POSTGRES_PASSWORD=other"
+        ], ("POSTGRES_PASSWORD", "REDIS_PASSWORD")), ["REDIS_PASSWORD"])
+
+    def test_empty_image_env_not_mislabelled_as_populated_secret(self):
+        config = {"Config": {
+            "Env": ["POSTGRES_PASSWORD=", "REDIS_PASSWORD=synthetic-ci-value",
+                    "SAFE=secret DATABASE_URL=synthetic-in-another-value"],
+            "Labels": {"demo": "POSTGRES_PASSWORD=not-real-runtime-evidence"}
+        }}
+        history = ["RUN |57 POSTGRES_PASSWORD=synthetic historical text", 
+                   "RUN echo DATABASE_URL=template"]
+        result = SCOPE.image_evidence(config, history)
+        self.assertEqual(result["config_env_nonempty"], ["REDIS_PASSWORD"])
+        self.assertEqual(result["history_key_references"],
+            ["DATABASE_URL", "POSTGRES_PASSWORD"])
+        self.assertEqual(result["label_key_references"], ["POSTGRES_PASSWORD"])
+        self.assertNotIn("synthetic-ci-value", repr(result))
+
+    def test_invalid_env_structure_fail_closed_without_exposing_value(self):
+        for bad in [["JWT_ACCESS_SECRET"], [None], ["=synthetic-value"]]:
+            with self.assertRaises(SCOPE.ScopeFailure):
+                SCOPE.nonempty_exact_env_names(bad, SCOPE.API_ONLY)
+
     def test_postgres_redis_expected_runtime_variables_not_reported(self):
         env = [
             "POSTGRES_PASSWORD=synthetic-db",
