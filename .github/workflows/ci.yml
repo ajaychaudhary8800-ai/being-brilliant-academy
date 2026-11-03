@@ -195,6 +195,18 @@ jobs:
           docker build --pull=false --tag v5-backup-restore-ci:ephemeral \
             --file infra/backup/Dockerfile infra/backup
           bash scripts/schoolos-v5-backup-synthetic-e2e.sh
+      - name: Classify remaining dependency PEM by ephemeral image role without emitting paths
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          for item in             api=bba-api:local             web=bba-web:local             backup=v5-backup-restore-ci:ephemeral
+          do
+            role="${item%%=*}"
+            image="${item#*=}"
+            case "$role" in api|web|backup) ;; *) exit 2;; esac
+            echo "V5_DEPENDENCY_PEM_IMAGE_ROLE=$role"
+            docker save "$image" | python3 scripts/schoolos-v5-ci-layer-payload-audit.py --docker-save-stdin               | grep -E '^V5_(DEPENDENCY_PEM_|LAYER_AUDIT=|LAYER_PUBLISH_GATE=)'
+          done
       - name: Block image publication on any dependency PEM while stream-auditing every image layer
         timeout-minutes: 15
         run: |
