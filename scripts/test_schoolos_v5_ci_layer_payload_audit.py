@@ -172,8 +172,8 @@ class V5CleanLayerPayloadTests(unittest.TestCase):
             isatty=lambda: False,
         )
         with patch.object(AUDIT.sys, "argv", ["audit", "--docker-save-stdin",
-                                              "--require-no-dependency-pem"]), \\
-             patch.object(AUDIT.sys, "stdin", fake_stdin), \\
+                                              "--require-no-dependency-pem"]), \
+             patch.object(AUDIT.sys, "stdin", fake_stdin), \
              contextlib.redirect_stdout(io.StringIO()) as captured:
             exit_code = AUDIT.main()
         output = captured.getvalue()
@@ -186,8 +186,8 @@ class V5CleanLayerPayloadTests(unittest.TestCase):
     def test_strict_promotion_mode_accepts_only_no_pem_bounded_scan(self):
         fake_stdin = SimpleNamespace(buffer=archive_for(), isatty=lambda: False)
         with patch.object(AUDIT.sys, "argv", ["audit", "--docker-save-stdin",
-                                              "--require-no-dependency-pem"]), \\
-             patch.object(AUDIT.sys, "stdin", fake_stdin), \\
+                                              "--require-no-dependency-pem"]), \
+             patch.object(AUDIT.sys, "stdin", fake_stdin), \
              contextlib.redirect_stdout(io.StringIO()) as captured:
             exit_code = AUDIT.main()
         self.assertEqual(exit_code, 0)
@@ -202,8 +202,8 @@ class V5CleanLayerPayloadTests(unittest.TestCase):
             ),
             isatty=lambda: False,
         )
-        with patch.object(AUDIT.sys, "argv", ["audit", "--docker-save-stdin"]), \\
-             patch.object(AUDIT.sys, "stdin", fake_stdin), \\
+        with patch.object(AUDIT.sys, "argv", ["audit", "--docker-save-stdin"]), \
+             patch.object(AUDIT.sys, "stdin", fake_stdin), \
              contextlib.redirect_stdout(io.StringIO()) as captured:
             exit_code = AUDIT.main()
         self.assertEqual(exit_code, 0)
