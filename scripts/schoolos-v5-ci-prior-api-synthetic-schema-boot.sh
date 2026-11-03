@@ -3,6 +3,8 @@ set -euo pipefail
 # EXACT OLD-SOURCE API BINARY: CURRENT->PRIOR->CURRENT schema-boot rehearsal.
 # Only disposable CI Postgres, isolated network and synthetic data.
 # Container overlay writes are ephemeral and removed by cleanup; no host mounts.
+# Keep Docker default CAP_CHOWN: root entrypoint must chown /data/storage
+# before dropping privileges to the unprivileged application user.
 # No deploy, secret retrieval, provider call, image publication or registry push.
 if [[ "${GITHUB_ACTIONS:-}" != "true" || -z "${GITHUB_RUN_ID:-}" ]]; then
   echo "V5_PRIOR_SCHEMA_BOOT=CI_ONLY"
@@ -54,7 +56,7 @@ start_api() {
   local source="$1"
   docker run -d --rm --pull=never --name "$api" --network "$net" \
     --network-alias api --memory 2300m --pids-limit 1024 \
-    --cap-drop ALL --security-opt no-new-privileges \
+    --security-opt no-new-privileges \
     --tmpfs /data/storage:rw,nosuid,nodev,size=128m \
     --tmpfs /tmp:rw,nosuid,nodev,size=128m \
     -e NODE_ENV=test -e PORT=4000 \
