@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+"""V5 candidate CI image-layer bounded safety scan.
+
+Consumes the complete Docker-save TAR from stdin without creating a local
+archive, extracting a layer to disk, or printing image/secret paths or content.
+Checks EVERY regular-file payload for specific disposable CI-only credential
+canaries; checks all layers for private recovery/credential file paths; checks
+app-owned files for embedded private-key PEM headers. Checks deleted layers too.
+
+This is not general secret detection, signed provenance, registry attestation,
+or proof that an unrelated old deployed image/archive is clean.
+"""
+from __future__ import annotations
+import hashlib
+import io
+import json
+import posixpath
+import re
+import sys
+import tarfile
+
+MAX_OUTER_MEMBERS = 2500
+MAX_LAYERS = 750
+MAX_LAYER_FILES = 900_000
+MAX_SCAN_BYTES = 12 * 1024 ** 3
+CHUNK = 96 * 1024
+
+# Disposable values used only by isolated CI; these are not production secrets.
+SYNTHETIC_MARKERS = (
+    b"ci-access-secret-at-least-thirty-two-characters",
+    b"ci-refresh-secret-at-least-thirty-two-characters",
+    b"ci-postgres-password",
+    b"ci-redis-password",
+    b"synthetic_ci_credential_only",
+)
+
+PRIVATE_KEY_HEADERS = (
+    b"-----BEGIN PRIVATE KEY-----",
+    b"-----BEGIN OPENSSH PRIVATE KEY-----",
+    b"-----BEGIN RSA PRIVATE KEY-----",
+    b"-----BEGIN EC PRIVATE KEY-----",
+)
+
+PRIVATE_SUFFIXES = (
+    ".dpapi",
+    ".dump",
+    ".docker-save.tar",
+    ".oci-archive.tar",
+    ".image-archive.tar",
+    ".image-archive.tar.gz",
+)
+ROOTS = ("workspace", "app", "data", "root", "home", "run")
+
+
+class LayerAuditFailure(Exception):
+    pass
+
+
+def normalize(name: str) -> str:
+    if not isinstance(name, str) or "\x00" in name or "\\" in name:
+        raise LayerAuditFailure("INVALID_MEMBER_PATH")
+    if name.startswith("/"):
+        raise LayerAuditFailure("ABSOLUTE_LAYER_PATH")
+    while name.startswith("./"):
+        name = name[2:]
+    if any(part == ".." for part in name.split("/")):
+        raise LayerAuditFailure("TRAVERSAL_LAYER_PATH")
+    return posixpath.normpath(name)
+
+
+def forbidden_path(name: str) -> bool:
+    path = normalize(name)
+    parts = path.split("/")
+    basename = parts[-1].lower()
+    if any(p.lower().startswith("schoolos-v5-recovery-") for p in parts):
+        return True
+    if "schoolos-v5-private-recovery" in [p.lower() for p in parts]:
+        return True
+    if any(basename.endswith(suffix) for suffix in PRIVATE_SUFFIXES):
+        return True
+    if len(parts) >= 2 and parts[0] == "run" and parts[1] == "secrets":
+        return True
+    # Only app/operator user paths. Avoid interpreting base-image OS settings
+    # or bundled system CA certs as a user-provided app secret.
+    if parts[0] in ROOTS:
+        if basename == ".env" or basename.startswith(".env."):
+            return True
+        if basename in ("id_rsa", "id_ed25519", "credentials.json"):
+            return True
+        if len(parts) >= 2 and parts[0] == "root" and parts[1] == ".aws":
+            return True
+    return False
+
+
+def app_owned_path(name: str) -> bool:
+    parts = normalize(name).split("/")
+    return bool(parts and parts[0] in ROOTS)
+
+
+# Directory names are only a screening hint, not verified public test fixtures.
+# Package integrity, upstream provenance and key ownership still require review.
+TEST_FIXTURE_COMPONENTS = frozenset((
+    "test", "tests", "__tests__", "fixture", "fixtures", "__fixtures__",
+    "testdata", "test-data", "test-fixtures", "test_fixtures", "samples",
+))
+
+
+def dependency_fixture_path_candidate(name: str) -> bool:
+    components = normalize(name).lower().split("/")
+    if "node_modules" not in components:
+        return False
+    # Scoped to file paths *inside* installed dependency trees only.
+    last_modules = len(components) - 1 - components[::-1].index("node_modules")
+    return any(part in TEST_FIXTURE_COMPONENTS for part in components[last_modules + 1:])
+
+
+
+def dependency_package_token(name: str) -> str:
+    """Stable pseudonymous package label; never expose member paths or keys.
+
+    Uses the innermost node_modules package. The token contains no private
+    path, package name, file basename, or PEM value. Unknown shapes are HOLD.
+    """
+    parts = normalize(name).split("/")
+    indexes = [i for i, part in enumerate(parts) if part == "node_modules"]
+    if not indexes:
+        return "PKG-UNKNOWN"
+    i = indexes[-1] + 1
+    if i >= len(parts):
+        return "PKG-UNKNOWN"
+    first = parts[i]
+    if first.startswith("@"):
+        if i + 1 >= len(parts):
+            return "PKG-UNKNOWN"
+        package = first + "/" + parts[i + 1]
+    else:
+        package = first
+    if not re.fullmatch(r"(?:@[A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]+", package):
+        return "PKG-UNKNOWN"
+    return "PKG-" + hashlib.sha256(package.encode("ascii")).hexdigest()[:16].upper()
+
+
+def sanitized_dependency_location(name: str) -> str:
+    """Bounded location class: no file names, full paths or credential text."""
+    parts = normalize(name).split("/")
+    if parts[:3] == ["workspace", "apps", "api"] and "node_modules" in parts[3:]:
+        return "API_WORKSPACE_MODULES"
+    if parts[:3] == ["workspace", "apps", "web"] and "node_modules" in parts[3:]:
+        return "WEB_WORKSPACE_MODULES"
+    if parts[:2] == ["workspace", "node_modules"]:
+        return "WORKSPACE_ROOT_MODULES"
+    if len(parts) > 1 and parts[0] == "app" and "node_modules" in parts:
+        return "APP_RUNTIME_MODULES"
+    return "OTHER_DEPENDENCY_LOCATION"
+
+
+def sanitized_dependency_filetype(name: str) -> str:
+    basename = normalize(name).split("/")[-1].lower()
+    if basename == "readme.md":
+        return "README"
+    if basename in ("changelog.md", "license", "license.md"):
+        return "PUBLISHED_DOC"
+    return "OTHER_FILE"
+
+
+def inspect_regular_file(member, stream, checks, member_path):
+    if member.size < 0 or checks["bytes"] + member.size > MAX_SCAN_BYTES:
+        raise LayerAuditFailure("SCAN_BYTE_LIMIT_EXCEEDED")
+    fileobj = stream.extractfile(member)
+    if fileobj is None:
+        raise LayerAuditFailure("LAYER_FILE_UNREADABLE")
+    overlap = max(
+        len(m) for m in (*SYNTHETIC_MARKERS, *PRIVATE_KEY_HEADERS)
+    ) - 1
+    tail = b""
+    remaining = member.size
+    dependency_pem_seen = False
+    while remaining:
+        block = fileobj.read(min(CHUNK, remaining))
+        if not block:
+            raise LayerAuditFailure("TRUNCATED_IMAGE_LAYER")
+        remaining -= len(block)
+        checks["bytes"] += len(block)
+        window = tail + block
+        if any(marker in window for marker in SYNTHETIC_MARKERS):
+            raise LayerAuditFailure("CI_CREDENTIAL_CANARY_EMBEDDED")
+        if app_owned_path(member_path) and any(
+            h in window for h in PRIVATE_KEY_HEADERS
+        ):
+            # Third-party packages sometimes ship public test-key fixtures.
+            # Never equate their headers with a confirmed real credential.
+            # Retain an explicit review-required finding, not false clearance.
+            if "node_modules" in normalize(member_path).split("/"):
+                if not dependency_pem_seen:
+                    checks["dependency_pem_files"] += 1
+                    checks["dependency_pem_unique_paths"].add(normalize(member_path))
+                    checks["dependency_pem_package_tokens"].add(dependency_package_token(member_path))
+                    checks["dependency_pem_location_classes"].add(sanitized_dependency_location(member_path))
+                    checks["dependency_pem_filetype_classes"].add(sanitized_dependency_filetype(member_path))
+                    if dependency_fixture_path_candidate(member_path):
+                        checks["dependency_pem_fixture_path_candidates"] += 1
+                    else:
+                        checks["dependency_pem_nonfixture_path_candidates"] += 1
+                    dependency_pem_seen = True
+            else:
+                raise LayerAuditFailure("APP_SOURCE_PEM_HEADER_FOUND")
+        tail = window[-overlap:]
+
+
+class ReattachedPrefix:
+    """Re-expose a small inspected header without buffering a whole blob."""
+    def __init__(self, prefix, source):
+        self.prefix = io.BytesIO(prefix)
+        self.source = source
+
+    def read(self, count=-1):
+        if count is None or count < 0:
+            return self.prefix.read() + self.source.read()
+        if count == 0:
+            return b""
+        first = self.prefix.read(count)
+        if len(first) == count:
+            return first
+        return first + self.source.read(count - len(first))
+
+
+OCI_BLOB = re.compile(r"blobs/sha256/[a-f0-9]{64}\Z")
+
+
+def layer_input(archive, member, name, checks):
+    """Return a stream only for actual tar layers, not OCI JSON descriptors."""
+    if not member.isfile():
+        return None
+    source = archive.extractfile(member)
+    if source is None:
+        raise LayerAuditFailure("ARCHIVE_BLOB_UNREADABLE")
+    if name.endswith("/layer.tar"):
+        return source
+    if not OCI_BLOB.fullmatch(name):
+        return None
+    prefix = source.read(min(512, member.size))
+    stripped = prefix.lstrip()
+    if stripped.startswith((b"{", b"[")):
+        if member.size > 8 * 1024 * 1024:
+            raise LayerAuditFailure("OCI_JSON_METADATA_OVERSIZED")
+        # Validate descriptor/config JSON; never print their contents.
+        raw = prefix + source.read()
+        try:
+            json.loads(raw)
+        except (ValueError, UnicodeError):
+            raise LayerAuditFailure("OCI_JSON_METADATA_MALFORMED")
+        checks["oci_json_metadata_blobs"] += 1
+        return None
+    magic = prefix[:6]
+    supported = (
+        prefix[257:262] == b"ustar"
+        or prefix.startswith(b"\x1f\x8b")
+        or prefix.startswith(b"BZh")
+        or prefix.startswith(b"\xfd7zXZ")
+    )
+    if not supported:
+        raise LayerAuditFailure("UNSUPPORTED_OCI_LAYER_FORMAT")
+    checks["oci_layer_blobs"] += 1
+    return ReattachedPrefix(prefix, source)
+
+
+def audit_layers(source) -> dict:
+    checks = {
+        "layers": 0, "files": 0, "bytes": 0,
+        "oci_json_metadata_blobs": 0, "oci_layer_blobs": 0,
+        "dependency_pem_files": 0,
+        "dependency_pem_unique_paths": set(),
+        "dependency_pem_package_tokens": set(),
+        "dependency_pem_location_classes": set(),
+        "dependency_pem_filetype_classes": set(),
+        "dependency_pem_fixture_path_candidates": 0,
+        "dependency_pem_nonfixture_path_candidates": 0,
+    }
+    outer_count = 0
+    with tarfile.open(fileobj=source, mode="r|*") as archive:
+        for member in archive:
+            outer_count += 1
+            if outer_count > MAX_OUTER_MEMBERS:
+                raise LayerAuditFailure("IMAGE_ARCHIVE_MEMBER_LIMIT_EXCEEDED")
+            name = normalize(member.name)
+            if not name.endswith("/layer.tar") and not OCI_BLOB.fullmatch(name):
+                continue
+            layer = layer_input(archive, member, name, checks)
+            if layer is None:
+                continue
+            checks["layers"] += 1
+            if checks["layers"] > MAX_LAYERS:
+                raise LayerAuditFailure("IMAGE_LAYER_COUNT_LIMIT_EXCEEDED")
+            # Docker-save and OCI/Containerd manifests may use different
+            # layouts: inspect each actual uncompressed or gzip/xz/bz2 TAR.
+            with tarfile.open(fileobj=layer, mode="r|*") as contents:
+                for entry in contents:
+                    checks["files"] += 1
+                    if checks["files"] > MAX_LAYER_FILES:
+                        raise LayerAuditFailure("LAYER_FILE_COUNT_LIMIT_EXCEEDED")
+                    entry_name = normalize(entry.name)
+                    if forbidden_path(entry_name):
+                        raise LayerAuditFailure("PRIVATE_FILE_IN_IMAGE_LAYER")
+                    if entry.isfile():
+                        inspect_regular_file(
+                            entry, contents, checks,
+                            entry_name,
+                        )
+    if checks["layers"] < 1 or checks["files"] < 1:
+        raise LayerAuditFailure("NO_IMAGE_LAYERS_SCANNED")
+    return checks
+
+
+def main() -> int:
+    options = sys.argv[1:]
+    if options not in (["--docker-save-stdin"],
+                       ["--docker-save-stdin", "--require-no-dependency-pem"]) or sys.stdin.isatty():
+        print("V5_CLEAN_LAYER_AUDIT=CHECK_REQUIRED_INPUT")
+        return 2
+    try:
+        counts = audit_layers(sys.stdin.buffer)
+        print("V5_IMAGE_LAYER_ARCHIVES_SCANNED=" + str(counts["layers"]))
+        print("V5_IMAGE_LAYER_ENTRIES_CHECKED=" + str(counts["files"]))
+        print("V5_IMAGE_LAYER_BYTES_SCANNED=" + str(counts["bytes"]))
+        print("V5_OCI_LAYER_BLOBS_SCANNED=" + str(counts["oci_layer_blobs"]))
+        print("V5_OCI_JSON_METADATA_BLOBS_VALIDATED=" + str(
+            counts["oci_json_metadata_blobs"]
+        ))
+        print("V5_DEPENDENCY_PEM_FILES_REQUIRE_REVIEW=" + str(
+            counts["dependency_pem_files"]
+        ))
+        print("V5_DEPENDENCY_PEM_DISTINCT_PATHS=" + str(
+            len(counts["dependency_pem_unique_paths"])
+        ))
+        print("V5_DEPENDENCY_PEM_PACKAGE_TOKENS=" + (
+            ",".join(sorted(counts["dependency_pem_package_tokens"]))
+            if counts["dependency_pem_package_tokens"] else "NONE"
+        ))
+        print("V5_DEPENDENCY_PEM_LOCATION_CLASSES=" + (
+            ",".join(sorted(counts["dependency_pem_location_classes"]))
+            if counts["dependency_pem_location_classes"] else "NONE"
+        ))
+        print("V5_DEPENDENCY_PEM_FILETYPE_CLASSES=" + (
+            ",".join(sorted(counts["dependency_pem_filetype_classes"]))
+            if counts["dependency_pem_filetype_classes"] else "NONE"
+        ))
+        print("V5_DEPENDENCY_PEM_FIXTURE_PATH_CANDIDATES=" + str(
+            counts["dependency_pem_fixture_path_candidates"]
+        ))
+        print("V5_DEPENDENCY_PEM_NONFIXTURE_PATH_CANDIDATES=" + str(
+            counts["dependency_pem_nonfixture_path_candidates"]
+        ))
+        print("V5_DEPENDENCY_PEM_REVIEW=PATH_CLASSIFICATION_ONLY_NOT_CLEARED")
+        print("V5_CI_CANARY_VALUES_FOUND=NO")
+        print("V5_PRIVATE_FILES_IN_LAYERS=NO")
+        strict = "--require-no-dependency-pem" in options
+        if strict and counts["dependency_pem_files"]:
+            print("V5_LAYER_AUDIT=BLOCKED_DEPENDENCY_PEM_UNREVIEWED")
+            print("V5_LAYER_PUBLISH_GATE=FAIL_CLOSED")
+            print("SOURCE_TO_OCI_SIGNED_PROVENANCE=NOT_ATTESTED")
+            print("STAGING_PRODUCTION_CHANGED=NO")
+            print("COMMERCIAL_GO=HOLD")
+            return 2
+        print("V5_LAYER_AUDIT=" + (
+            "PASS_BOUNDED_PATTERNS_WITH_DEPENDENCY_REVIEW_PENDING"
+            if counts["dependency_pem_files"]
+            else "PASS_BOUNDED_PATTERNS_ONLY"
+        ))
+        print("V5_LAYER_PUBLISH_GATE=" + (
+            "PASS_BOUNDED_CHECKS_NOT_SIGNED_PROVENANCE" if strict
+            else "NOT_EXECUTED_OBSERVATIONAL_MODE"
+        ))
+        print("UNRELATED_SECRET_PATTERNS_OR_OLD_IMAGES_CLEARED=NO")
+        print("SOURCE_TO_OCI_SIGNED_PROVENANCE=NOT_ATTESTED")
+        print("STAGING_PRODUCTION_CHANGED=NO")
+        print("COMMERCIAL_GO=HOLD")
+        return 0
+    except LayerAuditFailure as exc:
+        # All raised LayerAuditFailure messages are hard-coded public enums.
+        # Never propagate untrusted TAR names, file content or image metadata.
+        print("V5_LAYER_AUDIT=CHECK_REQUIRED")
+        print("V5_LAYER_AUDIT_FAILURE_CODE=" + str(exc))
+        print("IMAGE_NAMES_PATHS_SECRET_VALUES_PRINTED=NO")
+        print("STAGING_PRODUCTION_CHANGED=NO")
+        print("COMMERCIAL_GO=HOLD")
+        return 2
+    except (tarfile.TarError, OSError, ValueError):
+        print("V5_LAYER_AUDIT=CHECK_REQUIRED")
+        print("V5_LAYER_AUDIT_FAILURE_CODE=UNREADABLE_IMAGE_TAR")
+        print("IMAGE_NAMES_PATHS_SECRET_VALUES_PRINTED=NO")
+        print("STAGING_PRODUCTION_CHANGED=NO")
+        print("COMMERCIAL_GO=HOLD")
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

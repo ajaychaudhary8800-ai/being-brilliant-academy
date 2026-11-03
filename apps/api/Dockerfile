@@ -6,6 +6,11 @@ WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json apps/api/package.json
 RUN --mount=type=cache,id=pnpm-api,target=/pnpm/store pnpm install --frozen-lockfile --prod=false --filter @bba/api...
+# Fail closed unless the installed dotenv v16.6.1 README exactly matches the
+# independently reviewed upstream placeholder-only document. Remove before
+# copying dependencies to the final runtime image (not in a later OCI layer).
+COPY scripts/schoolos-v5-prune-approved-dependency-docs.mjs /usr/local/lib/schoolos-v5-prune-approved-docs.mjs
+RUN node /usr/local/lib/schoolos-v5-prune-approved-docs.mjs
 COPY apps/api apps/api
 RUN pnpm --filter @bba/api prisma:generate
 RUN pnpm --filter @bba/api exec tsc -p tsconfig.json --noCheck

@@ -33,6 +33,26 @@ jobs:
       NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: "${{ github.event.pull_request.head.sha || github.sha }}"
+          persist-credentials: false
+      - name: Assert exact immutable V5 source SHA before tests or builds
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$EXPECTED_SOURCE_SHA" ]; then
+            echo "V5_CI_EXACT_SOURCE_CHECKOUT=FAIL"
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "V5_CI_SOURCE_WORKTREE=DIRTY"
+            exit 1
+          fi
+          echo "V5_CI_EXACT_SOURCE_CHECKOUT=PASS"
+          echo "V5_CI_SOURCE_WORKTREE=CLEAN"
       - uses: pnpm/action-setup@v4
         with: { version: 9.15.0 }
       - uses: actions/setup-node@v4
@@ -66,6 +86,8 @@ jobs:
         run: node --test scripts/schoolos-v5-backup-restore-hardening.test.mjs
       - name: Test V5-only Growth approved ratebook check and strict staging guard
         run: node --test apps/api/scripts/schoolos-v5-growth-price-policy.test.mjs
+      - name: Verify source-pinned upstream placeholder documentation deletion policy (synthetic only)
+        run: node --test scripts/schoolos-v5-prune-approved-dependency-docs.test.mjs
       - name: Validate V5 read-only monitor and isolated restore utility safety
         run: python3 -m unittest discover -s scripts -p 'test_schoolos_v5_*.py'
       - name: Test isolated Vault GCM and plaintext-hash verification with synthetic data
@@ -123,6 +145,26 @@ jobs:
       GRAFANA_ADMIN_PASSWORD: ci-grafana-password
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: "${{ github.event.pull_request.head.sha || github.sha }}"
+          persist-credentials: false
+      - name: Assert exact immutable V5 source SHA before tests or builds
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$EXPECTED_SOURCE_SHA" ]; then
+            echo "V5_CI_EXACT_SOURCE_CHECKOUT=FAIL"
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "V5_CI_SOURCE_WORKTREE=DIRTY"
+            exit 1
+          fi
+          echo "V5_CI_EXACT_SOURCE_CHECKOUT=PASS"
+          echo "V5_CI_SOURCE_WORKTREE=CLEAN"
       - uses: docker/setup-buildx-action@v3
       - run: docker compose config --quiet
       - name: Validate Coolify pre-deploy pull semantics
@@ -153,6 +195,24 @@ jobs:
           docker build --pull=false --tag v5-backup-restore-ci:ephemeral \
             --file infra/backup/Dockerfile infra/backup
           bash scripts/schoolos-v5-backup-synthetic-e2e.sh
+      - name: Classify remaining dependency PEM by ephemeral image role without emitting paths
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          for item in             api=bba-api:local             web=bba-web:local             backup=v5-backup-restore-ci:ephemeral
+          do
+            role="${item%%=*}"
+            image="${item#*=}"
+            case "$role" in api|web|backup) ;; *) exit 2;; esac
+            echo "V5_DEPENDENCY_PEM_IMAGE_ROLE=$role"
+            docker save "$image" | python3 scripts/schoolos-v5-ci-layer-payload-audit.py --docker-save-stdin               | grep -E '^V5_(DEPENDENCY_PEM_|LAYER_AUDIT=|LAYER_PUBLISH_GATE=)'
+          done
+      - name: Block image publication on any dependency PEM while stream-auditing every image layer
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          docker save bba-api:local bba-web:local v5-backup-restore-ci:ephemeral \
+            | python3 scripts/schoolos-v5-ci-layer-payload-audit.py --docker-save-stdin --require-no-dependency-pem
       - name: Prove isolated Vault and media metadata subset excludes other customer tables
         env:
           BBA_SYNTHETIC_BUILD: "true"
