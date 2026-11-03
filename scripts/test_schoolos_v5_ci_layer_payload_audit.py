@@ -114,11 +114,20 @@ class V5CleanLayerPayloadTests(unittest.TestCase):
 
     def test_app_private_key_header_is_rejected(self):
         with self.assertRaisesRegex(
-            AUDIT.LayerAuditFailure, "APP_PRIVATE_KEY_HEADER_EMBEDDED"
+            AUDIT.LayerAuditFailure, "APP_SOURCE_PEM_HEADER_FOUND"
         ):
             AUDIT.audit_layers(archive_for(
                 "workspace/config/owner-key.dat",
                 b"-----BEGIN OPENSSH PRIVATE KEY-----\nFICTIONAL",
+            ))
+
+    def test_dependency_fixture_pem_is_classified_without_path(self):
+        with self.assertRaisesRegex(
+            AUDIT.LayerAuditFailure, "NPM_DEPENDENCY_PEM_HEADER_FOUND"
+        ):
+            AUDIT.audit_layers(archive_for(
+                "workspace/node_modules/safe-test-fixture/file",
+                b"-----BEGIN PRIVATE KEY-----\\nFICTIONAL",
             ))
 
     def test_reject_empty_outer_tar_and_directory_traversal(self):
