@@ -6,6 +6,7 @@ import {
   aiExaminerConfidenceNeedsReview,
   aiExaminerLifecycleBlocker,
   assertAIExaminerEvaluationReady,
+  assertAIExaminerEvidenceMutable,
   assertAIExaminerReviewable,
   assertAIExaminerRubricActivatable,
 } from "./ai-examiner-policy.js";
@@ -80,4 +81,11 @@ test("AI Examiner review is limited to completed AI suggestions", () => {
   assert.doesNotThrow(() => assertAIExaminerReviewable(AIExaminerEvaluationStatus.REVIEW_REQUIRED));
   assert.doesNotThrow(() => assertAIExaminerReviewable(AIExaminerEvaluationStatus.APPROVED));
   expectCode(() => assertAIExaminerReviewable(AIExaminerEvaluationStatus.PROCESSING), "AI_EXAMINER_REVIEW_UNAVAILABLE");
+});
+
+test("AI Examiner oral/practical evidence is immutable after finalized grading", () => {
+  assert.doesNotThrow(() => assertAIExaminerEvidenceMutable(null));
+  expectCode(() => assertAIExaminerEvidenceMutable(new Date("2026-10-31T10:00:00.000Z")), "AI_EXAMINER_EVIDENCE_FINALIZED");
+  // No persisted finalizedAt field must never silently mean the sheet is mutable.
+  expectCode(() => assertAIExaminerEvidenceMutable(undefined as unknown as Date | null), "AI_EXAMINER_EVIDENCE_FINALIZED");
 });

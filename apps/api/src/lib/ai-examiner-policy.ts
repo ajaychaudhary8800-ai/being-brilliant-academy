@@ -54,3 +54,22 @@ export function assertAIExaminerReviewable(status: AIExaminerEvaluationStatus) {
 export function aiExaminerConfidenceNeedsReview(confidence: number | null | undefined, threshold = 0.75) {
   return confidence == null || confidence < threshold;
 }
+
+/**
+ * Oral/practical evidence is part of the signed academic decision record.
+ * Once a sheet is finalized, review status and attachments must be preserved;
+ * further corrections belong to the explicit regrade/revision workflow.
+ *
+ * Call inside a transaction that has locked ExaminationAnswerSheet FOR UPDATE:
+ * a separate read is not a concurrency-safe finalization guard.
+ */
+export function assertAIExaminerEvidenceMutable(finalizedAt: Date | null) {
+  // Fail closed if the caller failed to fetch the persisted field.
+  if (finalizedAt !== null) {
+    throw new AppError(
+      409,
+      "AI_EXAMINER_EVIDENCE_FINALIZED",
+      "Finalized answer-sheet evidence cannot be added or re-reviewed; use the formal regrade workflow",
+    );
+  }
+}
