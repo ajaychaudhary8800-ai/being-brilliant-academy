@@ -48,3 +48,44 @@ test("invalid retry limits are rejected before any database changes", async () =
   );
   assert.equal(calls, 0);
 });
+
+const rawConflict = (code: string) => Object.assign(new Error("Raw query failed"), {
+  code: "P2010", meta: { code, message: "non-sensitive PostgreSQL error" },
+});
+
+test("raw-query PostgreSQL 40001 serialization conflicts are retried safely", async () => {
+  let calls = 0;
+  const result = await retrySerializableWrite(async () => {
+    calls++;
+    if (calls === 1) throw rawConflict("40001");
+    return { appointed: true };
+  });
+  assert.equal(calls, 2);
+  assert.deepEqual(result, { appointed: true });
+});
+
+test("raw-query PostgreSQL 40P01 deadlock conflicts fail closed after bounded retries", async () => {
+  let calls = 0;
+  await assert.rejects(
+    () => retrySerializableWrite(async () => { calls++; throw rawConflict("40P01"); }, {
+      attempts: 2, conflictCode: "BRANCH_MANAGER_APPOINTMENT_CONFLICT",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "BRANCH_MANAGER_APPOINTMENT_CONFLICT");
+      return true;
+    },
+  );
+  assert.equal(calls, 2);
+});
+
+test("non-serialization raw SQL errors are not retried", async () => {
+  let calls = 0;
+  const badSql = rawConflict("42P01");
+  await assert.rejects(
+    () => retrySerializableWrite(async () => { calls++; throw badSql; }),
+    error => error === badSql,
+  );
+  assert.equal(calls, 1);
+});
