@@ -78,6 +78,8 @@ jobs:
         run: pnpm v5:release:check
       - name: Validate SchoolOS V5 private-demo safety and CRM routing
         run: node --test scripts/schoolos-v5-commercial-site.test.mjs
+      - name: Verify sanitized V5 browser failure classification (offline, no staging)
+        run: node --test scripts/schoolos-v5-public-browser-navigation-diagnostics.test.mjs
       - name: Validate Playwright suite discovery
         run: pnpm exec playwright test --list
       - run: pnpm --filter @bba/api prisma:generate
