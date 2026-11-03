@@ -96,6 +96,23 @@ def app_owned_path(name: str) -> bool:
     return bool(parts and parts[0] in ROOTS)
 
 
+# Directory names are only a screening hint, not verified public test fixtures.
+# Package integrity, upstream provenance and key ownership still require review.
+TEST_FIXTURE_COMPONENTS = frozenset((
+    "test", "tests", "__tests__", "fixture", "fixtures", "__fixtures__",
+    "testdata", "test-data", "test-fixtures", "test_fixtures", "samples",
+))
+
+
+def dependency_fixture_path_candidate(name: str) -> bool:
+    components = normalize(name).lower().split("/")
+    if "node_modules" not in components:
+        return False
+    # Scoped to file paths *inside* installed dependency trees only.
+    last_modules = len(components) - 1 - components[::-1].index("node_modules")
+    return any(part in TEST_FIXTURE_COMPONENTS for part in components[last_modules + 1:])
+
+
 def inspect_regular_file(member, stream, checks, member_path):
     if member.size < 0 or checks["bytes"] + member.size > MAX_SCAN_BYTES:
         raise LayerAuditFailure("SCAN_BYTE_LIMIT_EXCEEDED")
@@ -126,6 +143,11 @@ def inspect_regular_file(member, stream, checks, member_path):
             if "node_modules" in normalize(member_path).split("/"):
                 if not dependency_pem_seen:
                     checks["dependency_pem_files"] += 1
+                    checks["dependency_pem_unique_paths"].add(normalize(member_path))
+                    if dependency_fixture_path_candidate(member_path):
+                        checks["dependency_pem_fixture_path_candidates"] += 1
+                    else:
+                        checks["dependency_pem_nonfixture_path_candidates"] += 1
                     dependency_pem_seen = True
             else:
                 raise LayerAuditFailure("APP_SOURCE_PEM_HEADER_FOUND")
@@ -194,6 +216,9 @@ def audit_layers(source) -> dict:
         "layers": 0, "files": 0, "bytes": 0,
         "oci_json_metadata_blobs": 0, "oci_layer_blobs": 0,
         "dependency_pem_files": 0,
+        "dependency_pem_unique_paths": set(),
+        "dependency_pem_fixture_path_candidates": 0,
+        "dependency_pem_nonfixture_path_candidates": 0,
     }
     outer_count = 0
     with tarfile.open(fileobj=source, mode="r|*") as archive:
@@ -246,6 +271,16 @@ def main() -> int:
         print("V5_DEPENDENCY_PEM_FILES_REQUIRE_REVIEW=" + str(
             counts["dependency_pem_files"]
         ))
+        print("V5_DEPENDENCY_PEM_DISTINCT_PATHS=" + str(
+            len(counts["dependency_pem_unique_paths"])
+        ))
+        print("V5_DEPENDENCY_PEM_FIXTURE_PATH_CANDIDATES=" + str(
+            counts["dependency_pem_fixture_path_candidates"]
+        ))
+        print("V5_DEPENDENCY_PEM_NONFIXTURE_PATH_CANDIDATES=" + str(
+            counts["dependency_pem_nonfixture_path_candidates"]
+        ))
+        print("V5_DEPENDENCY_PEM_REVIEW=PATH_CLASSIFICATION_ONLY_NOT_CLEARED")
         print("V5_CI_CANARY_VALUES_FOUND=NO")
         print("V5_PRIVATE_FILES_IN_LAYERS=NO")
         print("V5_LAYER_AUDIT=" + (
