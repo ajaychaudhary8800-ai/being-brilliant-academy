@@ -256,7 +256,9 @@ def audit_layers(source) -> dict:
 
 
 def main() -> int:
-    if sys.argv[1:] != ["--docker-save-stdin"] or sys.stdin.isatty():
+    options = sys.argv[1:]
+    if options not in (["--docker-save-stdin"],
+                       ["--docker-save-stdin", "--require-no-dependency-pem"]) or sys.stdin.isatty():
         print("V5_CLEAN_LAYER_AUDIT=CHECK_REQUIRED_INPUT")
         return 2
     try:
@@ -283,10 +285,22 @@ def main() -> int:
         print("V5_DEPENDENCY_PEM_REVIEW=PATH_CLASSIFICATION_ONLY_NOT_CLEARED")
         print("V5_CI_CANARY_VALUES_FOUND=NO")
         print("V5_PRIVATE_FILES_IN_LAYERS=NO")
+        strict = "--require-no-dependency-pem" in options
+        if strict and counts["dependency_pem_files"]:
+            print("V5_LAYER_AUDIT=BLOCKED_DEPENDENCY_PEM_UNREVIEWED")
+            print("V5_LAYER_PUBLISH_GATE=FAIL_CLOSED")
+            print("SOURCE_TO_OCI_SIGNED_PROVENANCE=NOT_ATTESTED")
+            print("STAGING_PRODUCTION_CHANGED=NO")
+            print("COMMERCIAL_GO=HOLD")
+            return 2
         print("V5_LAYER_AUDIT=" + (
             "PASS_BOUNDED_PATTERNS_WITH_DEPENDENCY_REVIEW_PENDING"
             if counts["dependency_pem_files"]
             else "PASS_BOUNDED_PATTERNS_ONLY"
+        ))
+        print("V5_LAYER_PUBLISH_GATE=" + (
+            "PASS_BOUNDED_CHECKS_NOT_SIGNED_PROVENANCE" if strict
+            else "NOT_EXECUTED_OBSERVATIONAL_MODE"
         ))
         print("UNRELATED_SECRET_PATTERNS_OR_OLD_IMAGES_CLEARED=NO")
         print("SOURCE_TO_OCI_SIGNED_PROVENANCE=NOT_ATTESTED")
