@@ -153,6 +153,12 @@ jobs:
           docker build --pull=false --tag v5-backup-restore-ci:ephemeral \
             --file infra/backup/Dockerfile infra/backup
           bash scripts/schoolos-v5-backup-synthetic-e2e.sh
+      - name: Stream-audit every API Web and backup Docker layer for private files and CI markers
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          docker save bba-api:local bba-web:local v5-backup-restore-ci:ephemeral \
+            | python3 scripts/schoolos-v5-ci-layer-payload-audit.py --docker-save-stdin
       - name: Prove isolated Vault and media metadata subset excludes other customer tables
         env:
           BBA_SYNTHETIC_BUILD: "true"
