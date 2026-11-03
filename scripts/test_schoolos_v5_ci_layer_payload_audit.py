@@ -163,6 +163,43 @@ class V5CleanLayerPayloadTests(unittest.TestCase):
         self.assertEqual(len(result["dependency_pem_unique_paths"]), 1)
         self.assertEqual(result["dependency_pem_fixture_path_candidates"], 2)
 
+    def test_dependency_package_token_is_stable_redacted_and_name_safe(self):
+        pkg = AUDIT.dependency_package_token(
+            "workspace/node_modules/.pnpm/some+pkg@1.0.0/node_modules/@public/safe-example/dist/key.pem"
+        )
+        duplicate = AUDIT.dependency_package_token(
+            "workspace/apps/api/node_modules/@public/safe-example/test/cert.js"
+        )
+        self.assertEqual(pkg, duplicate)
+        self.assertRegex(pkg, r"^PKG-[0-9A-F]{16}$")
+        self.assertNotIn("safe-example", pkg)
+        self.assertNotIn("key.pem", pkg)
+        self.assertNotIn("/workspace", pkg)
+        self.assertEqual(AUDIT.dependency_package_token(
+            "workspace/node_modules/@private"
+        ), "PKG-UNKNOWN")
+        self.assertEqual(AUDIT.dependency_package_token(
+            "workspace/node_modules/unsafe\r\nLEAK/dist/key.js"
+        ), "PKG-UNKNOWN")
+
+    def test_dependency_pem_report_contains_only_package_token_not_path(self):
+        hidden_path = "workspace/node_modules/fictional-package/dist/customer-private-key.pem"
+        fake_stdin = SimpleNamespace(
+            buffer=archive_for(hidden_path, b"-----BEGIN PRIVATE KEY-----\\nFICTIONAL"),
+            isatty=lambda: False,
+        )
+        with patch.object(AUDIT.sys, "argv", ["audit", "--docker-save-stdin"]), \
+             patch.object(AUDIT.sys, "stdin", fake_stdin), \
+             contextlib.redirect_stdout(io.StringIO()) as captured:
+            exit_code = AUDIT.main()
+        output = captured.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertRegex(output, r"V5_DEPENDENCY_PEM_PACKAGE_TOKENS=PKG-[0-9A-F]{16}")
+        self.assertNotIn(hidden_path, output)
+        self.assertNotIn("fictional-package", output)
+        self.assertNotIn("FICTIONAL", output)
+        self.assertIn("DEPENDENCY_REVIEW_PENDING", output)
+
     def test_strict_promotion_mode_rejects_unreviewed_dependency_pem(self):
         fake_stdin = SimpleNamespace(
             buffer=archive_for(
