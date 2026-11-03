@@ -96,7 +96,7 @@ def app_owned_path(name: str) -> bool:
     return bool(parts and parts[0] in ROOTS)
 
 
-def inspect_regular_file(member, stream, checks, app_owned):
+def inspect_regular_file(member, stream, checks, member_path):
     if member.size < 0 or checks["bytes"] + member.size > MAX_SCAN_BYTES:
         raise LayerAuditFailure("SCAN_BYTE_LIMIT_EXCEEDED")
     fileobj = stream.extractfile(member)
@@ -116,8 +116,16 @@ def inspect_regular_file(member, stream, checks, app_owned):
         window = tail + block
         if any(marker in window for marker in SYNTHETIC_MARKERS):
             raise LayerAuditFailure("CI_CREDENTIAL_CANARY_EMBEDDED")
-        if app_owned and any(h in window for h in PRIVATE_KEY_HEADERS):
-            raise LayerAuditFailure("APP_PRIVATE_KEY_HEADER_EMBEDDED")
+        if app_owned_path(member_path) and any(
+            h in window for h in PRIVATE_KEY_HEADERS
+        ):
+            # Coarse CI-only classification, never expose paths or key content.
+            group = (
+                "NPM_DEPENDENCY"
+                if "node_modules" in normalize(member_path).split("/")
+                else "APP_SOURCE"
+            )
+            raise LayerAuditFailure(group + "_PEM_HEADER_FOUND")
         tail = window[-overlap:]
 
 
@@ -211,7 +219,7 @@ def audit_layers(source) -> dict:
                     if entry.isfile():
                         inspect_regular_file(
                             entry, contents, checks,
-                            app_owned_path(entry_name),
+                            entry_name,
                         )
     if checks["layers"] < 1 or checks["files"] < 1:
         raise LayerAuditFailure("NO_IMAGE_LAYERS_SCANNED")
