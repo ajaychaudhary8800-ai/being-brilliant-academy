@@ -90,3 +90,48 @@ jobs:
           echo "V5_PREVIOUS_ARTIFACT_PUBLICATION=NEVER"
           echo "V5_STAGING_PRODUCTION_CHANGED=NO"
           echo "V5_ROTATION_AND_DEPLOYMENT_AUTHORIZATION=HOLD"
+      - name: Rebuild derived prior API with only hash-verified public dependency documentation omitted
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          [ "$(git -C previous hash-object apps/api/Dockerfile)" = "58c374752a88aa6e0aeae068ec6cbcdd1e147f98" ]
+          [ "$(git -C controls hash-object scripts/schoolos-v5-prune-approved-dependency-docs.mjs)" = "ba3041ce4bf89c548f154db15af71d87bbb195a6" ]
+          python3 - <<'PY'
+          from pathlib import Path
+          original = Path("previous/apps/api/Dockerfile").read_text()
+          anchor = "RUN --mount=type=cache,id=pnpm-api,target=/pnpm/store pnpm install --frozen-lockfile --prod=false --filter @bba/api...\n"
+          if original.count(anchor) != 1:
+              raise SystemExit("V5_PREVIOUS_BUILD_RECIPE=HOLD_UNRECOGNIZED")
+          constrained = (
+              "RUN --mount=type=bind,from=controls,source=scripts/schoolos-v5-prune-approved-dependency-docs.mjs,"
+              "target=/tmp/verified-docs-only.mjs,ro node /tmp/verified-docs-only.mjs\n"
+          )
+          # Only this build-stage recipe is derived. The previous committed
+          # source and lockfile remain unchanged, and no image is published.
+          Path("previous/recovery-docs-only.Dockerfile").write_text(
+              original.replace(anchor, anchor + constrained)
+          )
+          PY
+          docker build --pull=false \
+            --build-context controls=controls \
+            --file previous/recovery-docs-only.Dockerfile \
+            --build-arg "SCHOOLOS_BUILD_REVISION=$PREVIOUS_SOURCE_SHA" \
+            --tag schoolos-previous-api-docs-reviewed:ci previous
+          echo "V5_PRIOR_DERIVED_BUILD_RECIPE=PINNED_PUBLIC_DOCS_ONLY"
+          echo "V5_PRIOR_SOURCE_AND_RECIPE_EQUIVALENCE=REVIEW_REQUIRED"
+      - name: Strictly audit derived prior API and prior Web images in-memory before any publication
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          node controls/scripts/schoolos-v5-image-secret-metadata-audit.mjs \
+            schoolos-previous-api-docs-reviewed:ci schoolos-previous-web:ci
+          docker save schoolos-previous-api-docs-reviewed:ci schoolos-previous-web:ci \
+            | python3 controls/scripts/schoolos-v5-ci-layer-payload-audit.py \
+                --docker-save-stdin --require-no-dependency-pem
+          echo "V5_PREVIOUS_DERIVED_LAYER_POLICY=PASS_BOUNDED_CHECKS_ONLY"
+          echo "V5_PREVIOUS_ACTUAL_SIGNED_IMMUTABLE_BINARIES=NOT_CREATED"
+          echo "V5_PREVIOUS_PRIVATE_RETRIEVAL=NOT_TESTED"
+          echo "V5_PREVIOUS_DATABASE_COMPATIBILITY=NOT_VERIFIED"
+          echo "V5_DEPLOYMENT_AND_ROTATION=HOLD"
