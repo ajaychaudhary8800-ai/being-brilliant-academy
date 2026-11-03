@@ -141,17 +141,89 @@ if [[ ! "$count" =~ ^[0-9]+$ ]] || (( count < 114 )); then
   exit 2
 fi
 echo "V5_TWO_SOURCE_NEW_API_INITIAL_BOOT=PASS"
+
+# Insert only explicit fictional, zero-value records into the disposable CI DB.
+# This verifies tenant, branch, role and payment-ledger model readback across
+# both source revisions; it is NOT a genuine customer/merchant event.
+if ! docker exec -i "$pg" psql -v ON_ERROR_STOP=1 -q -U schoolos_ci -d schoolos_ci >/dev/null 2>&1 <<'SQL'
+INSERT INTO "Organization" ("id","slug","name","email","updatedAt")
+VALUES ('v5_ci_compat_org','v5-ci-compat-tenant','Synthetic Recovery Institute','synthetic-org@example.test',now());
+INSERT INTO "Branch" ("id","organizationId","code","name","updatedAt")
+VALUES ('v5_ci_compat_branch','v5_ci_compat_org','SYN','Synthetic Recovery Branch',now());
+INSERT INTO "User" ("id","organizationId","email","passwordHash","name","role","updatedAt")
+VALUES ('v5_ci_compat_user','v5_ci_compat_org','synthetic-user@example.test','unusable-synthetic-hash','Synthetic User','STUDENT',now());
+INSERT INTO "SaaSPlan" ("id","code","name","updatedAt")
+VALUES ('v5_ci_compat_plan','SYNTHETIC_NO_BILLING','Synthetic Plan',now());
+INSERT INTO "SaaSSubscription" ("id","organizationId","planId","updatedAt")
+VALUES ('v5_ci_compat_sub','v5_ci_compat_org','v5_ci_compat_plan',now());
+INSERT INTO "SaaSInvoice" (
+  "id","organizationId","subscriptionId","planId","invoiceNo",
+  "amountPaise","taxPaise","totalPaise","status","periodStart","periodEnd","updatedAt"
+) VALUES (
+  'v5_ci_compat_invoice','v5_ci_compat_org','v5_ci_compat_sub','v5_ci_compat_plan',
+  'SYNTHETIC-NOT-PAYABLE',0,0,0,'DRAFT',
+  '2026-01-01T00:00:00Z','2026-02-01T00:00:00Z',now()
+);
+SQL
+then
+  echo "V5_TWO_SOURCE_SYNTHETIC_LEDGER_SEED=CHECK_REQUIRED"
+  exit 2
+fi
+echo "V5_TWO_SOURCE_SYNTHETIC_LEDGER_SEED=PASS_ZERO_MONEY"
+
+# Use the generated Prisma client from the actual running API container, not
+# only direct SQL counts. Prove both old and new source versions can read the
+# same synthetic tenant/branch/student user and non-payable draft invoice.
+verify_synthetic_orm_readback() {
+  if ! docker exec -i "$api" node - >/dev/null 2>&1 <<'NODE'
+const { PrismaClient } = require("@prisma/client");
+const p = new PrismaClient({ log: [] });
+(async () => {
+  const [org, branch, user, plan, sub, invoice] = await Promise.all([
+    p.organization.findUnique({ where: { id: "v5_ci_compat_org" } }),
+    p.branch.findUnique({ where: { id: "v5_ci_compat_branch" } }),
+    p.user.findUnique({ where: { id: "v5_ci_compat_user" } }),
+    p.saaSPlan.findUnique({ where: { id: "v5_ci_compat_plan" } }),
+    p.saaSSubscription.findUnique({ where: { organizationId: "v5_ci_compat_org" } }),
+    p.saaSInvoice.findUnique({ where: { invoiceNo: "SYNTHETIC-NOT-PAYABLE" } }),
+  ]);
+  const valid =
+    org?.slug === "v5-ci-compat-tenant" &&
+    branch?.organizationId === org.id &&
+    user?.organizationId === org.id && user?.role === "STUDENT" &&
+    plan?.code === "SYNTHETIC_NO_BILLING" &&
+    sub?.organizationId === org.id && sub?.planId === plan.id &&
+    invoice?.organizationId === org.id &&
+    invoice?.subscriptionId === sub.id &&
+    invoice?.amountPaise === 0 && invoice?.totalPaise === 0 &&
+    invoice?.status === "DRAFT" && invoice?.providerOrderId === null &&
+    invoice?.paidAt === null;
+  if (!valid) process.exitCode = 2;
+})().catch(() => { process.exitCode = 2; })
+  .finally(async () => { await p.$disconnect(); });
+NODE
+  then
+    echo "V5_TWO_SOURCE_SYNTHETIC_ORM_READBACK=CHECK_REQUIRED"
+    exit 2
+  fi
+}
+verify_synthetic_orm_readback
+echo "V5_TWO_SOURCE_NEW_API_NONEMPTY_ORM_READBACK=PASS"
 stop_api
 
 start_api "$OLD_IMAGE"
 echo "V5_TWO_SOURCE_PREVIOUS_API_BACKWARD_BOOT=PASS"
+verify_synthetic_orm_readback
+echo "V5_TWO_SOURCE_PREVIOUS_API_NONEMPTY_ORM_READBACK=PASS"
 stop_api
 
 start_api "$NEW_IMAGE"
 echo "V5_TWO_SOURCE_FORWARD_API_REBOOT=PASS"
+verify_synthetic_orm_readback
+echo "V5_TWO_SOURCE_FORWARD_API_NONEMPTY_ORM_READBACK=PASS"
 stop_api
 
-echo "V5_TWO_SOURCE_BACKWARD_FORWARD_SMOKE=PASS_SYNTHETIC_EMPTY_DATABASE"
+echo "V5_TWO_SOURCE_BACKWARD_FORWARD_SMOKE=PASS_SYNTHETIC_NONEMPTY_TENANT_AND_ZERO_VALUE_LEDGER"
 echo "REAL_STAGING_DATA_AND_IMAGES_ACCESSED=NO"
 echo "REAL_DATABASE_BACKWARD_COMPATIBILITY=NOT_ATTESTED"
 echo "SIGNED_RETRIEVABLE_ROLLBACK=NOT_ATTESTED"
