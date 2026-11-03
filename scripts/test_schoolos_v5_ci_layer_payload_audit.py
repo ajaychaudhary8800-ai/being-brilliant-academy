@@ -1,6 +1,8 @@
 """Synthetic Docker-save tar/layer fixture only. No real images or credentials."""
 import importlib.util
 import io
+import gzip
+import json
 from pathlib import Path
 import tarfile
 import unittest
@@ -33,7 +35,50 @@ def archive_for(member_name="workspace/apps/web/server.js",
     output.seek(0)
     return output
 
+def oci_for(member_name="workspace/apps/web/server.js",
+            payload=b"harmless fixture", compressed=True):
+    layer = io.BytesIO()
+    with tarfile.open(fileobj=layer, mode="w") as tar:
+        item = tarfile.TarInfo(member_name)
+        item.size = len(payload)
+        tar.addfile(item, io.BytesIO(payload))
+    raw = gzip.compress(layer.getvalue()) if compressed else layer.getvalue()
+    outer = io.BytesIO()
+    with tarfile.open(fileobj=outer, mode="w") as tar:
+        for index, blob in enumerate((
+            json.dumps({"schemaVersion": 2, "config": {}}).encode(),
+            raw,
+        )):
+            info = tarfile.TarInfo("blobs/sha256/" + format(index + 1, "064x"))
+            info.size = len(blob)
+            tar.addfile(info, io.BytesIO(blob))
+        index_data = b'{"schemaVersion":2}'
+        index_info = tarfile.TarInfo("index.json")
+        index_info.size = len(index_data)
+        tar.addfile(index_info, io.BytesIO(index_data))
+    outer.seek(0)
+    return outer
+
+
 class V5CleanLayerPayloadTests(unittest.TestCase):
+    def test_scans_modern_oci_docker_save_with_compressed_layer(self):
+        r = AUDIT.audit_layers(oci_for(compressed=True))
+        self.assertEqual(r["layers"], 1)
+        self.assertEqual(r["oci_layer_blobs"], 1)
+        self.assertEqual(r["oci_json_metadata_blobs"], 1)
+        self.assertGreater(r["bytes"], 0)
+
+    def test_scans_modern_oci_docker_save_uncompressed_layer(self):
+        r = AUDIT.audit_layers(oci_for(compressed=False))
+        self.assertEqual(r["layers"], 1)
+        self.assertEqual(r["oci_layer_blobs"], 1)
+
+    def test_modern_oci_path_violation_is_rejected(self):
+        with self.assertRaisesRegex(
+            AUDIT.LayerAuditFailure, "PRIVATE_FILE_IN_IMAGE_LAYER"
+        ):
+            AUDIT.audit_layers(oci_for("app/owner-checkpoint.dump"))
+
     def test_scans_genuine_nested_docker_tar_stream(self):
         result = AUDIT.audit_layers(archive_for())
         self.assertEqual(result["layers"], 1)
