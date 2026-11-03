@@ -11,7 +11,10 @@ This is not general secret detection, signed provenance, registry attestation,
 or proof that an unrelated old deployed image/archive is clean.
 """
 from __future__ import annotations
+import io
+import json
 import posixpath
+import re
 import sys
 import tarfile
 
@@ -118,8 +121,68 @@ def inspect_regular_file(member, stream, checks, app_owned):
         tail = window[-overlap:]
 
 
+class ReattachedPrefix:
+    """Re-expose a small inspected header without buffering a whole blob."""
+    def __init__(self, prefix, source):
+        self.prefix = io.BytesIO(prefix)
+        self.source = source
+
+    def read(self, count=-1):
+        if count is None or count < 0:
+            return self.prefix.read() + self.source.read()
+        if count == 0:
+            return b""
+        first = self.prefix.read(count)
+        if len(first) == count:
+            return first
+        return first + self.source.read(count - len(first))
+
+
+OCI_BLOB = re.compile(r"blobs/sha256/[a-f0-9]{64}\Z")
+
+
+def layer_input(archive, member, name, checks):
+    """Return a stream only for actual tar layers, not OCI JSON descriptors."""
+    if not member.isfile():
+        return None
+    source = archive.extractfile(member)
+    if source is None:
+        raise LayerAuditFailure("ARCHIVE_BLOB_UNREADABLE")
+    if name.endswith("/layer.tar"):
+        return source
+    if not OCI_BLOB.fullmatch(name):
+        return None
+    prefix = source.read(min(512, member.size))
+    stripped = prefix.lstrip()
+    if stripped.startswith((b"{", b"[")):
+        if member.size > 8 * 1024 * 1024:
+            raise LayerAuditFailure("OCI_JSON_METADATA_OVERSIZED")
+        # Validate descriptor/config JSON; never print their contents.
+        raw = prefix + source.read()
+        try:
+            json.loads(raw)
+        except (ValueError, UnicodeError):
+            raise LayerAuditFailure("OCI_JSON_METADATA_MALFORMED")
+        checks["oci_json_metadata_blobs"] += 1
+        return None
+    magic = prefix[:6]
+    supported = (
+        prefix[257:262] == b"ustar"
+        or prefix.startswith(b"\x1f\x8b")
+        or prefix.startswith(b"BZh")
+        or prefix.startswith(b"\xfd7zXZ")
+    )
+    if not supported:
+        raise LayerAuditFailure("UNSUPPORTED_OCI_LAYER_FORMAT")
+    checks["oci_layer_blobs"] += 1
+    return ReattachedPrefix(prefix, source)
+
+
 def audit_layers(source) -> dict:
-    checks = {"layers": 0, "files": 0, "bytes": 0}
+    checks = {
+        "layers": 0, "files": 0, "bytes": 0,
+        "oci_json_metadata_blobs": 0, "oci_layer_blobs": 0,
+    }
     outer_count = 0
     with tarfile.open(fileobj=source, mode="r|*") as archive:
         for member in archive:
@@ -127,15 +190,16 @@ def audit_layers(source) -> dict:
             if outer_count > MAX_OUTER_MEMBERS:
                 raise LayerAuditFailure("IMAGE_ARCHIVE_MEMBER_LIMIT_EXCEEDED")
             name = normalize(member.name)
-            if not member.isfile() or not name.endswith("/layer.tar"):
+            if not name.endswith("/layer.tar") and not OCI_BLOB.fullmatch(name):
+                continue
+            layer = layer_input(archive, member, name, checks)
+            if layer is None:
                 continue
             checks["layers"] += 1
             if checks["layers"] > MAX_LAYERS:
                 raise LayerAuditFailure("IMAGE_LAYER_COUNT_LIMIT_EXCEEDED")
-            layer = archive.extractfile(member)
-            if layer is None:
-                raise LayerAuditFailure("IMAGE_LAYER_MISSING")
-            # Stream the entire nested layer. Never write user data to disk.
+            # Docker-save and OCI/Containerd manifests may use different
+            # layouts: inspect each actual uncompressed or gzip/xz/bz2 TAR.
             with tarfile.open(fileobj=layer, mode="r|*") as contents:
                 for entry in contents:
                     checks["files"] += 1
@@ -163,6 +227,10 @@ def main() -> int:
         print("V5_IMAGE_LAYER_ARCHIVES_SCANNED=" + str(counts["layers"]))
         print("V5_IMAGE_LAYER_ENTRIES_CHECKED=" + str(counts["files"]))
         print("V5_IMAGE_LAYER_BYTES_SCANNED=" + str(counts["bytes"]))
+        print("V5_OCI_LAYER_BLOBS_SCANNED=" + str(counts["oci_layer_blobs"]))
+        print("V5_OCI_JSON_METADATA_BLOBS_VALIDATED=" + str(
+            counts["oci_json_metadata_blobs"]
+        ))
         print("V5_CI_CANARY_VALUES_FOUND=NO")
         print("V5_PRIVATE_FILES_IN_LAYERS=NO")
         print("V5_LAYER_AUDIT=PASS_BOUNDED_PATTERNS_ONLY")
