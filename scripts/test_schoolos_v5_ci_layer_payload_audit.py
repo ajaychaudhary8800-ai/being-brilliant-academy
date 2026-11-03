@@ -6,6 +6,9 @@ import json
 from pathlib import Path
 import tarfile
 import unittest
+import contextlib
+from types import SimpleNamespace
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location(
     "v5_payload_audit",
@@ -159,6 +162,54 @@ class V5CleanLayerPayloadTests(unittest.TestCase):
         self.assertEqual(result["dependency_pem_files"], 2)
         self.assertEqual(len(result["dependency_pem_unique_paths"]), 1)
         self.assertEqual(result["dependency_pem_fixture_path_candidates"], 2)
+
+    def test_strict_promotion_mode_rejects_unreviewed_dependency_pem(self):
+        fake_stdin = SimpleNamespace(
+            buffer=archive_for(
+                "workspace/node_modules/package/dist/private.pem",
+                b"-----BEGIN PRIVATE KEY-----\\nFICTIONAL",
+            ),
+            isatty=lambda: False,
+        )
+        with patch.object(AUDIT.sys, "argv", ["audit", "--docker-save-stdin",
+                                              "--require-no-dependency-pem"]), \
+             patch.object(AUDIT.sys, "stdin", fake_stdin), \
+             contextlib.redirect_stdout(io.StringIO()) as captured:
+            exit_code = AUDIT.main()
+        output = captured.getvalue()
+        self.assertEqual(exit_code, 2)
+        self.assertIn("V5_LAYER_PUBLISH_GATE=FAIL_CLOSED", output)
+        self.assertIn("V5_LAYER_AUDIT=BLOCKED_DEPENDENCY_PEM_UNREVIEWED", output)
+        self.assertNotIn("private.pem", output)
+        self.assertNotIn("FICTIONAL", output)
+
+    def test_strict_promotion_mode_accepts_only_no_pem_bounded_scan(self):
+        fake_stdin = SimpleNamespace(buffer=archive_for(), isatty=lambda: False)
+        with patch.object(AUDIT.sys, "argv", ["audit", "--docker-save-stdin",
+                                              "--require-no-dependency-pem"]), \
+             patch.object(AUDIT.sys, "stdin", fake_stdin), \
+             contextlib.redirect_stdout(io.StringIO()) as captured:
+            exit_code = AUDIT.main()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("PASS_BOUNDED_CHECKS_NOT_SIGNED_PROVENANCE", captured.getvalue())
+        self.assertIn("SOURCE_TO_OCI_SIGNED_PROVENANCE=NOT_ATTESTED", captured.getvalue())
+
+    def test_observational_mode_keeps_dependency_review_pending_without_promotion(self):
+        fake_stdin = SimpleNamespace(
+            buffer=archive_for(
+                "workspace/node_modules/example/fixtures/key.pem",
+                b"-----BEGIN RSA PRIVATE KEY-----\\nFICTIONAL",
+            ),
+            isatty=lambda: False,
+        )
+        with patch.object(AUDIT.sys, "argv", ["audit", "--docker-save-stdin"]), \
+             patch.object(AUDIT.sys, "stdin", fake_stdin), \
+             contextlib.redirect_stdout(io.StringIO()) as captured:
+            exit_code = AUDIT.main()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("V5_LAYER_PUBLISH_GATE=NOT_EXECUTED_OBSERVATIONAL_MODE",
+                      captured.getvalue())
+        self.assertIn("DEPENDENCY_REVIEW_PENDING", captured.getvalue())
 
     def test_reject_empty_outer_tar_and_directory_traversal(self):
         empty = io.BytesIO()
