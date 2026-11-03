@@ -54,7 +54,7 @@ The matrix below is a **legacy packaging starting point only**, sourced from `do
 | Production settlement | Separate real-money authorization and regulatory/tax obligations | NOT AUTHORIZED |
 
 ## 5. Controlled legal-template inventory and change requests
-**Reuse, do not redraft:** [Master Agreement](legal-sales/03_SAAS_MASTER_AGREEMENT.md), [Terms/AUP](legal-sales/08_ACCEPTABLE_USE_POLICY.md), [Privacy](legal-sales/07_PRIVACY_NOTICE.md), [DPA](legal-sales/06_DATA_PROCESSING_ADDENDUM.md), [SLA](legal-sales/05_SLA_SUPPORT_POLICY.md), [cancellation/data exit](legal-sales/09_DATA_EXIT_RETENTION.md), [Quote](legal-sales/02_ORDER_FORM_QUOTATION.md), [SOW](legal-sales/04_IMPLEMENTATION_SOW.md), [Counsel approval](legal-sales/COUNSEL_APPROVAL_RECORD.md). Check the actual site Terms route and `LEGAL_PAGES_PUBLISHED` switch before marketing claims. These templates do not establish counsel approval, current GST treatment, operator capability or published effective dates.
+**Reuse, do not redraft:** [Master Agreement / public SaaS Terms source](legal-sales/03_SAAS_MASTER_AGREEMENT.md), [Acceptable Use Policy](legal-sales/08_ACCEPTABLE_USE_POLICY.md), [Privacy](legal-sales/07_PRIVACY_NOTICE.md), [DPA](legal-sales/06_DATA_PROCESSING_ADDENDUM.md), [SLA](legal-sales/05_SLA_SUPPORT_POLICY.md), [cancellation/data exit](legal-sales/09_DATA_EXIT_RETENTION.md), [Quote](legal-sales/02_ORDER_FORM_QUOTATION.md), [SOW](legal-sales/04_IMPLEMENTATION_SOW.md), [Counsel approval](legal-sales/COUNSEL_APPROVAL_RECORD.md). Check the actual site Terms route and `LEGAL_PAGES_PUBLISHED` switch before marketing claims. **Prior legal review:** [Counsel Approval Record (6 October 2026)](legal-sales/COUNSEL_APPROVAL_RECORD.md) records management confirmation that qualified Indian counsel approved the then-controlled Being Brilliant legal pack without changes (with private counsel correspondence retained by management). This is genuine existing **reported prior-approval evidence**, not an absence of counsel review. The correspondence itself has not been independently inspected here, and that approval does **not automatically cover material V5 changes** to pricing, AI/recordings, payments, privacy, support and security. Verify the original approved versions and obtain an attributable V5-delta applicability decision before external V5 execution. The site \`/terms\` route renders the controlled Master Agreement, not the AUP; \`/privacy\` renders the Privacy Notice. Both are fail-closed unless \`LEGAL_PAGES_PUBLISHED=true\` and a legal effective date are configured. No activation or site reachability was tested here. These sources do not establish current GST treatment, operator capability or published effective dates.
 
 | Legal/finance review area | Required targeted V5 determination | State |
 |---|---|---|
@@ -63,7 +63,7 @@ The matrix below is a **legacy packaging starting point only**, sourced from `do
 | C — included onboarding vs extra | Basic annual remote onboarding in legacy September pack **versus** new October add-on estimates; decide approved fair-use scope and optional SOW trigger | CONFLICT OPEN |
 | D — external 60-day pilot | Eligible modules, quotas, start trigger, refund/exit, conversion, supported collection, privacy and support | NOT APPROVED FOR OFFER |
 | E — processing/contract/finance | DPA child/guardian/recordings/AI, transfer/retention, SLA feasibility, breach/grievance contacts, settlement audit | ORIGINAL DECISION + TEST EVIDENCE PENDING |
-| Qualified review | Indian counsel/tax review where required, original decision and approved executed versions | NOT EVIDENCED |
+| Qualified review | 6 Oct reported V4/legacy counsel approval exists; verify retained private original, version match, and whether V5 material changes need renewed Indian counsel/tax assessment | PRIOR PACK OWNER-REPORTED APPROVED; V5 DELTA DISPOSITION PENDING |
 
 Do not assume a single blanket owner statement constitutes a signed original or formal legal opinion. Apply statutory requirements according to actual commencement and institutional processing role; avoid unsupported compliance badges.
 
@@ -86,3 +86,25 @@ None of the above messages should be automated or delivered without product, leg
 | Legal signoff original and qualified tax applicability pending | Madhuri / counsel where required | No unapproved contracts/site publication |
 
 **Commercial phase formal acceptance: PENDING (Gate 4, Gate 9 and related Gate 10).** This controlled reconciliation is documentation evidence only; nothing was priced, quoted, invoiced, billed, approved, migrated, or legally certified by creating it.
+
+
+## 8. V5-specific legal/privacy/contract delta review — independent source review, NOT legal signoff
+
+The [October 6 counsel approval record](legal-sales/COUNSEL_APPROVAL_RECORD.md) identifies an approved **pre-V5 controlled pack** and private management-held correspondence. The [public Terms source map](../apps/web/lib/public-legal.ts) maps `/terms` to `03_SAAS_MASTER_AGREEMENT.md`, `/privacy` to `07_PRIVACY_NOTICE.md` and `/acceptable-use` to `08_ACCEPTABLE_USE_POLICY.md`. Under `publicLegalPagesPublished()`, publication requires a true feature flag and nonblank effective date; source availability alone is not public publication. The following are **targeted material-change questions**, not claims of legal breach.
+
+| V5 feature / changed risk | Existing controlled document(s) to compare to 6 Oct approved source | Concrete question for Madhuri / counsel as applicable | Status |
+|---|---|---|---|
+| Annual V5 pricebook / Enterprise quotation | Order Form, SOW, Master Agreement | Does the old September monthly/annual language contradict the 18 Oct V5 reference, scope, student/branch quotas or tax terms? | V5 VERSION DECISION PENDING |
+| Onboarding included vs tier estimates | Order Form, SOW and legacy packaging | Which remote setup/training is included; when is a separate written priced SOW necessary; how is prior promise protected? | CONFLICT OPEN |
+| 60-day external paid pilot | Order Form, cancellation/exit, SLA, payment terms | Is the 60-day start trigger, billing path, refund, conversion, cap and exit legally and technically supported? | NO EXTERNAL PAID OFFER |
+| Child/parent/guardian data and recordings | DPA, Privacy Notice, Security Schedule, AUP | Are institution instruction, child consent, recordings retention and parent access/erasure controls precise and implemented? | V5 PRIVACY DECISION PENDING |
+| AI Examiner provider and marks | Master Agreement, DPA, Privacy/Security Schedule | Are processing, accuracy review, human override, vendor/subprocessor disclosures, retention and liability appropriately scoped? | PROVIDER/LEGAL REVIEW PENDING |
+| LiveKit video, R2 recordings and egress | Master Agreement, DPA, SOW, SLA, Security Schedule | Are recorded-session consent, access boundaries, object retention, deletion, third-party fees and paid flags reflected accurately? | PAID VIDEO OFF / REVIEW PENDING |
+| Razorpay TEST→real finance and disputes | Order Form, Master Agreement, refund/cancellation terms | Do settlement, reconciliation, tax receipt, failed refunds, dispute holds and cancellation comply with actual supported paths? | BLOCKED_BY_PHASE_3 |
+| Incident #281/#292/#293 + DR claims | Security Schedule, DPA, SLA, incident/retention policy | Does historical credential exposure require notification/disclosure? Can support/restore commitments be evidenced without false RPO/RTO guarantees? | BLOCKED_BY_PHASE_1 |
+| Multi-tenant school vs coaching and BBA related party | DPA, SOW, handover terms | Are buyer roles, tenancy, UAT witness and related-party conflict disclosure adequate for actual contracted deployment? | BLOCKED_BY_PHASE_2 |
+| Public legal publication | Site source, Privacy Notice, Master Agreement, AUP | Has approved V5 wording and effective date been recorded before enabling public pages? | SOURCE-GATE REVIEWED; PUBLICATION NOT VERIFIED |
+
+**Disposition format (protected originals, leave blank until real decision):** each item needs prior approved source SHA/file hash, V5 changed source SHA/file hash, accountable reviewer, change/no-change rationale, whether new counsel review legally/contractually required, counsel reference if reviewed, dated human acceptance and permitted confidential artifact locator. This adds no new contract clauses, counsel opinion or approval.
+
+**Critical distinction:** the prior legal pack *was reported approved* on 6 Oct; **V5 change-impact acceptance remains unverified**. No historical counsel approval should be withdrawn or silently rewritten merely because a new version is in preparation.
