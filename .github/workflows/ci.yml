@@ -86,6 +86,8 @@ jobs:
         run: node --test scripts/schoolos-v5-backup-restore-hardening.test.mjs
       - name: Test V5-only Growth approved ratebook check and strict staging guard
         run: node --test apps/api/scripts/schoolos-v5-growth-price-policy.test.mjs
+      - name: Verify source-pinned upstream placeholder documentation deletion policy (synthetic only)
+        run: node --test scripts/schoolos-v5-prune-approved-dependency-docs.test.mjs
       - name: Validate V5 read-only monitor and isolated restore utility safety
         run: python3 -m unittest discover -s scripts -p 'test_schoolos_v5_*.py'
       - name: Test isolated Vault GCM and plaintext-hash verification with synthetic data
@@ -195,12 +197,12 @@ jobs:
           docker build --pull=false --tag v5-backup-restore-ci:ephemeral \
             --file infra/backup/Dockerfile infra/backup
           bash scripts/schoolos-v5-backup-synthetic-e2e.sh
-      - name: Stream-audit every API Web and backup Docker layer for private files and CI markers
+      - name: Block image publication on dependency PEM; audit every API Web backup image layer
         timeout-minutes: 15
         run: |
           set -euo pipefail
           docker save bba-api:local bba-web:local v5-backup-restore-ci:ephemeral \
-            | python3 scripts/schoolos-v5-ci-layer-payload-audit.py --docker-save-stdin
+            | python3 scripts/schoolos-v5-ci-layer-payload-audit.py --docker-save-stdin --require-no-dependency-pem
       - name: Prove isolated Vault and media metadata subset excludes other customer tables
         env:
           BBA_SYNTHETIC_BUILD: "true"
