@@ -127,10 +127,18 @@ jobs:
       - run: docker compose config --quiet
       - name: Validate Coolify pre-deploy pull semantics
         run: docker compose pull --ignore-buildable
+      - name: Prove Docker build context excludes untracked private archives and DPAPI escrow
+        run: |
+          bash -n scripts/schoolos-v5-ci-private-build-context.sh
+          bash scripts/schoolos-v5-ci-private-build-context.sh
       - name: Validate Coolify multi-service compose build
         env:
           DOCKER_BUILDKIT: "1"
         run: docker compose build --pull api migrate web nginx backup
+      - name: Boot freshly built Web image in isolated no-network container
+        run: |
+          bash -n scripts/schoolos-v5-ci-web-isolated-smoke.sh
+          bash scripts/schoolos-v5-ci-web-isolated-smoke.sh
       - name: Veto sensitive credential names in fresh CI image history and config
         run: |
           set -euo pipefail
