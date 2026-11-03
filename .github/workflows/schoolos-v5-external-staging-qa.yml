@@ -196,23 +196,50 @@ jobs:
         run: pnpm --filter @bba/web build
       - name: Install disposable Chromium for desktop/mobile
         run: pnpm exec playwright install --with-deps chromium
-      - name: Browser acceptance with ALL CRM writes mocked (no real customer)
+      - name: Browser acceptance in both privacy modes (all CRM writes mocked)
         shell: bash
         run: |
           set -euo pipefail
-          pnpm --filter @bba/web exec next start --hostname 127.0.0.1 >/tmp/schoolos-v5-demo-local.log 2>&1 &
-          web_pid=$!
-          trap 'kill "$web_pid" 2>/dev/null || true' EXIT
-          ready=0
-          for i in $(seq 1 45); do
-            if curl --fail --silent --show-error http://127.0.0.1:3000/schoolos >/dev/null 2>&1; then ready=1; break; fi
-            sleep 2
-          done
-          if [[ "$ready" != 1 ]]; then
-            echo "::error::Local SchoolOS page failed health preparation"
-            exit 1
-          fi
-          pnpm exec playwright test e2e/schoolos-v5-private-demo-local.spec.ts --workers=1 --retries=0
+          web_pid=""
+          start_preview() {
+            local mode="$1"
+            # This date is a disposable CI fixture, NOT public legal publication.
+            (cd apps/web && LEGAL_PAGES_PUBLISHED="$mode" LEGAL_EFFECTIVE_DATE=2026-11-04 \
+              exec node ./node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3000) \
+              >/tmp/schoolos-v5-demo-local-"$mode".log 2>&1 &
+            web_pid=$!
+            local ready=0
+            for i in $(seq 1 45); do
+              if ! kill -0 "$web_pid" 2>/dev/null; then
+                echo "::error::Local SchoolOS process exited before it was ready"
+                return 1
+              fi
+              if curl --fail --silent http://127.0.0.1:3000/schoolos >/dev/null 2>&1; then
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+            if [[ "$ready" != 1 ]]; then
+              echo "::error::Local SchoolOS page failed health preparation"
+              return 1
+            fi
+          }
+          stop_preview() {
+            if [[ -n "$web_pid" ]]; then
+              kill "$web_pid" 2>/dev/null || true
+              wait "$web_pid" 2>/dev/null || true
+              web_pid=""
+            fi
+          }
+          trap stop_preview EXIT
+          start_preview false
+          pnpm exec playwright test e2e/schoolos-v5-private-demo-local.spec.ts \
+            --workers=1 --retries=0 --grep "@privacy-unpublished"
+          stop_preview
+          start_preview true
+          pnpm exec playwright test e2e/schoolos-v5-private-demo-local.spec.ts \
+            --workers=1 --retries=0 --grep-invert "@privacy-unpublished"
       - name: Preserve local UI failure-only browser evidence
         if: always()
         uses: actions/upload-artifact@v4
