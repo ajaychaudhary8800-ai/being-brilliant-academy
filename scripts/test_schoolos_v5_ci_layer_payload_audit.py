@@ -15,7 +15,7 @@ AUDIT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(AUDIT)
 
 def archive_for(member_name="workspace/apps/web/server.js",
-                payload=b"example public source", mode="regular"):
+                payload=b"example public source", mode="regular", repeat_layers=1):
     layer = io.BytesIO()
     with tarfile.open(fileobj=layer, mode="w") as tar:
         t = tarfile.TarInfo(member_name)
@@ -29,9 +29,10 @@ def archive_for(member_name="workspace/apps/web/server.js",
     nested = layer.getvalue()
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w") as tar:
-        t = tarfile.TarInfo("syntheticlayer/layer.tar")
-        t.size = len(nested)
-        tar.addfile(t, io.BytesIO(nested))
+        for index in range(repeat_layers):
+            t = tarfile.TarInfo(f"syntheticlayer{index}/layer.tar")
+            t.size = len(nested)
+            tar.addfile(t, io.BytesIO(nested))
     output.seek(0)
     return output
 
@@ -128,6 +129,36 @@ class V5CleanLayerPayloadTests(unittest.TestCase):
         ))
         self.assertEqual(result["dependency_pem_files"], 1)
         self.assertEqual(result["layers"], 1)
+
+    def test_fixture_path_screen_remains_review_required(self):
+        result = AUDIT.audit_layers(archive_for(
+            "workspace/node_modules/synthetic-package/tests/data/private.pem",
+            b"-----BEGIN PRIVATE KEY-----\\nFICTIONAL",
+        ))
+        self.assertEqual(result["dependency_pem_files"], 1)
+        self.assertEqual(result["dependency_pem_fixture_path_candidates"], 1)
+        self.assertEqual(result["dependency_pem_nonfixture_path_candidates"], 0)
+        self.assertEqual(len(result["dependency_pem_unique_paths"]), 1)
+
+    def test_nonfixture_dependency_path_is_not_falsely_cleared(self):
+        result = AUDIT.audit_layers(archive_for(
+            "workspace/node_modules/synthetic-package/dist/embedded.pem",
+            b"-----BEGIN RSA PRIVATE KEY-----\\nFICTIONAL",
+        ))
+        self.assertEqual(result["dependency_pem_files"], 1)
+        self.assertEqual(result["dependency_pem_fixture_path_candidates"], 0)
+        self.assertEqual(result["dependency_pem_nonfixture_path_candidates"], 1)
+
+    def test_duplicate_layer_occurrences_do_not_mean_two_unique_paths(self):
+        result = AUDIT.audit_layers(archive_for(
+            "workspace/node_modules/synthetic-package/fixtures/private.pem",
+            b"-----BEGIN PRIVATE KEY-----\\nFICTIONAL",
+            repeat_layers=2,
+        ))
+        self.assertEqual(result["layers"], 2)
+        self.assertEqual(result["dependency_pem_files"], 2)
+        self.assertEqual(len(result["dependency_pem_unique_paths"]), 1)
+        self.assertEqual(result["dependency_pem_fixture_path_candidates"], 2)
 
     def test_reject_empty_outer_tar_and_directory_traversal(self):
         empty = io.BytesIO()
