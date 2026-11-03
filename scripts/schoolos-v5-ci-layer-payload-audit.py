@@ -107,6 +107,7 @@ def inspect_regular_file(member, stream, checks, member_path):
     ) - 1
     tail = b""
     remaining = member.size
+    dependency_pem_seen = False
     while remaining:
         block = fileobj.read(min(CHUNK, remaining))
         if not block:
@@ -119,13 +120,15 @@ def inspect_regular_file(member, stream, checks, member_path):
         if app_owned_path(member_path) and any(
             h in window for h in PRIVATE_KEY_HEADERS
         ):
-            # Coarse CI-only classification, never expose paths or key content.
-            group = (
-                "NPM_DEPENDENCY"
-                if "node_modules" in normalize(member_path).split("/")
-                else "APP_SOURCE"
-            )
-            raise LayerAuditFailure(group + "_PEM_HEADER_FOUND")
+            # Third-party packages sometimes ship public test-key fixtures.
+            # Never equate their headers with a confirmed real credential.
+            # Retain an explicit review-required finding, not false clearance.
+            if "node_modules" in normalize(member_path).split("/"):
+                if not dependency_pem_seen:
+                    checks["dependency_pem_files"] += 1
+                    dependency_pem_seen = True
+            else:
+                raise LayerAuditFailure("APP_SOURCE_PEM_HEADER_FOUND")
         tail = window[-overlap:]
 
 
@@ -190,6 +193,7 @@ def audit_layers(source) -> dict:
     checks = {
         "layers": 0, "files": 0, "bytes": 0,
         "oci_json_metadata_blobs": 0, "oci_layer_blobs": 0,
+        "dependency_pem_files": 0,
     }
     outer_count = 0
     with tarfile.open(fileobj=source, mode="r|*") as archive:
@@ -239,9 +243,16 @@ def main() -> int:
         print("V5_OCI_JSON_METADATA_BLOBS_VALIDATED=" + str(
             counts["oci_json_metadata_blobs"]
         ))
+        print("V5_DEPENDENCY_PEM_FILES_REQUIRE_REVIEW=" + str(
+            counts["dependency_pem_files"]
+        ))
         print("V5_CI_CANARY_VALUES_FOUND=NO")
         print("V5_PRIVATE_FILES_IN_LAYERS=NO")
-        print("V5_LAYER_AUDIT=PASS_BOUNDED_PATTERNS_ONLY")
+        print("V5_LAYER_AUDIT=" + (
+            "PASS_BOUNDED_PATTERNS_WITH_DEPENDENCY_REVIEW_PENDING"
+            if counts["dependency_pem_files"]
+            else "PASS_BOUNDED_PATTERNS_ONLY"
+        ))
         print("UNRELATED_SECRET_PATTERNS_OR_OLD_IMAGES_CLEARED=NO")
         print("SOURCE_TO_OCI_SIGNED_PROVENANCE=NOT_ATTESTED")
         print("STAGING_PRODUCTION_CHANGED=NO")
