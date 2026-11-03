@@ -15,7 +15,8 @@ export function SchoolOSInterestForm({ legalPagesPublished }: { legalPagesPublis
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy) return;
+    // Client-side protection only; the API applies an independent intake gate.
+    if (busy || !legalPagesPublished) return;
     setError("");
     const form = event.currentTarget;
     const data = new FormData(form);
@@ -55,6 +56,20 @@ export function SchoolOSInterestForm({ legalPagesPublished }: { legalPagesPublis
     } finally {
       setBusy(false);
     }
+  }
+
+  // No visible contact form when the approved public privacy page is unavailable.
+  // This is a UI guard, not a substitute for the API's own fail-closed policy.
+  if (!legalPagesPublished) {
+    return (
+      <div className="rounded-[2rem] bg-white p-6 text-slate-900 shadow-2xl sm:p-9">
+        <h3 className="text-2xl font-black">Request a SchoolOS demo</h3>
+        <p role="status" className="mt-4 text-sm leading-6 text-slate-600">
+          Demo enquiries are temporarily unavailable while our Privacy Notice is being prepared.
+          No contact information is collected through this form.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -102,7 +117,7 @@ export function SchoolOSInterestForm({ legalPagesPublished }: { legalPagesPublis
             <input type="checkbox" required name="contactConsent" value="yes" className="mt-1.5" />
             I am requesting a product demonstration and agree to be contacted about this institutional enquiry.
           </label>
-          {legalPagesPublished && <p className="text-xs text-slate-500">Read our <Link href="/privacy" className="font-bold text-brand-700 underline">Privacy Notice</Link>.</p>}
+          <p className="text-xs text-slate-500">Read our <Link href="/privacy" className="font-bold text-brand-700 underline">Privacy Notice</Link>.</p>
           {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
           <button type="submit" disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-5 py-3.5 font-bold text-white transition hover:bg-blue-800 disabled:opacity-60">
             {busy ? "Submitting…" : <>Request private demo <ArrowRight size={18} /></>}
