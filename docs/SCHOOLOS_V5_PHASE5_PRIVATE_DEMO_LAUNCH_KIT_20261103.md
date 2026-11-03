@@ -51,6 +51,12 @@
 10. **Next step:** requirements workshop only after owner authorizes contact; no live customer data in the demo.
 
 ## 5. Website launch-content recommendations (prepare copy, DO NOT PUBLISH)
+
+**Source-review finding (3 Nov):** `apps/web/components/schoolos-interest-form.tsx` always renders a consent-based real API POST to `/public/saas-sales/leads` for SchoolOS private-demo enquiries, while its `/privacy` link is conditional on `legalPagesPublished`. The page remains `noindex` (which limits search indexing but **does not restrict public access or API collection**). When legal pages are unpublished, the page can still accept business names, mobile numbers and work email without an on-page privacy-notice link. The server route's consent/retention applicability and environment-level availability have **not** been audited in this documentation change. This is an **unresolved public-intake/privacy-launch review item**, not a proven statutory violation or a confirmed live deployment exposure.
+
+**Release-safe disposition:** before any marketing or uninvited lead collection, verify `/privacy` publication, current V5 consent/processing wording, form/API rate limiting and retention, data recipient, approved enquiry purpose and ability to withdraw consent. If policy requires a notice before data collection, implement and test an approved fail-closed intake gate or publish legally accepted V5 notice first; do not silently disable a working source workflow without product/legal decision. Private presentations should rely on synthetic/demo leads only until this is reconciled.
+
+
 Suggested landing hierarchy: “SchoolOS V5 — School & Coaching Operations” → two audience paths “Schools” / “Coaching Institutes” → illustrated workflow stages → role protection and plan-scope caveats → “Request a private product discussion” form → explicit consent/privacy notice and accurate stage disclaimer. Avoid SEO/advertising terms asserting current commercial availability. Keep demo page `noindex` until publication authorized. Before any public launch: security review, legal publication switch, privacy/terms effective date, accessibility/mobile checks, verified support contacts, approved price/entitlement table, actual customer case-study authorization and separate marketing signoff.
 
 ## 6. FAQ and objection handling
