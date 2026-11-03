@@ -1,0 +1,153 @@
+name: V5 Previous Source Binary Rebuild Rehearsal
+# Source-only, ephemeral, unprivileged synthetic rebuild of the previously
+# deployed V5 source. This job NEVER exports, publishes, signs or deploys images.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/schoolos-v5-previous-source-binary-rehearsal.yml'
+permissions: { contents: read }
+concurrency:
+  group: "v5-prior-binary-rehearsal-${{ github.event.pull_request.number }}"
+  cancel-in-progress: true
+jobs:
+  previous-binaries:
+    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'fix/schoolos-v5-rollback-previous-pair-gate-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PREVIOUS_SOURCE_SHA: b54dca5ae36a948f83012faa4a37354198fba083
+      EXPECTED_CONTROLS_SHA: ${{ github.event.pull_request.head.sha }}
+      DOCKER_BUILDKIT: "1"
+    steps:
+      - name: Checkout audited controls at exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: controls
+          persist-credentials: false
+      - name: Checkout prior V5 source at immutable reviewed Git commit
+        uses: actions/checkout@v4
+        with:
+          ref: b54dca5ae36a948f83012faa4a37354198fba083
+          path: previous
+          persist-credentials: false
+      - name: Assert both exact source SHAs without exposing build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$(git -C controls rev-parse HEAD)" = "$EXPECTED_CONTROLS_SHA" ]
+          [ "$(git -C previous rev-parse HEAD)" = "$PREVIOUS_SOURCE_SHA" ]
+          [ -z "$(git -C controls status --porcelain)" ]
+          [ -z "$(git -C previous status --porcelain)" ]
+          echo "V5_PREVIOUS_SOURCE_COMMIT_PIN=PASS"
+          echo "V5_REHEARSAL_CONTROLS_COMMIT_PIN=PASS"
+      - name: Set up isolated Docker builder
+        uses: docker/setup-buildx-action@v3
+      - name: Build prior API source with non-sensitive arguments only
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull=false --file previous/apps/api/Dockerfile \
+            --build-arg "SCHOOLOS_BUILD_REVISION=$PREVIOUS_SOURCE_SHA" \
+            --tag schoolos-previous-api:ci previous
+          echo "V5_PREVIOUS_API_BINARY_REBUILT=PASS_EPHEMERAL"
+      - name: Build prior Web source with non-sensitive arguments only
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull=false --file previous/apps/web/Dockerfile \
+            --build-arg "SCHOOLOS_BUILD_REVISION=$PREVIOUS_SOURCE_SHA" \
+            --build-arg NEXT_PUBLIC_API_URL=/api/v1 \
+            --tag schoolos-previous-web:ci previous
+          echo "V5_PREVIOUS_WEB_BINARY_REBUILT=PASS_EPHEMERAL"
+      - name: Assert rebuilt images carry the intended source revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in schoolos-previous-api:ci schoolos-previous-web:ci; do
+            actual="$(docker image inspect "$target" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+            [ "$actual" = "$PREVIOUS_SOURCE_SHA" ]
+          done
+          echo "V5_PREVIOUS_BINARY_SOURCE_LABELS=PASS"
+      - name: Exclude sensitive names in fresh image config and history
+        shell: bash
+        run: |
+          set -euo pipefail
+          node controls/scripts/schoolos-v5-image-secret-metadata-audit.mjs \
+            schoolos-previous-api:ci schoolos-previous-web:ci
+      - name: Stream bounded payload scan without exporting saved image files
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          docker save schoolos-previous-api:ci schoolos-previous-web:ci \
+            | python3 controls/scripts/schoolos-v5-ci-layer-payload-audit.py --docker-save-stdin
+          # OBSERVATION ONLY: PEM examples in pinned historic dependencies
+          # require independent review. A successful scan is NOT clearance.
+          echo "V5_PREVIOUS_IMAGE_ATTESTATION=NOT_ATTESTED"
+          echo "V5_PREVIOUS_SIGNED_RETRIEVABLE_IMAGES=NOT_CREATED"
+          echo "V5_PREVIOUS_DB_BACKWARD_COMPATIBILITY=NOT_VERIFIED"
+          echo "V5_PREVIOUS_ARTIFACT_PUBLICATION=NEVER"
+          echo "V5_STAGING_PRODUCTION_CHANGED=NO"
+          echo "V5_ROTATION_AND_DEPLOYMENT_AUTHORIZATION=HOLD"
+      - name: Rebuild derived prior API with only hash-verified public dependency documentation omitted
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          [ "$(git -C previous hash-object apps/api/Dockerfile)" = "58c374752a88aa6e0aeae068ec6cbcdd1e147f98" ]
+          [ "$(git -C controls hash-object scripts/schoolos-v5-prune-approved-dependency-docs.mjs)" = "ba3041ce4bf89c548f154db15af71d87bbb195a6" ]
+          python3 - <<'PY'
+          from pathlib import Path
+          original = Path("previous/apps/api/Dockerfile").read_text()
+          anchor = "RUN --mount=type=cache,id=pnpm-api,target=/pnpm/store pnpm install --frozen-lockfile --prod=false --filter @bba/api...\n"
+          if original.count(anchor) != 1:
+              raise SystemExit("V5_PREVIOUS_BUILD_RECIPE=HOLD_UNRECOGNIZED")
+          constrained = (
+              "RUN --mount=type=bind,from=controls,source=scripts/schoolos-v5-prune-approved-dependency-docs.mjs,"
+              "target=/tmp/verified-docs-only.mjs,ro node /tmp/verified-docs-only.mjs\n"
+          )
+          # Only this build-stage recipe is derived. The previous committed
+          # source and lockfile remain unchanged, and no image is published.
+          Path("previous/recovery-docs-only.Dockerfile").write_text(
+              original.replace(anchor, anchor + constrained)
+          )
+          PY
+          docker build --pull=false \
+            --build-context controls=controls \
+            --file previous/recovery-docs-only.Dockerfile \
+            --build-arg "SCHOOLOS_BUILD_REVISION=$PREVIOUS_SOURCE_SHA" \
+            --tag schoolos-previous-api-docs-reviewed:ci previous
+          echo "V5_PRIOR_DERIVED_BUILD_RECIPE=PINNED_PUBLIC_DOCS_ONLY"
+          echo "V5_PRIOR_SOURCE_AND_RECIPE_EQUIVALENCE=REVIEW_REQUIRED"
+      - name: Strictly audit derived prior API and prior Web images in-memory before any publication
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          node controls/scripts/schoolos-v5-image-secret-metadata-audit.mjs \
+            schoolos-previous-api-docs-reviewed:ci schoolos-previous-web:ci
+          docker save schoolos-previous-api-docs-reviewed:ci schoolos-previous-web:ci \
+            | python3 controls/scripts/schoolos-v5-ci-layer-payload-audit.py \
+                --docker-save-stdin --require-no-dependency-pem
+          echo "V5_PREVIOUS_DERIVED_LAYER_POLICY=PASS_BOUNDED_CHECKS_ONLY"
+          echo "V5_PREVIOUS_ACTUAL_SIGNED_IMMUTABLE_BINARIES=NOT_CREATED"
+          echo "V5_PREVIOUS_PRIVATE_RETRIEVAL=NOT_TESTED"
+          echo "V5_PREVIOUS_DATABASE_COMPATIBILITY=NOT_VERIFIED"
+          echo "V5_DEPLOYMENT_AND_ROTATION=HOLD"
+      - name: Build current V5 API for synthetic previous-version compatibility rehearsal
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          docker build --pull=false --file controls/apps/api/Dockerfile \
+            --build-arg "SCHOOLOS_BUILD_REVISION=$EXPECTED_CONTROLS_SHA" \
+            --tag schoolos-candidate-api:ci controls
+          echo "V5_CURRENT_API_REBUILT_FOR_PRIOR_BOOT=PASS_EPHEMERAL"
+      - name: Boot prior V5 API on synthetic current schema and boot current again
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          bash -n controls/scripts/schoolos-v5-ci-prior-api-synthetic-schema-boot.sh
+          bash controls/scripts/schoolos-v5-ci-prior-api-synthetic-schema-boot.sh
