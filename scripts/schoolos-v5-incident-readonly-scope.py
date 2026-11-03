@@ -79,12 +79,30 @@ def assignment_names(values: list[str], allowed: tuple[str, ...]) -> list[str]:
     return found
 
 
+def nonempty_exact_env_names(env: list[str], allowed: tuple[str, ...]) -> list[str]:
+    """Inspect only exact Docker Config.Env assignments, not names in values.
+
+    A NAME= entry with an empty value is deliberately NOT a populated secret.
+    Values never leave this function. No hashes, lengths or derived fingerprints.
+    """
+    if not isinstance(env, list) or any(not isinstance(x, str) for x in env):
+        raise ScopeFailure("METADATA_FORMAT_INVALID")
+    populated: set[str] = set()
+    for item in env:
+        name, delimiter, value = item.partition("=")
+        if delimiter != "=" or not name:
+            raise ScopeFailure("ENV_ASSIGNMENT_INVALID")
+        if name in allowed and value != "":
+            populated.add(name)
+    return [name for name in allowed if name in populated]
+
+
 def runtime_excess(env: list[str], service: str) -> list[str]:
     if service == "api":
         return []
-    # Intended service-level DB/Redis connectivity is not classified as
-    # overexposure; only keys that should be API-exclusive are audited here.
-    return assignment_names(env, API_ONLY)
+    # Only exact, nonempty Config.Env keys are treated as populated. Values
+    # cannot be printed and keys embedded in other values are ignored.
+    return nonempty_exact_env_names(env, API_ONLY)
 
 
 def image_excess(config: dict, lines: list[str]) -> list[str]:
@@ -99,6 +117,34 @@ def image_excess(config: dict, lines: list[str]) -> list[str]:
         raise ScopeFailure("IMAGE_METADATA_INVALID")
     label_text = [str(key) + "=" + str(val) for key, val in labels.items()]
     return assignment_names(env + label_text + lines, IMAGE_SENSITIVE)
+
+
+def image_evidence(config: dict, lines: list[str]) -> dict[str, list[str]]:
+    """Separate actual nonempty image Env from history/label NAME references.
+
+    History and labels may reference shell variables or contain placeholders.
+    Their key-name presence is NOT proof that a credential value is embedded.
+    Never print raw Docker metadata, even on malformed inputs.
+    """
+    if not isinstance(config, dict) or not isinstance(lines, list) or not lines:
+        raise ScopeFailure("IMAGE_CONFIG_MISSING")
+    runtime = config.get("Config")
+    if not isinstance(runtime, dict):
+        raise ScopeFailure("IMAGE_CONFIG_INVALID")
+    env = runtime.get("Env")
+    labels = runtime.get("Labels") or {}
+    if not isinstance(env, list) or not isinstance(labels, dict):
+        raise ScopeFailure("IMAGE_METADATA_INVALID")
+    if any(not isinstance(k, str) or not isinstance(v, str)
+           for k, v in labels.items()):
+        raise ScopeFailure("IMAGE_LABEL_FORMAT_INVALID")
+    return {
+        "config_env_nonempty": nonempty_exact_env_names(env, IMAGE_SENSITIVE),
+        "history_key_references": assignment_names(lines, IMAGE_SENSITIVE),
+        "label_key_references": assignment_names(
+            [str(k) + "=" + str(v) for k, v in labels.items()], IMAGE_SENSITIVE
+        ),
+    }
 
 
 def list_project_containers() -> dict[str, dict]:
@@ -130,7 +176,7 @@ def list_project_containers() -> dict[str, dict]:
 def inspect_project() -> list[dict]:
     services = list_project_containers()
     results = []
-    cache: dict[str, list[str]] = {}
+    cache: dict[str, dict[str, list[str]]] = {}
     for service in SERVICES:
         item = services[service]
         env = (item.get("Config") or {}).get("Env")
@@ -154,11 +200,13 @@ def inspect_project() -> list[dict]:
                 history = [json.loads(x) for x in raw_lines]
             except ValueError:
                 raise ScopeFailure("IMAGE_HISTORY_UNREADABLE")
-            cache[image_id] = image_excess(image_configs[0], history)
+            cache[image_id] = image_evidence(image_configs[0], history)
         results.append({
             "service": service,
             "unexpected_runtime_names": runtime_excess(env, service),
-            "image_metadata_names": cache[image_id],
+            "image_config_env_nonempty": cache[image_id]["config_env_nonempty"],
+            "image_history_key_references": cache[image_id]["history_key_references"],
+            "image_label_key_references": cache[image_id]["label_key_references"],
         })
     return results
 
@@ -176,13 +224,22 @@ def main() -> int:
         for row in rows:
             print("SERVICE=" + row["service"])
             names = row["unexpected_runtime_names"]
-            image = row["image_metadata_names"]
-            print("API_ONLY_RUNTIME_EXPOSURE=" + (
+            config = row["image_config_env_nonempty"]
+            history = row["image_history_key_references"]
+            labels = row["image_label_key_references"]
+            print("API_ONLY_RUNTIME_NONEMPTY_NAMES=" + (
                 ",".join(names) if names else "NONE"
             ))
-            print("IMAGE_METADATA_EXPOSURE=" + (
-                ",".join(image) if image else "NONE_METADATA_ONLY"
+            print("IMAGE_CONFIG_NONEMPTY_NAMES=" + (
+                ",".join(config) if config else "NONE"
             ))
+            print("IMAGE_HISTORY_KEYNAME_REFERENCES=" + (
+                ",".join(history) if history else "NONE"
+            ))
+            print("IMAGE_LABEL_KEYNAME_REFERENCES=" + (
+                ",".join(labels) if labels else "NONE"
+            ))
+            print("IMAGE_HISTORY_SECRET_VALUE_PRESENCE=NOT_ATTESTED")
         print("STAGING_INCIDENT_SCOPE=PASS_READ_ONLY_COMPLETE")
         print("IMAGE_LAYER_PAYLOAD_SCAN=NOT_EXECUTED")
         print("OLD_IMAGE_ARCHIVES_SCANNED=NO")
