@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   previous-binaries:
-    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'fix/schoolos-v5-rollback-previous-pair-gate-')
+    if: github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'fix/schoolos-v5-rollback-previous-pair-gate-') || startsWith(github.head_ref, 'fix/schoolos-v5-phase1-attested-build-receipt-'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
