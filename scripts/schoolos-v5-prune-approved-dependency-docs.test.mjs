@@ -60,6 +60,17 @@ test("different versions, arbitrary paths and missing targets cannot be auto-cle
   });
 });
 
+test("missing exact pinned package and missing README are distinct fail-closed states", () => {
+  withFixture((root, filename) => {
+    rmSync(dirname(filename), { recursive: true, force: true });
+    assert.equal(pruneApprovedDocumentation({ root }).status,
+      "HOLD_PINNED_PACKAGE_NOT_AT_EXPECTED_LOCATION");
+    mkdirSync(dirname(filename), { recursive: true });
+    assert.equal(pruneApprovedDocumentation({ root }).status,
+      "HOLD_PINNED_PACKAGE_DOCUMENT_MISSING");
+  });
+});
+
 test("symlinked README and content outside approved package are never deleted", () => {
   withFixture((root, filename) => {
     const other = join(root, "synthetic-not-approved.txt");
