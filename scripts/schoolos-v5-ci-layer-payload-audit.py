@@ -11,6 +11,7 @@ This is not general secret detection, signed provenance, registry attestation,
 or proof that an unrelated old deployed image/archive is clean.
 """
 from __future__ import annotations
+import hashlib
 import io
 import json
 import posixpath
@@ -113,6 +114,32 @@ def dependency_fixture_path_candidate(name: str) -> bool:
     return any(part in TEST_FIXTURE_COMPONENTS for part in components[last_modules + 1:])
 
 
+
+def dependency_package_token(name: str) -> str:
+    """Stable pseudonymous package label; never expose member paths or keys.
+
+    Uses the innermost node_modules package. The token contains no private
+    path, package name, file basename, or PEM value. Unknown shapes are HOLD.
+    """
+    parts = normalize(name).split("/")
+    indexes = [i for i, part in enumerate(parts) if part == "node_modules"]
+    if not indexes:
+        return "PKG-UNKNOWN"
+    i = indexes[-1] + 1
+    if i >= len(parts):
+        return "PKG-UNKNOWN"
+    first = parts[i]
+    if first.startswith("@"):
+        if i + 1 >= len(parts):
+            return "PKG-UNKNOWN"
+        package = first + "/" + parts[i + 1]
+    else:
+        package = first
+    if not re.fullmatch(r"(?:@[A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]+", package):
+        return "PKG-UNKNOWN"
+    return "PKG-" + hashlib.sha256(package.encode("ascii")).hexdigest()[:16].upper()
+
+
 def inspect_regular_file(member, stream, checks, member_path):
     if member.size < 0 or checks["bytes"] + member.size > MAX_SCAN_BYTES:
         raise LayerAuditFailure("SCAN_BYTE_LIMIT_EXCEEDED")
@@ -144,6 +171,7 @@ def inspect_regular_file(member, stream, checks, member_path):
                 if not dependency_pem_seen:
                     checks["dependency_pem_files"] += 1
                     checks["dependency_pem_unique_paths"].add(normalize(member_path))
+                    checks["dependency_pem_package_tokens"].add(dependency_package_token(member_path))
                     if dependency_fixture_path_candidate(member_path):
                         checks["dependency_pem_fixture_path_candidates"] += 1
                     else:
@@ -217,6 +245,7 @@ def audit_layers(source) -> dict:
         "oci_json_metadata_blobs": 0, "oci_layer_blobs": 0,
         "dependency_pem_files": 0,
         "dependency_pem_unique_paths": set(),
+        "dependency_pem_package_tokens": set(),
         "dependency_pem_fixture_path_candidates": 0,
         "dependency_pem_nonfixture_path_candidates": 0,
     }
@@ -275,6 +304,10 @@ def main() -> int:
         ))
         print("V5_DEPENDENCY_PEM_DISTINCT_PATHS=" + str(
             len(counts["dependency_pem_unique_paths"])
+        ))
+        print("V5_DEPENDENCY_PEM_PACKAGE_TOKENS=" + (
+            ",".join(sorted(counts["dependency_pem_package_tokens"]))
+            if counts["dependency_pem_package_tokens"] else "NONE"
         ))
         print("V5_DEPENDENCY_PEM_FIXTURE_PATH_CANDIDATES=" + str(
             counts["dependency_pem_fixture_path_candidates"]
