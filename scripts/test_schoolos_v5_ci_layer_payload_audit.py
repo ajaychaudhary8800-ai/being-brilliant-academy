@@ -121,14 +121,13 @@ class V5CleanLayerPayloadTests(unittest.TestCase):
                 b"-----BEGIN OPENSSH PRIVATE KEY-----\nFICTIONAL",
             ))
 
-    def test_dependency_fixture_pem_is_classified_without_path(self):
-        with self.assertRaisesRegex(
-            AUDIT.LayerAuditFailure, "NPM_DEPENDENCY_PEM_HEADER_FOUND"
-        ):
-            AUDIT.audit_layers(archive_for(
-                "workspace/node_modules/safe-test-fixture/file",
-                b"-----BEGIN PRIVATE KEY-----\\nFICTIONAL",
-            ))
+    def test_dependency_fixture_pem_is_marked_for_review(self):
+        result = AUDIT.audit_layers(archive_for(
+            "workspace/node_modules/safe-test-fixture/file",
+            b"-----BEGIN PRIVATE KEY-----\\nFICTIONAL",
+        ))
+        self.assertEqual(result["dependency_pem_files"], 1)
+        self.assertEqual(result["layers"], 1)
 
     def test_reject_empty_outer_tar_and_directory_traversal(self):
         empty = io.BytesIO()
