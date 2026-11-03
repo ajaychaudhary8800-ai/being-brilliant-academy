@@ -1,0 +1,92 @@
+name: V5 Previous Source Binary Rebuild Rehearsal
+# Source-only, ephemeral, unprivileged synthetic rebuild of the previously
+# deployed V5 source. This job NEVER exports, publishes, signs or deploys images.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/schoolos-v5-previous-source-binary-rehearsal.yml'
+permissions: { contents: read }
+concurrency:
+  group: "v5-prior-binary-rehearsal-${{ github.event.pull_request.number }}"
+  cancel-in-progress: true
+jobs:
+  previous-binaries:
+    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'fix/schoolos-v5-rollback-previous-pair-gate-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PREVIOUS_SOURCE_SHA: b54dca5ae36a948f83012faa4a37354198fba083
+      EXPECTED_CONTROLS_SHA: ${{ github.event.pull_request.head.sha }}
+      DOCKER_BUILDKIT: "1"
+    steps:
+      - name: Checkout audited controls at exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: controls
+          persist-credentials: false
+      - name: Checkout prior V5 source at immutable reviewed Git commit
+        uses: actions/checkout@v4
+        with:
+          ref: b54dca5ae36a948f83012faa4a37354198fba083
+          path: previous
+          persist-credentials: false
+      - name: Assert both exact source SHAs without exposing build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$(git -C controls rev-parse HEAD)" = "$EXPECTED_CONTROLS_SHA" ]
+          [ "$(git -C previous rev-parse HEAD)" = "$PREVIOUS_SOURCE_SHA" ]
+          [ -z "$(git -C controls status --porcelain)" ]
+          [ -z "$(git -C previous status --porcelain)" ]
+          echo "V5_PREVIOUS_SOURCE_COMMIT_PIN=PASS"
+          echo "V5_REHEARSAL_CONTROLS_COMMIT_PIN=PASS"
+      - name: Set up isolated Docker builder
+        uses: docker/setup-buildx-action@v3
+      - name: Build prior API source with non-sensitive arguments only
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull=false --file previous/apps/api/Dockerfile \
+            --build-arg "SCHOOLOS_BUILD_REVISION=$PREVIOUS_SOURCE_SHA" \
+            --tag schoolos-previous-api:ci previous
+          echo "V5_PREVIOUS_API_BINARY_REBUILT=PASS_EPHEMERAL"
+      - name: Build prior Web source with non-sensitive arguments only
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull=false --file previous/apps/web/Dockerfile \
+            --build-arg "SCHOOLOS_BUILD_REVISION=$PREVIOUS_SOURCE_SHA" \
+            --build-arg NEXT_PUBLIC_API_URL=/api/v1 \
+            --tag schoolos-previous-web:ci previous
+          echo "V5_PREVIOUS_WEB_BINARY_REBUILT=PASS_EPHEMERAL"
+      - name: Assert rebuilt images carry the intended source revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in schoolos-previous-api:ci schoolos-previous-web:ci; do
+            actual="$(docker image inspect "$target" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+            [ "$actual" = "$PREVIOUS_SOURCE_SHA" ]
+          done
+          echo "V5_PREVIOUS_BINARY_SOURCE_LABELS=PASS"
+      - name: Exclude sensitive names in fresh image config and history
+        shell: bash
+        run: |
+          set -euo pipefail
+          node controls/scripts/schoolos-v5-image-secret-metadata-audit.mjs \
+            schoolos-previous-api:ci schoolos-previous-web:ci
+      - name: Stream bounded payload scan without exporting saved image files
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          docker save schoolos-previous-api:ci schoolos-previous-web:ci \
+            | python3 controls/scripts/schoolos-v5-ci-layer-payload-audit.py --docker-save-stdin
+          # OBSERVATION ONLY: PEM examples in pinned historic dependencies
+          # require independent review. A successful scan is NOT clearance.
+          echo "V5_PREVIOUS_IMAGE_ATTESTATION=NOT_ATTESTED"
+          echo "V5_PREVIOUS_SIGNED_RETRIEVABLE_IMAGES=NOT_CREATED"
+          echo "V5_PREVIOUS_DB_BACKWARD_COMPATIBILITY=NOT_VERIFIED"
+          echo "V5_PREVIOUS_ARTIFACT_PUBLICATION=NEVER"
+          echo "V5_STAGING_PRODUCTION_CHANGED=NO"
+          echo "V5_ROTATION_AND_DEPLOYMENT_AUTHORIZATION=HOLD"
