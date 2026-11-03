@@ -5,6 +5,10 @@ import { SiteHeader } from "../../components/site-header";
 import { SchoolOSInterestForm } from "../../components/schoolos-interest-form";
 import { publicLegalPagesPublished } from "../../lib/public-legal";
 
+// Legal-page publication can change without a code rebuild; do not cache a
+// lead form rendered before a privacy notice was approved or withdrawn.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Adhyay SchoolOS | ERP, LMS & Admissions for Education Institutions",
   description: "Explore Adhyay SchoolOS for schools and coaching institutes. Request a private demonstration and discuss your workflows, branches and modules.",
