@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   external-smoke:
-    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || startsWith(github.head_ref, 'integration/schoolos-v5-') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -228,7 +228,7 @@ jobs:
           retention-days: 14
 
   external-browser-ui:
-    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || startsWith(github.head_ref, 'integration/schoolos-v5-') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 18
     permissions: { contents: read }
