@@ -5,13 +5,18 @@ on:
   pull_request:
     paths:
       - '.github/workflows/schoolos-v5-previous-source-binary-rehearsal.yml'
-permissions: { contents: read }
+# OIDC only attests a values-free build receipt; OCI image bytes never leave CI.
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 concurrency:
   group: "v5-prior-binary-rehearsal-${{ github.event.pull_request.number }}"
   cancel-in-progress: true
 jobs:
   previous-binaries:
-    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'fix/schoolos-v5-rollback-previous-pair-gate-')
+    if: github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'fix/schoolos-v5-rollback-previous-pair-gate-') || startsWith(github.head_ref, 'fix/schoolos-v5-phase1-attested-build-receipt-'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -151,3 +156,29 @@ jobs:
           set -euo pipefail
           bash -n controls/scripts/schoolos-v5-ci-prior-api-synthetic-schema-boot.sh
           bash controls/scripts/schoolos-v5-ci-prior-api-synthetic-schema-boot.sh
+      - name: Test and create sanitized previous-source binary receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s controls/scripts -p 'test_schoolos_v5_ci_prior_binary_receipt.py'
+          python3 controls/scripts/schoolos-v5-ci-prior-binary-receipt.py \
+            --out "$RUNNER_TEMP/schoolos-v5-prior-binary-receipt.json" \
+            --controls-sha "$EXPECTED_CONTROLS_SHA"
+          echo "V5_SIGNABLE_RECEIPT_ONLY=YES"
+          echo "V5_OCI_IMAGES_UPLOADED_TO_GITHUB=NO"
+      - name: OIDC-sign source and image-configuration receipt
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ runner.temp }}/schoolos-v5-prior-binary-receipt.json
+          create-storage-record: false
+      - name: Assert receipt signature does not authorize deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "V5_GITHUB_OIDC_RECEIPT_ATTESTED=PASS"
+          echo "V5_ACTUAL_OCI_IMAGES_SIGNED=NO"
+          echo "V5_PRIOR_IMAGE_BYTES_RETAINED=NO"
+          echo "V5_PRIVATE_REGISTRY_RETRIEVAL=NOT_TESTED"
+          echo "V5_HISTORICAL_CREDENTIAL_ROTATION=NOT_EXECUTED"
+          echo "V5_STAGING_PRODUCTION_CHANGED=NO"
+          echo "V5_PHASE1_SECURITY_ACCEPTANCE=HOLD"
