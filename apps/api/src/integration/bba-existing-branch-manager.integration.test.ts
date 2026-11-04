@@ -111,6 +111,12 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
     await systemPrisma.enrollment.create({ data: {
       organizationId, courseId: sharedCourse.id, userId: actor.id,
     } });
+    const scopedCourse = await systemPrisma.course.findUniqueOrThrow({
+      where: { slug: localSlug }, select: { id: true },
+    });
+    await systemPrisma.enrollment.create({ data: {
+      organizationId, courseId: scopedCourse.id, userId: actor.id,
+    } });
 
     const app = express();
     app.use(express.json());
@@ -231,6 +237,15 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
     assert.equal(fullCatalog.status, 200, JSON.stringify(fullCatalog.payload));
     assert.equal(fullCatalog.payload.meta.total, 3);
     assert.equal(fullCatalog.payload.data.find((row: any) => row.slug === globalSlug)._count.enrollments, 1);
+
+    // The detail route must apply the same private _count filter, even when
+    // the course's own branch is assigned to the requesting administrator.
+    const branchCourseDetail = await call(port, `/admin/courses/${scopedCourse.id}`, branchToken);
+    assert.equal(branchCourseDetail.status, 200, JSON.stringify(branchCourseDetail.payload));
+    assert.equal(branchCourseDetail.payload.data._count.enrollments, 0);
+    const superCourseDetail = await call(port, `/admin/courses/${scopedCourse.id}`, superToken);
+    assert.equal(superCourseDetail.status, 200, JSON.stringify(superCourseDetail.payload));
+    assert.equal(superCourseDetail.payload.data._count.enrollments, 1);
 
     // Readable shared catalogue items must never authorize a Branch Admin to
     // CREATE another tenant-wide/global course through POST /admin/courses.
