@@ -196,7 +196,7 @@ jobs:
         run: pnpm --filter @bba/web build
       - name: Install disposable Chromium for desktop/mobile
         run: pnpm exec playwright install --with-deps chromium
-      - name: Browser acceptance in both privacy modes (all CRM writes mocked)
+      - name: Browser acceptance in three privacy states (all CRM writes mocked)
         shell: bash
         run: |
           set -euo pipefail
@@ -232,14 +232,32 @@ jobs:
               web_pid=""
             fi
           }
-          trap stop_preview EXIT
+          privacy_doc="docs/legal-sales/07_PRIVACY_NOTICE.md"
+          missing_fixture="docs/legal-sales/07_PRIVACY_NOTICE.md.ci-temporary"
+          restore_privacy_document() {
+            if [[ -f "$missing_fixture" ]]; then
+              mv "$missing_fixture" "$privacy_doc"
+            fi
+          }
+          trap 'stop_preview; restore_privacy_document' EXIT
+          # 1) Publication disabled: no contact fields, no network POST.
           start_preview false
           pnpm exec playwright test e2e/schoolos-v5-private-demo-local.spec.ts \
             --workers=1 --retries=0 --grep "@privacy-unpublished"
           stop_preview
+          # 2) Publication flag true but file absent: must still fail closed.
+          test -s "$privacy_doc"
+          mv "$privacy_doc" "$missing_fixture"
           start_preview true
           pnpm exec playwright test e2e/schoolos-v5-private-demo-local.spec.ts \
-            --workers=1 --retries=0 --grep-invert "@privacy-unpublished"
+            --workers=1 --retries=0 --grep "@privacy-source-missing"
+          stop_preview
+          restore_privacy_document
+          # 3) Publication flag and actual controlled file both present:
+          # existing browser consent/CRM/API negative paths remain unchanged.
+          start_preview true
+          pnpm exec playwright test e2e/schoolos-v5-private-demo-local.spec.ts \
+            --workers=1 --retries=0 --grep-invert "@privacy-unpublished|@privacy-source-missing"
       - name: Preserve local UI failure-only browser evidence
         if: always()
         uses: actions/upload-artifact@v4
