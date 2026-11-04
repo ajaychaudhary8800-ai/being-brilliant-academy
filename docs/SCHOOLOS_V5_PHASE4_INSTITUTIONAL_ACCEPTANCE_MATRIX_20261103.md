@@ -45,7 +45,7 @@ School-mode must retain **SECTION** terminology and class/section boundaries, ra
 
 ## Role acceptance checklists (run on real approved UAT tenant)
 - **Platform administrator:** enumerate active tenants, inspect exact tenant scope, no implicit institution-data access; only platform authority may change entitlements, plan and owner settings.
-- **Institution/branch administrator:** create permitted student/teacher/section/batch, admit or reject duplicate, record fee workflow, publish approved exam; cannot operate another tenant or appoint own higher privilege.
+- **Institution/branch administrator:** create permitted student/teacher/section/batch, admit or reject duplicate, record fee workflow, publish approved exam; cannot operate another tenant or appoint own higher privilege. For branch administrators, verify direct `/admin/overview` metrics include only explicitly assigned branches and do **not** expose tenant-wide revenue; review stacked #315.
 - **Teacher:** view only allocated classes/subjects; timetable, attendance, homework, assessment and classroom controls within assigned branch/batch; reject unrelated student or unallocated subject.
 - **Student:** view own timetable, homework, grading, published results and permitted recording; cannot access another student's or tenant's content.
 - **Parent/guardian:** view only verified linked children; correct fee/result state; no school-wide data or unauthorized uploads.
@@ -63,6 +63,7 @@ For each role × branch × mode, test **same-tenant authorized**, **other branch
 | F4-05 | Signed retrievable compatible previous API/Web pair not evidenced | Critical | Open #292 | Phase 1 |
 | F4-06 | Actual Razorpay provider TEST ↔ contract/invoice/ledger unavailable | Gate blocker if billing sold | Open #294 / Gate 4 | Phase 3 |
 | F4-07 | Signed BBA witnessed UAT and related-party waiver absent | Gate blocker | Open; protected originals only | Human witness |
+| F4-08 | Branch Administrator `/admin/overview` originally included tenant-wide branch/student/course/enrolment/invoice aggregates despite role being branch-scoped | Source-confirmed branch authorization gap; production impact NOT ATTESTED | Isolated stacked [draft #315](https://github.com/ajaychaudhary8800-ai/being-brilliant-academy/pull/315) restricts branch KPIs and withholds unallocatable invoice revenue; exact-head CI and institutional acceptance pending | Phase 2 + Phase 4 |
 
 ## Institutional signatory handoff (uncompleted)
 Record privately: legal institution identity; genuine tenant/branch IDs; exact deployed source, immutable image mapping and timestamps; accepted modules; scenario-by-scenario expected/observed and defect references; actual human witnesses; exclusions and rationale; migration/import reconciliation; privacy/processing scope; related-party disclosure and waiver; Ajay's dated ACCEPT / CONDITIONAL / REJECT decision and protected signature locator/hash. **All signatures, observed BBA PASS outcomes and waiver acceptance remain PENDING.**
