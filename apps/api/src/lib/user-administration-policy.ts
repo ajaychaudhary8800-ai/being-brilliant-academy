@@ -56,8 +56,10 @@ export function assertCanChangeUserRole(
 ) {
   assertCanAdministerUserTarget(actor.role, target.role);
   if (!target.isActive) throw new AppError(409, "INACTIVE_USER_ROLE_LOCKED", "Activate the user before changing their role");
-  if (target.role === nextRole) return;
 
+  // Authenticate the target/scope before permitting even an idempotent
+  // response. A no-op request to an out-of-scope user must not become a
+  // cross-branch user-role existence oracle.
   if (actor.role === Role.BRANCH_ADMIN) {
     if (actor.id === target.id) throw new AppError(403, "SELF_PRIVILEGE_CHANGE_FORBIDDEN", "Branch administrators cannot change their own role");
     if (!branchAdministratorAssignableRoles.has(nextRole)) throw new AppError(403, "ROLE_GRANT_FORBIDDEN", "Branch administrators cannot grant administrator roles");
@@ -72,6 +74,9 @@ export function assertCanChangeUserRole(
   if ((nextRole === Role.ACCOUNTANT || target.role === Role.ACCOUNTANT) && actor.role !== Role.SUPER_ADMIN) {
     throw new AppError(403, "ACCOUNTANT_ROLE_FORBIDDEN", "Only super administrators may manage Accountant access");
   }
+
+  // No-op is permitted only *after* all role, self and branch scope checks.
+  if (target.role === nextRole) return;
 
   if (target.role === Role.SUPER_ADMIN && nextRole !== Role.SUPER_ADMIN && activeSuperAdministratorCount <= 1) {
     throw new AppError(409, "LAST_SUPER_ADMIN_PROTECTED", "The last active Super Administrator cannot be demoted");

@@ -72,6 +72,15 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
       },
     });
     actorId = actor.id;
+    // Synthetic tenant-wide invoice: a branch administrator must never see
+    // its amount, because Invoice has no authoritative branch ownership.
+    await systemPrisma.invoice.create({ data: {
+      organizationId,
+      invoiceNo: `BBA-PHASE4-SYNTHETIC-${nonce}`,
+      userId: actor.id,
+      amount: 12345,
+      status: "PAID",
+    } });
     const ndg = await systemPrisma.branch.create({
       data: { organizationId, branchCode: "UAT-NDG", branchName: "Synthetic Nandgram", isActive: true },
     });
@@ -153,6 +162,71 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
     const otherStudentScope = await call(port, `/admin/students?branchId=${rne.id}`, branchToken);
     assert.equal(otherStudentScope.status, 403);
 
+    // The overview must honor the SAME assigned-branch boundary as branch
+    // listings. Tenant-wide invoice revenue is restricted, not guessed.
+    const branchOverview = await call(port, "/admin/overview", branchToken);
+    assert.equal(branchOverview.status, 200, JSON.stringify(branchOverview.payload));
+    assert.equal(branchOverview.payload.data.totalBranches, 1);
+    assert.equal(branchOverview.payload.data.activeBranches, 1);
+    assert.equal(branchOverview.payload.data.inactiveBranches, 0);
+    assert.equal(branchOverview.payload.data.revenuePaise, null);
+    assert.equal(branchOverview.payload.data.revenueScope, "WITHHELD_BRANCH");
+
+    const unassigned = await systemPrisma.user.create({ data: {
+      organizationId,
+      email: `bba-unassigned-branch-admin-${nonce}@example.test`,
+      name: "Synthetic Unassigned Branch Administrator",
+      passwordHash: "integration-only-invalid-login",
+      role: Role.BRANCH_ADMIN,
+    } });
+    const emptyOverview = await call(port, "/admin/overview", token(unassigned.id, Role.BRANCH_ADMIN));
+    assert.equal(emptyOverview.status, 200, JSON.stringify(emptyOverview.payload));
+    assert.equal(emptyOverview.payload.data.totalBranches, 0);
+    assert.equal(emptyOverview.payload.data.students, 0);
+    assert.equal(emptyOverview.payload.data.courses, 0);
+    assert.equal(emptyOverview.payload.data.activeEnrollments, 0);
+    assert.equal(emptyOverview.payload.data.revenuePaise, null);
+
+    const superOverview = await call(port, "/admin/overview", superToken);
+    assert.equal(superOverview.status, 200, JSON.stringify(superOverview.payload));
+    assert.equal(superOverview.payload.data.totalBranches, 2);
+    assert.equal(superOverview.payload.data.revenuePaise, 12345);
+
+    // A no-op role request must never bypass branch authorization. Build
+    // lightweight synthetic role identities with explicit BranchUser scope.
+    const roleTargets = await Promise.all(["ndg", "rne"].map(async campus => {
+      const user = await systemPrisma.user.create({ data: {
+        organizationId, email: `bba-role-${campus}-${nonce}@example.test`,
+        name: `Synthetic ${campus} Teacher`, role: Role.TEACHER,
+        passwordHash: "integration-only-invalid-login",
+      } });
+      await systemPrisma.branchUser.create({ data: {
+        organizationId, branchId: campus === "ndg" ? ndg.id : rne.id, userId: user.id,
+      } });
+      return user;
+    }));
+    const unchangedRole = (id: string) => fetch(
+      `http://127.0.0.1:${port}/admin/users/${id}/role`,
+      { method: "PATCH", headers: {
+        Authorization: `Bearer ${branchToken}`, "Content-Type": "application/json",
+      }, body: JSON.stringify({ role: Role.TEACHER }) },
+    );
+    const ownRole = await unchangedRole(roleTargets[0].id);
+    assert.equal(ownRole.status, 200, await ownRole.text());
+    const foreignRole = await unchangedRole(roleTargets[1].id);
+    assert.equal(foreignRole.status, 403);
+    assert.equal((await foreignRole.json() as any).error.code, "USER_BRANCH_FORBIDDEN");
+    const unchangedProtectedAdmin = await fetch(
+      `http://127.0.0.1:${port}/admin/users/${manager.id}/role`,
+      { method: "PATCH", headers: {
+        Authorization: `Bearer ${branchToken}`, "Content-Type": "application/json",
+      }, body: JSON.stringify({ role: Role.BRANCH_ADMIN }) },
+    );
+    assert.equal(unchangedProtectedAdmin.status, 403);
+    // The target is the authenticated manager herself, so the stronger
+    // self-role-change guard correctly takes precedence over grant checks.
+    assert.equal((await unchangedProtectedAdmin.json() as any).error.code, "SELF_PRIVILEGE_CHANGE_FORBIDDEN");
+
     const fullScope = await call(port, "/admin/branches?limit=20", superToken);
     assert.equal(fullScope.status, 200);
     assert.equal(fullScope.payload.meta.total, 2);
@@ -166,6 +240,7 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
     await systemPrisma.session.deleteMany({ where: { organizationId } });
     await systemPrisma.branchUser.deleteMany({ where: { organizationId } });
     await systemPrisma.auditLog.deleteMany({ where: { organizationId } });
+    await systemPrisma.invoice.deleteMany({ where: { organizationId } });
     if (branchId || otherBranchId) await systemPrisma.branch.deleteMany({ where: { organizationId } });
     if (actorId) await systemPrisma.user.deleteMany({ where: { organizationId } });
     const count = await systemPrisma.academicSession.count({ where: { organizationId } });
