@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowRight, BookOpenCheck, Building2, CalendarDays, ChartNoAxesCombined, ClipboardCheck, CreditCard, Layers3, LockKeyhole, ShieldCheck, UsersRound } from "lucide-react";
 import { SiteHeader } from "../../components/site-header";
 import { SchoolOSInterestForm } from "../../components/schoolos-interest-form";
-import { publicLegalPagesPublished } from "../../lib/public-legal";
+import { publicPrivacyNoticeAvailable } from "../../lib/public-legal";
 
 // Legal-page publication can change without a code rebuild; do not cache a
 // lead form rendered before a privacy notice was approved or withdrawn.
@@ -38,8 +38,8 @@ const rollout = [
   { number: "04", title: "Verified onboarding", detail: "Contract, provider-verified payment, controlled deployment and institution acceptance when commercially authorized." },
 ];
 
-export default function SchoolOSPage() {
-  const legalPublished = publicLegalPagesPublished();
+export default async function SchoolOSPage() {
+  const legalPublished = await publicPrivacyNoticeAvailable();
   return (
     <div className="min-h-screen bg-white text-slate-900 dark:bg-slate-950 dark:text-white">
       <SiteHeader />
