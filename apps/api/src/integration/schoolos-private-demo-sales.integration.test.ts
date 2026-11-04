@@ -32,6 +32,7 @@ test("SchoolOS private-demo sales intake requires consent, deduplicates concurre
   const org = "Synthetic SchoolOS Enquiry " + id;
   let userId: string | undefined;
   let server: Server | undefined;
+  const originalIntakeFlag = process.env.SCHOOLOS_V5_PRIVATE_DEMO_INTAKE_ENABLED;
   try {
     const api = express();
     api.use(express.json());
@@ -64,6 +65,15 @@ test("SchoolOS private-demo sales intake requires consent, deduplicates concurre
       utm: { intent: "B2B_PRODUCT_DEMO", product: "ADHYAY_SCHOOLOS",
         stage: "PRIVATE_DEMO_ONLY", contactConsent: "yes" },
     };
+    // Prove actual HTTP default-deny behavior before enabling the disposable
+    // in-process test fixture. No staging or live CRM endpoint is contacted.
+    delete process.env.SCHOOLOS_V5_PRIVATE_DEMO_INTAKE_ENABLED;
+    const notApproved = await call(path, "POST", input);
+    assert.equal(notApproved.status, 503);
+    assert.equal(notApproved.body.error.code, "SCHOOLOS_DEMO_INTAKE_NOT_APPROVED");
+    assert.equal(await systemPrisma.saaSSalesLead.count({ where: { organizationName: org } }), 0);
+    process.env.SCHOOLOS_V5_PRIVATE_DEMO_INTAKE_ENABLED = "true";
+
     const noConsent = await call(path, "POST", { ...input, utm: { ...input.utm, contactConsent: "no" } });
     assert.equal(noConsent.status, 422);
     assert.equal(noConsent.body.error.code, "SCHOOLOS_CONTACT_CONSENT_REQUIRED");
@@ -104,6 +114,8 @@ test("SchoolOS private-demo sales intake requires consent, deduplicates concurre
     console.log("SCHOOLOS_PRIVATE_DEMO_PLATFORM_CRM_HANDOFF=PASS");
     console.log("REAL_CUSTOMER_LEADS_CREATED=0");
   } finally {
+    if (originalIntakeFlag === undefined) delete process.env.SCHOOLOS_V5_PRIVATE_DEMO_INTAKE_ENABLED;
+    else process.env.SCHOOLOS_V5_PRIVATE_DEMO_INTAKE_ENABLED = originalIntakeFlag;
     if (server) await new Promise<void>((resolve, reject) => server!.close(err => err ? reject(err) : resolve()));
     await systemPrisma.saaSSalesLead.deleteMany({ where: { organizationName: org } });
     if (userId) {
