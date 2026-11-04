@@ -28,8 +28,13 @@ test("branch course catalog returns no entries without branch assignments", () =
   assert.ok(handlerStart >= 0 && nextHandler > handlerStart);
   const listHandler = source.slice(handlerStart, nextHandler);
   assert.match(listHandler, /ids && ids\.length === 0/);
-  assert.match(listHandler, /enrollments: \{ where:/);
-  assert.match(listHandler, /batches: \{ where:/);
+  assert.match(listHandler, /readCourseSelect\(visibleBranchIds\)/);
+  const helperStart = source.indexOf("function readCourseSelect");
+  const helperEnd = source.indexOf("async function scope", helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart);
+  const helper = source.slice(helperStart, helperEnd);
+  assert.match(helper, /enrollments: \{ where:/);
+  assert.match(helper, /batches: \{ where:/);
 });
 
 test("course detail also filters campus-level student and batch aggregate counts", () => {
