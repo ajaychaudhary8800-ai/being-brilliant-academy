@@ -91,7 +91,30 @@ function teacherWithLegacyBranch<T extends { branch: { id: string; branchName: s
   return { ...teacher, branch: branchWithLegacyLabels(teacher.branch) };
 }
 
-router.get("/overview", async (_req, res) => {
+router.get("/overview", async (req: AuthRequest, res) => {
+  if (req.auth!.role === Role.BRANCH_ADMIN) {
+    const assigned = await branchScope(req) ?? [];
+    // A branch admin must never receive other branches' dashboard aggregates.
+    // Empty assignments fail closed to zero counts. Invoices are tenant-wide
+    // (no authoritative branchId), so cross-branch revenue is withheld instead
+    // of presenting either the tenant-wide amount or a misleading guessed sum.
+    const inAssignedBranches = { in: assigned };
+    const [students, courses, activeEnrollments, totalBranches, activeBranches] = await Promise.all([
+      prisma.studentProfile.count({ where: { branchId: inAssignedBranches } }),
+      prisma.course.count({ where: { branchId: inAssignedBranches } }),
+      prisma.enrollment.count({ where: {
+        status: "ACTIVE",
+        user: { studentProfile: { is: { branchId: inAssignedBranches } } },
+      } }),
+      prisma.branch.count({ where: { id: inAssignedBranches } }),
+      prisma.branch.count({ where: { id: inAssignedBranches, isActive: true } }),
+    ]);
+    return res.json({ data: {
+      students, courses, activeEnrollments, revenuePaise: null,
+      revenueScope: "WITHHELD_BRANCH", totalBranches, activeBranches,
+      inactiveBranches: totalBranches - activeBranches,
+    } });
+  }
   const [students, courses, paid, active, totalBranches, activeBranches] = await Promise.all([
     prisma.user.count({ where: { role: Role.STUDENT } }),
     prisma.course.count(),
