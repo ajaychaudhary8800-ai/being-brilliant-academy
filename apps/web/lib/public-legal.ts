@@ -52,3 +52,19 @@ export async function loadPublicLegalSource(id: PublicLegalDocumentId) {
 
   throw lastError instanceof Error ? lastError : new Error("Controlled legal source unavailable");
 }
+
+/**
+ * Preview-only fail-closed gate: a publication flag alone does not establish
+ * that the linked Privacy Notice is actually available in this Web runtime.
+ * This does not substitute for approval of the legal text or the API opt-in.
+ */
+export async function publicPrivacyNoticeAvailable(): Promise<boolean> {
+  if (!publicLegalPagesPublished()) return false;
+  try {
+    const notice = await loadPublicLegalSource("privacy");
+    return notice.trim().length > 0 && !notice.includes("[[DATE]]");
+  } catch {
+    return false;
+  }
+}
+
