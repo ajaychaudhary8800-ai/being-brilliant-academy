@@ -82,6 +82,25 @@ const select = {
   _count: { select: { enrollments: true, batches: true, modules: true } },
 } as const;
 
+/**
+ * Shared and branch-specific courses may contain learner/batch activity from
+ * several campuses. Branch admins can see only their assigned campuses'
+ * activity counts. Platform/tenant Super Admin retains the complete view.
+ */
+function readCourseSelect(visibleBranchIds: readonly string[] | null) {
+  if (visibleBranchIds === null) return select;
+  return {
+    ...select,
+    _count: { select: {
+      enrollments: { where: {
+        user: { studentProfile: { is: { branchId: { in: [...visibleBranchIds] } } } },
+      } },
+      batches: { where: { branchId: { in: [...visibleBranchIds] } } },
+      modules: true,
+    } },
+  } as const;
+}
+
 async function scope(req: AuthRequest, branchId?: string | null) {
   if (req.auth!.role !== Role.BRANCH_ADMIN) return undefined;
   const assigned = await prisma.branchUser.findMany({ where: { userId: req.auth!.userId }, select: { branchId: true } });
@@ -155,17 +174,7 @@ router.get("/courses", async (req: AuthRequest, res) => {
   }
   const visibleBranchIds = ids ? (query.branchId ? [query.branchId] : ids) : null;
   const branchFilter = query.branchId ? { OR: [{ branchId: query.branchId }, { branchId: null }] } : ids ? { OR: [{ branchId: { in: ids } }, { branchId: null }] } : {};
-  // Global course definitions may be visible across permitted campuses, but
-  // their learner enrolments and batch totals must not disclose other campuses.
-  // Course modules describe global catalogue structure rather than enrolment.
-  const courseSelect = visibleBranchIds ? {
-    ...select,
-    _count: { select: {
-      enrollments: { where: { user: { studentProfile: { is: { branchId: { in: visibleBranchIds } } } } } },
-      batches: { where: { branchId: { in: visibleBranchIds } } },
-      modules: true,
-    } },
-  } as const : select;
+  const courseSelect = readCourseSelect(visibleBranchIds);
   const where = {
     ...branchFilter,
     ...(query.status ? { status: query.status } : {}),
@@ -184,7 +193,13 @@ router.get("/courses/:id", async (req: AuthRequest, res) => {
   const data = await prisma.course.findUnique({ where: { id: String(req.params.id) }, select });
   if (!data) throw new AppError(404, "COURSE_NOT_FOUND", "Course not found");
   await writeScope(req, data.branchId);
-  res.json({ data });
+  if (req.auth!.role !== Role.BRANCH_ADMIN) return res.json({ data });
+  const assigned = await scope(req, data.branchId);
+  const restricted = await prisma.course.findUnique({
+    where: { id: data.id }, select: readCourseSelect(assigned ?? []),
+  });
+  if (!restricted) throw new AppError(404, "COURSE_NOT_FOUND", "Course not found");
+  return res.json({ data: restricted });
 });
 
 router.post("/courses", async (req: AuthRequest, res) => {
