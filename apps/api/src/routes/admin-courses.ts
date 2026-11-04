@@ -190,7 +190,9 @@ router.get("/courses/:id", async (req: AuthRequest, res) => {
 router.post("/courses", async (req: AuthRequest, res) => {
   const data = input.parse(req.body);
   validateCommon(data);
-  await scope(req, data.branchId);
+  // Read scope allows shared/global catalogue definitions, but creation is
+  // a tenant-wide mutation. Branch admins must specify their own branch.
+  await writeScope(req, data.branchId);
   const legacyCourseType = await validateTaxonomy(data);
   const [duplicate, category] = await Promise.all([
     prisma.course.findFirst({ where: { OR: [{ slug: data.slug }, { courseCode: data.courseCode }] }, select: { slug: true, courseCode: true } }),
