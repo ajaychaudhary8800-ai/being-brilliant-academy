@@ -148,7 +148,24 @@ router.get("/courses", async (req: AuthRequest, res) => {
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
   }).parse(req.query);
   const ids = await scope(req, query.branchId);
+  if (ids && ids.length === 0) {
+    // An unassigned Branch Admin has no campus entitlement. The otherwise
+    // shared null-branch course catalogue must not bypass that boundary.
+    return res.json({ data: [], meta: { total: 0, page: query.page, limit: query.limit, totalPages: 1 } });
+  }
+  const visibleBranchIds = ids ? (query.branchId ? [query.branchId] : ids) : null;
   const branchFilter = query.branchId ? { OR: [{ branchId: query.branchId }, { branchId: null }] } : ids ? { OR: [{ branchId: { in: ids } }, { branchId: null }] } : {};
+  // Global course definitions may be visible across permitted campuses, but
+  // their learner enrolments and batch totals must not disclose other campuses.
+  // Course modules describe global catalogue structure rather than enrolment.
+  const courseSelect = visibleBranchIds ? {
+    ...select,
+    _count: { select: {
+      enrollments: { where: { user: { studentProfile: { is: { branchId: { in: visibleBranchIds } } } } } },
+      batches: { where: { branchId: { in: visibleBranchIds } } },
+      modules: true,
+    } },
+  } as const : select;
   const where = {
     ...branchFilter,
     ...(query.status ? { status: query.status } : {}),
@@ -158,7 +175,7 @@ router.get("/courses", async (req: AuthRequest, res) => {
   };
   const [total, data] = await prisma.$transaction([
     prisma.course.count({ where }),
-    prisma.course.findMany({ where, select, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { [query.sortBy]: query.sortOrder } }),
+    prisma.course.findMany({ where, select: courseSelect, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { [query.sortBy]: query.sortOrder } }),
   ]);
   res.json({ data, meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
 });
