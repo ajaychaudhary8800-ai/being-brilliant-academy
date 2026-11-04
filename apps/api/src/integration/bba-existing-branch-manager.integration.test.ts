@@ -11,6 +11,7 @@ import { env } from "../config.js";
 import { errorHandler } from "../lib/http.js";
 import { systemPrisma } from "../lib/prisma.js";
 import admin from "../routes/admin.js";
+import adminCourses from "../routes/admin-courses.js";
 
 const enabled = process.env.RUN_POSTGRES_INTEGRATION === "1";
 function assertSafeTarget() {
@@ -88,9 +89,32 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
       data: { organizationId, branchCode: "UAT-RNE", branchName: "Synthetic Rajnagar", isActive: true },
     });
     branchId = ndg.id; otherBranchId = rne.id;
+    const globalSlug = `schoolos-v5-global-${nonce}`;
+    const localSlug = `schoolos-v5-ndg-${nonce}`;
+    const foreignSlug = `schoolos-v5-rne-${nonce}`;
+    await systemPrisma.course.createMany({ data: [
+      { organizationId, title: "Synthetic Shared Catalogue", slug: globalSlug,
+        courseCode: `G-${nonce}`, fullDescription: "Synthetic globally shared course for access checks",
+        regularPricePaise: 0 },
+      { organizationId, title: "Synthetic NDG Course", slug: localSlug,
+        courseCode: `N-${nonce}`, fullDescription: "Synthetic NDG scoped course for access checks",
+        regularPricePaise: 0, branchId: ndg.id },
+      { organizationId, title: "Synthetic RNE Course", slug: foreignSlug,
+        courseCode: `R-${nonce}`, fullDescription: "Synthetic RNE scoped course for access checks",
+        regularPricePaise: 0, branchId: rne.id },
+    ] });
+    // A global course may have tenant-wide enrollments. The campus list
+    // must never expose this aggregate to managers of other branches.
+    const sharedCourse = await systemPrisma.course.findUniqueOrThrow({
+      where: { slug: globalSlug }, select: { id: true },
+    });
+    await systemPrisma.enrollment.create({ data: {
+      organizationId, courseId: sharedCourse.id, userId: actor.id,
+    } });
 
     const app = express();
     app.use(express.json());
+    app.use("/admin", adminCourses);
     app.use("/admin", admin);
     app.use(errorHandler);
     server = app.listen(0, "127.0.0.1");
@@ -187,6 +211,27 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
     assert.equal(emptyOverview.payload.data.activeEnrollments, 0);
     assert.equal(emptyOverview.payload.data.revenuePaise, null);
 
+    const campusCatalog = await call(port, "/admin/courses?limit=20", branchToken);
+    assert.equal(campusCatalog.status, 200, JSON.stringify(campusCatalog.payload));
+    assert.equal(campusCatalog.payload.meta.total, 2);
+    assert.deepEqual(
+      campusCatalog.payload.data.map((row: any) => row.slug).sort(),
+      [globalSlug, localSlug].sort(),
+    );
+    const sharedForBranch = campusCatalog.payload.data.find((row: any) => row.slug === globalSlug);
+    assert.equal(sharedForBranch._count.enrollments, 0,
+      "another campus's shared-course enrollments must not be disclosed");
+    const unassignedCatalog = await call(port, "/admin/courses?limit=20",
+      token(unassigned.id, Role.BRANCH_ADMIN));
+    assert.equal(unassignedCatalog.status, 200);
+    assert.equal(unassignedCatalog.payload.meta.total, 0);
+    assert.deepEqual(unassignedCatalog.payload.data, []);
+
+    const fullCatalog = await call(port, "/admin/courses?limit=20", superToken);
+    assert.equal(fullCatalog.status, 200, JSON.stringify(fullCatalog.payload));
+    assert.equal(fullCatalog.payload.meta.total, 3);
+    assert.equal(fullCatalog.payload.data.find((row: any) => row.slug === globalSlug)._count.enrollments, 1);
+
     const superOverview = await call(port, "/admin/overview", superToken);
     assert.equal(superOverview.status, 200, JSON.stringify(superOverview.payload));
     assert.equal(superOverview.payload.data.totalBranches, 2);
@@ -241,6 +286,8 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
     await systemPrisma.branchUser.deleteMany({ where: { organizationId } });
     await systemPrisma.auditLog.deleteMany({ where: { organizationId } });
     await systemPrisma.invoice.deleteMany({ where: { organizationId } });
+    await systemPrisma.enrollment.deleteMany({ where: { organizationId } });
+    await systemPrisma.course.deleteMany({ where: { organizationId } });
     if (branchId || otherBranchId) await systemPrisma.branch.deleteMany({ where: { organizationId } });
     if (actorId) await systemPrisma.user.deleteMany({ where: { organizationId } });
     const count = await systemPrisma.academicSession.count({ where: { organizationId } });
