@@ -171,7 +171,12 @@ router.patch("/users/:id/role", async (req: AuthRequest, res) => {
     hasEmployeeProfile: Boolean(target.employee),
     hasParentLinks: target.parentChildren.length > 0,
   };
-  if (target.role === role) return res.json({ data: { id: target.id, role: target.role } });
+  if (target.role === role) {
+    // Idempotence is not an authorization bypass: verify branch scope,
+    // protected role and target status before acknowledging this user.
+    assertCanChangeUserRole(administrator, managedTarget, role, 0);
+    return res.json({ data: { id: target.id, role: target.role } });
+  }
   const data = await prisma.$transaction(async tx => {
     const activeSuperAdministrators = await tx.user.count({ where: { role: Role.SUPER_ADMIN, isActive: true } });
     assertCanChangeUserRole(administrator, managedTarget, role, activeSuperAdministrators);
