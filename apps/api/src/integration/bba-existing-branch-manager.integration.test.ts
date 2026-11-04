@@ -223,7 +223,9 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
       }, body: JSON.stringify({ role: Role.BRANCH_ADMIN }) },
     );
     assert.equal(unchangedProtectedAdmin.status, 403);
-    assert.equal((await unchangedProtectedAdmin.json() as any).error.code, "ROLE_GRANT_FORBIDDEN");
+    // The target is the authenticated manager herself, so the stronger
+    // self-role-change guard correctly takes precedence over grant checks.
+    assert.equal((await unchangedProtectedAdmin.json() as any).error.code, "SELF_PRIVILEGE_CHANGE_FORBIDDEN");
 
     const fullScope = await call(port, "/admin/branches?limit=20", superToken);
     assert.equal(fullScope.status, 200);
