@@ -192,6 +192,39 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
     assert.equal(superOverview.payload.data.totalBranches, 2);
     assert.equal(superOverview.payload.data.revenuePaise, 12345);
 
+    // A no-op role request must never bypass branch authorization. Build
+    // lightweight synthetic role identities with explicit BranchUser scope.
+    const roleTargets = await Promise.all(["ndg", "rne"].map(async campus => {
+      const user = await systemPrisma.user.create({ data: {
+        organizationId, email: `bba-role-${campus}-${nonce}@example.test`,
+        name: `Synthetic ${campus} Teacher`, role: Role.TEACHER,
+        passwordHash: "integration-only-invalid-login",
+      } });
+      await systemPrisma.branchUser.create({ data: {
+        organizationId, branchId: campus === "ndg" ? ndg.id : rne.id, userId: user.id,
+      } });
+      return user;
+    }));
+    const unchangedRole = (id: string) => fetch(
+      `http://127.0.0.1:${port}/admin/users/${id}/role`,
+      { method: "PATCH", headers: {
+        Authorization: `Bearer ${branchToken}`, "Content-Type": "application/json",
+      }, body: JSON.stringify({ role: Role.TEACHER }) },
+    );
+    const ownRole = await unchangedRole(roleTargets[0].id);
+    assert.equal(ownRole.status, 200, await ownRole.text());
+    const foreignRole = await unchangedRole(roleTargets[1].id);
+    assert.equal(foreignRole.status, 403);
+    assert.equal((await foreignRole.json() as any).error.code, "USER_BRANCH_FORBIDDEN");
+    const unchangedProtectedAdmin = await fetch(
+      `http://127.0.0.1:${port}/admin/users/${manager.id}/role`,
+      { method: "PATCH", headers: {
+        Authorization: `Bearer ${branchToken}`, "Content-Type": "application/json",
+      }, body: JSON.stringify({ role: Role.BRANCH_ADMIN }) },
+    );
+    assert.equal(unchangedProtectedAdmin.status, 403);
+    assert.equal((await unchangedProtectedAdmin.json() as any).error.code, "ROLE_GRANT_FORBIDDEN");
+
     const fullScope = await call(port, "/admin/branches?limit=20", superToken);
     assert.equal(fullScope.status, 200);
     assert.equal(fullScope.payload.meta.total, 2);
