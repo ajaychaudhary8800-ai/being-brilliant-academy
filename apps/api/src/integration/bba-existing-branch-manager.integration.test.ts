@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
-import { OrganizationSubscriptionStatus, Role } from "@prisma/client";
+import { CourseCategoryType, CourseMode, OrganizationSubscriptionStatus, Role } from "@prisma/client";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { env } from "../config.js";
@@ -231,6 +231,35 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
     assert.equal(fullCatalog.status, 200, JSON.stringify(fullCatalog.payload));
     assert.equal(fullCatalog.payload.meta.total, 3);
     assert.equal(fullCatalog.payload.data.find((row: any) => row.slug === globalSlug)._count.enrollments, 1);
+
+    // Readable shared catalogue items must never authorize a Branch Admin to
+    // CREATE another tenant-wide/global course through POST /admin/courses.
+    const courseInput = {
+      title: "Synthetic Unauthorized Global Course",
+      slug: `bba-global-denied-${nonce}`,
+      courseCode: `X-${nonce}`,
+      fullDescription: "Course creation must remain scoped to an assigned branch",
+      regularPricePaise: 0,
+      categoryType: CourseCategoryType.ACADEMIC,
+      language: "English",
+      mode: CourseMode.HYBRID,
+      branchId: null,
+    };
+    const postCourse = (body: object) => fetch(
+      `http://127.0.0.1:${port}/admin/courses`,
+      { method: "POST", headers: {
+        Authorization: `Bearer ${branchToken}`, "Content-Type": "application/json",
+      }, body: JSON.stringify(body) },
+    );
+    const globalCreate = await postCourse(courseInput);
+    assert.equal(globalCreate.status, 403);
+    assert.equal((await globalCreate.json() as any).error.code, "BRANCH_SCOPE_REQUIRED");
+    const foreignCreate = await postCourse({ ...courseInput, branchId: rne.id });
+    assert.equal(foreignCreate.status, 403);
+    assert.equal((await foreignCreate.json() as any).error.code, "BRANCH_FORBIDDEN");
+    assert.equal(await systemPrisma.course.count({
+      where: { organizationId, slug: courseInput.slug },
+    }), 0, "denied global-course creation must leave no DB row");
 
     const superOverview = await call(port, "/admin/overview", superToken);
     assert.equal(superOverview.status, 200, JSON.stringify(superOverview.payload));
