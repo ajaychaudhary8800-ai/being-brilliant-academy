@@ -72,6 +72,15 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
       },
     });
     actorId = actor.id;
+    // Synthetic tenant-wide invoice: a branch administrator must never see
+    // its amount, because Invoice has no authoritative branch ownership.
+    await systemPrisma.invoice.create({ data: {
+      organizationId,
+      invoiceNo: `BBA-PHASE4-SYNTHETIC-${nonce}`,
+      userId: actor.id,
+      amount: 12345,
+      status: "PAID",
+    } });
     const ndg = await systemPrisma.branch.create({
       data: { organizationId, branchCode: "UAT-NDG", branchName: "Synthetic Nandgram", isActive: true },
     });
@@ -153,6 +162,36 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
     const otherStudentScope = await call(port, `/admin/students?branchId=${rne.id}`, branchToken);
     assert.equal(otherStudentScope.status, 403);
 
+    // The overview must honor the SAME assigned-branch boundary as branch
+    // listings. Tenant-wide invoice revenue is restricted, not guessed.
+    const branchOverview = await call(port, "/admin/overview", branchToken);
+    assert.equal(branchOverview.status, 200, JSON.stringify(branchOverview.payload));
+    assert.equal(branchOverview.payload.data.totalBranches, 1);
+    assert.equal(branchOverview.payload.data.activeBranches, 1);
+    assert.equal(branchOverview.payload.data.inactiveBranches, 0);
+    assert.equal(branchOverview.payload.data.revenuePaise, null);
+    assert.equal(branchOverview.payload.data.revenueScope, "WITHHELD_BRANCH");
+
+    const unassigned = await systemPrisma.user.create({ data: {
+      organizationId,
+      email: `bba-unassigned-branch-admin-${nonce}@example.test`,
+      name: "Synthetic Unassigned Branch Administrator",
+      passwordHash: "integration-only-invalid-login",
+      role: Role.BRANCH_ADMIN,
+    } });
+    const emptyOverview = await call(port, "/admin/overview", token(unassigned.id, Role.BRANCH_ADMIN));
+    assert.equal(emptyOverview.status, 200, JSON.stringify(emptyOverview.payload));
+    assert.equal(emptyOverview.payload.data.totalBranches, 0);
+    assert.equal(emptyOverview.payload.data.students, 0);
+    assert.equal(emptyOverview.payload.data.courses, 0);
+    assert.equal(emptyOverview.payload.data.activeEnrollments, 0);
+    assert.equal(emptyOverview.payload.data.revenuePaise, null);
+
+    const superOverview = await call(port, "/admin/overview", superToken);
+    assert.equal(superOverview.status, 200, JSON.stringify(superOverview.payload));
+    assert.equal(superOverview.payload.data.totalBranches, 2);
+    assert.equal(superOverview.payload.data.revenuePaise, 12345);
+
     const fullScope = await call(port, "/admin/branches?limit=20", superToken);
     assert.equal(fullScope.status, 200);
     assert.equal(fullScope.payload.meta.total, 2);
@@ -166,6 +205,7 @@ test("real PostgreSQL serializes competing existing-branch manager appointments 
     await systemPrisma.session.deleteMany({ where: { organizationId } });
     await systemPrisma.branchUser.deleteMany({ where: { organizationId } });
     await systemPrisma.auditLog.deleteMany({ where: { organizationId } });
+    await systemPrisma.invoice.deleteMany({ where: { organizationId } });
     if (branchId || otherBranchId) await systemPrisma.branch.deleteMany({ where: { organizationId } });
     if (actorId) await systemPrisma.user.deleteMany({ where: { organizationId } });
     const count = await systemPrisma.academicSession.count({ where: { organizationId } });
