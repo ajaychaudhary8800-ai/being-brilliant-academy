@@ -31,3 +31,13 @@ test("branch course catalog returns no entries without branch assignments", () =
   assert.match(listHandler, /enrollments: \{ where:/);
   assert.match(listHandler, /batches: \{ where:/);
 });
+
+test("course detail also filters campus-level student and batch aggregate counts", () => {
+  const start = source.indexOf('router.get("/courses/:id"');
+  const stop = source.indexOf('router.post("/courses"', start);
+  assert.ok(start >= 0 && stop > start);
+  const detail = source.slice(start, stop);
+  assert.match(detail, /await writeScope\(req, data\.branchId\)/);
+  assert.match(detail, /readCourseSelect\(assigned \?\? \[\]\)/);
+  assert.match(source, /batches: \{ where: \{ branchId: \{ in:/);
+});
