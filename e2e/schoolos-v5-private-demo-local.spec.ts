@@ -27,6 +27,21 @@ test("@privacy-unpublished SchoolOS preview refuses collection when Privacy Noti
   expect(outbound).toBe(0);
 });
 
+test("@privacy-source-missing SchoolOS does not offer contact intake when the notice file is unavailable", async ({ page }) => {
+  let outbound = 0;
+  await page.route("**/api/v1/public/saas-sales/leads", async route => {
+    outbound++;
+    await route.abort();
+  });
+  const response = await page.goto("/schoolos", { waitUntil: "domcontentloaded" });
+  expect(response?.status()).toBe(200);
+  await expect(page.getByText(/Demo enquiries are temporarily unavailable/i)).toBeVisible();
+  await expect(page.locator('input[name="contactName"]')).toHaveCount(0);
+  await expect(page.locator('input[name="contactConsent"]')).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /request private demo/i })).toHaveCount(0);
+  expect(outbound).toBe(0);
+});
+
 test("V5 SchoolOS private-demo landing is responsive, noindex and transparent about paid availability", async ({ page }) => {
   const response = await page.goto("/schoolos", { waitUntil: "domcontentloaded" });
   expect(response?.status()).toBe(200);
