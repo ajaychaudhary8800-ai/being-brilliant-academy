@@ -89,16 +89,20 @@ const select = {
  */
 function readCourseSelect(visibleBranchIds: readonly string[] | null) {
   if (visibleBranchIds === null) return select;
+  // Prisma requires a mutable string[] for nested 'in' filters. Build the
+  // authorized ID array outside the readonly literal projection so the
+  // course selector is accepted by Prisma.CourseSelect at compile time.
+  const scopedBranchIds: string[] = Array.from(visibleBranchIds);
   return {
     ...select,
     _count: { select: {
       enrollments: { where: {
-        user: { studentProfile: { is: { branchId: { in: [...visibleBranchIds] } } } },
+        user: { studentProfile: { is: { branchId: { in: scopedBranchIds } } } },
       } },
-      batches: { where: { branchId: { in: [...visibleBranchIds] } } },
+      batches: { where: { branchId: { in: scopedBranchIds } } },
       modules: true,
     } },
-  } as const;
+  } as const satisfies Prisma.CourseSelect;
 }
 
 async function scope(req: AuthRequest, branchId?: string | null) {
