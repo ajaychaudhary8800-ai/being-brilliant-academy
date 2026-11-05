@@ -82,6 +82,29 @@ const select = {
   _count: { select: { enrollments: true, batches: true, modules: true } },
 } as const;
 
+/**
+ * Shared and branch-specific courses may contain learner/batch activity from
+ * several campuses. Branch admins can see only their assigned campuses'
+ * activity counts. Platform/tenant Super Admin retains the complete view.
+ */
+function readCourseSelect(visibleBranchIds: readonly string[] | null) {
+  if (visibleBranchIds === null) return select;
+  // Prisma requires a mutable string[] for nested 'in' filters. Build the
+  // authorized ID array outside the readonly literal projection so the
+  // course selector is accepted by Prisma.CourseSelect at compile time.
+  const scopedBranchIds: string[] = Array.from(visibleBranchIds);
+  return {
+    ...select,
+    _count: { select: {
+      enrollments: { where: {
+        user: { studentProfile: { is: { branchId: { in: scopedBranchIds } } } },
+      } },
+      batches: { where: { branchId: { in: scopedBranchIds } } },
+      modules: true,
+    } },
+  } as const satisfies Prisma.CourseSelect;
+}
+
 async function scope(req: AuthRequest, branchId?: string | null) {
   if (req.auth!.role !== Role.BRANCH_ADMIN) return undefined;
   const assigned = await prisma.branchUser.findMany({ where: { userId: req.auth!.userId }, select: { branchId: true } });
@@ -148,7 +171,14 @@ router.get("/courses", async (req: AuthRequest, res) => {
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
   }).parse(req.query);
   const ids = await scope(req, query.branchId);
+  if (ids && ids.length === 0) {
+    // An unassigned Branch Admin has no campus entitlement. The otherwise
+    // shared null-branch course catalogue must not bypass that boundary.
+    return res.json({ data: [], meta: { total: 0, page: query.page, limit: query.limit, totalPages: 1 } });
+  }
+  const visibleBranchIds = ids ? (query.branchId ? [query.branchId] : ids) : null;
   const branchFilter = query.branchId ? { OR: [{ branchId: query.branchId }, { branchId: null }] } : ids ? { OR: [{ branchId: { in: ids } }, { branchId: null }] } : {};
+  const courseSelect = readCourseSelect(visibleBranchIds);
   const where = {
     ...branchFilter,
     ...(query.status ? { status: query.status } : {}),
@@ -158,7 +188,7 @@ router.get("/courses", async (req: AuthRequest, res) => {
   };
   const [total, data] = await prisma.$transaction([
     prisma.course.count({ where }),
-    prisma.course.findMany({ where, select, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { [query.sortBy]: query.sortOrder } }),
+    prisma.course.findMany({ where, select: courseSelect, skip: (query.page - 1) * query.limit, take: query.limit, orderBy: { [query.sortBy]: query.sortOrder } }),
   ]);
   res.json({ data, meta: { total, page: query.page, limit: query.limit, totalPages: Math.max(1, Math.ceil(total / query.limit)) } });
 });
@@ -167,13 +197,21 @@ router.get("/courses/:id", async (req: AuthRequest, res) => {
   const data = await prisma.course.findUnique({ where: { id: String(req.params.id) }, select });
   if (!data) throw new AppError(404, "COURSE_NOT_FOUND", "Course not found");
   await writeScope(req, data.branchId);
-  res.json({ data });
+  if (req.auth!.role !== Role.BRANCH_ADMIN) return res.json({ data });
+  const assigned = await scope(req, data.branchId);
+  const restricted = await prisma.course.findUnique({
+    where: { id: data.id }, select: readCourseSelect(assigned ?? []),
+  });
+  if (!restricted) throw new AppError(404, "COURSE_NOT_FOUND", "Course not found");
+  return res.json({ data: restricted });
 });
 
 router.post("/courses", async (req: AuthRequest, res) => {
   const data = input.parse(req.body);
   validateCommon(data);
-  await scope(req, data.branchId);
+  // Read scope allows shared/global catalogue definitions, but creation is
+  // a tenant-wide mutation. Branch admins must specify their own branch.
+  await writeScope(req, data.branchId);
   const legacyCourseType = await validateTaxonomy(data);
   const [duplicate, category] = await Promise.all([
     prisma.course.findFirst({ where: { OR: [{ slug: data.slug }, { courseCode: data.courseCode }] }, select: { slug: true, courseCode: true } }),
