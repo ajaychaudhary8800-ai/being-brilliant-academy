@@ -91,6 +91,37 @@ test("real PostgreSQL: academic sessions and education masters remain institutio
       where: { organizationId: orgA },
     });
 
+    // Branch Administrators can read shared session names, but its
+    // aggregate counts must contain ONLY assigned campus activity.
+    const [ndg, rne] = await Promise.all([
+      systemPrisma.branch.create({ data: {
+        organizationId: orgA, branchCode: `UAT-NDG-${nonce}`, branchName: "Synthetic Nandgram",
+      } }),
+      systemPrisma.branch.create({ data: {
+        organizationId: orgA, branchCode: `UAT-RNE-${nonce}`, branchName: "Synthetic Raj Nagar",
+      } }),
+    ]);
+    await Promise.all([ndg, rne].map((branch, index) =>
+      systemPrisma.batch.create({ data: {
+        organizationId: orgA, branchId: branch.id, academicSessionId: sessionA.id,
+        academicSession: sessionA.name, name: `Synthetic Branch Batch ${index}`,
+        code: `UAT-SESSION-${index}-${nonce}`, startsAt: sessionA.startsAt,
+      } }),
+    ));
+    const manager = await systemPrisma.user.create({ data: {
+      organizationId: orgA, email: `v5-inst-manager-${nonce}@example.test`,
+      name: "Synthetic Assigned Branch Manager", role: Role.BRANCH_ADMIN,
+      passwordHash: "integration-only-invalid-login", emailVerifiedAt: new Date(),
+    } });
+    const unassignedManager = await systemPrisma.user.create({ data: {
+      organizationId: orgA, email: `v5-inst-unassigned-${nonce}@example.test`,
+      name: "Synthetic Unassigned Manager", role: Role.BRANCH_ADMIN,
+      passwordHash: "integration-only-invalid-login", emailVerifiedAt: new Date(),
+    } });
+    await systemPrisma.branchUser.create({
+      data: { organizationId: orgA, userId: manager.id, branchId: ndg.id },
+    });
+
     // Foreign-organization metadata is created directly with the system test
     // client. The API requests themselves must never read or mutate those rows.
     const [foreignExam, foreignSkill, foreignSpecialization] = await Promise.all([
@@ -121,11 +152,33 @@ test("real PostgreSQL: academic sessions and education masters remain institutio
         env.JWT_ACCESS_SECRET, { expiresIn: "5m" });
     const a = token(userA.id, orgA);
     const b = token(userB.id, orgB);
+    const managerToken = jwt.sign(
+      { userId: manager.id, role: Role.BRANCH_ADMIN, organizationId: orgA },
+      env.JWT_ACCESS_SECRET, { expiresIn: "5m" },
+    );
+    const unassignedToken = jwt.sign(
+      { userId: unassignedManager.id, role: Role.BRANCH_ADMIN, organizationId: orgA },
+      env.JWT_ACCESS_SECRET, { expiresIn: "5m" },
+    );
 
     const listA = await http(port, "/academic-sessions?limit=30", a);
     assert.equal(listA.status, 200, JSON.stringify(listA.data));
     assert.equal(listA.data.meta.total, localSessionCount);
     assert.ok(listA.data.data.every((s: any) => s.organizationId === orgA));
+    const superSession = listA.data.data.find((row: any) => row.id === sessionA.id);
+    assert.equal(superSession?._count.batches, 2, "super admin sees institution-wide usage");
+    const managerList = await http(port, "/academic-sessions?limit=30", managerToken);
+    assert.equal(managerList.status, 200, JSON.stringify(managerList.data));
+    const managerSession = managerList.data.data.find((row: any) => row.id === sessionA.id);
+    assert.equal(managerSession?._count.batches, 1, "manager only sees NDG batch count");
+    const managerDetail = await http(port, `/academic-sessions/${sessionA.id}`, managerToken);
+    assert.equal(managerDetail.status, 200);
+    assert.equal(managerDetail.data.data._count.batches, 1);
+    const unassigned = await http(port, "/academic-sessions?limit=30", unassignedToken);
+    assert.equal(unassigned.status, 200);
+    assert.equal(unassigned.data.data.find((row: any) => row.id === sessionA.id)?._count.batches, 0,
+      "unassigned branch managers cannot see institution activity counts");
+
     const ownCurrent = await http(port, "/academic-sessions/current", a);
     const foreignCurrent = await http(port, "/academic-sessions/current", b);
     assert.equal(ownCurrent.data.data.id, sessionA.id);
@@ -188,6 +241,9 @@ test("real PostgreSQL: academic sessions and education masters remain institutio
     await systemPrisma.competitiveExam.deleteMany({ where });
     await systemPrisma.specialization.deleteMany({ where });
     await systemPrisma.skillCategory.deleteMany({ where });
+    await systemPrisma.batch.deleteMany({ where });
+    await systemPrisma.branchUser.deleteMany({ where });
+    await systemPrisma.branch.deleteMany({ where });
     await systemPrisma.user.deleteMany({ where });
     await systemPrisma.$transaction(async tx => {
       // The deferred one-current-session trigger rejects deleting a test
