@@ -191,6 +191,34 @@ test("real PostgreSQL: academic sessions and education masters remain institutio
     assert.equal(forbiddenEdit.status, 404);
     const forbiddenCurrent = await http(port, `/academic-sessions/${sessionB.id}/current`, a, "PATCH", {});
     assert.equal(forbiddenCurrent.status, 404);
+    // Institution-wide academic years affect every campus. A Branch Admin
+    // (even one with a legitimate NDG assignment) must never modify them.
+    // The route guard must reject before input parsing or any database writes.
+    const forbiddenManagerMutations = [
+      ["/academic-sessions", "POST", {
+        name: `Unauthorized ${nonce}`, startsAt: "2028-04-01", endsAt: "2029-03-31",
+      }],
+      [`/academic-sessions/${sessionA.id}`, "PATCH", { name: "Unauthorized rename" }],
+      [`/academic-sessions/${sessionA.id}/archive`, "PATCH", { isArchived: true }],
+      [`/academic-sessions/${nextA.id}/current`, "PATCH", {}],
+      [`/academic-sessions/${sessionA.id}`, "DELETE", undefined],
+    ] as const;
+    for (const [path, method, body] of forbiddenManagerMutations) {
+      const denied = await http(port, path, managerToken, method, body);
+      assert.equal(denied.status, 403, `BRANCH_ADMIN ${method} ${path} must be denied`);
+      const deniedWithoutAssignment = await http(port, path, unassignedToken, method, body);
+      assert.equal(deniedWithoutAssignment.status, 403,
+        `unassigned BRANCH_ADMIN ${method} ${path} must be denied`);
+    }
+    assert.equal(await systemPrisma.academicSession.count({ where: { organizationId: orgA } }),
+      localSessionCount, "Branch Admin cannot create new institution-wide academic sessions");
+    const sessionAfterDeniedWrites = await systemPrisma.academicSession.findUniqueOrThrow({
+      where: { id: sessionA.id },
+    });
+    assert.equal(sessionAfterDeniedWrites.name, sessionA.name);
+    assert.equal(sessionAfterDeniedWrites.isCurrent, true);
+    assert.equal(sessionAfterDeniedWrites.isArchived, sessionA.isArchived);
+
     const selectA = await http(port, `/academic-sessions/${nextA.id}/current`, a, "PATCH", {});
     assert.equal(selectA.status, 200, JSON.stringify(selectA.data));
     assert.equal((await http(port, "/academic-sessions/current", a)).data.data.id, nextA.id);
@@ -207,6 +235,57 @@ test("real PostgreSQL: academic sessions and education masters remain institutio
       assert.ok(mastersA.data.data[kind].every((v: any) => v.organizationId === orgA),
         `A cannot list another institution's ${kind}`);
     }
+
+    // Education taxonomy masters are also global institution configuration.
+    // Branch managers (with or without a legitimate campus assignment) can
+    // browse them, but must not create or alter any institution master record.
+    const ownExam = mastersA.data.data.competitiveExams[0];
+    const ownSkill = mastersA.data.data.skillCategories[0];
+    const ownSpecialization = mastersA.data.data.specializations[0];
+    const masterCountsBefore = await Promise.all([
+      systemPrisma.competitiveExam.count({ where: { organizationId: orgA } }),
+      systemPrisma.skillCategory.count({ where: { organizationId: orgA } }),
+      systemPrisma.specialization.count({ where: { organizationId: orgA } }),
+    ]);
+    const forbiddenMasterMutations = [
+      ["/education-masters/competitive-exams", "POST",
+        { name: "Unauthorized Exam", code: `NOEXAM_${nonce}` }],
+      [`/education-masters/competitive-exams/${ownExam.id}`, "PATCH",
+        { name: "Unauthorized Exam Rename" }],
+      ["/education-masters/skill-categories", "POST",
+        { name: "Unauthorized Skill", code: `NOSKILL_${nonce}` }],
+      [`/education-masters/skill-categories/${ownSkill.id}`, "PATCH",
+        { name: "Unauthorized Skill Rename" }],
+      ["/education-masters/specializations", "POST",
+        { name: "Unauthorized Specialization", code: `NOSPEC_${nonce}` }],
+      [`/education-masters/specializations/${ownSpecialization.id}`, "PATCH",
+        { name: "Unauthorized Specialization Rename" }],
+    ] as const;
+    for (const [path, method, body] of forbiddenMasterMutations) {
+      const assignedDenied = await http(port, path, managerToken, method, body);
+      assert.equal(assignedDenied.status, 403, `BRANCH_ADMIN ${method} ${path} must be denied`);
+      const unassignedDenied = await http(port, path, unassignedToken, method, body);
+      assert.equal(unassignedDenied.status, 403,
+        `unassigned BRANCH_ADMIN ${method} ${path} must be denied`);
+    }
+    const masterCountsAfter = await Promise.all([
+      systemPrisma.competitiveExam.count({ where: { organizationId: orgA } }),
+      systemPrisma.skillCategory.count({ where: { organizationId: orgA } }),
+      systemPrisma.specialization.count({ where: { organizationId: orgA } }),
+    ]);
+    assert.deepEqual(masterCountsAfter, masterCountsBefore, "Branch Admin could not create masters");
+    const examAfterManager = await systemPrisma.competitiveExam.findUniqueOrThrow({
+      where: { id: ownExam.id },
+    });
+    const skillAfterManager = await systemPrisma.skillCategory.findUniqueOrThrow({
+      where: { id: ownSkill.id },
+    });
+    const specializationAfterManager = await systemPrisma.specialization.findUniqueOrThrow({
+      where: { id: ownSpecialization.id },
+    });
+    assert.equal(examAfterManager.name, ownExam.name);
+    assert.equal(skillAfterManager.name, ownSkill.name);
+    assert.equal(specializationAfterManager.name, ownSpecialization.name);
 
     const tests = [
       [`/education-masters/competitive-exams/${foreignExam.id}`, { name: "Illegal exam edit" }],
