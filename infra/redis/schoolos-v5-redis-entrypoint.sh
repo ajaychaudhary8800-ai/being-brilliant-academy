@@ -29,7 +29,9 @@ if [ "${#password_sha256}" -ne 64 ]; then
   echo 'V5_REDIS_RUNTIME_ACL_HASH=HOLD' >&2
   exit 78
 fi
-printf 'user default on #%s ~* &* +@all\n' "$password_sha256" > "$acl_path"
+# Redis default user starts with nopass: resetpass is MANDATORY before #hash
+# or all passwords, including the revoked old one, would remain accepted.
+printf 'user default on resetpass #%s ~* &* +@all\\n' "$password_sha256" > "$acl_path"
 chmod 0600 "$acl_path"
 if [ "$(id -u)" -eq 0 ]; then
   chown redis:redis "$acl_dir" "$acl_path"
