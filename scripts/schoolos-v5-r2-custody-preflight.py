@@ -11,9 +11,11 @@ never supply it on the command line or paste it into a GitHub issue/log.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -61,24 +63,45 @@ def _read_control_plane(path: str, account_id: str, api_token: str, open_request
     return result
 
 
-def _locked_for_minimum_age(rules):
+def _locked_for_minimum_age(rules, now: datetime | None = None):
+    """Accept only documented effective locks applying to every rollback object.
+
+    Cloudflare permits a missing prefix for a bucket-wide rule and a Date
+    condition (absolute UTC end of retention), in addition to Age/Indefinite.
+    Unknown/malformed conditions never satisfy the release-preflight check.
+    """
     if not isinstance(rules, list):
         return False
+    current_time = datetime.now(timezone.utc) if now is None else now
+    if current_time.tzinfo is None or current_time.utcoffset() is None:
+        return False
+    threshold = current_time.astimezone(timezone.utc) + timedelta(seconds=MIN_RETENTION_SECONDS)
     for rule in rules:
         if not isinstance(rule, dict) or rule.get("enabled") is not True:
             continue
-        if rule.get("prefix") not in ("", LOCK_PREFIX):
+        # Absent prefix covers the entire bucket per Cloudflare R2 API.
+        # A present null/unknown prefix is malformed and must fail closed.
+        if "prefix" in rule and rule["prefix"] not in ("", LOCK_PREFIX):
             continue
         condition = rule.get("condition")
         if not isinstance(condition, dict):
             continue
         if condition.get("type") == "Indefinite":
             return True
-        age = condition.get("maxAgeSeconds")
-        if (condition.get("type") == "Age"
-                and type(age) in (int, float)
-                and age >= MIN_RETENTION_SECONDS):
-            return True
+        if condition.get("type") == "Age":
+            age = condition.get("maxAgeSeconds")
+            if type(age) in (int, float) and math.isfinite(age) and age >= MIN_RETENTION_SECONDS:
+                return True
+        if condition.get("type") == "Date":
+            date_value = condition.get("date")
+            if not isinstance(date_value, str):
+                continue
+            try:
+                expiry = datetime.fromisoformat(date_value.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if expiry.tzinfo is not None and expiry.utcoffset() is not None and expiry >= threshold:
+                return True
     return False
 
 
