@@ -73,11 +73,23 @@ test("real PostgreSQL: academic sessions and education masters remain institutio
         startsAt: new Date(name.startsWith("2026") ? "2026-04-01" : "2027-04-01"),
         endsAt: new Date(name.startsWith("2026") ? "2027-03-31" : "2028-03-31"),
       } });
-    const [sessionA, sessionB] = await Promise.all([
-      makeSession(orgA, "2026-27", true),
-      makeSession(orgB, "2026-27", true),
+    // Tenant bootstrap migrations may already provision the first/current
+    // academic session. Reuse it instead of inserting a duplicate name.
+    const [existingA, existingB] = await Promise.all([
+      systemPrisma.academicSession.findFirst({
+        where: { organizationId: orgA, isCurrent: true },
+      }),
+      systemPrisma.academicSession.findFirst({
+        where: { organizationId: orgB, isCurrent: true },
+      }),
     ]);
-    const nextA = await makeSession(orgA, "2027-28", false);
+    const sessionA = existingA ?? await makeSession(orgA, `2026-27-${nonce}`, true);
+    const sessionB = existingB ?? await makeSession(orgB, `2026-27-${nonce}`, true);
+    const initialNameB = sessionB.name;
+    const nextA = await makeSession(orgA, `UAT-2027-${nonce}`, false);
+    const localSessionCount = await systemPrisma.academicSession.count({
+      where: { organizationId: orgA },
+    });
 
     // Foreign-organization metadata is created directly with the system test
     // client. The API requests themselves must never read or mutate those rows.
@@ -112,7 +124,7 @@ test("real PostgreSQL: academic sessions and education masters remain institutio
 
     const listA = await http(port, "/academic-sessions?limit=30", a);
     assert.equal(listA.status, 200, JSON.stringify(listA.data));
-    assert.equal(listA.data.meta.total, 2);
+    assert.equal(listA.data.meta.total, localSessionCount);
     assert.ok(listA.data.data.every((s: any) => s.organizationId === orgA));
     const ownCurrent = await http(port, "/academic-sessions/current", a);
     const foreignCurrent = await http(port, "/academic-sessions/current", b);
@@ -133,7 +145,7 @@ test("real PostgreSQL: academic sessions and education masters remain institutio
       "A changing its current session must never clear B's current session");
     assert.equal((await systemPrisma.academicSession.findUniqueOrThrow({
       where: { id: sessionB.id },
-    })).name, "2026-27");
+    })).name, initialNameB);
 
     const mastersA = await http(port, "/education-masters?includeInactive=true", a);
     assert.equal(mastersA.status, 200, JSON.stringify(mastersA.data));
