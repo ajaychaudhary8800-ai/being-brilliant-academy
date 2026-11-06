@@ -23,6 +23,8 @@ The dedicated GitHub Action `V5 Redis Runtime ACL and Rotation Synthetic Rehears
 5. Confirms the old synthetic credential fails, the new one succeeds and the previously written key survives.
 6. Destroys the synthetic Redis container and volume; does not emit passwords, password hashes or container environment data.
 
+An additional **disposable PostgreSQL 16 TCP-auth rehearsal** (`scripts/schoolos-v5-ci-postgres-rotation-rehearsal.sh`) generates isolated old/new random credentials, creates one synthetic row, changes the role password using a protected **stdin** SQL channel (never a `psql -c` command argument), rejects old TCP authentication, confirms new TCP auth and preserved data, then restarts the same disposable database volume under a different `POSTGRES_PASSWORD` environment setting and confirms the actual role password change persists. PostgreSQL's local Unix-socket trust path is deliberately **not** used for authentication proof. This is not a recipe to perform an unattended real staging rotation.
+
 This test proves only a **source/isolated technical capability**, never that real PostgreSQL or Redis credentials have been rotated or that production data can be recovered.
 
 ## Preconditions for any real shared staging rollout
