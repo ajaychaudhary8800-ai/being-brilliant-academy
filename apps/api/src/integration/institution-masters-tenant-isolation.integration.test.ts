@@ -191,6 +191,34 @@ test("real PostgreSQL: academic sessions and education masters remain institutio
     assert.equal(forbiddenEdit.status, 404);
     const forbiddenCurrent = await http(port, `/academic-sessions/${sessionB.id}/current`, a, "PATCH", {});
     assert.equal(forbiddenCurrent.status, 404);
+    // Institution-wide academic years affect every campus. A Branch Admin
+    // (even one with a legitimate NDG assignment) must never modify them.
+    // The route guard must reject before input parsing or any database writes.
+    const forbiddenManagerMutations = [
+      ["/academic-sessions", "POST", {
+        name: `Unauthorized ${nonce}`, startsAt: "2028-04-01", endsAt: "2029-03-31",
+      }],
+      [`/academic-sessions/${sessionA.id}`, "PATCH", { name: "Unauthorized rename" }],
+      [`/academic-sessions/${sessionA.id}/archive`, "PATCH", { isArchived: true }],
+      [`/academic-sessions/${nextA.id}/current`, "PATCH", {}],
+      [`/academic-sessions/${sessionA.id}`, "DELETE", undefined],
+    ] as const;
+    for (const [path, method, body] of forbiddenManagerMutations) {
+      const denied = await http(port, path, managerToken, method, body);
+      assert.equal(denied.status, 403, `BRANCH_ADMIN ${method} ${path} must be denied`);
+      const deniedWithoutAssignment = await http(port, path, unassignedToken, method, body);
+      assert.equal(deniedWithoutAssignment.status, 403,
+        `unassigned BRANCH_ADMIN ${method} ${path} must be denied`);
+    }
+    assert.equal(await systemPrisma.academicSession.count({ where: { organizationId: orgA } }),
+      localSessionCount, "Branch Admin cannot create new institution-wide academic sessions");
+    const sessionAfterDeniedWrites = await systemPrisma.academicSession.findUniqueOrThrow({
+      where: { id: sessionA.id },
+    });
+    assert.equal(sessionAfterDeniedWrites.name, sessionA.name);
+    assert.equal(sessionAfterDeniedWrites.isCurrent, true);
+    assert.equal(sessionAfterDeniedWrites.isArchived, sessionA.isArchived);
+
     const selectA = await http(port, `/academic-sessions/${nextA.id}/current`, a, "PATCH", {});
     assert.equal(selectA.status, 200, JSON.stringify(selectA.data));
     assert.equal((await http(port, "/academic-sessions/current", a)).data.data.id, nextA.id);
