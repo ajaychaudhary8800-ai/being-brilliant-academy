@@ -4,6 +4,7 @@ import io
 import json
 import pathlib
 import unittest
+from datetime import datetime, timedelta, timezone
 
 MODULE_FILE = pathlib.Path(__file__).with_name("schoolos-v5-r2-custody-preflight.py")
 spec = importlib.util.spec_from_file_location("custody_preflight", MODULE_FILE)
@@ -132,6 +133,70 @@ class PreflightTests(unittest.TestCase):
         def oversized(req, timeout):
             return FakeResponse(b"x" * (mod.MAX_RESPONSE_BYTES + 1))
         self.assertEqual(mod.inspect(ACCOUNT, TOKEN, oversized)["R2_PREFLIGHT_BLOCKER"], "API_RESPONSE_TOO_LARGE")
+
+
+    def test_bucket_wide_lock_with_omitted_prefix_protects_rollback_objects(self):
+        # Cloudflare's rule prefix is optional: absent means the entire bucket.
+        data = {**BASE, "/lock": {"rules": [{"enabled": True,
+                            "condition": {"type": "Indefinite"}}]}}
+        self.assertEqual(self.check(data)["R2_PRIVATE_CONFIG_PREFLIGHT"], "PASS_CONFIGURATION_ONLY")
+
+    def test_bucket_wide_lock_with_empty_prefix_passes(self):
+        data = {**BASE, "/lock": {"rules": [{"enabled": True, "prefix": "",
+                            "condition": {"type": "Age", "maxAgeSeconds": 7776000}}]}}
+        self.assertEqual(self.check(data)["R2_PRIVATE_CONFIG_PREFLIGHT"], "PASS_CONFIGURATION_ONLY")
+
+    def test_explicit_null_prefix_does_not_bypass_scope(self):
+        data = {**BASE, "/lock": {"rules": [{"enabled": True, "prefix": None,
+                            "condition": {"type": "Indefinite"}}]}}
+        self.assertEqual(self.check(data)["R2_PRIVATE_CONFIG_PREFLIGHT"], "HOLD")
+
+    def test_date_rule_requires_90_days_remaining_in_real_utc(self):
+        now = datetime(2026, 11, 6, tzinfo=timezone.utc)
+        def rules_at(offset, prefix=mod.LOCK_PREFIX):
+            expiry = (now + timedelta(days=offset)).isoformat().replace("+00:00", "Z")
+            return [{"enabled": True, "prefix": prefix,
+                     "condition": {"type": "Date", "date": expiry}}]
+        self.assertTrue(mod._locked_for_minimum_age(rules_at(90), now))
+        self.assertFalse(mod._locked_for_minimum_age(rules_at(89), now))
+        self.assertFalse(mod._locked_for_minimum_age(rules_at(-1), now))
+        self.assertTrue(mod._locked_for_minimum_age(rules_at(91, ""), now))
+
+    def test_date_lock_timezone_offset_is_normalized_to_utc(self):
+        now = datetime(2026, 11, 6, tzinfo=timezone.utc)
+        on_boundary = (now + timedelta(days=90, hours=5, minutes=30)).strftime("%Y-%m-%dT%H:%M:%S+05:30")
+        # Same instant represented in a non-UTC zone passes exactly at 90d.
+        self.assertTrue(mod._locked_for_minimum_age(
+            [{"enabled": True, "condition": {"type": "Date", "date": on_boundary}}], now))
+
+    def test_malformed_date_lock_fails_closed(self):
+        now = datetime(2026, 11, 6, tzinfo=timezone.utc)
+        for value in ["not-a-date", "2027-05-01", None, True, "2026-11-06T00:00:00Z"]:
+            with self.subTest(value=value):
+                self.assertFalse(mod._locked_for_minimum_age(
+                    [{"enabled": True, "prefix": mod.LOCK_PREFIX,
+                      "condition": {"type": "Date", "date": value}}], now))
+
+    def test_inf_nan_and_boolean_ages_are_not_retention_proof(self):
+        for value in [float("inf"), float("-inf"), float("nan"), True]:
+            with self.subTest(value=value):
+                data = {**BASE, "/lock": {"rules": [{"enabled": True, "prefix": mod.LOCK_PREFIX,
+                    "condition": {"type": "Age", "maxAgeSeconds": value}}]}}
+                self.assertEqual(self.check(data)["R2_PRIVATE_CONFIG_PREFLIGHT"], "HOLD")
+
+    def test_extremely_large_integer_age_does_not_crash(self):
+        self.assertTrue(mod._locked_for_minimum_age(
+            [{"enabled": True, "prefix": mod.LOCK_PREFIX,
+              "condition": {"type": "Age", "maxAgeSeconds": 10 ** 400}}]))
+
+    def test_missing_and_false_enabled_rules_do_not_qualify(self):
+        for rule in [
+            {"prefix": mod.LOCK_PREFIX, "condition": {"type": "Indefinite"}},
+            {"enabled": False, "prefix": mod.LOCK_PREFIX, "condition": {"type": "Indefinite"}},
+            {"enabled": True, "prefix": "v5-backups/", "condition": {"type": "Indefinite"}},
+        ]:
+            with self.subTest(rule=rule):
+                self.assertFalse(mod._locked_for_minimum_age([rule]))
 
 
 if __name__ == "__main__":
