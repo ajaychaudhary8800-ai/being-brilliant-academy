@@ -4,6 +4,8 @@
 
 Cloudflare's read-only R2 control-plane endpoints can verify selected properties of the **dedicated bucket** `schoolos-v5-rollback-custody`: existence, lack of a public `r2.dev` domain, lack of custom domains, and an enabled retention lock applying to the designated `v5-rollback/` prefix for at least 90 days (or indefinitely). All four checks must pass before this limited configuration check reports `PASS_CONFIGURATION_ONLY`.
 
+Supported lock rules are based on Cloudflare's documented types: **Age** (at least 7,776,000 seconds), **Date** (at least 90 days *remaining* from the current UTC instant), or **Indefinite**. A rule with no `prefix` or an empty prefix applies to the entire bucket and qualifies when otherwise valid; an exact `v5-rollback/` prefix also qualifies. Malformed/unknown rules, nonfinite retention ages, missing timezone on dates, explicitly null prefixes, and expired/short Date locks fail closed. These checks prove only rule configuration, **not actual object immutability**. See [Cloudflare R2 bucket lock documentation](https://developers.cloudflare.com/r2/buckets/bucket-locks/) and [GET lock API](https://developers.cloudflare.com/api/resources/r2/subresources/buckets/subresources/locks/methods/get/).
+
 The account owner must create and restrict the bucket using Cloudflare administrative controls; the preflight does **not** create buckets or update locks. **Do not use the existing staging or production backup buckets.** Check current rules before making any lock modifications, because the lock API replaces the rule set.
 
 ## Run locally after account-side provisioning
