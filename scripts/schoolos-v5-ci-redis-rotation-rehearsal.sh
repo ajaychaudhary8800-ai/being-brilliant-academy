@@ -49,8 +49,14 @@ docker exec -e "REDISCLI_AUTH=$old" "$name" redis-cli --no-auth-warning SET v5-c
 docker stop "$name" >/dev/null
 docker rm "$name" >/dev/null
 start "$new"
-if docker exec -e "REDISCLI_AUTH=$old" "$name" redis-cli --no-auth-warning ping >/dev/null 2>&1; then
+# redis-cli may exit zero even after a Redis-level WRONGPASS/NOAUTH error,
+# so negative acceptance checks require an actual PONG, not exit code alone.
+if docker exec -e "REDISCLI_AUTH=$old" "$name" redis-cli --no-auth-warning ping 2>/dev/null | grep -qx PONG; then
   echo "V5_REDIS_REHEARSAL=HOLD_OLD_CREDENTIAL_ACCEPTED"
+  exit 2
+fi
+if docker exec "$name" redis-cli --no-auth-warning ping 2>/dev/null | grep -qx PONG; then
+  echo "V5_REDIS_REHEARSAL=HOLD_NO_AUTH_REQUIRED"
   exit 2
 fi
 docker exec -e "REDISCLI_AUTH=$new" "$name" redis-cli --no-auth-warning ping | grep -qx PONG
