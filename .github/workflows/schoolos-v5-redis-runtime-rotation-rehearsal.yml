@@ -6,6 +6,7 @@ on:
       - "infra/redis/**"
       - "docker-compose.schoolos-v5-staging.yml"
       - "scripts/schoolos-v5-ci-redis-rotation-rehearsal.sh"
+      - "scripts/schoolos-v5-ci-postgres-rotation-rehearsal.sh"
       - ".github/workflows/schoolos-v5-redis-runtime-rotation-rehearsal.yml"
       - "docs/SCHOOLOS_V5_PHASE1_REDIS_RUNTIME_SECRET_CONTAINMENT_20261107.md"
 
@@ -61,4 +62,31 @@ jobs:
           echo "V5_ACTUAL_POSTGRES_REDIS_ROTATION=NOT_EXECUTED"
           echo "V5_PREVIOUS_SIGNED_ROLLBACK_PAIR=NOT_VERIFIED"
           echo "V5_STAGING_AND_PRODUCTION_CHANGED=NO"
+          echo "V5_COMMERCIAL_GO=HOLD"
+
+  docker-isolated-postgres-role-rotation:
+    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'fix/schoolos-v5-phase1-redis-runtime-auth-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Only generated synthetic credentials; never actual staging credentials.
+      POSTGRES_PASSWORD: ""
+      DATABASE_URL: ""
+    steps:
+      - name: Checkout exact immutable review head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Validate synthetic PostgreSQL rehearsal input
+        shell: bash
+        run: bash -n scripts/schoolos-v5-ci-postgres-rotation-rehearsal.sh
+      - name: Test TCP old-credential rejection, ALTER ROLE, and existing-volume restart
+        shell: bash
+        run: bash scripts/schoolos-v5-ci-postgres-rotation-rehearsal.sh
+      - name: Preserve operator-only deployment boundary
+        run: |
+          echo "V5_POSTGRES_ROTATION_EVIDENCE=SYNTHETIC_ONLY"
+          echo "V5_REAL_STAGING_CREDENTIAL_ROTATION=NOT_EXECUTED"
+          echo "V5_SHARED_STAGING_AND_PRODUCTION_CHANGED=NO"
           echo "V5_COMMERCIAL_GO=HOLD"
