@@ -1,0 +1,50 @@
+name: V5 Private R2 Signed Readback Offline Unit Tests
+
+on:
+  pull_request:
+    paths:
+      - "scripts/schoolos-v5-private-r2-signed-readback.py"
+      - "scripts/test_schoolos_v5_private_r2_signed_readback.py"
+      - ".github/workflows/schoolos-v5-private-r2-readback-tests.yml"
+      - "docs/SCHOOLOS_V5_PHASE1_PRIVATE_SIGNED_R2_READBACK_20261107.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "v5-r2-private-readback-${{ github.event.pull_request.number }}"
+  cancel-in-progress: true
+
+jobs:
+  offline-signature-and-streaming-tests:
+    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'fix/schoolos-v5-phase1-private-signed-r2-readback-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ""
+      CLOUDFLARE_API_TOKEN: ""
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      R2_CUSTODY_READER_ACCESS_KEY_ID: ""
+      R2_CUSTODY_READER_SECRET_ACCESS_KEY: ""
+    steps:
+      - name: Checkout exact PR source without persistable authentication
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Run offline ephemeral RSA key and fake-R2 streamed readback cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v scripts/test_schoolos_v5_private_r2_signed_readback.py
+          python3 -m py_compile scripts/schoolos-v5-private-r2-signed-readback.py
+      - name: Enforce no real object I/O and release HOLD
+        run: |
+          echo "V5_PRIVATE_R2_SIGNED_READBACK_OFFLINE=PASS_SYNTHETIC_ONLY"
+          echo "V5_R2_REAL_RETRIEVAL=NOT_PERFORMED"
+          echo "V5_R2_PRIVATE_PUBLISHER_CONFIG=NOT_USED"
+          echo "V5_OPERATOR_SIGNING_KEY=NOT_USED"
+          echo "V5_HISTORICAL_CREDENTIAL_ROTATION=NOT_EXECUTED"
+          echo "V5_STAGING_AND_PRODUCTION_CHANGED=NO"
+          echo "V5_DEPLOYMENT_AUTHORIZATION=HOLD"
