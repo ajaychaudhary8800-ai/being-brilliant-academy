@@ -1,0 +1,23 @@
+name: V5 R2 Rollback Custody Preflight Unit Tests
+on:
+  pull_request:
+    paths:
+      - 'scripts/schoolos-v5-r2-custody-preflight.py'
+      - 'scripts/test_schoolos_v5_r2_custody_preflight.py'
+      - '.github/workflows/schoolos-v5-r2-custody-preflight-tests.yml'
+permissions:
+  contents: read
+jobs:
+  offline-control-plane-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Execute offline synthetic control-plane tests
+        run: python3 -m unittest discover -s scripts -p 'test_schoolos_v5_r2_custody_preflight.py' -v
+      - name: Check syntax only; no R2 credentials used
+        run: python3 -m py_compile scripts/schoolos-v5-r2-custody-preflight.py
