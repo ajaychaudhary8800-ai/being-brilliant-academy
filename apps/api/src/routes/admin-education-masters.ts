@@ -24,12 +24,12 @@ router.get("/education-masters", async (req: AuthRequest, res) => {
   res.json({ data: { competitiveExams, skillCategories, specializations } });
 });
 
-router.post("/education-masters/competitive-exams", async (req: AuthRequest, res) => {
+router.post("/education-masters/competitive-exams", allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
   const input = masterInput.parse(req.body);
   try { const data = await prisma.competitiveExam.create({ data: { ...input, organizationId: req.auth!.organizationId } }); await audit(req, "CREATE", "CompetitiveExam", data.id, input); res.status(201).json({ data }); }
   catch (error) { if (duplicate(error)) throw new AppError(409, "MASTER_DUPLICATE", "An exam with this name or code already exists"); throw error; }
 });
-router.patch("/education-masters/competitive-exams/:id", async (req: AuthRequest, res) => {
+router.patch("/education-masters/competitive-exams/:id", allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
   const input = masterInput.partial().parse(req.body), examId = id.parse(req.params.id), existing = await prisma.competitiveExam.findFirst({ where: { id: examId, organizationId: req.auth!.organizationId }, select: { id: true } });
   if (!existing) throw new AppError(404, "MASTER_NOT_FOUND", "Competitive exam not found");
   if (input.status === MasterStatus.INACTIVE && await prisma.course.count({ where: { organizationId: req.auth!.organizationId, competitiveExamId: examId } })) throw new AppError(409, "MASTER_IN_USE", "Reclassify courses using this exam before deactivating it");
@@ -37,13 +37,13 @@ router.patch("/education-masters/competitive-exams/:id", async (req: AuthRequest
   catch (error) { if (duplicate(error)) throw new AppError(409, "MASTER_DUPLICATE", "An exam with this name or code already exists"); throw error; }
 });
 
-router.post("/education-masters/skill-categories", async (req: AuthRequest, res) => {
+router.post("/education-masters/skill-categories", allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
   const input = masterInput.extend({ parentId: id.nullable().optional() }).parse(req.body);
   if (input.parentId && !await prisma.skillCategory.findFirst({ where: { id: input.parentId, organizationId: req.auth!.organizationId }, select: { id: true } })) throw new AppError(422, "INVALID_PARENT", "Parent skill category must belong to this organization");
   try { const data = await prisma.skillCategory.create({ data: { ...input, organizationId: req.auth!.organizationId } }); await audit(req, "CREATE", "SkillCategory", data.id, input); res.status(201).json({ data }); }
   catch (error) { if (duplicate(error)) throw new AppError(409, "MASTER_DUPLICATE", "A skill category with this name or code already exists"); throw error; }
 });
-router.patch("/education-masters/skill-categories/:id", async (req: AuthRequest, res) => {
+router.patch("/education-masters/skill-categories/:id", allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
   const input = masterInput.partial().extend({ parentId: id.nullable().optional() }).parse(req.body), skillId = id.parse(req.params.id), existing = await prisma.skillCategory.findFirst({ where: { id: skillId, organizationId: req.auth!.organizationId }, select: { id: true } });
   if (!existing) throw new AppError(404, "MASTER_NOT_FOUND", "Skill category not found");
   if (input.parentId === skillId || input.parentId && !await prisma.skillCategory.findFirst({ where: { id: input.parentId, organizationId: req.auth!.organizationId }, select: { id: true } })) throw new AppError(422, "INVALID_PARENT", "Select another skill category in this organization");
@@ -52,12 +52,12 @@ router.patch("/education-masters/skill-categories/:id", async (req: AuthRequest,
   catch (error) { if (duplicate(error)) throw new AppError(409, "MASTER_DUPLICATE", "A skill category with this name or code already exists"); throw error; }
 });
 
-router.post("/education-masters/specializations", async (req: AuthRequest, res) => {
+router.post("/education-masters/specializations", allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
   const input = masterInput.extend({ description: z.string().trim().max(2000).nullable().optional() }).parse(req.body);
   try { const data = await prisma.specialization.create({ data: { ...input, organizationId: req.auth!.organizationId, legacyReviewStatus: MasterReviewStatus.CONFIRMED } }); await audit(req, "CREATE", "Specialization", data.id, input); res.status(201).json({ data }); }
   catch (error) { if (duplicate(error)) throw new AppError(409, "MASTER_DUPLICATE", "A specialization with this name or code already exists"); throw error; }
 });
-router.patch("/education-masters/specializations/:id", async (req: AuthRequest, res) => {
+router.patch("/education-masters/specializations/:id", allow(Role.SUPER_ADMIN), async (req: AuthRequest, res) => {
   const input = masterInput.partial().extend({ description: z.string().trim().max(2000).nullable().optional(), legacyReviewStatus: z.nativeEnum(MasterReviewStatus).optional() }).parse(req.body), specializationId = id.parse(req.params.id), existing = await prisma.specialization.findFirst({ where: { id: specializationId, organizationId: req.auth!.organizationId }, select: { id: true } });
   if (!existing) throw new AppError(404, "MASTER_NOT_FOUND", "Specialization not found");
   try { const data = await prisma.specialization.update({ where: { organizationId_id: { organizationId: req.auth!.organizationId, id: specializationId } }, data: input }); await audit(req, "UPDATE", "Specialization", data.id, input); res.json({ data }); }
