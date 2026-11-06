@@ -90,7 +90,7 @@ def _locked_for_minimum_age(rules, now: datetime | None = None):
             return True
         if condition.get("type") == "Age":
             age = condition.get("maxAgeSeconds")
-            if type(age) in (int, float) and math.isfinite(age) and age >= MIN_RETENTION_SECONDS:
+            if (type(age) is int or (type(age) is float and math.isfinite(age))) and age >= MIN_RETENTION_SECONDS:
                 return True
         if condition.get("type") == "Date":
             date_value = condition.get("date")
