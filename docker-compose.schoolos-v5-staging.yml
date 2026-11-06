@@ -63,12 +63,21 @@ services:
     networks: [backend]
     logging: *default-logging
   redis:
-    image: redis:7-alpine
+    # Staging V5 ONLY: build wrapper creates SHA256 ACL file in private tmpfs,
+    # without plaintext password in process argv. REAL deployment requires
+    # approved coordinated password rotation, immutable rollback and signoff.
+    image: ${REDIS_IMAGE:-schoolos-v5-redis:local}
+    build: { context: ., dockerfile: infra/redis/Dockerfile }
     restart: unless-stopped
     environment: { REDIS_PASSWORD: "${REDIS_PASSWORD}" }
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
     volumes: [redis_data:/data]
-    healthcheck: { test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"], interval: 10s, timeout: 5s, retries: 10 }
+    tmpfs:
+      - /run/schoolos-v5-redis-auth:rw,noexec,nosuid,nodev,size=64k
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks: [backend]
     logging: *default-logging
   migrate:
