@@ -7,6 +7,7 @@ set -euo pipefail
 docker info >/dev/null 2>&1 || { echo "V5_PG_ROTATION_REHEARSAL=HOLD_NO_DOCKER"; exit 2; }
 name="v5-postgres-rotation-rehearsal-${RANDOM}-${RANDOM}"
 volume="${name}-data"
+network="${name}-network"
 db=v5_rotation_synthetic
 db_user=v5_synthetic
 old="$(openssl rand -hex 32)"
@@ -16,14 +17,16 @@ if [[ "$old" == "$new" || ${#new} -lt 32 ]]; then exit 2; fi
 cleanup() {
   docker rm -f "$name" >/dev/null 2>&1 || true
   docker volume rm -f "$volume" >/dev/null 2>&1 || true
+  docker network rm "$network" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 docker volume create "$volume" >/dev/null
+docker network create --internal "$network" >/dev/null
 start() {
   local startup_password="$1"
   docker run -d --name "$name" \
-    --network none \
+    --network "$network" \
     --shm-size=128m \
     -v "$volume:/var/lib/postgresql/data" \
     -e "POSTGRES_PASSWORD=$startup_password" \
@@ -43,16 +46,20 @@ start() {
 run_sql() {
   local password="$1"
   local query="$2"
-  printf '%s\n' "$query" | docker exec -i -e "PGPASSWORD=$password" "$name" \
-    psql -X -A -t -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$db_user" -d "$db" 2>/dev/null
+  # A separate, isolated client is essential: loopback inside the Postgres
+  # container can be configured TRUST and cannot prove password rejection.
+  printf '%s\n' "$query" | docker run --rm -i --network "$network" \
+    -e "PGPASSWORD=$password" postgres:16-alpine \
+    psql -X -A -t -v ON_ERROR_STOP=1 -h "$name" -U "$db_user" -d "$db" 2>/dev/null
 }
 start "$old"
 run_sql "$old" "CREATE TABLE v5_synthetic_rotation (k text PRIMARY KEY, v text NOT NULL);" >/dev/null
 run_sql "$old" "INSERT INTO v5_synthetic_rotation VALUES ('preserved','yes');" >/dev/null
 # Pass rotated password via PostgreSQL stdin, not as psql -c/argv.
 printf "ALTER ROLE %s WITH PASSWORD '%s';\n" "$db_user" "$new" |
-  docker exec -i -e "PGPASSWORD=$old" "$name" \
-    psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$db_user" -d "$db" >/dev/null 2>&1
+  docker run --rm -i --network "$network" -e "PGPASSWORD=$old" \
+    postgres:16-alpine \
+    psql -X -q -v ON_ERROR_STOP=1 -h "$name" -U "$db_user" -d "$db" >/dev/null 2>&1
 
 if run_sql "$old" "SELECT 'old-auth-accepted';" >/dev/null 2>&1; then
   echo "V5_PG_ROTATION_REHEARSAL=HOLD_OLD_CREDENTIAL_ACCEPTED"
