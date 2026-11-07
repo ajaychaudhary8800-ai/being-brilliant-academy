@@ -94,19 +94,20 @@ def decode_signed_manifest(raw):
         raise Hold()
     return payload
 
-def verify_detached_signature(manifest_path, signature_path, pubkey_path, expected_key_sha):
+def verify_detached_signature(manifest_bytes, signature_path, pubkey_path, expected_key_sha):
     if not isinstance(expected_key_sha, str) or not SHA.fullmatch(expected_key_sha):
         raise Hold()
     key = _bounded_regular(pubkey_path, MAX_PUBLIC_KEY_BYTES)
     if not hmac.compare_digest(hashlib.sha256(key).hexdigest(), expected_key_sha):
         raise Hold()
     _bounded_regular(signature_path, MAX_SIGNATURE_BYTES)
-    # RSA/ECDSA SHA-256; the signed bytes are the exact immutable JSON file,
-    # not a re-serialized object with potentially ambiguous formatting.
+    # Verify exactly the manifest bytes already decoded by the caller. Never
+    # re-open a path, which would permit a file-replacement TOCTOU mismatch.
     try:
         process = subprocess.run(
             ["openssl", "dgst", "-sha256", "-verify", str(pubkey_path),
-             "-signature", str(signature_path), str(manifest_path)],
+             "-signature", str(signature_path)],
+            input=manifest_bytes,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=15, check=False,
         )
@@ -179,7 +180,7 @@ def _client(account, access, secret):
 def run(manifest_path, sig_path, pubkey_path, pin, client):
     raw = _bounded_regular(manifest_path, MAX_MANIFEST_BYTES)
     payload = decode_signed_manifest(raw)
-    verify_detached_signature(manifest_path, sig_path, pubkey_path, pin)
+    verify_detached_signature(raw, sig_path, pubkey_path, pin)
     readback(client, payload)
 
 def main():
@@ -200,7 +201,7 @@ def main():
         # are known valid. The reader credential must be separate, owner-provisioned.
         raw = _bounded_regular(m, MAX_MANIFEST_BYTES)
         payload = decode_signed_manifest(raw)
-        verify_detached_signature(m, s, k, pin)
+        verify_detached_signature(raw, s, k, pin)
         print("PRIVATE_CUSTODY_MANIFEST_SIGNATURE=PASS_PINNED_PUBLIC_KEY")
         readback(_client(account, access, secret), payload)
         passed = True
