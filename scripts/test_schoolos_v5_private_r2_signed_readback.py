@@ -93,6 +93,17 @@ class SignedReadbackTests(unittest.TestCase):
         )
         self.assertTrue(all(a[1] == mod.BUCKET for a in reader.operations))
 
+    def test_signature_authenticates_exact_already_parsed_bytes_not_later_path(self):
+        signed_bytes = self.manifest.read_bytes()
+        # A local attacker replacing the manifest path between read and
+        # verification cannot make the verifier approve different bytes.
+        self.manifest.write_bytes(b'{"schema":"attacker-swapped"}')
+        mod.verify_detached_signature(
+            signed_bytes, self.signature, self.public, self.pin)
+        with self.assertRaises(mod.Hold):
+            mod.run(self.manifest, self.signature, self.public, self.pin,
+                    FakeReader(objects()))
+
     def test_manifest_signature_modification_is_rejected_before_any_read(self):
         reader = FakeReader(objects())
         self.data["api"]["sizeBytes"] += 1
