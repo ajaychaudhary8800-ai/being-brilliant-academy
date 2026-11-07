@@ -142,6 +142,18 @@ class StagingIncidentScopeTests(TestCase):
             "backup"
         ), ["RAZORPAY_KEY_SECRET"])
 
+    def test_extra_api_private_keys_cannot_be_in_other_service(self):
+        synthetic = "opaque-only-restricted-value"
+        env = [
+            "WEB_PUSH_PRIVATE_KEY=" + synthetic,
+            "AWS_SECRET_ACCESS_KEY=" + synthetic,
+            "METRICS_TOKEN=" + synthetic,
+        ]
+        self.assertEqual(SCOPE.runtime_excess(env, "nginx"), [
+            "WEB_PUSH_PRIVATE_KEY", "AWS_SECRET_ACCESS_KEY", "METRICS_TOKEN",
+        ])
+        self.assertNotIn(synthetic, repr(SCOPE.runtime_excess(env, "nginx")))
+
     def test_malformed_container_environment_fails_closed(self):
         for entries in (None, "not-an-array", ["JWT_ACCESS_SECRET"], [None], [False]):
             with self.subTest(variant=repr(entries)):
