@@ -98,23 +98,37 @@ def verify_detached_signature(manifest_bytes, signature_path, pubkey_path, expec
     if not isinstance(expected_key_sha, str) or not SHA.fullmatch(expected_key_sha):
         raise Hold()
     key = _bounded_regular(pubkey_path, MAX_PUBLIC_KEY_BYTES)
+    signature = _bounded_regular(signature_path, MAX_SIGNATURE_BYTES)
     if not hmac.compare_digest(hashlib.sha256(key).hexdigest(), expected_key_sha):
         raise Hold()
-    _bounded_regular(signature_path, MAX_SIGNATURE_BYTES)
-    # Verify exactly the manifest bytes already decoded by the caller. Never
-    # re-open a path, which would permit a file-replacement TOCTOU mismatch.
+    # The public key and detached signature must be the SAME bounded snapshots
+    # checked above. Re-opening user-controlled paths for OpenSSL would permit
+    # a pathname replacement after key pinning (TOCTOU). Use anonymous, short-
+    # lived Linux memory files: no disk write, secret or mutable path in argv.
+    fds = []
     try:
+        if not hasattr(os, "memfd_create"):
+            raise Hold()
+        for label, contents in (("v5-custody-key", key), ("v5-custody-signature", signature)):
+            fd = os.memfd_create(label, flags=os.MFD_CLOEXEC)
+            fds.append(fd)
+            if os.write(fd, contents) != len(contents):
+                raise Hold()
+            os.lseek(fd, 0, os.SEEK_SET)
         process = subprocess.run(
-            ["openssl", "dgst", "-sha256", "-verify", str(pubkey_path),
-             "-signature", str(signature_path)],
+            ["openssl", "dgst", "-sha256", "-verify", f"/proc/self/fd/{fds[0]}",
+             "-signature", f"/proc/self/fd/{fds[1]}"],
             input=manifest_bytes,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=15, check=False,
+            pass_fds=tuple(fds), timeout=15, check=False,
         )
+        if process.returncode != 0:
+            raise Hold()
     except (OSError, subprocess.TimeoutExpired):
         raise Hold() from None
-    if process.returncode != 0:
-        raise Hold()
+    finally:
+        for fd in fds:
+            os.close(fd)
 
 def _read_archive_digest(client, item):
     key = item["key"]
