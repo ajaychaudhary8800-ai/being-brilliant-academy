@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SOURCE = pathlib.Path(__file__).with_name("schoolos-v5-private-r2-signed-readback.py")
 spec = importlib.util.spec_from_file_location("v5_r2_signed_readback", SOURCE)
@@ -103,6 +104,24 @@ class SignedReadbackTests(unittest.TestCase):
         with self.assertRaises(mod.Hold):
             mod.run(self.manifest, self.signature, self.public, self.pin,
                     FakeReader(objects()))
+
+    def test_verification_uses_pinned_key_and_signature_snapshots_not_reopened_paths(self):
+        # After both bounded reads, replace the source paths. Signature
+        # verification must consume the already-pinned anonymous snapshots.
+        original_read = mod._bounded_regular
+        def swapped_after_snapshot(path, limit):
+            contents = original_read(path, limit)
+            if pathlib.Path(path) == self.signature:
+                self.public.write_bytes(b"replaced-key-file")
+                self.signature.write_bytes(b"replaced-signature-file")
+            return contents
+        with patch.object(mod, "_bounded_regular", side_effect=swapped_after_snapshot):
+            mod.verify_detached_signature(
+                self.manifest.read_bytes(), self.signature, self.public, self.pin)
+        # Subsequent verification of changed source files must fail closed.
+        with self.assertRaises(mod.Hold):
+            mod.verify_detached_signature(
+                self.manifest.read_bytes(), self.signature, self.public, self.pin)
 
     def test_manifest_signature_modification_is_rejected_before_any_read(self):
         reader = FakeReader(objects())
