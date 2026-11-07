@@ -114,5 +114,66 @@ class StagingIncidentScopeTests(TestCase):
         self.assertNotIn("synthetic-credential", output.getvalue())
 
 
+    def test_blank_optional_api_only_keys_are_not_false_positive_exposure(self):
+        env = [
+            "JWT_ACCESS_SECRET=", "JWT_REFRESH_SECRET=", "SMTP_PASSWORD=",
+            "RAZORPAY_WEBHOOK_SECRET=", "COMMERCIAL_DOCUMENT_ENCRYPTION_KEY=",
+            "DATABASE_URL=synthetic_nonsecret",
+        ]
+        for service in SCOPE.SERVICES:
+            with self.subTest(service=service):
+                self.assertEqual(SCOPE.runtime_excess(env, service), [])
+
+    def test_exact_nonempty_key_only_and_no_substring_match(self):
+        synthetic = "do-not-print-this-synthetic-placeholder"
+        env = [
+            "OTHER_JWT_ACCESS_SECRET=" + synthetic,
+            "NOT_CREDENTIAL=JWT_ACCESS_SECRET=" + synthetic,
+            "jwt_access_secret=" + synthetic,
+            "JWT_ACCESS_SECRET=",
+            "LIVEKIT_API_SECRET=" + synthetic,
+        ]
+        self.assertEqual(SCOPE.runtime_excess(env, "migrate"), ["LIVEKIT_API_SECRET"])
+        self.assertNotIn(synthetic, repr(SCOPE.runtime_excess(env, "migrate")))
+
+    def test_duplicate_assignments_consider_nonempty_value(self):
+        self.assertEqual(SCOPE.runtime_excess(
+            ["RAZORPAY_KEY_SECRET=", "RAZORPAY_KEY_SECRET=synthetic"],
+            "backup"
+        ), ["RAZORPAY_KEY_SECRET"])
+
+    def test_malformed_container_environment_fails_closed(self):
+        for entries in (None, "not-an-array", ["JWT_ACCESS_SECRET"], [None], [False]):
+            with self.subTest(variant=repr(entries)):
+                with self.assertRaises(SCOPE.ScopeFailure):
+                    SCOPE.runtime_excess(entries, "web")
+
+    def test_stopped_migrate_is_included_in_nonempty_secret_detection(self):
+        containers = {}
+        secret = "synthetic-sensitive-migrate-value"
+        image_id = "sha256:" + "a" * 64
+        for service in SCOPE.SERVICES:
+            entries = ["JWT_ACCESS_SECRET=", "RAZORPAY_WEBHOOK_SECRET="]
+            if service == "migrate":
+                entries.append("JWT_ACCESS_SECRET=" + secret)
+            containers[service] = {"Config": {"Env": entries}, "Image": image_id}
+        def fake_docker(args):
+            if args[:2] == ["image", "inspect"]:
+                return json.dumps([{"Config": {"Env": ["NODE_ENV=production"],
+                                               "Labels": {}}}])
+            if args[:2] == ["history", "--no-trunc"]:
+                return json.dumps("RUN synthetic-safe") + "\n"
+            raise AssertionError("Unexpected Docker invocation")
+        with patch.object(SCOPE, "list_project_containers", return_value=containers), \
+             patch.object(SCOPE, "docker", side_effect=fake_docker):
+            rows = SCOPE.inspect_project()
+        by_service = {row["service"]: row for row in rows}
+        self.assertEqual(by_service["migrate"]["unexpected_runtime_names"],
+                         ["JWT_ACCESS_SECRET"])
+        for service in set(SCOPE.SERVICES) - {"migrate"}:
+            self.assertEqual(by_service[service]["unexpected_runtime_names"], [])
+        self.assertNotIn(secret, repr(rows))
+
+
 if __name__ == "__main__":
     main()
