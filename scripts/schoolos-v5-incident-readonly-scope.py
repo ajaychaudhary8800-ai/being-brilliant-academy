@@ -80,11 +80,24 @@ def assignment_names(values: list[str], allowed: tuple[str, ...]) -> list[str]:
 
 
 def runtime_excess(env: list[str], service: str) -> list[str]:
+    """Count ONLY nonempty, exact API-only environment assignments.
+
+    Compose and Coolify can materialize empty optional variables in otherwise
+    safe containers. Reporting NAME= as leaked credentials is a false positive.
+    Check every duplicate (if any); never print, hash, store or return values.
+    """
+    if not isinstance(env, list) or any(not isinstance(v, str) for v in env):
+        raise ScopeFailure("METADATA_FORMAT_INVALID")
     if service == "api":
         return []
-    # Intended service-level DB/Redis connectivity is not classified as
-    # overexposure; only keys that should be API-exclusive are audited here.
-    return assignment_names(env, API_ONLY)
+    found = set()
+    for entry in env:
+        if "=" not in entry:
+            raise ScopeFailure("CONTAINER_ENV_ASSIGNMENT_INVALID")
+        name, _, value = entry.partition("=")
+        if name in API_ONLY and value != "":
+            found.add(name)
+    return [name for name in API_ONLY if name in found]
 
 
 def image_excess(config: dict, lines: list[str]) -> list[str]:
