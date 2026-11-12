@@ -63,3 +63,25 @@ The subsequent patch emits **one fixed safe diagnostic status code** `V5_INVENTO
 - `ACTIVE_IMAGE_WORKDIR_MISMATCH`, `ACTIVE_IMAGE_REVISION_LABEL_MISSING`, `ACTIVE_API_WEB_REVISION_MISMATCH`.
 
 These outcomes are **sanitized HOLD diagnoses only**. Do not circumvent a missing running-service identity, revision label or image provenance to mark any release gate PASS. Review each mismatch against the exact deployed V5 source metadata and retain fail-closed behavior. The added 6 tests specifically validate safe categorical errors and suppress simulated sensitive Docker exception messages. Only run the inspected immutable SHA of the updated PR after its exact-head CI passes. No power to authorize deployment is added.
+
+## 12 Nov 2026 — owner Docker narrow-template diagnostic confirms combined-template incompatibility
+
+Owner's sanitized, read-only Docker probe on the V5 staging VPS returned:
+
+```text
+IMAGE_LIST=PASS
+IMAGE_COUNT=40
+FIRST_FAILED_IMAGE_INDEX=11
+ID_INSPECT=PASS
+WORKDIR_INSPECT=PASS
+REVISION_INSPECT=PASS
+SENSITIVE_VALUES_PRINTED=NO
+DOCKER_MODIFICATIONS=NO
+DEPLOYMENT_AUTHORIZATION=HOLD
+```
+
+**Supported conclusion:** `docker image ls` succeeded (40 list entries); a **combined Go-format metadata inspection** failed for image position 11, but *all three individual narrow templates* succeeded for that image. Do not interpret this as a corrupt image, a missing rollback pair, credentials problem, current runtime failure, or Docker host corruption. All output was sanitized; neither credentials nor real image identities are needed to solve the formatting problem.
+
+The revised source queries image ID, workdir and the sole approved source-revision label through **three independent docker image inspect --format commands per image**, with output size/type bounds, strict id matching and disallowed raw delimiters/newlines. It preserves the existing Compose project guard, source-label validation, untrusted candidate classification and `DEPLOYMENT_AUTHORIZATION=HOLD`. Synthetic test now exercises 40 images/120 independent metadata lookups, including the failure at the 11th combined format, with no composite-image template call. Re-run ONLY after exact SHA and CI success are confirmed; once source metadata inventory succeeds, independently review whether an older API+Web pair is actually evidenced. Previously exposed images remain **forensic/restricted, not approved rollback artifacts**.
+
+**Project boundary:** The operator's terminal prompt showed `D:\Development\Adhyay-Priority6-Integration` during the diagnostic, but the read-only Python probe was streamed over SSH to the intended V5 Docker host. For all future V5 `git fetch` / `git show` invocations, explicitly set `D:\Development\being-brilliant-academy` first. Do not mix commits, migrations, image acceptance or database actions from Adhyay Platform psychometrics into SchoolOS V5.

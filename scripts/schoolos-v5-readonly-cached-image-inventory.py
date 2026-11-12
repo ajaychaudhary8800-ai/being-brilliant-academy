@@ -9,7 +9,6 @@ A matched revision pair is only a CANDIDATE, never trusted rollback custody.
 """
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import sys
@@ -22,7 +21,11 @@ ROLES = {"api": "/workspace/apps/api", "web": "/app"}
 MAX_IMAGES = 256
 MAX_CONTAINERS = 32
 MAX_OUTPUT = 128 * 1024
-IMAGE_META = '{{.Id}}|{{if .Config.Labels}}{{index .Config.Labels "org.opencontainers.image.revision"}}{{end}}|{{.Config.WorkingDir}}'
+# Some real Docker images reject the concatenated template although each
+# individual metadata query succeeds. Use three isolated narrow templates.
+IMAGE_ID_META = "{{.Id}}"
+IMAGE_WORKDIR_META = "{{.Config.WorkingDir}}"
+IMAGE_REVISION_META = '{{if .Config.Labels}}{{index .Config.Labels "org.opencontainers.image.revision"}}{{end}}'
 CONTAINER_META = '{{.Image}}|{{if .Config.Labels}}{{index .Config.Labels "com.docker.compose.service"}}{{end}}|{{.State.Running}}'
 
 
@@ -104,14 +107,22 @@ def _images(run):
         raise Hold("IMAGE_LIST_ID_INVALID")
     records = {}
     for image_id in dict.fromkeys(ids):
-        try:
-            raw = run(["docker", "image", "inspect", "--format", IMAGE_META, image_id]).strip()
-        except Hold:
-            raise Hold("IMAGE_METADATA_INSPECT_UNAVAILABLE") from None
-        parts = raw.split("|")
-        if len(parts) != 3 or parts[0] != image_id:
+        fields = []
+        for field_format in (IMAGE_ID_META, IMAGE_WORKDIR_META, IMAGE_REVISION_META):
+            try:
+                raw = run([
+                    "docker", "image", "inspect", "--format", field_format, image_id
+                ]).strip()
+            except Hold:
+                raise Hold("IMAGE_METADATA_INSPECT_UNAVAILABLE") from None
+            # A single metadata field must not contain delimiters or embedded
+            # newlines. Never print invalid/malformed values.
+            if "|" in raw or "\n" in raw or "\r" in raw or len(raw) > 512:
+                raise Hold("IMAGE_METADATA_FORMAT_INVALID")
+            fields.append(raw)
+        observed_id, workdir, sha = fields
+        if observed_id != image_id:
             raise Hold("IMAGE_METADATA_FORMAT_INVALID")
-        _, sha, workdir = parts
         # Only valid Git revisions may be reported as candidate identities.
         if sha == "<no value>":
             sha = ""

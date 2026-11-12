@@ -45,9 +45,16 @@ class MockDocker:
         if argv[:3] == ["docker", "image", "ls"]:
             return "\n".join(self.images) + "\n"
         if argv[:3] == ["docker", "image", "inspect"]:
-            assert argv[4] == mod.IMAGE_META
             key = argv[-1]
-            return "|".join([key] + self.images[key]) + "\n"
+            assert key in self.images
+            revision, workdir = self.images[key]
+            if argv[4] == mod.IMAGE_ID_META:
+                return key + "\n"
+            if argv[4] == mod.IMAGE_WORKDIR_META:
+                return workdir + "\n"
+            if argv[4] == mod.IMAGE_REVISION_META:
+                return revision + "\n"
+            raise AssertionError("Unexpected image inspect template")
         raise AssertionError("unreviewed Docker operation")
 
 
@@ -214,6 +221,68 @@ class OfflineInventoryTests(unittest.TestCase):
             mod.inspect(self.docker)
         self.assertEqual(failure.exception.code, "IMAGE_METADATA_FORMAT_INVALID")
         self.assertNotIn("SHOULD_NOT_LOG", str(failure.exception))
+
+    def test_live_docker_probe_combined_template_fails_individual_templates_pass(self):
+        # Operator proved combined template failed at image 11/40 while
+        # all three separate metadata templates succeeded.
+        for i in range(36):
+            fake = "sha256:" + format(i, "064x")
+            self.docker.images[fake] = ["", "/unrelated"]
+        assert len(self.docker.images) == 40
+        result = mod.inspect(self.docker)
+        self.assertEqual(result["V5_IMAGE_METADATA_INSPECTED"], "40")
+        image_calls = [c for c in self.docker.commands
+                       if c[:3] == ["docker", "image", "inspect"]]
+        self.assertEqual(len(image_calls), 120)
+        self.assertTrue(all(c[4] in (
+            mod.IMAGE_ID_META, mod.IMAGE_WORKDIR_META, mod.IMAGE_REVISION_META
+        ) for c in image_calls))
+        self.assertEqual(result["V5_POSSIBLE_DISTINCT_REVISION_PAIRS"], "1")
+
+    def test_all_three_fields_are_individually_queried_without_secret_read(self):
+        mod.inspect(self.docker)
+        image_calls = [c for c in self.docker.commands
+                       if c[:3] == ["docker", "image", "inspect"]]
+        for image_id in self.docker.images:
+            observed = {c[4] for c in image_calls if c[-1] == image_id}
+            self.assertEqual(observed, {
+                mod.IMAGE_ID_META, mod.IMAGE_WORKDIR_META, mod.IMAGE_REVISION_META
+            })
+
+    def test_individual_revision_query_error_is_safe_hold(self):
+        def broken_revision(argv):
+            if (argv[:3] == ["docker", "image", "inspect"]
+                    and argv[4] == mod.IMAGE_REVISION_META):
+                raise mod.Hold("DOCKER_PRIVATE_ERROR_NEVER_PRINT")
+            return self.docker(argv)
+        with self.assertRaises(mod.Hold) as failure:
+            mod.inspect(broken_revision)
+        self.assertEqual(failure.exception.code, "IMAGE_METADATA_INSPECT_UNAVAILABLE")
+        self.assertNotIn("PRIVATE", str(failure.exception))
+
+    def test_id_mismatch_does_not_create_image_record(self):
+        def broken_id(argv):
+            if (argv[:3] == ["docker", "image", "inspect"]
+                    and argv[4] == mod.IMAGE_ID_META):
+                return "sha256:" + "9" * 64 + "\n"
+            return self.docker(argv)
+        with self.assertRaises(mod.Hold) as failure:
+            mod.inspect(broken_id)
+        self.assertEqual(failure.exception.code, "IMAGE_METADATA_FORMAT_INVALID")
+
+    def test_newline_in_image_workdir_fails_closed(self):
+        self.docker.images[OA][1] = "/app\nSECRET_NEVER_PRINT"
+        with self.assertRaises(mod.Hold) as failure:
+            mod.inspect(self.docker)
+        self.assertEqual(failure.exception.code, "IMAGE_METADATA_FORMAT_INVALID")
+        self.assertNotIn("SECRET", str(failure.exception))
+
+    def test_newline_in_image_revision_fails_closed(self):
+        self.docker.images[OW][0] = OLDER + "\nUNSAFE_NEVER_PRINT"
+        with self.assertRaises(mod.Hold) as failure:
+            mod.inspect(self.docker)
+        self.assertEqual(failure.exception.code, "IMAGE_METADATA_FORMAT_INVALID")
+        self.assertNotIn("UNSAFE", str(failure.exception))
 
 
 if __name__ == "__main__":
