@@ -103,6 +103,19 @@ jobs:
             --output "type=oci,dest=$RUNNER_TEMP/v5-prior-web.oci.tar" previous
           echo "V5_PRIOR_OCI_CANDIDATE_FILES=BUILT_EPHEMERAL_UNPUBLISHED"
 
+      - name: Bounded in-stream scan of actual API/Web OCI rootfs payloads
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python3 controls/scripts/schoolos-v5-ci-layer-payload-audit.py \
+            --docker-save-stdin --require-no-dependency-pem \
+            < "$RUNNER_TEMP/v5-prior-api.oci.tar"
+          python3 controls/scripts/schoolos-v5-ci-layer-payload-audit.py \
+            --docker-save-stdin --require-no-dependency-pem \
+            < "$RUNNER_TEMP/v5-prior-web.oci.tar"
+          echo "V5_PRIOR_OCI_BOUNDED_ROOTFS_PATTERN_AUDIT=PASS_NOT_FULL_SEMANTIC_CLEARANCE"
+
       - name: Verify full OCI digests, DiffIDs, metadata names and draft receipt
         shell: bash
         timeout-minutes: 18
@@ -112,7 +125,7 @@ jobs:
             --api "$RUNNER_TEMP/v5-prior-api.oci.tar" \
             --web "$RUNNER_TEMP/v5-prior-web.oci.tar" \
             --out "$RUNNER_TEMP/schoolos-v5-private-candidate-receipt.json"
-          echo "V5_CLEAN_SEMANTIC_LAYER_AUDIT=NOT_COMPLETE"
+          echo "V5_CLEAN_FULL_SEMANTIC_LAYER_CLEARANCE=NOT_ATTESTED"
           echo "V5_SIGNING_IDENTITY_AND_R2_WRITE=NOT_PROVISIONED"
           echo "V5_PRIOR_OCI_MANIFEST_RECEIPT=UNSIGNED_CONTENT_OBSERVATION_ONLY"
 
