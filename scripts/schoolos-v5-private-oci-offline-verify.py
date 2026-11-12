@@ -104,13 +104,16 @@ def _inspect_tar(reader, expected_digest, expected_source):
                 name = member.name
                 if name.startswith("./"):
                     name = name[2:]
+                if member.isdir():
+                    # Standard OCI exporters include trailing "/" for these
+                    # two structural directories. Allow only those exact
+                    # forms; still reject traversal and all unrelated dirs.
+                    if name not in ("blobs", "blobs/", "blobs/sha256", "blobs/sha256/"):
+                        raise Hold()
+                    continue
                 if (not name or name.startswith("/") or "\\" in name or
                         any(component in ("", ".", "..") for component in name.split("/"))):
                     raise Hold()
-                if member.isdir():
-                    if name not in ("blobs", "blobs/sha256"):
-                        raise Hold()
-                    continue
                 if not member.isfile() or name in seen:
                     raise Hold()
                 seen.add(name)

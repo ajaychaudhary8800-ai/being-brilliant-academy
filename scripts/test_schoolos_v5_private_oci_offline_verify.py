@@ -31,7 +31,7 @@ def oci_tar(role, *, mutate_config=False, bad_layer=False, missing_layer=False,
             evil_path=False, duplicates=False, include_extra=False, platform="amd64",
             gzip_layer=False, wrong_diff_id=False, gzip_extra=False,
             gzip_crc_corrupt=False, zstd_layer=False, orphan_blob=False,
-            extra_index=False):
+            extra_index=False, include_dirs=False, evil_dir=False):
     # Expanded synthetic gzip layer crosses the 256 KiB output chunk boundary.
     raw_layer = (("synthetic-" + role).encode() if not gzip_layer else
                  b"synthetic-gzip-layer:" + (b"Z" * 800000))
@@ -77,6 +77,16 @@ def oci_tar(role, *, mutate_config=False, bad_layer=False, missing_layer=False,
         parts.append(("unreviewed-blob.txt", b"bad"))
     stream = io.BytesIO()
     with tarfile.open(fileobj=stream, mode="w") as tar:
+        if include_dirs:
+            for directory in ("blobs/", "blobs/sha256/"):
+                info = tarfile.TarInfo(directory)
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o700
+                tar.addfile(info)
+        if evil_dir:
+            info = tarfile.TarInfo("../outside/")
+            info.type = tarfile.DIRTYPE
+            tar.addfile(info)
         for name, payload in parts:
             info = tarfile.TarInfo(name)
             info.size = len(payload)
@@ -206,6 +216,17 @@ class OCIReadbackTests(unittest.TestCase):
 
     def test_signed_archive_with_missing_layer_holds(self):
         raw, digest = oci_tar("api", missing_layer=True)
+        self.refresh("api", raw, digest)
+        with self.assertRaises(mod.Hold):
+            self.check()
+
+    def test_signed_oci_accepts_only_standard_exporter_directories(self):
+        raw, digest = oci_tar("api", include_dirs=True)
+        self.refresh("api", raw, digest)
+        self.check()
+
+    def test_signed_oci_rejects_unrelated_directory(self):
+        raw, digest = oci_tar("api", evil_dir=True)
         self.refresh("api", raw, digest)
         with self.assertRaises(mod.Hold):
             self.check()
