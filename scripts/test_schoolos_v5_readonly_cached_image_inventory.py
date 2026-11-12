@@ -92,8 +92,9 @@ class OfflineInventoryTests(unittest.TestCase):
 
     def test_missing_running_service_fails_closed(self):
         self.docker.containers.pop(CW)
-        with self.assertRaises(mod.Hold):
+        with self.assertRaises(mod.Hold) as failure:
             mod.inspect(self.docker)
+        self.assertEqual(failure.exception.code, "RUNNING_API_WEB_NOT_FOUND")
 
     def test_stopped_service_does_not_count_as_live(self):
         self.docker.containers[CW][2] = "false"
@@ -112,8 +113,9 @@ class OfflineInventoryTests(unittest.TestCase):
 
     def test_live_workdir_drift_fails_closed(self):
         self.docker.images[W][1] = "/wrong"
-        with self.assertRaises(mod.Hold):
+        with self.assertRaises(mod.Hold) as failure:
             mod.inspect(self.docker)
+        self.assertEqual(failure.exception.code, "ACTIVE_IMAGE_WORKDIR_MISMATCH")
 
     def test_invalid_image_id_fails_closed(self):
         self.docker.images["unexpected-image-identifier"] = [OLDER, mod.ROLES["web"]]
@@ -162,8 +164,56 @@ class OfflineInventoryTests(unittest.TestCase):
 
     def test_empty_docker_inventory_fails_closed(self):
         self.docker.images = {}
-        with self.assertRaises(mod.Hold):
+        with self.assertRaises(mod.Hold) as failure:
             mod.inspect(self.docker)
+        self.assertEqual(failure.exception.code, "ACTIVE_IMAGE_NOT_IN_LOCAL_IMAGE_LIST")
+
+    def test_missing_live_revision_is_safe_categorical_halt(self):
+        self.docker.images[A][0] = ""
+        with self.assertRaises(mod.Hold) as failure:
+            mod.inspect(self.docker)
+        self.assertEqual(failure.exception.code, "ACTIVE_IMAGE_REVISION_LABEL_MISSING")
+
+    def test_source_label_drift_has_fixed_safe_halt_code(self):
+        self.docker.images[W][0] = "3" * 40
+        with self.assertRaises(mod.Hold) as failure:
+            mod.inspect(self.docker)
+        self.assertEqual(failure.exception.code, "ACTIVE_API_WEB_REVISION_MISMATCH")
+
+    def test_docker_image_inspect_failure_classified_without_stderr(self):
+        def fail_image_inspect(argv):
+            if argv[:3] == ["docker", "image", "inspect"]:
+                raise mod.Hold("SECRET_NEVER_LOGGED")
+            return self.docker(argv)
+        with self.assertRaises(mod.Hold) as failure:
+            mod.inspect(fail_image_inspect)
+        self.assertEqual(failure.exception.code, "IMAGE_METADATA_INSPECT_UNAVAILABLE")
+        self.assertNotIn("SECRET", str(failure.exception))
+
+    def test_docker_scoped_container_list_failure_classified(self):
+        def fail_containers(argv):
+            if argv[:3] == ["docker", "container", "ls"]:
+                raise mod.Hold("SSH_KEY_NEVER_LOGGED")
+            return self.docker(argv)
+        with self.assertRaises(mod.Hold) as failure:
+            mod.inspect(fail_containers)
+        self.assertEqual(failure.exception.code, "SCOPED_CONTAINER_LIST_UNAVAILABLE")
+
+    def test_docker_container_inspect_failure_classified(self):
+        def fail_container_inspect(argv):
+            if argv[:3] == ["docker", "container", "inspect"]:
+                raise mod.Hold("PRIVATE_ENDPOINT_NEVER_LOGGED")
+            return self.docker(argv)
+        with self.assertRaises(mod.Hold) as failure:
+            mod.inspect(fail_container_inspect)
+        self.assertEqual(failure.exception.code, "CONTAINER_METADATA_INSPECT_UNAVAILABLE")
+
+    def test_unsupported_multi_field_image_metadata_halts(self):
+        self.docker.images[OA][1] = "/workspace/apps/api|SHOULD_NOT_LOG"
+        with self.assertRaises(mod.Hold) as failure:
+            mod.inspect(self.docker)
+        self.assertEqual(failure.exception.code, "IMAGE_METADATA_FORMAT_INVALID")
+        self.assertNotIn("SHOULD_NOT_LOG", str(failure.exception))
 
 
 if __name__ == "__main__":

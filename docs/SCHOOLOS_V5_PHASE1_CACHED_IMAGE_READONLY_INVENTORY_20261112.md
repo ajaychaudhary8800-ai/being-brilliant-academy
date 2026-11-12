@@ -42,3 +42,24 @@ The printed output will include `V5_POSSIBLE_DISTINCT_REVISION_PAIRS`, optional 
 Do not upload or reuse historically exposed older Web/API images solely because they appear in the inventory; their secret-bearing metadata remains an incident. This tool never marks a past image `CLEAN`, `SIGNED`, `RETRIEVABLE`, `IMMUTABLE`, `VERIFIED_PREVIOUS` or `ROLLBACK_READY`. It may examine metadata for non-SchoolOS local images as part of counting/filtering but prints no such metadata. All mutation, source-image signing, trusted R2 publisher/reader, real restore and historical credentials are separately controlled. `DEPLOYMENT_AUTHORIZATION=HOLD` always.
 
 Refs: #258, #281, #292, #293 and source-only #331. Dedicated R2 bucket's owner-reported 90-day private prefix lock control-plane preflight now passed **configuration only**; R2 object custody/clean artifact production remains open.
+
+## 12 Nov 2026 — first owner-run reported safe HOLD; classified diagnostic revision
+
+The first owner-run against the original V5 staging Docker host from the exact reviewed initial script returned:
+
+```text
+V5_DOCKER_IMAGE_INVENTORY=HOLD_UNVERIFIED
+IMAGE_CONFIG_ENV_OR_HISTORY_READ=NO
+DOCKER_IMAGE_OR_SERVICE_MUTATION=NO
+DEPLOYMENT_AUTHORIZATION=HOLD
+```
+
+This is **not** evidence that previous images are absent. The deliberately coarse first version masked one of several possible read-only inspection assumptions (running service labels, unexpected container/image IDs, source label, workdir, or Docker Go-template compatibility). No image was used, exported, pulled, built or mutated.
+
+The subsequent patch emits **one fixed safe diagnostic status code** `V5_INVENTORY_BLOCKER` without Docker stderr, environment, image IDs, registry paths, container names, arbitrary labels or user-provided values. The codes distinguish:
+
+- `SCOPED_CONTAINER_LIST_UNAVAILABLE`, `SCOPED_CONTAINERS_NOT_FOUND`, `CONTAINER_ID_INVALID`, `CONTAINER_METADATA_INSPECT_UNAVAILABLE`, `CONTAINER_METADATA_FORMAT_INVALID`, `CONTAINER_IMAGE_ID_OR_STATE_INVALID`, `DUPLICATE_RUNNING_API_OR_WEB`, `RUNNING_API_WEB_NOT_FOUND`.
+- `IMAGE_LIST_UNAVAILABLE`, `IMAGE_LIST_ID_INVALID`, `IMAGE_METADATA_INSPECT_UNAVAILABLE`, `IMAGE_METADATA_FORMAT_INVALID`, `ACTIVE_IMAGE_NOT_IN_LOCAL_IMAGE_LIST`.
+- `ACTIVE_IMAGE_WORKDIR_MISMATCH`, `ACTIVE_IMAGE_REVISION_LABEL_MISSING`, `ACTIVE_API_WEB_REVISION_MISMATCH`.
+
+These outcomes are **sanitized HOLD diagnoses only**. Do not circumvent a missing running-service identity, revision label or image provenance to mark any release gate PASS. Review each mismatch against the exact deployed V5 source metadata and retain fail-closed behavior. The added 6 tests specifically validate safe categorical errors and suppress simulated sensitive Docker exception messages. Only run the inspected immutable SHA of the updated PR after its exact-head CI passes. No power to authorize deployment is added.

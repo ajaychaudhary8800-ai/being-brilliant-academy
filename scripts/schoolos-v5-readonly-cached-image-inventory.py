@@ -27,7 +27,11 @@ CONTAINER_META = '{{.Image}}|{{if .Config.Labels}}{{index .Config.Labels "com.do
 
 
 class Hold(Exception):
-    """Never include subprocess stderr or private metadata in this exception."""
+    """Only fixed, non-sensitive diagnostic codes may be emitted."""
+
+    def __init__(self, code="UNCLASSIFIED"):
+        self.code = code
+        super().__init__(code)
 
 
 def _call(argv):
@@ -62,37 +66,51 @@ def _container_scope(run):
             "--filter", f"label=com.docker.compose.project={PROJECT}",
             "--format", "{{.ID}}"]
     result = {}
-    ids = _lines(run(argv), MAX_CONTAINERS)
+    try:
+        ids = _lines(run(argv), MAX_CONTAINERS)
+    except Hold:
+        raise Hold("SCOPED_CONTAINER_LIST_UNAVAILABLE") from None
+    if not ids:
+        raise Hold("SCOPED_CONTAINERS_NOT_FOUND")
     for cid in ids:
         if not CONTAINER_ID.fullmatch(cid):
-            raise Hold()
-        raw = run(["docker", "container", "inspect", "--format", CONTAINER_META, cid]).strip()
+            raise Hold("CONTAINER_ID_INVALID")
+        try:
+            raw = run(["docker", "container", "inspect", "--format", CONTAINER_META, cid]).strip()
+        except Hold:
+            raise Hold("CONTAINER_METADATA_INSPECT_UNAVAILABLE") from None
         fields = raw.split("|")
         if len(fields) != 3:
-            raise Hold()
+            raise Hold("CONTAINER_METADATA_FORMAT_INVALID")
         image_id, role, running = fields
         if not IMAGE_ID.fullmatch(image_id) or running not in ("true", "false"):
-            raise Hold()
+            raise Hold("CONTAINER_IMAGE_ID_OR_STATE_INVALID")
         if role in ROLES and running == "true":
             if role in result:
-                raise Hold()
+                raise Hold("DUPLICATE_RUNNING_API_OR_WEB")
             result[role] = image_id
     if set(result) != set(ROLES):
-        raise Hold()
+        raise Hold("RUNNING_API_WEB_NOT_FOUND")
     return result
 
 
 def _images(run):
     argv = ["docker", "image", "ls", "--no-trunc", "--format", "{{.ID}}"]
-    ids = _lines(run(argv), MAX_IMAGES)
+    try:
+        ids = _lines(run(argv), MAX_IMAGES)
+    except Hold:
+        raise Hold("IMAGE_LIST_UNAVAILABLE") from None
     if any(not IMAGE_ID.fullmatch(value) for value in ids):
-        raise Hold()
+        raise Hold("IMAGE_LIST_ID_INVALID")
     records = {}
     for image_id in dict.fromkeys(ids):
-        raw = run(["docker", "image", "inspect", "--format", IMAGE_META, image_id]).strip()
+        try:
+            raw = run(["docker", "image", "inspect", "--format", IMAGE_META, image_id]).strip()
+        except Hold:
+            raise Hold("IMAGE_METADATA_INSPECT_UNAVAILABLE") from None
         parts = raw.split("|")
         if len(parts) != 3 or parts[0] != image_id:
-            raise Hold()
+            raise Hold("IMAGE_METADATA_FORMAT_INVALID")
         _, sha, workdir = parts
         # Only valid Git revisions may be reported as candidate identities.
         if sha == "<no value>":
@@ -110,15 +128,17 @@ def inspect(run=_call):
     live = _container_scope(run)
     images = _images(run)
     if not set(live.values()).issubset(images):
-        raise Hold()
+        raise Hold("ACTIVE_IMAGE_NOT_IN_LOCAL_IMAGE_LIST")
     active = {}
     for role in ROLES:
         observed_role, sha = images[live[role]]
-        if observed_role != role or not sha:
-            raise Hold()
+        if observed_role != role:
+            raise Hold("ACTIVE_IMAGE_WORKDIR_MISMATCH")
+        if not sha:
+            raise Hold("ACTIVE_IMAGE_REVISION_LABEL_MISSING")
         active[role] = sha
     if active["api"] != active["web"]:
-        raise Hold()
+        raise Hold("ACTIVE_API_WEB_REVISION_MISMATCH")
 
     candidates = {}
     unlabelled = {name: 0 for name in ROLES}
@@ -152,9 +172,10 @@ def inspect(run=_call):
 def main():
     try:
         result = inspect()
-    except Hold:
+    except Hold as error:
         result = {
             "V5_DOCKER_IMAGE_INVENTORY": "HOLD_UNVERIFIED",
+            "V5_INVENTORY_BLOCKER": error.code,
             "IMAGE_CONFIG_ENV_OR_HISTORY_READ": "NO",
             "DOCKER_IMAGE_OR_SERVICE_MUTATION": "NO",
             "DEPLOYMENT_AUTHORIZATION": "HOLD",
