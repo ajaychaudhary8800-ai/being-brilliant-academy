@@ -120,6 +120,37 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(result["V5_R2_PUBLICATION_REVIEW_PREFLIGHT"],
                          "PASS_READ_ONLY_REVIEW_ONLY")
 
+    def test_offline_verifiers_distinct_signed_hold_class_is_sanitized(self):
+        class SignatureFailure(Exception):
+            pass
+
+        class DummySigned:
+            Hold = type("SignedHold", (Exception,), {})
+
+        class DummyOffline:
+            Hold = type("OfflineHold", (Exception,), {})
+            signed = type("Dependency", (), {"Hold": SignatureFailure})
+
+            @staticmethod
+            def inspect(*args):
+                raise SignatureFailure("SECRET_NEVER_ECHO")
+
+        modules = {
+            "schoolos-v5-private-r2-signed-readback.py": DummySigned,
+            "schoolos-v5-private-oci-offline-verify.py": DummyOffline,
+        }
+        env = {
+            "V5_CUSTODY_MANIFEST_PATH": "synthetic",
+            "V5_CUSTODY_SIGNATURE_PATH": "synthetic",
+            "V5_CUSTODY_PUBKEY_PATH": "synthetic",
+            "V5_CUSTODY_PUBKEY_SHA256": "a" * 64,
+            "V5_CUSTODY_API_OCI_ARCHIVE_PATH": "synthetic",
+            "V5_CUSTODY_WEB_OCI_ARCHIVE_PATH": "synthetic",
+        }
+        with patch.object(m, "_load", side_effect=lambda n, path: modules[path]):
+            self.assert_holds(lambda: m.inspect_local(env),
+                              "SIGNED_OCI_BYTES_NOT_VERIFIED")
+
     def test_invalid_signed_local_inputs_block_network(self):
         client = MockReader()
         with patch.object(m, "inspect_local", side_effect=m.Hold("SIGNED_OCI_BYTES_NOT_VERIFIED")):

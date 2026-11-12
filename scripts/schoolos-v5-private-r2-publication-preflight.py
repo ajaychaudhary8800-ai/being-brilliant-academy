@@ -69,7 +69,11 @@ def inspect_local(environ):
         return manifest
     except Hold:
         raise
-    except (offline.Hold, signed.Hold, OSError, ValueError, TypeError):
+    except (offline.Hold, offline.signed.Hold, signed.Hold,
+            OSError, ValueError, TypeError):
+        # The offline verifier loads its own copy of the signed-reader
+        # module; that instance's exception class differs from the separate
+        # copy loaded above. All signature failures remain values-free HOLD.
         raise Hold("SIGNED_OCI_BYTES_NOT_VERIFIED") from None
 
 
