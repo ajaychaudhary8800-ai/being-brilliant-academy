@@ -1,0 +1,140 @@
+name: V5 Phase1 Ephemeral Previous-Source OCI Candidate Build
+
+# Developer-only rehearsal. Never publish images to GitHub Artifacts, a
+# registry, Cloudflare R2, staging or production. No private credentials.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/schoolos-v5-prior-oci-candidate-ephemeral.yml'
+      - 'scripts/schoolos-v5-prior-oci-candidate-manifest.py'
+      - 'scripts/test_schoolos_v5_prior_oci_candidate_manifest.py'
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+concurrency:
+  group: v5-p1-prior-oci-candidate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  prior-oci-candidate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'security/schoolos-v5-phase1-clean-oci-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PREVIOUS_SOURCE_SHA: b54dca5ae36a948f83012faa4a37354198fba083
+      CONTROLS_SHA: ${{ github.event.pull_request.head.sha }}
+      DOCKER_BUILDKIT: "1"
+    steps:
+      - name: Checkout exact candidate controls revision, no persisted token
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: controls
+          persist-credentials: false
+
+      - name: Checkout immutable older V5 source only
+        uses: actions/checkout@v4
+        with:
+          ref: b54dca5ae36a948f83012faa4a37354198fba083
+          path: previous
+          persist-credentials: false
+
+      - name: Verify both pinned Git source revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C controls rev-parse HEAD)" = "$CONTROLS_SHA"
+          test "$(git -C previous rev-parse HEAD)" = "$PREVIOUS_SOURCE_SHA"
+          test -z "$(git -C controls status --porcelain)"
+          test -z "$(git -C previous status --porcelain)"
+          echo "V5_PRIOR_OCI_PREVIOUS_SOURCE_PIN=PASS"
+          echo "V5_PRIOR_OCI_CONTROLS_SOURCE_PIN=PASS"
+
+      - name: Verify synthetic offline candidate-draft safety tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s controls/scripts -p 'test_schoolos_v5_prior_oci_candidate_manifest.py'
+          echo "V5_PRIOR_OCI_CANDIDATE_UNIT_TESTS=PASS_SYNTHETIC"
+
+      - name: Prepare exact hash-locked prior API docs-only derived Dockerfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C previous hash-object apps/api/Dockerfile)" = "58c374752a88aa6e0aeae068ec6cbcdd1e147f98"
+          test "$(git -C controls hash-object scripts/schoolos-v5-prune-approved-dependency-docs.mjs)" = "ba3041ce4bf89c548f154db15af71d87bbb195a6"
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path("previous/apps/api/Dockerfile").read_text()
+          anchor = "RUN --mount=type=cache,id=pnpm-api,target=/pnpm/store pnpm install --frozen-lockfile --prod=false --filter @bba/api...\n"
+          if src.count(anchor) != 1:
+              raise SystemExit("V5_PRIOR_API_RECIPE_HOLD")
+          safe = ("RUN --mount=type=bind,from=controls,source=scripts/schoolos-v5-prune-approved-dependency-docs.mjs,"
+                  "target=/tmp/verified-docs-only.mjs,ro node /tmp/verified-docs-only.mjs\n")
+          Path("previous/recovery-docs-only.Dockerfile").write_text(
+              src.replace(anchor, anchor + safe))
+          PY
+          echo "V5_PRIOR_API_RECIPE=DERIVED_HASH_PINNED_PUBLIC_DEPENDENCY_DOCS_ONLY"
+          echo "V5_PRIOR_BUILD_EQUIVALENCE=NOT_ATTESTED"
+
+      - name: Initialize ephemeral Docker Buildx runner
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build actual Linux amd64 prior API and Web OCI image-layout TARs
+        shell: bash
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          chmod 700 "$RUNNER_TEMP"
+          umask 077
+          test ! -e "$RUNNER_TEMP/v5-prior-api.oci.tar"
+          test ! -e "$RUNNER_TEMP/v5-prior-web.oci.tar"
+          docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+            --pull=false --build-context controls=controls \
+            --file previous/recovery-docs-only.Dockerfile \
+            --build-arg "SCHOOLOS_BUILD_REVISION=$PREVIOUS_SOURCE_SHA" \
+            --output "type=oci,dest=$RUNNER_TEMP/v5-prior-api.oci.tar" previous
+          docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+            --pull=false --file previous/apps/web/Dockerfile \
+            --build-arg "SCHOOLOS_BUILD_REVISION=$PREVIOUS_SOURCE_SHA" \
+            --build-arg "NEXT_PUBLIC_API_URL=/api/v1" \
+            --output "type=oci,dest=$RUNNER_TEMP/v5-prior-web.oci.tar" previous
+          echo "V5_PRIOR_OCI_CANDIDATE_FILES=BUILT_EPHEMERAL_UNPUBLISHED"
+
+      - name: Verify full OCI digests, DiffIDs, metadata names and draft receipt
+        shell: bash
+        timeout-minutes: 18
+        run: |
+          set -euo pipefail
+          python3 controls/scripts/schoolos-v5-prior-oci-candidate-manifest.py \
+            --api "$RUNNER_TEMP/v5-prior-api.oci.tar" \
+            --web "$RUNNER_TEMP/v5-prior-web.oci.tar" \
+            --out "$RUNNER_TEMP/schoolos-v5-private-candidate-receipt.json"
+          echo "V5_CLEAN_SEMANTIC_LAYER_AUDIT=NOT_COMPLETE"
+          echo "V5_SIGNING_IDENTITY_AND_R2_WRITE=NOT_PROVISIONED"
+          echo "V5_PRIOR_OCI_MANIFEST_RECEIPT=UNSIGNED_CONTENT_OBSERVATION_ONLY"
+
+      - name: OIDC attest unsigned OCI candidate digest receipt (not image bytes)
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ runner.temp }}/schoolos-v5-private-candidate-receipt.json
+          create-storage-record: false
+
+      - name: Explicitly forbid publication, deployment or credential rotation
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -f "$RUNNER_TEMP/v5-prior-api.oci.tar" \
+            "$RUNNER_TEMP/v5-prior-web.oci.tar" \
+            "$RUNNER_TEMP/schoolos-v5-private-candidate-receipt.json"
+          echo "V5_PRIOR_OCI_ARCHIVES_PUBLISHED=NO"
+          echo "V5_PRIOR_OCI_ARCHIVES_RETAINED=NO"
+          echo "V5_SIGNATURE_APPLIES_TO_RECEIPT_NOT_IMAGE_PROVENANCE=YES"
+          echo "V5_ROLLBACK_ARTIFACT_R2_CUSTODY=NOT_ESTABLISHED"
+          echo "V5_REAL_DATA_APPLICATION_ROLLBACK=NOT_VERIFIED"
+          echo "V5_POSTGRES_REDIS_CREDENTIAL_ROTATION=NOT_EXECUTED"
+          echo "V5_STAGING_PRODUCTION_CHANGED=NO"
+          echo "DEPLOYMENT_AUTHORIZATION=HOLD"
