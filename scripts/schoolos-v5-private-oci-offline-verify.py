@@ -115,11 +115,11 @@ def _inspect_tar(reader, expected_digest, expected_source):
                     raise Hold()
                 seen.add(name)
                 match = BLOB.fullmatch(name)
-                if name not in ("index.json", "oci-layout", "manifest.json") and not match:
+                if name not in ("index.json", "oci-layout") and not match:
                     raise Hold()
                 if member.size < 1 or member.size > MAX_MEMBER_CONTENT:
                     raise Hold()
-                if name in ("index.json", "oci-layout", "manifest.json") and member.size > MAX_SMALL_JSON:
+                if name in ("index.json", "oci-layout") and member.size > MAX_SMALL_JSON:
                     raise Hold()
                 source = archive.extractfile(member)
                 if source is None:
@@ -192,7 +192,9 @@ def _inspect_tar(reader, expected_digest, expected_source):
     if not isinstance(index, dict) or index.get("schemaVersion") != 2:
         raise Hold()
     descriptors = index.get("manifests")
-    if not isinstance(descriptors, list) or not descriptors or len(descriptors) > 16:
+    # One signed rollback role must resolve to exactly ONE OCI image.
+    # Additional index entries can conceal unreviewed platforms or images.
+    if not isinstance(descriptors, list) or len(descriptors) != 1:
         raise Hold()
     matching = [d for d in descriptors if isinstance(d, dict) and d.get("digest") == expected_digest]
     if len(matching) != 1 or matching[0].get("mediaType") != "application/vnd.oci.image.manifest.v1+json":
@@ -224,6 +226,7 @@ def _inspect_tar(reader, expected_digest, expected_source):
             len(rootfs["diff_ids"]) != len(manifest["layers"]) or
             any(not isinstance(d, str) or not DIGEST.fullmatch(d) for d in rootfs["diff_ids"])):
         raise Hold()
+    required_blobs = {manifest_digest, cd}
     for i, layer in enumerate(manifest["layers"]):
         d, size = _desc(layer)
         media = layer.get("mediaType")
@@ -236,6 +239,11 @@ def _inspect_tar(reader, expected_digest, expected_source):
         if (scanned_gzip.get(d) != (media == "application/vnd.oci.image.layer.v1.tar+gzip") or
                 not hmac.compare_digest(scanned_diffids[d], rootfs["diff_ids"][i])):
             raise Hold()
+        required_blobs.add(d)
+    # A valid-looking unreferenced SHA-addressed blob may contain secret
+    # payloads; exact closed-world inventory is required for rollback custody.
+    if set(scanned) != required_blobs:
+        raise Hold()
     return len(manifest["layers"])
 
 

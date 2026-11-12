@@ -30,7 +30,8 @@ def content_descriptor(content, media):
 def oci_tar(role, *, mutate_config=False, bad_layer=False, missing_layer=False,
             evil_path=False, duplicates=False, include_extra=False, platform="amd64",
             gzip_layer=False, wrong_diff_id=False, gzip_extra=False,
-            gzip_crc_corrupt=False, zstd_layer=False):
+            gzip_crc_corrupt=False, zstd_layer=False, orphan_blob=False,
+            extra_index=False):
     # Expanded synthetic gzip layer crosses the 256 KiB output chunk boundary.
     raw_layer = (("synthetic-" + role).encode() if not gzip_layer else
                  b"synthetic-gzip-layer:" + (b"Z" * 800000))
@@ -54,13 +55,20 @@ def oci_tar(role, *, mutate_config=False, bad_layer=False, missing_layer=False,
     m = serialized({"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json",
                     "config": cd, "layers": [ld]})
     md = content_descriptor(m, "application/vnd.oci.image.manifest.v1+json")
-    idx = serialized({"schemaVersion": 2, "manifests": [md]})
+    entries = [md]
+    if extra_index:
+        entries.append({"mediaType": "application/vnd.oci.image.manifest.v1+json",
+                        "digest": "sha256:" + "d" * 64, "size": 33})
+    idx = serialized({"schemaVersion": 2, "manifests": entries})
     parts = [("oci-layout", serialized({"imageLayoutVersion": "1.0.0"})),
              ("index.json", idx),
              ("blobs/sha256/" + md["digest"].split(":")[1], m),
              ("blobs/sha256/" + cd["digest"].split(":")[1], cb)]
     if not missing_layer:
         parts.append(("blobs/sha256/" + ld["digest"].split(":")[1], layer + (b"bad" if bad_layer else b"")))
+    if orphan_blob:
+        secret_candidate = b"synthetic-unreferenced-layer-must-never-pass"
+        parts.append(("blobs/sha256/" + hashlib.sha256(secret_candidate).hexdigest(), secret_candidate))
     if evil_path:
         parts.append(("../evil", b"bad"))
     if duplicates:
@@ -204,6 +212,18 @@ class OCIReadbackTests(unittest.TestCase):
 
     def test_signed_archive_with_path_traversal_holds(self):
         raw, digest = oci_tar("api", evil_path=True)
+        self.refresh("api", raw, digest)
+        with self.assertRaises(mod.Hold):
+            self.check()
+
+    def test_signed_oci_archive_with_unreferenced_blob_holds(self):
+        raw, digest = oci_tar("api", orphan_blob=True)
+        self.refresh("api", raw, digest)
+        with self.assertRaises(mod.Hold):
+            self.check()
+
+    def test_signed_oci_archive_with_extra_index_image_holds(self):
+        raw, digest = oci_tar("api", extra_index=True)
         self.refresh("api", raw, digest)
         with self.assertRaises(mod.Hold):
             self.check()
