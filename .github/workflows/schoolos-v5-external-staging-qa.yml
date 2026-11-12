@@ -10,6 +10,7 @@ on:
       - "apps/web/**"
       - "e2e/schoolos-v5-external-staging-public.spec.ts"
       - "e2e/schoolos-v5-private-demo-local.spec.ts"
+      - "e2e/schoolos-v5-local-portal-login.spec.ts"
       - "config/schoolos-v5-release-gates.json"
       - ".github/workflows/schoolos-v5-*.yml"
       - "docs/SCHOOLOS_V5_*.md"
@@ -24,7 +25,7 @@ concurrency:
 
 jobs:
   external-smoke:
-    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || startsWith(github.head_ref, 'integration/schoolos-v5-') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -168,8 +169,9 @@ jobs:
 
   local-private-demo-browser:
     # No staging or production secrets: this runs a locally built Next.js
-    # preview and intercepts every SchoolOS CRM POST in Playwright.
-    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'
+    # preview, intercepts every SchoolOS CRM POST, and verifies five role-login
+    # pages on a disposable localhost preview (not shared V5 staging).
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || startsWith(github.head_ref, 'integration/schoolos-v5-') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions: { contents: read }
@@ -212,7 +214,7 @@ jobs:
             echo "::error::Local SchoolOS page failed health preparation"
             exit 1
           fi
-          pnpm exec playwright test e2e/schoolos-v5-private-demo-local.spec.ts --workers=1 --retries=0
+          pnpm exec playwright test e2e/schoolos-v5-private-demo-local.spec.ts e2e/schoolos-v5-local-portal-login.spec.ts --workers=1 --retries=0
       - name: Preserve local UI failure-only browser evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -226,7 +228,7 @@ jobs:
           retention-days: 14
 
   external-browser-ui:
-    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.head_ref, 'feature/schoolos-v5-') || startsWith(github.head_ref, 'integration/schoolos-v5-') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 18
     permissions: { contents: read }

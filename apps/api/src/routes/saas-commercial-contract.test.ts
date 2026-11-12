@@ -315,7 +315,10 @@ test("white-label and custom-domain settings are plan-gated while core instituti
 
 test("an enforced tenant cannot be downgraded below its current branch/user/student usage", async () => {
   const route = await readFile(new URL("saas-commercial.ts", import.meta.url), "utf8");
-  assert.match(route, /if \(commercialEntitlements\.enforce === true\) await assertCommercialPlanFitsUsage\(organizationId, plan\.limits\)/);
+  assert.match(route, /if \(commercialEntitlements\.enforce === true\)\s+await assertCommercialPlanFitsUsage\(organizationId, plan\.limits\)/);
+  assert.match(route, /assertSchoolOSQuotedBillingAdminGuard\(Boolean\(quotedInvoice\)/);
+  assert.match(route, /schoolos-renewal-settlement:/);
+  assert.match(route, /schoolos-organization-checkout:/);
 });
 
 
