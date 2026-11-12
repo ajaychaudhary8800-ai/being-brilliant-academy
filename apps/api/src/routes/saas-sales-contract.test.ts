@@ -86,3 +86,15 @@ test("Step 10 playbook defines ICPs, sources, cadence, qualification, demo, KPI 
     "Do not buy unverified personal-data lists",
   ]) assert.match(playbook, new RegExp(phrase, "i"));
 });
+
+test("SchoolOS demo intake requires explicit approval before any public CRM database write", async () => {
+  const route = await readFile(routeUrl, "utf8");
+  const start = route.indexOf('router.post("/public/saas-sales/leads"');
+  const optIn = route.indexOf('process.env.SCHOOLOS_V5_PRIVATE_DEMO_INTAKE_ENABLED !== "true"', start);
+  const reject = route.indexOf('"SCHOOLOS_DEMO_INTAKE_NOT_APPROVED"', optIn);
+  const consent = route.indexOf('"SCHOOLOS_CONTACT_CONSENT_REQUIRED"', optIn);
+  const transaction = route.indexOf("systemPrisma.$transaction", start);
+  assert.ok(start >= 0 && optIn > start && reject > optIn && consent > optIn,
+    "SchoolOS intake must be explicitly approved and consented");
+  assert.ok(transaction > consent, "unapproved SchoolOS leads must be rejected before database writes");
+});
