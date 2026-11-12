@@ -72,6 +72,13 @@ router.post("/public/saas-sales/leads", async (req, res) => {
   }).parse(req.body);
   const isSchoolOS = input.campaign === "SCHOOLOS_V5_PRIVATE_DEMO"
     || input.utm?.product === "ADHYAY_SCHOOLOS";
+  // A hidden/noindex web page is NOT an API intake authorization. Explicitly
+  // enable this only after the approved privacy notice and CRM handling are live.
+  // Other existing SaaS lead sources remain unaffected.
+  if (isSchoolOS && process.env.SCHOOLOS_V5_PRIVATE_DEMO_INTAKE_ENABLED !== "true") {
+    throw new AppError(503, "SCHOOLOS_DEMO_INTAKE_NOT_APPROVED",
+      "SchoolOS demo enquiries are temporarily unavailable");
+  }
   if (isSchoolOS && input.utm?.contactConsent !== "yes") {
     throw new AppError(422, "SCHOOLOS_CONTACT_CONSENT_REQUIRED",
       "Confirm institutional enquiry contact permission before submitting");
