@@ -85,9 +85,12 @@ def _proc_memfd(label, contents):
 def _openssl(argv, message=None, pass_fds=()):
     try:
         result = subprocess.run(
-            ["openssl"] + argv, input=message,
+            ["openssl"] + argv, input=message if message is not None else b"",
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            stdin=subprocess.PIPE if message is not None else subprocess.DEVNULL,
+            # subprocess.run(input=...) creates its own PIPE; explicitly
+            # supplying stdin=PIPE as well triggers ValueError. Use an empty
+            # stdin payload for key-parsing commands to prevent passphrase
+            # prompts and avoid any uncontrolled inherited stdin.
             check=False, timeout=20, pass_fds=pass_fds,
         )
     except (OSError, ValueError, subprocess.TimeoutExpired):
@@ -186,7 +189,7 @@ def sign_offline(api_path, web_path, private_key, public_key, pubkey_pin, outdir
             readback.verify_detached_signature(
                 raw, root / OUT_SIGNATURE, public_key, pubkey_pin
             )
-        except (OSError, ValueError, readback.Hold):
+        except (OSError, ValueError, Hold, readback.Hold):
             for path in created:
                 try:
                     path.unlink()
