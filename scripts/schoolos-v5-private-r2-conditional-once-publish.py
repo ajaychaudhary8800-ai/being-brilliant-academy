@@ -50,8 +50,7 @@ def _load(name, filename):
 
 
 def _owner_approval(environ, signed_manifest_bytes):
-    if (environ.get("GITHUB_ACTIONS") == "true" or
-            environ.get("CI") == "true"):
+    if environ.get("GITHUB_ACTIONS") or environ.get("CI"):
         raise Hold("CI_ENVIRONMENT_NOT_ALLOWED")
     if environ.get("V5_CUSTODY_OWNER_IMMUTABLE_UPLOAD_ACK") != ACK:
         raise Hold("OWNER_EXPLICIT_UPLOAD_ACK_MISSING")
@@ -155,8 +154,11 @@ def _single_create_once(writer, path, item, role, write_id):
                     before.st_size != after.st_size or
                     before.st_mtime_ns != after.st_mtime_ns):
                 raise Hold(READBACK_FAILED)
-        if (not isinstance(response, dict) or
-                response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200):
+        if not isinstance(response, dict):
+            raise Hold(READBACK_FAILED)
+        metadata = response.get("ResponseMetadata")
+        if (not isinstance(metadata, dict) or
+                metadata.get("HTTPStatusCode") != 200):
             raise Hold(READBACK_FAILED)
     except Hold:
         raise
@@ -226,7 +228,7 @@ def main(argv=None):
     attempted = "UNKNOWN"
     try:
         if (os.environ.get("V5_CUSTODY_OWNER_IMMUTABLE_UPLOAD_ACK") != ACK or
-                os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI") == "true"):
+                os.environ.get("GITHUB_ACTIONS") or os.environ.get("CI")):
             raise Hold("OWNER_APPROVAL_NOT_ACTIVE")
         # Can't rely on any failure message as proof no object committed.
         attempted = "POSSIBLE_IF_AUTHORIZED"

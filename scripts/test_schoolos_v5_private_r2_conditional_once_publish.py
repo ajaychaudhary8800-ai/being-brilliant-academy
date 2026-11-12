@@ -263,6 +263,19 @@ class TestPublisher(unittest.TestCase):
         self.writer = BadResponse()
         self.expect_hold(m.READBACK_FAILED)
 
+    def test_malformed_commit_response_metadata_does_not_traceback(self):
+        class BadResponse(FakeWriter):
+            def put_object(self, **kwargs):
+                super().put_object(**kwargs)
+                return {"ResponseMetadata": None}
+        self.writer = BadResponse()
+        self.expect_hold(m.READBACK_FAILED)
+
+    def test_ci_value_one_blocks_even_if_not_literal_true(self):
+        self.env["CI"] = "1"
+        self.expect_hold("CI_ENVIRONMENT_NOT_ALLOWED")
+        self.assertEqual(self.writer.writes, [])
+
     def test_ambiguous_exception_string_never_leaked(self):
         self.writer.fail_on = "api"
         with self.assertRaises(m.Hold) as e:

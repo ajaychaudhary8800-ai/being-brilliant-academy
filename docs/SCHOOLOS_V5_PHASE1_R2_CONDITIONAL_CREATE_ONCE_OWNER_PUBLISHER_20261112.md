@@ -36,7 +36,7 @@ Requires the full protected owner-only #335 environment (Cloudflare Admin Read O
 
 ## Synthetic tests
 
-`scripts/test_schoolos_v5_private_r2_conditional_once_publish.py` contains 21 synthetic positive/negative tests. They use fake `PutObject` and independent-reader mocks, temporary synthetic byte strings and fully fake manifest objects, testing:
+`scripts/test_schoolos_v5_private_r2_conditional_once_publish.py` contains 23 synthetic positive/negative tests. They use fake `PutObject` and independent-reader mocks, temporary synthetic byte strings and fully fake manifest objects, testing:
 - disabled-by-default and missing approval;
 - wrong manifest fingerprint and CI refusal;
 - local signature or R2 config/identity verification failing *before* any network write;
