@@ -68,3 +68,17 @@ test("single period edits and archived reactivation are serializable and recheck
   assert.match(status, /\},old\.id,tx\)/);
   assert.match(status, /TransactionIsolationLevel\.Serializable/);
 });
+
+
+test("weekly preview and save use the effective teacher-subject allocation guard", () => {
+  const weeklyHandler = route.split("async function checkWeek(")[1]?.split("// Class-first school planner:")[0];
+  assert.ok(weeklyHandler, "Shared weekly preflight must exist");
+  assert.match(route, /import \{ allocationWhere, effectiveDateForSession, requireAllocatedSubject \} from "\.\.\/lib\/subject-resolution\.js"/);
+  assert.match(weeklyHandler, /await requireAllocatedSubject\(/);
+  assert.match(weeklyHandler, /effectiveAt: effectiveDateForSession\(batch\.session\.startsAt, batch\.session\.endsAt\)/);
+  assert.match(weeklyHandler, /teacherId: entry\.teacherId, subjectId: entry\.subjectId/);
+  const preview = route.split('router.post("/timetables/weekly/preview"')[1]?.split('router.post("/timetables/weekly"')[0];
+  const save = route.split('router.post("/timetables/weekly"')[1]?.split('router.get("/timetables/:id"')[0];
+  assert.match(preview ?? "", /await checkWeek\(req, entries\)/);
+  assert.match(save ?? "", /await checkWeek\(req, entries, tx\)/);
+});

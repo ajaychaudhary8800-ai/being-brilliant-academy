@@ -100,6 +100,8 @@ jobs:
         run: pnpm v5:release:check
       - name: Validate SchoolOS V5 private-demo safety and CRM routing
         run: node --test scripts/schoolos-v5-commercial-site.test.mjs
+      - name: Verify sanitized V5 browser failure classification (offline, no staging)
+        run: node --test scripts/schoolos-v5-public-browser-navigation-diagnostics.test.mjs
       - name: Validate Playwright suite discovery
         run: pnpm exec playwright test --list
       - run: pnpm --filter @bba/api prisma:generate
@@ -325,3 +327,13 @@ jobs:
           echo "REAL_STAGING_DATA_ACCESSED=NO"
           echo "SOURCE_BUILD_SIGNED_PROVENANCE=NOT_ATTESTED"
           echo "STAGING_DEPLOYMENT=NOT_PERFORMED"
+
+      - name: Compare prior V5 source application startup against combined V5 synthetic schema
+        if: ${{ startsWith(github.head_ref, 'integration/schoolos-v5-') }}
+        timeout-minutes: 30
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          bash -n scripts/schoolos-v5-ci-two-source-backward-boot.sh
+          bash scripts/schoolos-v5-ci-two-source-backward-boot.sh

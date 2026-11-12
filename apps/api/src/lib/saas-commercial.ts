@@ -5,6 +5,7 @@ import { readSchoolOSFeatureOverrides, schoolOSFeatureAccess, schoolOSEffectiveO
 import { validateSchoolOSAddonCheckout, type SchoolOSApprovedAddonLine } from "./schoolos-addon-checkout-policy.js";
 import { applySchoolOSPaidAddonSettlement } from "./schoolos-addon-settlement.js";
 import { assertSchoolOSRenewalSource, readSchoolOSRenewalContext } from "./schoolos-renewal-quote-policy.js";
+import { assertSchoolOSCaptureOrganizationEligible } from "./schoolos-capture-org-policy.js";
 
 type JsonRecord = Record<string, unknown>;
 type CapturedPayment = { id: string; order_id: string; amount: number; currency: string };
@@ -199,6 +200,13 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
         }
         return;
       }
+      // A valid provider signature proves origin, not permission to revive a
+      // voided or unissued invoice. Preserve the capture for provider-side
+      // reconciliation; do not grant entitlements or rewrite financial state.
+      if (invoice.status !== "OPEN" && invoice.status !== "OVERDUE") {
+        throw new AppError(409, "SCHOOLOS_CAPTURE_INVOICE_STATE_CONFLICT",
+          "Captured payment references an invoice that is not collectible; finance reconciliation required");
+      }
       if (payment.amount !== invoice.totalPaise || payment.currency.toUpperCase() !== invoice.currency.toUpperCase()) {
         throw new AppError(422, "PAYMENT_MISMATCH", "Captured SaaS payment does not match the subscription invoice");
       }
@@ -206,6 +214,20 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
       let quotedSettings: Prisma.InputJsonValue | undefined;
       let settledAddonLines: SchoolOSApprovedAddonLine[] | null = null;
       if (invoice.schoolOSQuoteId) {
+        // Provider authenticity cannot reactivate a fully elapsed annual term.
+        // Keep a late actual charge for manual provider reconciliation rather
+        // than marking an expired contract PAID or granting access. The PAID
+        // replay branch above remains idempotent even after normal expiry.
+        const settlementTime = Date.now();
+        if (invoice.periodStart.getTime() >= invoice.periodEnd.getTime() ||
+            invoice.periodEnd.getTime() <= settlementTime)
+          throw new AppError(409, "SCHOOLOS_CAPTURE_TERM_EXPIRED",
+            "Captured funds reference an expired or invalid contracted term; finance reconciliation required");
+        // A valid signed capture is not consent to activate a future annual
+        // term today. It remains payable only when the quoted term has begun.
+        if (invoice.periodStart.getTime() > settlementTime)
+          throw new AppError(409, "SCHOOLOS_CAPTURE_TERM_NOT_STARTED",
+            "Captured funds reference an annual term that has not started; finance reconciliation required");
         // Captured payments against a term already covered by a different PAID
         // invoice go to finance reconciliation, never overwrite the live plan.
         await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-renewal-settlement:"+invoice.organizationId}))`;
@@ -266,8 +288,29 @@ export async function captureSaaSRazorpayPayment(payment: CapturedPayment, event
         }
         // Lock tenant settings against concurrent platform licensing edits.
         await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${"schoolos-features:" + invoice.organizationId}))`;
-        const org = await tx.organization.findUnique({ where: { id: invoice.organizationId }, select: { settings: true } });
-        if (!org) throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Customer tenant not found");
+        const [org, sourceSubscription] = await Promise.all([
+          tx.organization.findUnique({ where: { id: invoice.organizationId }, select: {
+            settings: true, isActive: true, deletedAt: true, subscriptionStatus: true,
+          } }),
+          tx.saaSSubscription.findUnique({ where: { id: invoice.subscriptionId }, select: {
+            organizationId: true, status: true,
+          } }),
+        ]);
+        if (!org || !sourceSubscription)
+          throw new AppError(409, "SCHOOLOS_CAPTURE_ORGANIZATION_UNAVAILABLE",
+            "Signed payment references missing subscription or customer; finance reconciliation required");
+        // The provider may capture an order after staff have administratively
+        // suspended/deactivated the institution. That cannot override a safety
+        // hold or activate a foreign subscription. Evaluate after settlement
+        // and platform licensing locks, before any ledger/entitlement mutation.
+        assertSchoolOSCaptureOrganizationEligible({
+          invoiceOrganizationId: invoice.organizationId,
+          subscriptionOrganizationId: sourceSubscription.organizationId,
+          organizationStatus: org.subscriptionStatus,
+          subscriptionStatus: sourceSubscription.status,
+          isActive: org.isActive,
+          deletedAt: org.deletedAt,
+        });
         const settings = record(org.settings);
         const commercial = record(settings.commercialEntitlements);
         quotedSettings = { ...settings, commercialEntitlements: { ...commercial, enforce: true } } as Prisma.InputJsonValue;
