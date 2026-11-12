@@ -30,7 +30,7 @@ function AdminContent() {
     students: number;
     courses: number;
     activeEnrollments: number;
-    revenuePaise: number;
+    revenuePaise: number | null;
     totalBranches: number;
     activeBranches: number;
     inactiveBranches: number;
@@ -84,7 +84,9 @@ function AdminContent() {
       label: "Revenue",
       value: loadingData
         ? "Loading..."
-        : `₹${((overview?.revenuePaise ?? 0) / 100).toLocaleString("en-IN")}`,
+        : overview?.revenuePaise === null
+          ? "Restricted"
+          : `₹${((overview?.revenuePaise ?? 0) / 100).toLocaleString("en-IN")}`,
     },
     {
       icon: BarChart3,
