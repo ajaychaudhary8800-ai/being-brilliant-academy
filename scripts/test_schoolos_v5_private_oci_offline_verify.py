@@ -1,6 +1,7 @@
 """Synthetic-only OCI rollback archive checks; no customer images or R2 access."""
 from __future__ import annotations
 
+import gzip
 import hashlib
 import importlib.util
 import io
@@ -27,15 +28,29 @@ def content_descriptor(content, media):
 
 
 def oci_tar(role, *, mutate_config=False, bad_layer=False, missing_layer=False,
-            evil_path=False, duplicates=False, include_extra=False, platform="amd64"):
-    layer = ("synthetic-" + role).encode()
+            evil_path=False, duplicates=False, include_extra=False, platform="amd64",
+            gzip_layer=False, wrong_diff_id=False, gzip_extra=False,
+            gzip_crc_corrupt=False, zstd_layer=False):
+    # Expanded synthetic gzip layer crosses the 256 KiB output chunk boundary.
+    raw_layer = (("synthetic-" + role).encode() if not gzip_layer else
+                 b"synthetic-gzip-layer:" + (b"Z" * 800000))
+    layer = gzip.compress(raw_layer, mtime=0) if gzip_layer else raw_layer
+    if gzip_extra:
+        layer += b"UNAUTHORIZED_COMPRESSED_TRAILER"
+    if gzip_crc_corrupt:
+        layer = layer[:-1] + bytes([layer[-1] ^ 0xFF])
+    diff_id = ("sha256:" + ("f" * 64)) if wrong_diff_id else (
+        "sha256:" + hashlib.sha256(raw_layer).hexdigest())
     c = {"architecture": platform, "os": "linux",
-         "rootfs": {"type": "layers", "diff_ids": ["sha256:" + hashlib.sha256(layer).hexdigest()]},
+         "rootfs": {"type": "layers", "diff_ids": [diff_id]},
          "config": {"Labels": {"org.opencontainers.image.revision":
                                ("b" * 40 if mutate_config else SHA)}}}
     cb = serialized(c)
     cd = content_descriptor(cb, "application/vnd.oci.image.config.v1+json")
-    ld = content_descriptor(layer if bad_layer else layer, "application/vnd.oci.image.layer.v1.tar")
+    media = ("application/vnd.oci.image.layer.v1.tar+zstd" if zstd_layer else
+             "application/vnd.oci.image.layer.v1.tar+gzip" if gzip_layer else
+             "application/vnd.oci.image.layer.v1.tar")
+    ld = content_descriptor(layer, media)
     m = serialized({"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json",
                     "config": cd, "layers": [ld]})
     md = content_descriptor(m, "application/vnd.oci.image.manifest.v1+json")
@@ -136,6 +151,41 @@ class OCIReadbackTests(unittest.TestCase):
 
     def test_signed_archive_with_wrong_source_label_holds(self):
         raw, digest = oci_tar("api", mutate_config=True)
+        self.refresh("api", raw, digest)
+        with self.assertRaises(mod.Hold):
+            self.check()
+
+    def test_valid_signed_gzip_layer_matches_uncompressed_diff_id(self):
+        raw, digest = oci_tar("api", gzip_layer=True)
+        self.refresh("api", raw, digest)
+        self.check()
+
+    def test_signed_plain_layer_wrong_diff_id_holds(self):
+        raw, digest = oci_tar("api", wrong_diff_id=True)
+        self.refresh("api", raw, digest)
+        with self.assertRaises(mod.Hold):
+            self.check()
+
+    def test_signed_gzip_layer_wrong_diff_id_holds(self):
+        raw, digest = oci_tar("api", gzip_layer=True, wrong_diff_id=True)
+        self.refresh("api", raw, digest)
+        with self.assertRaises(mod.Hold):
+            self.check()
+
+    def test_signed_gzip_layer_trailing_compressed_bytes_holds(self):
+        raw, digest = oci_tar("api", gzip_layer=True, gzip_extra=True)
+        self.refresh("api", raw, digest)
+        with self.assertRaises(mod.Hold):
+            self.check()
+
+    def test_signed_gzip_layer_bad_crc_holds(self):
+        raw, digest = oci_tar("api", gzip_layer=True, gzip_crc_corrupt=True)
+        self.refresh("api", raw, digest)
+        with self.assertRaises(mod.Hold):
+            self.check()
+
+    def test_unsupported_zstd_layer_holds_without_verifying_diff_id(self):
+        raw, digest = oci_tar("api", zstd_layer=True)
         self.refresh("api", raw, digest)
         with self.assertRaises(mod.Hold):
             self.check()

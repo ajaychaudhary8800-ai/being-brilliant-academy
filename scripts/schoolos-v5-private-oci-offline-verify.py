@@ -2,7 +2,7 @@
 """Owner-local, offline verification of a signed PRIVATE V5 OCI rollback pair.
 
 Checks the *actual* OCI tar image manifest digest (not a Docker config ID or
-self-reported label), every referenced config/layer blob's compressed SHA-256,
+self-reported label), every referenced config/layer blob's SHA-256 and uncompressed rootfs DiffID,
 its signed full-archive checksum, and the source-revision label. It never
 contacts R2, Docker, staging or production; does not publish, import or extract
 private images. This is NOT a source-build attestation or application restore.
@@ -22,6 +22,7 @@ import re
 import stat
 import sys
 import tarfile
+import zlib
 
 PARENT = Path(__file__).resolve().with_name("schoolos-v5-private-r2-signed-readback.py")
 try:
@@ -38,6 +39,8 @@ MAX_TAR_MEMBERS = 4096
 MAX_MEMBER_CONTENT = 16 * 1024 * 1024 * 1024
 MAX_SMALL_JSON = 2 * 1024 * 1024
 MAX_CAPTURE_BYTES = 32 * 1024 * 1024
+# Bound gzip expansion even when the compressed OCI layer is only a few bytes.
+MAX_EXPANDED_LAYER_BYTES = 64 * 1024 * 1024 * 1024
 READ_CHUNK = 256 * 1024
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 BLOB = re.compile(r"blobs/sha256/([a-f0-9]{64})\Z")
@@ -85,6 +88,8 @@ class HashingReader:
 def _inspect_tar(reader, expected_digest, expected_source):
     seen = set()
     scanned = {}
+    scanned_diffids = {}
+    scanned_gzip = {}
     small = {}
     capture_size = 0
     index = None
@@ -120,8 +125,12 @@ def _inspect_tar(reader, expected_digest, expected_source):
                 if source is None:
                     raise Hold()
                 hashed = hashlib.sha256()
+                uncompressed = hashlib.sha256()
                 payload = bytearray()
                 remaining = member.size
+                encoding = None
+                decoder = None
+                expanded_size = 0
                 capture = (name in ("index.json", "oci-layout") or
                            (match is not None and member.size <= MAX_SMALL_JSON))
                 if capture and capture_size + member.size > MAX_CAPTURE_BYTES:
@@ -132,12 +141,38 @@ def _inspect_tar(reader, expected_digest, expected_source):
                         raise Hold()
                     remaining -= len(block)
                     hashed.update(block)
+                    if match:
+                        # Check decompressed OCI rootfs DiffIDs, not merely the
+                        # syntactic 64-hex values stored in image config.
+                        if encoding is None:
+                            encoding = "gzip" if block.startswith(b"\x1f\x8b") else "plain"
+                            if encoding == "gzip":
+                                decoder = zlib.decompressobj(wbits=16 + zlib.MAX_WBITS)
+                        if decoder is None:
+                            uncompressed.update(block)
+                        else:
+                            pending = block
+                            while pending:
+                                before = len(pending)
+                                chunk = decoder.decompress(pending, READ_CHUNK)
+                                expanded_size += len(chunk)
+                                if expanded_size > MAX_EXPANDED_LAYER_BYTES or decoder.unused_data:
+                                    raise Hold()
+                                uncompressed.update(chunk)
+                                pending = decoder.unconsumed_tail
+                                if not chunk and len(pending) >= before:
+                                    raise Hold()
                     if capture:
                         payload.extend(block)
                 if match:
                     if not hmac.compare_digest(hashed.hexdigest(), match.group(1)):
                         raise Hold()
-                    scanned["sha256:" + match.group(1)] = member.size
+                    if decoder is not None and (not decoder.eof or decoder.unused_data):
+                        raise Hold()
+                    address = "sha256:" + match.group(1)
+                    scanned[address] = member.size
+                    scanned_diffids[address] = "sha256:" + uncompressed.hexdigest()
+                    scanned_gzip[address] = decoder is not None
                     if capture:
                         small["sha256:" + match.group(1)] = bytes(payload)
                         capture_size += len(payload)
@@ -145,7 +180,7 @@ def _inspect_tar(reader, expected_digest, expected_source):
                     index = _safe_json(payload)
                 elif name == "oci-layout":
                     layout = _safe_json(payload)
-    except (tarfile.TarError, OSError, EOFError, ValueError):
+    except (tarfile.TarError, OSError, EOFError, ValueError, zlib.error):
         raise Hold() from None
 
     # tarfile stops at TAR end records, which do NOT necessarily exhaust the
@@ -189,13 +224,17 @@ def _inspect_tar(reader, expected_digest, expected_source):
             len(rootfs["diff_ids"]) != len(manifest["layers"]) or
             any(not isinstance(d, str) or not DIGEST.fullmatch(d) for d in rootfs["diff_ids"])):
         raise Hold()
-    for layer in manifest["layers"]:
+    for i, layer in enumerate(manifest["layers"]):
         d, size = _desc(layer)
-        if (layer.get("mediaType") not in (
-                "application/vnd.oci.image.layer.v1.tar+gzip",
-                "application/vnd.oci.image.layer.v1.tar",
-                "application/vnd.oci.image.layer.v1.tar+zstd") or
+        media = layer.get("mediaType")
+        if (media not in ("application/vnd.oci.image.layer.v1.tar+gzip",
+                          "application/vnd.oci.image.layer.v1.tar") or
                 scanned.get(d) != size):
+            # Zstd requires an independently reviewed streaming decoder.
+            # Refuse it rather than falsely claiming we checked DiffIDs.
+            raise Hold()
+        if (scanned_gzip.get(d) != (media == "application/vnd.oci.image.layer.v1.tar+gzip") or
+                not hmac.compare_digest(scanned_diffids[d], rootfs["diff_ids"][i])):
             raise Hold()
     return len(manifest["layers"])
 
